@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0",
+  "id": "tutorial_rir_calibration",
+  "type": "tutorial",
+  "title": "RIR 감각 익히기 (캘리브레이션)",
+  "purpose": "초보/미숙련 사용자가 RIR(실패까지 남은 반복)을 정확히 판단하도록 학습·보정. 개인 rir_bias 산출 후 메인 프로그램 추천에 반영.",
+  "adaptive": { "min_days": 3, "max_days": 7, "min_sessions": 3 },
+  "graduation": {
+    "accuracy_tolerance_reps": 1.5,
+    "rule": "최근 검증 세트에서 |예측 RIR - 실제 RIR| 평균 <= tolerance 이면 졸업(최소 3세션 이후). 미달 시 최대 max_days까지 검증 세션 추가."
+  },
+  "skip_policy": {
+    "default_skip": ["advanced"],
+    "gate": {
+      "type": "one_set_accuracy_check",
+      "description": "숙련 자가보고자·스킵 희망자에게 1세트 정확도 체크 제공. 예측 RIR과 AMRAP 실제 차이가 tolerance 이내면 스킵 확정, 초과 시 튜토리얼 권장(스킵은 항상 선택 가능).",
+      "tolerance_reps": 1.5
+    },
+    "note": "초보/중급-불확실 사용자는 기본 진입. 스킵은 가능하나 추천 정확도 저하를 고지."
+  },
+  "safety": {
+    "exercise_selection": "머신·안정 종목만 사용(자유중량 복합운동의 진짜 실패 세트는 제외).",
+    "rules": [
+      "충분한 웜업 후 진행, 폼 우선.",
+      "AMRAP은 폼이 무너지기 직전(약 0~1 RIR)까지만, 통증 시 즉시 중단.",
+      "세션당 진짜-실패 근접 세트 수 제한(운동당 1회).",
+      "통증·불편·어지러움 시 중단·대체 안내, 초보는 보조/안전바 권장."
+    ]
+  },
+  "sessions": [
+    {
+      "day": 1,
+      "title": "RIR 이해 & 첫 캘리브레이션",
+      "goal": "learn_and_calibrate",
+      "blocks": [
+        { "kind": "learn", "topic": "RIR이란?", "content": "RIR = 이 세트에서 실패까지 남은 반복 수. 0=실패, 2=2개 더 가능. 짧은 예시/영상 제공." },
+        { "kind": "warmup", "exercise_id": "e_leg_press" },
+        { "kind": "calibration", "type": "predict_then_amrap", "exercise_id": "e_leg_press",
+          "load_hint": "약 10회 가능하다고 느끼는 무게", "instruction": "세트 전 예상 RIR 입력 → 폼 유지 한계(0~1 RIR)까지 AMRAP → 실제 추가 반복 기록" },
+        { "kind": "calibration", "type": "predict_then_amrap", "exercise_id": "e_chest_press_machine",
+          "load_hint": "약 10회 가능 무게", "instruction": "예측 RIR → AMRAP → 비교" },
+        { "kind": "calibration", "type": "predict_then_amrap", "exercise_id": "e_lat_pulldown",
+          "load_hint": "약 10회 가능 무게", "instruction": "예측 RIR → AMRAP → 비교" },
+        { "kind": "result", "compute": "session_bias", "feedback": "예측 대비 실제 여유 반복(평균)을 안내" }
+      ]
+    },
+    {
+      "day": 2,
+      "title": "타겟 RIR로 멈추기 연습",
+      "goal": "practice_stop_at_target",
+      "blocks": [
+        { "kind": "recap", "content": "지난 세션 bias 피드백(예: '평균 +4회 더 있었어요, 조금 더 밀어도 됩니다')" },
+        { "kind": "calibration", "type": "stop_at_target_then_check", "exercise_id": "e_leg_extension",
+          "target_rir": 2, "instruction": "RIR 2에서 멈추기 → 이어서 1~2회 AMRAP로 실제 RIR 확인" },
+        { "kind": "calibration", "type": "stop_at_target_then_check", "exercise_id": "e_seated_cable_row",
+          "target_rir": 2, "instruction": "RIR 2에서 멈추기 → 검증" },
+        { "kind": "calibration", "type": "stop_at_target_then_check", "exercise_id": "e_triceps_pushdown",
+          "target_rir": 2, "instruction": "RIR 2에서 멈추기 → 검증" },
+        { "kind": "result", "compute": "update_bias", "feedback": "타겟 도달 정확도 안내" }
+      ]
+    },
+    {
+      "day": 3,
+      "title": "검증 & 졸업",
+      "goal": "validate_and_graduate",
+      "blocks": [
+        { "kind": "calibration", "type": "validate_target", "exercise_id": "e_leg_press",
+          "target_rir": 2, "instruction": "RIR 2 목표로 수행 후 예측 정확도 체크" },
+        { "kind": "calibration", "type": "validate_target", "exercise_id": "e_chest_press_machine",
+          "target_rir": 2, "instruction": "RIR 2 목표로 수행 후 정확도 체크" },
+        { "kind": "graduation_check", "rule": "정확도 tolerance 이내면 rir_bias 확정·졸업 → 메인 프로그램 전환. 미달 시 검증 세션 1~2회 추가(최대 7일)." }
+      ]
+    },
+    {
+      "day": "4-7 (조건부)",
+      "title": "추가 검증(미졸업 시)",
+      "goal": "extended_validation",
+      "conditional": true,
+      "blocks": [
+        { "kind": "calibration", "type": "validate_target", "exercise_id": "e_leg_curl", "target_rir": 2 },
+        { "kind": "calibration", "type": "validate_target", "exercise_id": "e_db_shoulder_press", "target_rir": 2 },
+        { "kind": "graduation_check", "rule": "tolerance 충족 시 졸업, 최대 7일 도달 시 현재 bias로 졸업하되 신뢰도 낮음 표기·조기 재캘리브레이션 예약" }
+      ]
+    }
+  ],
+  "output": {
+    "produces": "user_rir_calibration { bias_overall, bias_by_region, confidence, samples, last_calibrated_at }",
+    "applies_to": "메인 프로그램의 target RIR 처방, 보고 RIR 보정(true_RIR = reported + bias), e1RM(effective_reps), 디로드 신호"
+  }
+}

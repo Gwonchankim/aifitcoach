@@ -1,0 +1,951 @@
+openapi: 3.0.3
+info:
+  title: AI 맞춤형 운동프로그램 웹앱 API
+  version: 1.0.0
+  description: >
+    기록 기반 폐루프 오토레귤레이션 코칭 웹앱의 백엔드 API.
+    웹 우선(Next.js PWA) 구성: 인증은 httpOnly 세션 쿠키 + CSRF 헤더,
+    결제는 국내 PG 정기결제(빌링키). 오프라인 로깅은 /sync 로 배치 동기화.
+    규칙 버전(rules_version)과 reason_code 는 추천 재현/분석에 사용.
+servers:
+  - url: https://api.afc.example/v1
+    description: production
+  - url: https://staging-api.afc.example/v1
+    description: staging
+
+tags:
+  - name: auth
+  - name: users
+  - name: programs
+  - name: exercises
+  - name: sessions
+  - name: sync
+  - name: analytics
+  - name: billing
+
+security:
+  - cookieAuth: []
+
+paths:
+  /auth/social/{provider}:
+    post:
+      tags: [auth]
+      summary: 소셜 로그인(웹 OAuth) → 세션 쿠키 발급
+      security: []
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [kakao, naver, apple, google] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocialLoginRequest' }
+      responses:
+        '200':
+          description: '로그인 성공. Set-Cookie sid=...; HttpOnly; Secure; SameSite=Lax'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: 세션 갱신(refresh 회전)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204': { description: 갱신됨(Set-Cookie 재발급) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 로그아웃(세션 무효화)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204': { description: 로그아웃됨 }
+
+  /me:
+    get:
+      tags: [users]
+      summary: 내 프로필 조회
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [users]
+      summary: 프로필 수정(목표 변경 시 프로그램 재구성 트리거)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    delete:
+      tags: [users]
+      summary: 계정/데이터 삭제 요청(소프트 삭제 후 퍼지)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '202': { description: 삭제 요청 접수(비동기 퍼지) }
+
+  /me/consents:
+    post:
+      tags: [users]
+      summary: 개인정보/약관 동의 기록(PIPA)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: '#/components/schemas/Consent' }
+      responses:
+        '204': { description: 기록됨 }
+
+  /me/export:
+    post:
+      tags: [users]
+      summary: 내 데이터 내보내기(비동기 생성)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '202':
+          description: 생성 요청 접수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export_id: { type: string }
+                  status: { type: string, example: pending }
+
+  /me/calibration:
+    post:
+      tags: [users]
+      summary: 간이 캘리브레이션(시작 무게 추정)
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method: { type: string, enum: [survey, amrap] }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      exercise_id: { type: string }
+                      perceived_difficulty: { type: string, enum: [easy, moderate, hard] }
+                      amrap_weight: { type: number, nullable: true }
+                      amrap_reps: { type: integer, nullable: true }
+      responses:
+        '200':
+          description: 초기 e1RM 산출
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Estimated1RM' }
+
+  /programs/generate:
+    post:
+      tags: [programs]
+      summary: 룰 기반 프로그램 생성
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateProgramRequest' }
+            example:
+              goal: hypertrophy
+              days_per_week: 4
+              minutes_per_day: 60
+              experience_level: intermediate
+              equipment: [barbell, dumbbell, machine]
+              avoid_exercises: [e_back_squat]
+              pain_areas: [knee]
+      responses:
+        '201':
+          description: 생성됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Program' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /programs/current:
+    get:
+      tags: [programs]
+      summary: 현재 프로그램 조회
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Program' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /programs/{programId}:
+    patch:
+      tags: [programs]
+      summary: 프로그램 수정(세트수 등, 변경 사유 로깅)
+      parameters:
+        - name: programId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                edits:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      op: { type: string, enum: [set_count, swap_exercise, reorder] }
+                      payload: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Program' }
+
+  /exercises:
+    get:
+      tags: [exercises]
+      summary: 운동 카탈로그 조회(필터)
+      parameters:
+        - name: pattern
+          in: query
+          schema: { type: string, example: horizontal_push }
+        - name: equipment
+          in: query
+          schema: { type: string, example: barbell }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Exercise' }
+                  next_cursor: { type: string, nullable: true }
+
+  /exercises/{exerciseId}:
+    get:
+      tags: [exercises]
+      summary: 운동 상세
+      parameters:
+        - name: exerciseId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Exercise' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /exercises/{exerciseId}/recommendation:
+    get:
+      tags: [exercises]
+      summary: 특정 운동의 다음 세션 추천(근거 포함)
+      parameters:
+        - name: exerciseId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recommendation' }
+
+  /sessions/{sessionId}:
+    get:
+      tags: [sessions]
+      summary: 세션 + 계획세트(추천값 포함) 조회
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sessions/{sessionId}/complete:
+    post:
+      tags: [sessions]
+      summary: 세션 완료(피드백) → 추천 재계산 트리거
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                difficulty: { type: string, enum: [easy, moderate, hard] }
+                pump: { type: string, enum: [low, medium, high] }
+                pain: { type: integer, minimum: 0, maximum: 10 }
+      responses:
+        '200':
+          description: 완료 처리 및 다음 추천 반영
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  next_recommendations:
+                    type: array
+                    items: { $ref: '#/components/schemas/Recommendation' }
+
+  /sync:
+    post:
+      tags: [sync]
+      summary: 오프라인 변경 배치 push + 변경 pull
+      description: client_id 멱등, updated_at 기준 LWW. 세션 완료 mutation 시 추천 재계산.
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SyncRequest' }
+            example:
+              since: '2026-07-16T00:00:00Z'
+              mutations:
+                - client_id: m_9f2
+                  entity: performed_set
+                  op: upsert
+                  payload:
+                    planned_set_id: ps_5
+                    actual_weight: 62.5
+                    actual_reps: 9
+                    actual_rir: 2
+                    completed: true
+                    updated_at: '2026-07-16T10:22:00Z'
+      responses:
+        '200':
+          description: 적용 결과 + 변경 목록
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /analytics/e1rm:
+    get:
+      tags: [analytics]
+      summary: 운동별 e1RM 추세
+      parameters:
+        - name: exercise_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exercise_id: { type: string }
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: { type: string, format: date }
+                        e1rm: { type: number }
+
+  /analytics/volume:
+    get:
+      tags: [analytics]
+      summary: 근육군별 주간 볼륨(hard sets)
+      parameters:
+        - name: week_start
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    muscle: { type: string }
+                    hard_sets: { type: integer }
+                    avg_rir: { type: number }
+
+  /analytics/completion:
+    get:
+      tags: [analytics]
+      summary: 주간 운동 완료율
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  week_start: { type: string, format: date }
+                  completed: { type: integer }
+                  planned: { type: integer }
+                  rate: { type: number }
+
+  /billing/checkout:
+    post:
+      tags: [billing]
+      summary: 정기결제 시작(빌링키 발급 세션/파라미터 반환)
+      description: 국내 PG(PortOne/토스/카카오·네이버페이) 빌링키 등록을 위한 세션 생성.
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutRequest' }
+            example:
+              product_id: pro_yearly
+              success_url: https://afc.example/billing/success
+              fail_url: https://afc.example/billing/fail
+      responses:
+        '200':
+          description: PG 결제창/빌링 등록 파라미터
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutResponse' }
+
+  /billing/confirm:
+    post:
+      tags: [billing]
+      summary: 빌링키 확정 및 첫 결제 처리 → 엔타이틀먼트 부여
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [billing_key, product_id]
+              properties:
+                billing_key: { type: string }
+                product_id: { type: string }
+      responses:
+        '200':
+          description: 구독 활성화
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionStatus' }
+        '402': { description: 결제 실패 }
+
+  /subscriptions/status:
+    get:
+      tags: [billing]
+      summary: 구독/엔타이틀먼트 상태 조회
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionStatus' }
+
+  /webhooks/pg:
+    post:
+      tags: [billing]
+      summary: PG 웹훅(결제/갱신/해지/환불 상태 동기화)
+      description: 서명 검증 필수. 정기결제 자동갱신·실패·환불 이벤트를 반영.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_type: { type: string, example: subscription.renewed }
+                billing_key: { type: string }
+                signature: { type: string }
+                data: { type: object, additionalProperties: true }
+      responses:
+        '204': { description: 처리됨 }
+
+  /sessions/{sessionId}/exercises:
+    post:
+      tags: [sessions]
+      summary: 오늘 루틴에 운동 추가(부위별 선택)
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddExerciseRequest' }
+      responses:
+        '200':
+          description: 갱신된 세션
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+
+  /sessions/{sessionId}/exercises/{plannedExerciseId}:
+    delete:
+      tags: [sessions]
+      summary: 오늘 루틴에서 운동 삭제
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: plannedExerciseId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: 갱신된 세션
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+
+  /sessions/{sessionId}/exercises/{plannedExerciseId}/swap:
+    post:
+      tags: [sessions]
+      summary: 오늘 루틴의 운동 교체(같은 부위 대체 우선)
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: plannedExerciseId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_exercise_id]
+              properties:
+                to_exercise_id: { type: string }
+      responses:
+        '200':
+          description: 갱신된 세션
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+
+  /dashboard:
+    get:
+      tags: [analytics]
+      summary: 대시보드 요약(오늘/내일 상태 + 지표)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: httpOnly 세션 쿠키. 변경 요청에는 X-CSRF-Token 헤더 필요.
+
+  parameters:
+    CsrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+      description: CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수).
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+      description: 재시도 안전을 위한 멱등 키.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: 잘못된 요청
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: 인증 필요/만료
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 없음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details: { type: object, additionalProperties: true, nullable: true }
+
+    SocialLoginRequest:
+      type: object
+      required: [id_token]
+      properties:
+        id_token: { type: string, description: 소셜 OIDC 토큰/인가코드 }
+        device_id: { type: string, nullable: true }
+
+    AuthResult:
+      type: object
+      properties:
+        csrf_token: { type: string }
+        user:
+          type: object
+          properties:
+            id: { type: string, example: u_123 }
+            is_new: { type: boolean }
+
+    Profile:
+      type: object
+      properties:
+        id: { type: string }
+        sex: { type: string, enum: [male, female, other] }
+        birth_year: { type: integer }
+        height_cm: { type: number }
+        weight_kg: { type: number }
+        body_fat_pct: { type: number, nullable: true }
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
+        experience_level: { type: string, enum: [beginner, intermediate, advanced] }
+        days_per_week: { type: integer }
+        minutes_per_day: { type: integer }
+        plan_tier: { type: string, enum: [free, pro] }
+
+    ProfileUpdate:
+      type: object
+      properties:
+        weight_kg: { type: number }
+        body_fat_pct: { type: number }
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
+        days_per_week: { type: integer }
+        minutes_per_day: { type: integer }
+        experience_level: { type: string, enum: [beginner, intermediate, advanced] }
+
+    Consent:
+      type: object
+      required: [type, version, granted]
+      properties:
+        type: { type: string, example: privacy_policy }
+        version: { type: string, example: '2026-07-16' }
+        granted: { type: boolean }
+
+    GenerateProgramRequest:
+      type: object
+      required: [goal, days_per_week, minutes_per_day, experience_level]
+      properties:
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
+        days_per_week: { type: integer, minimum: 2, maximum: 6 }
+        minutes_per_day: { type: integer, enum: [30, 45, 60, 75, 90] }
+        experience_level: { type: string, enum: [beginner, intermediate, advanced] }
+        equipment:
+          type: array
+          items: { type: string }
+        avoid_exercises:
+          type: array
+          items: { type: string }
+        pain_areas:
+          type: array
+          items: { type: string }
+
+    Program:
+      type: object
+      properties:
+        program_id: { type: string }
+        goal: { type: string }
+        split_type: { type: string, example: upper_lower }
+        rules_version: { type: string, example: '2026.07.1' }
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              day: { type: string, example: MON }
+              focus: { type: string, example: upper }
+              exercises:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    exercise_id: { type: string }
+                    sets: { type: integer }
+                    reps_low: { type: integer }
+                    reps_high: { type: integer }
+                    target_rir: { type: integer }
+                    rest_sec: { type: integer }
+
+    Exercise:
+      type: object
+      properties:
+        id: { type: string }
+        name_ko: { type: string }
+        name_en: { type: string }
+        movement_pattern: { type: string }
+        primary_muscles:
+          type: array
+          items: { type: string }
+        equipment: { type: string }
+        difficulty: { type: string }
+        rep_range_low: { type: integer }
+        rep_range_high: { type: integer }
+        substitutions:
+          type: array
+          items: { type: string }
+        media_url: { type: string, nullable: true }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        program_id: { type: string }
+        scheduled_date: { type: string, format: date }
+        status: { type: string, enum: [scheduled, in_progress, completed] }
+        planned_sets:
+          type: array
+          items: { $ref: '#/components/schemas/PlannedSet' }
+
+    PlannedSet:
+      type: object
+      properties:
+        id: { type: string }
+        exercise_id: { type: string }
+        set_no: { type: integer }
+        target_reps_low: { type: integer }
+        target_reps_high: { type: integer }
+        target_rir: { type: integer }
+        rest_sec: { type: integer }
+        recommended_weight: { type: number }
+        recommended_reps: { type: integer }
+        reason_code: { type: string, example: WEIGHT_UP_REP_TARGET_MET }
+        confidence: { type: number }
+        rules_version: { type: string }
+
+    PerformedSet:
+      type: object
+      properties:
+        planned_set_id: { type: string }
+        actual_weight: { type: number }
+        actual_reps: { type: integer }
+        actual_rir: { type: integer, nullable: true }
+        pain_score: { type: integer, nullable: true }
+        completed: { type: boolean }
+        client_id: { type: string, format: uuid }
+        updated_at: { type: string, format: date-time }
+
+    Recommendation:
+      type: object
+      properties:
+        exercise_id: { type: string }
+        weight: { type: number }
+        reps_low: { type: integer }
+        reps_high: { type: integer }
+        sets: { type: integer }
+        reason_code: { type: string }
+        confidence: { type: number }
+        explanation: { type: string, example: '최근 3세트 모두 상단·RIR 2 → +2.5kg' }
+        rules_version: { type: string }
+
+    Estimated1RM:
+      type: object
+      properties:
+        exercise_id: { type: string }
+        e1rm: { type: number }
+        method: { type: string, example: epley }
+        computed_at: { type: string, format: date-time }
+
+    SyncRequest:
+      type: object
+      required: [mutations]
+      properties:
+        since: { type: string, format: date-time, nullable: true }
+        mutations:
+          type: array
+          items: { $ref: '#/components/schemas/Mutation' }
+
+    Mutation:
+      type: object
+      required: [client_id, entity, op, payload]
+      properties:
+        client_id: { type: string, format: uuid }
+        entity: { type: string, enum: [performed_set, session, profile] }
+        op: { type: string, enum: [upsert, delete] }
+        payload: { type: object, additionalProperties: true }
+
+    SyncResponse:
+      type: object
+      properties:
+        applied:
+          type: array
+          items: { type: string }
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              client_id: { type: string }
+              reason: { type: string, example: stale_update }
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              entity: { type: string }
+              id: { type: string }
+              data: { type: object, additionalProperties: true }
+        next_cursor: { type: string }
+
+    CheckoutRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id: { type: string, enum: [pro_monthly, pro_yearly] }
+        success_url: { type: string }
+        fail_url: { type: string }
+
+    CheckoutResponse:
+      type: object
+      properties:
+        pg: { type: string, example: portone }
+        checkout_url: { type: string, nullable: true }
+        params: { type: object, additionalProperties: true, description: PG SDK 초기화 파라미터 }
+
+    SubscriptionStatus:
+      type: object
+      properties:
+        tier: { type: string, enum: [free, pro] }
+        status: { type: string, enum: [trial, active, grace, expired, cancelled] }
+        product_id: { type: string, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        renews_at: { type: string, format: date-time, nullable: true }
+        trial_ends_at: { type: string, format: date-time, nullable: true }
+
+    AddExerciseRequest:
+      type: object
+      required: [exercise_id]
+      properties:
+        exercise_id: { type: string }
+        sets: { type: integer, nullable: true }
+        position: { type: integer, nullable: true }
+
+    DashboardSummary:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        today:
+          type: object
+          properties:
+            status: { type: string, enum: [workout, rest, done] }
+            routine_summary:
+              type: object
+              nullable: true
+              properties:
+                exercise_count: { type: integer }
+                focus: { type: string }
+            done_summary:
+              type: object
+              nullable: true
+              properties:
+                total_volume: { type: number }
+                sets_completed: { type: integer }
+                pr_count: { type: integer }
+        tomorrow:
+          type: object
+          properties:
+            status: { type: string, enum: [workout, rest] }
+            routine_summary:
+              type: object
+              nullable: true
+              properties:
+                exercise_count: { type: integer }
+                focus: { type: string }
+        streak_days: { type: integer }
+        weekly_completion_rate: { type: number }
