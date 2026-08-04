@@ -45,3 +45,8 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-05 | PostgreSQL 단일 주 저장소 | 관계 무결성 + JSONB | 확정 |
 | ADR-06 | 국내 PG 정기결제(웹) | 수수료 없음·전환 경제성 | 확정 |
 | ADR-07 | rules_version 도입 | 추천 재현·A/B | 확정 |
+| ADR-08 | PWA는 next-pwa 대신 `@serwist/next`(Workbox 계열) | next-pwa는 2022-08(v5.6.0) 이후 방치·App Router 미지원 | 확정(STEP 0, 설치만) |
+| ADR-09 | 버전 고정: Next 15.5.22 / Prisma CLI 6.19.3 / TS 5.9.3 / ESLint 9 / Tailwind 4.3.3 | Next 16=jsx 강제, Prisma 7=datasource url 이동, TS 7=typescript-eslint peer(<6.1.0) 밖 | 확정(STEP 0) |
+| ADR-10 | 테스트 러너 이원화: api=jest+ts-jest, web·shared=vitest | vitest(esbuild)는 emitDecoratorMetadata 미지원 → Nest DI 파손 | 확정(STEP 0) |
+| ADR-11 | lint는 루트 단일 패스(`eslint .`), 패키지별 lint 스크립트 없음 | flat config 표준 방식·패키지별 eslint 중복 설치 회피 | 확정(STEP 0) |
+| ADR-12 | Prettier는 `docs/`·`*.md` 제외(.prettierignore) + CI `format:check` 게이트 | 진실의 원천(openapi.yaml·golden_tests.json) 자동 재작성 방지 | 확정(STEP 0) |

@@ -1,11 +1,27 @@
 {
   "name": "afc",
   "private": true,
-  "packageManager": "pnpm@9",
+  "packageManager": "pnpm@9.15.9",
   "scripts": {
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "db:up": "docker compose -f scripts/docker-compose.yml up -d",
+    "db:down": "docker compose -f scripts/docker-compose.yml down",
     "dev": "echo 'Run apps/web (next dev) and apps/api (nest start) — see README.md'"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.66.0"
   }
 }

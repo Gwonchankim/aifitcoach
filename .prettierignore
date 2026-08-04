@@ -1,0 +1,11 @@
+node_modules/
+.next/
+dist/
+build/
+coverage/
+pnpm-lock.yaml
+*.tsbuildinfo
+
+# 진실의 원천(docs/specs)과 지침 문서는 포맷터가 재작성하지 않는다.
+docs/
+*.md

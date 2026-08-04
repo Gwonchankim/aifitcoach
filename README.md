@@ -23,11 +23,12 @@
 Next.js PWA(프론트) · NestJS(백엔드) · PostgreSQL/Redis · IndexedDB(오프라인) · 국내 PG 정기결제 · 쿠키 세션.
 자세한 내용은 `docs/ARCHITECTURE.md`.
 
-## 스캐폴딩 후 실행(에이전트가 채움)
+## 실행
 ```
 pnpm install
-docker compose up -d            # postgres, redis
-pnpm --filter web dev
-pnpm --filter api start:dev
-pnpm test
+cp .env.example .env            # 로컬 값(커밋 금지)
+pnpm db:up                      # postgres:16, redis:7 (scripts/docker-compose.yml)
+pnpm --filter web dev           # http://localhost:3000
+pnpm --filter api start:dev     # http://localhost:3001
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test
 ```
