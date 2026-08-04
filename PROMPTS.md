@@ -77,6 +77,7 @@
 ```
 [공통 서두]
 목표: packages/shared의 recommendNextSet를 구현해 골든 테스트를 전부 통과시킨다. 테스트 먼저.
+성공 기준은 **golden_tests.json 전 케이스**다(현재 18개, GC-05/11/12/14는 결번 — 없는 케이스를 새로 만들지 말 것).
 
 계획(각 단계 verify):
 1) 테스트 하네스 작성 → verify: golden_tests.json을 로드해 케이스별로 실행되는 실패 테스트가 뜬다.

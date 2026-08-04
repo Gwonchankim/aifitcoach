@@ -3,12 +3,15 @@
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter shared build && pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "pnpm -r build",
+    "postinstall": "pnpm --filter shared build",
     "test": "pnpm -r test",
+    "codegen": "openapi-typescript docs/specs/openapi.yaml -o apps/web/lib/api-types.ts && node apps/web/scripts/add-generated-banner.mjs && prettier --write apps/web/lib/api-types.ts",
+    "mock": "prism mock docs/specs/openapi.yaml --port 4010",
     "db:up": "docker compose -f scripts/docker-compose.yml up -d",
     "db:down": "docker compose -f scripts/docker-compose.yml down",
     "dev": "echo 'Run apps/web (next dev) and apps/api (nest start) — see README.md'"
@@ -18,8 +21,10 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@stoplight/prism-cli": "5.16.0",
     "eslint": "9.39.5",
     "eslint-config-prettier": "10.1.8",
+    "openapi-typescript": "7.13.0",
     "prettier": "3.9.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.66.0"

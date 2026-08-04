@@ -52,4 +52,11 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-12 | Prettier는 `docs/`·`*.md` 제외(.prettierignore) + CI `format:check` 게이트 | 진실의 원천(openapi.yaml·golden_tests.json) 자동 재작성 방지 | 확정(STEP 0) |
 | ADR-13 | exercises에 `cues`·`default_time_low_sec/high_sec` 추가, `default_reps_low/high`는 nullable | 시드(`exercises_seed.json`)의 실제 필드·`e_plank`(metric=time). 시드는 불변, 스키마가 수용 | 확정(STEP 1) |
 | ADR-14 | 통합 테스트는 `<DB>_test` 파생 DB에 `migrate deploy`+seed 후 검증 | 참조 데이터 시드는 커밋된 상태를 봐야 검증 가능(롤백 불가). 개발 DB 무오염·CI DSN(afc_test) 그대로 사용 | 확정(STEP 1) |
-| ADR-15 | 삭제는 FK CASCADE 대신 RESTRICT + 애플리케이션 퍼지 잡 | SECURITY_PIPA.md의 "소프트 삭제 후 퍼지" 설계와 정합, 실수 삭제 방지 | 잠정(STEP 4에서 사람 리뷰) |
+| ADR-15 | 삭제는 소프트 삭제 + 퍼지 잡, FK는 RESTRICT 유지(퍼지는 자식→부모 순서 명시) | SECURITY_PIPA.md의 "소프트 삭제 후 퍼지" 설계와 정합, 실수·연쇄 삭제 방지 | **확정**(사람 결정 2026-08-05, 순서는 SECURITY_PIPA.md) |
+| ADR-16 | 민감 건강필드 앱 레벨 암호화: AES-256-GCM, `FIELD_ENCRYPTION_KEY`(32바이트 base64), 저장 형식 `v1:iv:tag:ciphertext`(text 컬럼) | PIPA 민감정보 보호. 데이터 0건인 지금 도입해 컬럼 타입 변경 비용 회피 | **확정**(사람 결정 2026-08-05) |
+| ADR-17 | 테스트 단계 dev-user는 고정 UUID `00000000-0000-4000-8000-000000000001`(users.id는 uuid 유지) | 문자열 `dev-user`는 uuid 컬럼에 저장 불가. 인증 도입 시 가드 한 곳만 교체 | **확정**(사람 결정 2026-08-05) |
+| ADR-18 | 증량은 1스텝 상한 보장: 오프스텝 무게는 step 그리드로 정규화 후 한 칸 이동(증량=위, 감량/통증=아래, 유지=내림) | 안전 가드레일 3 "증량 상한 캡"의 구체화. 최근접 반올림은 62.5kg(step 5)에서 +7.5kg 과증량 | **확정**(사람 결정 2026-08-05) |
+| ADR-19 | `packages/shared`는 dist(CJS+d.ts) 빌드 산출물로 소비, api/web은 `workspace:*` 의존 + 루트 `postinstall`이 shared 빌드 | 소스 TS 직접 참조는 api의 `nest build` dist 레이아웃을 깨뜨림(rootDir 상승). dist CJS는 Nest·Next 양쪽에서 transpilePackages 없이 해석 | 확정(STEP 3) |
+| ADR-20 | openapi 클라이언트 타입 생성물은 `apps/web/lib/api-types.ts`, CI가 `pnpm codegen` 후 diff로 드리프트 차단 | 생성물을 커밋해 리뷰 가능하게 하고, 계약만 바뀌고 타입이 stale 해지는 것을 게이트로 방지 | 확정(STEP 2) |
+| ADR-21 | api는 전역 `ValidationPipe(whitelist,transform)` + `ErrorEnvelopeFilter`로 `{error:{code,message}}` 단일 생성 지점 | CONVENTIONS.md 에러 엔벨로프를 한 곳에서 강제. 인증 가드도 `configureApp` 이음새 한 곳에 붙인다 | 확정(STEP 2) |
+| ADR-22 | 응답 스키마 `required`는 "서버가 항상 내리는 필드"만, 해당 없으면 `null`을 명시적으로 내린다 | 클라이언트 상태를 `undefined\|null\|값` 3상태에서 2상태로 축소(F8 대시보드 분기) | 확정(STEP 2, 사람 승인) |

@@ -32,3 +32,11 @@ pnpm --filter web dev           # http://localhost:3000
 pnpm --filter api start:dev     # http://localhost:3001
 pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test
 ```
+
+## 목서버 / 코드젠
+```
+pnpm codegen                    # openapi.yaml → apps/web/lib/api-types.ts (생성물 커밋, CI가 드리프트 차단)
+pnpm mock                       # prism 목서버 :4010
+```
+- 목서버는 `/v1` **없이** 루트에 마운트된다(`http://localhost:4010/exercises`). 실서버는 `/v1` 프리픽스(`http://localhost:3001/v1/exercises`) → 클라이언트 base URL만 교체해서 전환한다.
+- 목서버는 openapi의 `cookieAuth`를 강제하므로 더미 쿠키가 필요하다: `curl -b "sid=dev" http://localhost:4010/exercises`.

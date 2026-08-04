@@ -161,7 +161,8 @@ model User {
   birthYear       Int             @map("birth_year")
   heightCm        Decimal         @map("height_cm") @db.Decimal(5, 1)
   weightKg        Decimal         @map("weight_kg") @db.Decimal(5, 1)
-  bodyFatPct      Decimal?        @map("body_fat_pct") @db.Decimal(4, 1)
+  // 건강 민감정보: 앱 레벨 암호화 저장(v1:iv:tag:ciphertext) — SECURITY_PIPA.md
+  bodyFatPct      String?         @map("body_fat_pct")
   goal            Goal
   experienceLevel ExperienceLevel @map("experience_level")
   constraints     Json
@@ -246,6 +247,7 @@ model WorkoutSession {
   scheduledDate   DateTime      @map("scheduled_date") @db.Date
   status          SessionStatus
   completedAt     DateTime?     @map("completed_at") @db.Timestamptz(3)
+  // sessionFeedback.pain 은 JSON 안에 암호화 저장(v1:iv:tag:ciphertext) — SECURITY_PIPA.md
   sessionFeedback Json?         @map("session_feedback")
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -286,7 +288,8 @@ model PerformedSet {
   actualWeight Decimal  @map("actual_weight") @db.Decimal(6, 2)
   actualReps   Int      @map("actual_reps")
   actualRir    Int?     @map("actual_rir")
-  painScore    Int?     @map("pain_score")
+  // 건강 민감정보: 앱 레벨 암호화 저장(v1:iv:tag:ciphertext) — SECURITY_PIPA.md
+  painScore    String?  @map("pain_score")
   completed    Boolean
   // client_id = 오프라인 동기화 멱등 키
   clientId     String   @map("client_id") @db.Uuid

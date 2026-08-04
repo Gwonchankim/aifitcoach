@@ -7,8 +7,8 @@
 |---|---|---|---|
 | 0 | 스캐폴딩 & CI | ✅ 완료 (2026-08-04) | 82 → fix 후 재검증 green |
 | 1 | DB 스키마 + 시드 | ✅ 완료 (2026-08-05) | 88 → fix 후 재검증 green |
-| 2 | OpenAPI 코드젠 & 목서버 | ⬜ 예정 | |
-| 3 | 추천 엔진 TDD (핵심 IP) | ⬜ 예정 | |
+| 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
+| 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ⬜ 예정 | |
 | 5 | 프론트 핵심 플로우 (FEATURES_UX F1~F8) | ⬜ 예정 | |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
@@ -46,7 +46,7 @@
 | I-6 | Node 버전 미고정(로컬 v24 / CI 20, vitest 4는 ^20.19 요구) | minor | **fix-now** — 루트 `engines.node: >=20.19` |
 | I-7 | Next ESLint 플러그인 미설치(react-hooks 규칙 부재) | minor | **defer → STEP 5** — 프론트 구현 착수 시 frontend가 도입 |
 | I-8 | `packages/shared`가 web/api 어디에도 연결되지 않음(소비 방식 미결) | major-risk | **defer → STEP 3** — 소비자가 생기기 전 배선은 투기적. STEP 3 종료 전 결정 필요 |
-| I-9 | 골든 케이스 실제 18개인데 지침은 "25개" | info | **사람 결정 대기** — 아래 "열린 질문" |
+| I-9 | 골든 케이스 실제 18개인데 지침은 "25개" | info | **해결(2026-08-05 사람 결정)** — 전 케이스(18) 기준으로 문구 정정 |
 
 ### 기술 결정(ADR-08~12로 docs/ARCHITECTURE.md에 기록)
 - PWA: `next-pwa`(2022-08 이후 방치, App Router 미지원) 대신 **`@serwist/next` 9.5.12**(Workbox 계열) 설치만. 배선은 STEP 6.
@@ -114,15 +114,10 @@ git diff --check             → clean
 - 시드 로직은 `apps/api/prisma/seed-exercises.ts`(@prisma/client 소유자), `scripts/seed-exercises.ts`는 런처. pnpm 격리 설치 때문.
 - 환경변수는 루트 `.env` 하나로 통일(스크립트가 루트로 이동해 실행, CI의 실제 env가 항상 우선).
 
-### 열린 질문 (STEP 4 착수 전 결정 필요)
-- **`DEV_USER_ID=dev-user`가 `users.id uuid`에 저장 불가**(.env.example 기본값). ① 고정 UUID 상수로 바꾸기 ② `users.id`를 text로 변경 — 둘 중 택1 필요. 지금 결정하지 않으면 STEP 4에서 막힌다.
+### 남은 열린 질문
 - `performed_sets.planned_set_id`를 1:1(UNIQUE)로 볼지 1:N으로 둘지(현재 1:N). 부분 수행·재시도 의미론과 연결(STEP 6).
 - openapi `Exercise`(`rep_range_low/high`, `media_url`) ↔ DB(`default_reps_*`, `media` jsonb, time 범위) 매핑 계층 위치(STEP 2/4).
-
-### 사람 검토 필요(보안/PIPA — 임의 변경하지 않음)
-- FK 14개 전량 `ON DELETE RESTRICT`. SECURITY_PIPA.md의 "소프트 삭제 후 퍼지 잡" 설계와는 정합하나, `DELETE /me` 구현 시 삭제 순서 정책을 사람이 확정해야 한다(ADR-15는 잠정).
-- `body_fat_pct`(Decimal) `pain_score`(Int) `session_feedback.pain`(JSONB)은 **평문 컬럼**이며 암호문을 담을 수 없는 타입이다. `.env.example`에 `FIELD_ENCRYPTION_KEY`가 이미 있으므로 앱 레벨 암호화 도입 시 **컬럼 타입 변경 마이그레이션이 필요**하다. 데이터 0건인 지금은 비용 0, STEP 7/8에는 크다 → 암호화 스킴 결정은 사람 몫(에이전트가 임의 결정 금지).
-- SECURITY_PIPA.md가 요구하는 **건강데이터 접근 감사 로깅용 테이블이 DATA_MODEL.md에 없다**(스펙 공백).
+- SECURITY_PIPA.md가 요구하는 **건강데이터 접근 감사 로깅용 테이블이 DATA_MODEL.md에 없다**(스펙 공백, STEP 4 이전 결정).
 
 ### 실행한 명령과 결과
 ```
@@ -136,8 +131,84 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 
 ---
 
+## STEP 2 — OpenAPI 코드젠 & 목서버 & 컨트롤러 스텁 (완료, 84/100)
+
+### 스코어카드 (evaluator)
+| 성공 기준 | 판정 | 근거(실측) |
+|---|---|---|
+| 타입 생성물·재생성 멱등 | pass | `apps/web/lib/api-types.ts`(1577줄) 커밋, `pnpm codegen` 재실행 전후 sha256 동일 |
+| 컨트롤러/DTO 스텁 501 + DTO↔openapi 일치 | pass | 빌드 산출물 기동 실측: `GET /v1/exercises` → 501 `{error:{code:"NOT_IMPLEMENTED"...}}`, DTO 15개 필드/enum/min·max 1:1, 스펙 밖 필드 0건 |
+| 목서버 기동 | pass | prism 29 operation 라우팅, 4개 경로 예시 응답 확인 |
+| **경로 양방향 대응** | pass | yaml에서 동적 로드해 대조. 라우트 주석 처리 → 누락 검출, 가짜 라우트 추가 → 초과 검출(둘 다 실패 확인 후 원복) |
+| openapi 무단 변경 없음 | pass | `required` 키만 제거하면 HEAD와 **semantically identical**, 삭제 라인 0(순수 additive) |
+
+### 이슈 트리아지
+| # | 이슈 | 심각도 | 결정 |
+|---|---|---|---|
+| I-1 | `required` 40블록을 선언했지만 **응답이 계약을 지키는지 검증하는 테스트가 0개** | major | **defer → STEP 4 DoD** — "모든 200 응답이 openapi 스키마(ajv) 통과"를 STEP 4 완료 조건으로 명문화 |
+| I-2 | CI에 코드젠 드리프트 가드 없음 | major | **fix-now** — ci.yml에 `pnpm codegen` + `git diff --exit-code` 스텝 추가 |
+| I-3 | `POST /me/consents` 배열 바디 미검증(실측: 잘못된 요소·비배열 모두 501) | major | **fix-now** — `ParseArrayPipe` + 400 회귀 테스트 |
+| I-4 | `/sync`의 `client_id`가 **openapi 자체 예시(`m_9f2`)와 `format: uuid`가 충돌** | major | **사람 결정 대기**(아래 열린 질문) |
+| I-5 | 목서버 baseURL·쿠키 미문서화 | minor | **fix-now** — README에 `/v1` 차이·`sid` 쿠키 기재 |
+| I-6 | `required` 정책이 스키마마다 불일치(SubscriptionStatus·CheckoutResponse 미적용) | minor | **defer → STEP 7** — 구독 구현 시 일괄. 규칙은 ADR-22로 명문화 |
+| I-7 | `PerformedSet`이 required 0개 + 미참조 고아 스키마 | minor | **defer → STEP 6** — sync payload 계약 확정 시 |
+| I-9 | STEP 2 결정이 ADR/PROGRESS에 없음 | minor | **fix-now** — ADR-19~22 + 본 섹션 |
+| I-10 | openapi `Exercise`에 `metric`/시간 범위가 없어 `e_plank` 표현 불가 | minor | **사람 결정 대기**(아래 열린 질문) |
+| I-11 | `ErrorEnvelopeFilter`가 `@Catch(HttpException)`만 → 비HTTP 500은 엔벨로프 밖 | minor | **defer → STEP 4** |
+| I-12 | `pnpm typecheck`가 postinstall 산출물에 하드 의존 | minor | **fix-now** — 루트 typecheck를 `pnpm --filter shared build && pnpm -r typecheck`로 |
+| I-13 | 경로 파라미터 enum 미검증(`/auth/social/{provider}`) | info | **defer → STEP 7** |
+
+### 확정된 계약 강화 (사람 승인)
+- 응답 스키마 `required` 9블록 → **40블록**. `Session`/`PlannedSet`(12필드 전부)/`Recommendation`/`DashboardSummary` 등이 필수화되어 STEP 5의 non-null 가드가 사라진다.
+- 규칙(ADR-22): "서버가 항상 내리는 필드만 required, 해당 없으면 명시적 `null`". `Exercise.rep_range_low/high`는 시드 30종 중 `e_plank`(metric=time) 1건이 결측이라 **제외**(실데이터로 검증).
+- 요청 바디는 승인 범위 밖이라 손대지 않았다.
+
+---
+
+## STEP 3 — 추천 엔진 TDD (완료, 78/100 → fix 반영)
+
+### 스코어카드 (evaluator, 뮤테이션 테스트 기반)
+| 성공 기준 | 판정 | 근거(실측) |
+|---|---|---|
+| 골든 전 케이스(18) 통과 | pass | GC-01~22 개별 확인, 계약 파일 무변경(`git diff` 빈 출력) |
+| GOLDEN_TESTS.md 비교 규칙 준수 | pass | weight/reps_low/reason_code 정확 일치, e1rm tolerance 폴백, confidence_max, suggest_substitution + `rules_version` 에코 |
+| 결정론적 순수 함수 | pass | `Math.random`/`Date`/전역 `let`·`var` **grep 0건**, 100회 반복 동일·입력 비변형 테스트 |
+| RECOMMENDATION_ENGINE.md 준수 | pass(수정 후) | `too_hard`는 raw RIR(L25), 오토레귤레이션은 corrected RIR(L52) 구분까지 문서와 일치 |
+| 부정행위 없음 | pass | 케이스 id 분기 0건(소스의 `GC-` 3건은 전부 주석), 러너는 JSON 동적 순회, `.skip/.only` 0건 |
+
+**초기 78점의 원인 = 테스트 유효성.** 뮤턴트 24종 중 11종 생존(사살률 54%), 특히 "clamp를 검증한다"는 이름의 테스트가 **clamp를 제거해도 통과**했다.
+
+### fix-now로 처리한 것 (전부 뮤턴트 재주입으로 사살 확인)
+| 항목 | 조치 | 재검증 |
+|---|---|---|
+| clamp(0~6) 무검증 + 가짜 테스트 | e1rm 값으로 상·하한을 고정하는 테스트 3종, 기존 테스트 이름·내용 일치화 | clamp 제거/상한 제거/하한 제거 3종 KILLED |
+| `ADD_ONE_REP` 반복 규칙 무검증 | 다세트(9/9/8→9, 12/10/9→10) 고정 테스트 | `+1` 제거·`min→max`·`min→maxReps` 3종 KILLED |
+| 통증 경로 confidence 하드코딩(스펙 L28 위반) | 전 경로가 데이터 품질 기반 confidence 사용, 단조성·범위 불변식 추가 | 하드코딩 복원 뮤턴트 KILLED |
+| 골든 러너가 미지 `expect` 키를 무시 | `KNOWN_EXPECT_KEYS` 화이트리스트 + 감지기 자기검증 | 키 훼손 뮤턴트 KILLED |
+| **증량 반올림(사람 결정)** | ADR-18: 오프스텝은 그리드 정규화 후 한 칸 이동 | 구 동작(round) 복원 등 6종 KILLED |
+
+최종: shared 테스트 **46개 green**, 누적 뮤턴트 **14/14 사살**. 실측 동작: 증량 62.5→65, 유지 62.5→60, 감량·통증 61→60, on-step 60→65(기존과 동일).
+
+### `packages/shared` 배선 (STEP 3 종료 조건 — 해소)
+- 방식(ADR-19): shared가 dist(CJS+`.d.ts`) 빌드 → api/web이 `workspace:*` 의존 → 루트 `postinstall`이 shared 빌드.
+- 양방향 실효 검증(evaluator): api는 `apps/api/dist`에서 `require("shared")` 런타임 성공(62.5 반환), web은 임시 import 후 `next build` 프리렌더 산출물에 계산값 `62.5`가 포함됨.
+- 콜드 부트: dist 삭제 시 typecheck가 실제로 깨지는 것을 확인했고, CI 순서(install→typecheck→…)가 postinstall로 복구됨을 실측. 추가로 루트 `typecheck`가 shared 빌드를 선행하도록 굳혔다(I-12).
+
+### 구현하지 않은 reason_code (입력 스키마상 불가 — 게으름 아님, evaluator 확인)
+`VOLUME_SPIKE_CAP`(주간 볼륨 이력 없음), `DELOAD_SUGGESTED`(다세션 추세·수면·피로 없음), `SIMILAR_INIT`(유사운동 e1RM 없음 → `BASELINE`으로 귀결, GC-15가 둘 다 허용), `CALIBRATION_*`(캘리브레이션 상태·날짜 없음). 구현하려면 **입력 스키마 확장 + 골든 케이스 추가가 선행**돼야 한다(결번 GC-05/11/12/14와 대응 추정).
+
+### 계약으로 문서화해야 할 엔진 동작
+- **`calibration` 존재 = RIR 축 활성 스위치**. 백엔드가 `rir_bias`를 기본 0으로 항상 채우면 GC-06/07 계열 동작이 뒤집힌다 → 튜토리얼 미완료 사용자에겐 `calibration`을 **생략**해야 한다(STEP 4 필수 준수).
+- `BASELINE`은 `weight = 0`(무게 미정)을 반환한다 → 프론트가 "0kg 추천"으로 렌더링하면 UX 오류(STEP 5 가드 필요).
+- `CONFIDENCE.full = 0.85`의 절대값은 골든에 고정돼 있지 않다(순서·범위 불변식만 존재).
+
+---
+
 ## Deferred(이월) 항목
-- **→ STEP 3**: `packages/shared` 소비 방식 결정(I-8). 후보: (a) shared에 빌드 산출물+exports, (b) web `transpilePackages`+api `tsconfig paths`, (c) 각 앱이 소스 직접 참조. STEP 3 종료 전 결정하고 api/web 각각에서 `recommendNextSet` import 스모크 추가.
+- ~~**→ STEP 3**: `packages/shared` 소비 방식 결정(I-8)~~ → **해소**(ADR-19, 양방향 실효 검증 완료).
+- **→ STEP 4 (DoD)**: 모든 200 응답이 openapi 스키마(ajv) 검증을 통과하는 테스트 도입(STEP 2 I-1). `required` 40블록을 강제하는 장치가 현재 0개다.
+- **→ STEP 4**: `ErrorEnvelopeFilter`를 `@Catch()`로 넓혀 비HTTP 500도 엔벨로프로(메시지 누출 금지, STEP 2 I-11).
+- **→ STEP 4**: 배선 스모크 테스트가 엔진 규칙값(62.5)에 결합돼 있다 → 형태 단언으로 완화(STEP 2 I-14).
 - **→ STEP 5**: `@next/eslint-plugin-next` + `eslint-plugin-react-hooks` 도입(STEP 0 I-7).
 - **→ STEP 6**: `@serwist/next` 실제 배선(Service Worker·앱셸 캐시).
 - **→ STEP 4**: DB 통합 테스트 부트스트랩을 jest `globalSetup`으로 이관(STEP 1 I-2). DB spec이 2개 이상이 되면 worker별 `migrate deploy` 경합.
@@ -145,11 +216,26 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 - **→ STEP 7**: openapi에만 있는 필드(`Subscription.product_id`, 캘리브레이션 `method`·`perceived_difficulty`) 스펙 정합 질의(STEP 1 I-7).
 - **→ STEP 8**: 파생 테스트 DB의 localhost/CI 가드(STEP 1 I-8).
 
-## 열린 질문(사람 결정 필요)
-- **골든 테스트 케이스 수**: `docs/specs/golden_tests.json`은 **18개**(GC-01~04, 06~10, 13, 15~22 — GC-05/11/12/14 결번)인데 CLAUDE.md·PROMPTS.md는 "골든 25개 green"을 STEP 3 성공 기준으로 기술. ① 게이트 문구를 "전 케이스(18개)"로 정정할지, ② 결번 포함 25개로 케이스를 보강할지 결정 필요. STEP 3 채점 기준에 직접 영향.
+## 사람 결정(확정 — 2026-08-05)
+1. **골든 기준 = `golden_tests.json` 전 케이스(현재 18개)**. 결번(GC-05/11/12/14) 보강하지 않음. → CLAUDE.md·PROMPTS.md 문구 정정 완료.
+2. **`users.id`는 uuid 유지**, `DEV_USER_ID=00000000-0000-4000-8000-000000000001` 고정 UUID(.env.example 반영). dev-user 주입은 **가드 한 곳에만 격리**(STEP 4). → ADR-17.
+3. **민감정보 앱 레벨 암호화 즉시 도입**: AES-256-GCM / `FIELD_ENCRYPTION_KEY`(32바이트 base64) / `v1:iv:tag:ciphertext` text 저장. 대상 `users.body_fat_pct`, `performed_sets.pain_score`, `session_feedback.pain`. → ADR-16, SECURITY_PIPA.md "필드 암호화 스킴".
+4. **삭제 = 소프트 삭제 + 퍼지 잡, FK RESTRICT 유지**, 퍼지 순서 자식→부모로 명시. → ADR-15 확정, SECURITY_PIPA.md "삭제 정책".
+
+### 결정 3의 파급(암호화로 DB 연산이 불가능해지는 지점 — 앱 레이어로 이동)
+- **디로드 트리거의 "통증↑" 신호**(RECOMMENDATION_ENGINE.md L75): pain 추세를 SQL로 집계할 수 없다 → 대상 세션 행을 읽어 **복호화 후 앱에서 계산**(P1, STEP 7).
+- **`pain` 0~10 범위 검증**(openapi L339·L819): DB CHECK 불가 → **DTO 검증(class-validator)**. STEP 1 I-6(범위 CHECK 이월)은 이 결정으로 "DTO 검증" 쪽으로 확정.
+- **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
+- **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
+
+## 열린 질문 (사람 결정 대기 — STEP 4 착수 전)
+1. **`/sync`의 `client_id` 형식이 openapi 안에서 자기모순**: 스키마는 `format: uuid`인데 같은 파일의 예시는 `m_9f2`다(L372). 현재 DTO는 uuid로 검증한다 — 어느 쪽이 진실인지 확정 필요. 오프라인 멱등 키라 STEP 6에 직접 영향.
+2. **openapi `Exercise`에 `metric`/시간 범위 필드가 없다** → `e_plank`(metric=time, 20~60초)를 계약으로 표현할 수 없다. DB에는 `metric`·`default_time_low_sec/high_sec`가 있다. ① openapi에 `metric`+시간 범위 추가 ② 시간 종목을 reps로 환산해 노출 ③ 그대로 두고 시간 종목은 STEP 5에서 제외 — 택1 필요.
+3. **`POST /webhooks/pg`의 `signature`가 optional**(설명은 "서명 검증 필수"). 결제/보안이라 임의 변경하지 않았다. STEP 7 전 결정 필요.
+4. **감량 방향 해석 확인**: 오프스텝 61kg(step 5)에서 감량·통증 경로가 55가 아닌 **60**(한 칸 아래)으로 간다. "감량은 항상 최소 1스텝"을 원하면 알려달라(테스트 1줄 수정).
 
 ## 다음 액션
-- **STEP 2**: openapi-typescript로 클라이언트 타입 생성(생성물 커밋) → apps/api에 openapi paths 대응 컨트롤러/DTO 스텁(501) → `pnpm mock`(prism) 목서버.
-- 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`(`cp .env.example .env`).
-- STEP 2 착수 시 함께 처리할 것: openapi `Exercise` ↔ DB 매핑 계층 위치 결정(위 "열린 질문").
-- `/goal until 1` 지시로 **STEP 1에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 2`.
+- **STEP 4**: 고정 dev-user 가드(UUID, 한 곳 격리) → programs generate/current → sessions get/complete(완료 시 `recommendNextSet`로 다음 추천 갱신) → 루틴 편집(add/delete/swap). 통합 테스트는 Testcontainers.
+- 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`(`cp .env.example .env`, `FIELD_ENCRYPTION_KEY`는 `openssl rand -base64 32`).
+- STEP 4 진입 전 처리: 위 "열린 질문" 1·2번 결정, ajv 응답 검증(DoD), 민감필드 복호화 경계를 서비스 레이어 한 곳에.
+- `/goal until 3` 지시로 **STEP 3에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 4`.

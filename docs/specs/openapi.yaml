@@ -135,6 +135,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [export_id, status]
                 properties:
                   export_id: { type: string }
                   status: { type: string, example: pending }
@@ -262,6 +263,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [items]
                 properties:
                   items:
                     type: array
@@ -344,6 +346,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [session, next_recommendations]
                 properties:
                   session: { $ref: '#/components/schemas/Session' }
                   next_recommendations:
@@ -403,12 +406,14 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [exercise_id, points]
                 properties:
                   exercise_id: { type: string }
                   points:
                     type: array
                     items:
                       type: object
+                      required: [date, e1rm]
                       properties:
                         date: { type: string, format: date }
                         e1rm: { type: number }
@@ -430,6 +435,7 @@ paths:
                 type: array
                 items:
                   type: object
+                  required: [muscle, hard_sets, avg_rir]
                   properties:
                     muscle: { type: string }
                     hard_sets: { type: integer }
@@ -446,6 +452,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [week_start, completed, planned, rate]
                 properties:
                   week_start: { type: string, format: date }
                   completed: { type: integer }
@@ -661,9 +668,11 @@ components:
   schemas:
     Error:
       type: object
+      required: [error]
       properties:
         error:
           type: object
+          required: [code, message]
           properties:
             code: { type: string, example: VALIDATION_ERROR }
             message: { type: string }
@@ -678,16 +687,20 @@ components:
 
     AuthResult:
       type: object
+      required: [csrf_token, user]
       properties:
         csrf_token: { type: string }
         user:
           type: object
+          required: [id, is_new]
           properties:
             id: { type: string, example: u_123 }
             is_new: { type: boolean }
 
     Profile:
       type: object
+      required:
+        [id, sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level, plan_tier]
       properties:
         id: { type: string }
         sex: { type: string, enum: [male, female, other] }
@@ -739,6 +752,7 @@ components:
 
     Program:
       type: object
+      required: [program_id, goal, split_type, rules_version, sessions]
       properties:
         program_id: { type: string }
         goal: { type: string }
@@ -748,6 +762,7 @@ components:
           type: array
           items:
             type: object
+            required: [day, focus, exercises]
             properties:
               day: { type: string, example: MON }
               focus: { type: string, example: upper }
@@ -755,6 +770,7 @@ components:
                 type: array
                 items:
                   type: object
+                  required: [exercise_id, sets, reps_low, reps_high, target_rir, rest_sec]
                   properties:
                     exercise_id: { type: string }
                     sets: { type: integer }
@@ -765,6 +781,19 @@ components:
 
     Exercise:
       type: object
+      # rep_range_low/high 는 metric=time 종목(e_plank)에서 비어 있어 required 에서 제외한다.
+      required:
+        [
+          id,
+          name_ko,
+          name_en,
+          movement_pattern,
+          primary_muscles,
+          equipment,
+          difficulty,
+          substitutions,
+          media_url,
+        ]
       properties:
         id: { type: string }
         name_ko: { type: string }
@@ -784,6 +813,7 @@ components:
 
     Session:
       type: object
+      required: [id, program_id, scheduled_date, status, planned_sets]
       properties:
         id: { type: string }
         program_id: { type: string }
@@ -795,6 +825,21 @@ components:
 
     PlannedSet:
       type: object
+      required:
+        [
+          id,
+          exercise_id,
+          set_no,
+          target_reps_low,
+          target_reps_high,
+          target_rir,
+          rest_sec,
+          recommended_weight,
+          recommended_reps,
+          reason_code,
+          confidence,
+          rules_version,
+        ]
       properties:
         id: { type: string }
         exercise_id: { type: string }
@@ -823,6 +868,18 @@ components:
 
     Recommendation:
       type: object
+      required:
+        [
+          exercise_id,
+          weight,
+          reps_low,
+          reps_high,
+          sets,
+          reason_code,
+          confidence,
+          explanation,
+          rules_version,
+        ]
       properties:
         exercise_id: { type: string }
         weight: { type: number }
@@ -836,6 +893,7 @@ components:
 
     Estimated1RM:
       type: object
+      required: [exercise_id, e1rm, method, computed_at]
       properties:
         exercise_id: { type: string }
         e1rm: { type: number }
@@ -862,6 +920,7 @@ components:
 
     SyncResponse:
       type: object
+      required: [applied, conflicts, changes]
       properties:
         applied:
           type: array
@@ -870,6 +929,7 @@ components:
           type: array
           items:
             type: object
+            required: [client_id, reason]
             properties:
               client_id: { type: string }
               reason: { type: string, example: stale_update }
@@ -877,6 +937,7 @@ components:
           type: array
           items:
             type: object
+            required: [entity, id, data]
             properties:
               entity: { type: string }
               id: { type: string }
@@ -893,6 +954,7 @@ components:
 
     CheckoutResponse:
       type: object
+      required: [pg]
       properties:
         pg: { type: string, example: portone }
         checkout_url: { type: string, nullable: true }
@@ -900,6 +962,7 @@ components:
 
     SubscriptionStatus:
       type: object
+      required: [tier, status]
       properties:
         tier: { type: string, enum: [free, pro] }
         status: { type: string, enum: [trial, active, grace, expired, cancelled] }
@@ -918,32 +981,39 @@ components:
 
     DashboardSummary:
       type: object
+      required: [date, today, tomorrow, streak_days, weekly_completion_rate]
       properties:
         date: { type: string, format: date }
         today:
           type: object
+          # routine_summary/done_summary 는 상태와 무관하게 항상 내려가고, 해당 없으면 null 이다.
+          required: [status, routine_summary, done_summary]
           properties:
             status: { type: string, enum: [workout, rest, done] }
             routine_summary:
               type: object
               nullable: true
+              required: [exercise_count, focus]
               properties:
                 exercise_count: { type: integer }
                 focus: { type: string }
             done_summary:
               type: object
               nullable: true
+              required: [total_volume, sets_completed, pr_count]
               properties:
                 total_volume: { type: number }
                 sets_completed: { type: integer }
                 pr_count: { type: integer }
         tomorrow:
           type: object
+          required: [status, routine_summary]
           properties:
             status: { type: string, enum: [workout, rest] }
             routine_summary:
               type: object
               nullable: true
+              required: [exercise_count, focus]
               properties:
                 exercise_count: { type: integer }
                 focus: { type: string }

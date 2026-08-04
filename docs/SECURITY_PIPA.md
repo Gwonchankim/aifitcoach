@@ -12,6 +12,20 @@
 - 시크릿은 시크릿 매니저/환경변수. 코드·리포에 하드코딩·커밋 금지(.env.example만).
 - 건강데이터 접근 감사 로깅, 최소 권한.
 
+### 필드 암호화 스킴 (확정 2026-08-05, ADR-16)
+- 알고리즘 **AES-256-GCM**, 키 `FIELD_ENCRYPTION_KEY`(32바이트의 base64). 키는 환경변수/시크릿 매니저에서만 주입.
+- 저장 형식 **`v1:iv:tag:ciphertext`** (각 파트 base64, iv 12B / tag 16B). `v1` 접두사는 키·알고리즘 회전용.
+- 적용 필드: `users.body_fat_pct`, `performed_sets.pain_score`(둘 다 **text 컬럼**), `workout_sessions.session_feedback`의 `pain` 값.
+- 결과: 이 필드들로 **DB 정렬·범위검색·집계 불가** → 해당 계산은 애플리케이션 레이어에서 복호화 후 수행한다(디로드 트리거의 "통증↑" 신호 등). 값 범위 검증(`pain 0~10`)도 DB CHECK가 아닌 DTO 검증으로 한다.
+- 평문·키·암호문을 로그/에러 메시지에 남기지 않는다.
+
+### 삭제 정책 (확정 2026-08-05, ADR-15)
+- `DELETE /me` → **소프트 삭제**(즉시 접근 차단) 후 **퍼지 잡**이 실제 삭제. FK는 `ON DELETE RESTRICT` 유지(연쇄 삭제 금지).
+- 퍼지는 **자식 → 부모** 순서로 실행한다:
+  `performed_sets` → `planned_sets` → `workout_sessions` → `programs` → `calibration_set` → `user_rir_calibration` → `estimated_1rm` → `muscle_weekly_load` → `sync_mutations` → `subscriptions` → `consents` → `users`
+- `exercises`는 사용자 소유 데이터가 아니므로 퍼지 대상이 아니다.
+- `consents`·결제 관련 기록은 법정 보존 의무가 있을 수 있다 → 보존기간 경과 후 퍼지(**법무 확인 필요**).
+
 ## PIPA(개인정보보호법)
 - 수집·이용 목적 명시 + 버전화된 동의 기록(consents). 목적 제한·최소 수집.
 - 열람·이동권: `POST /me/export`(기계판독). 삭제권: `DELETE /me` → 소프트 삭제 후 퍼지 잡.
