@@ -1,5 +1,5 @@
-// STEP 0: datasource/generator 자리만 잡는다.
-// 모델·enum·인덱스는 STEP 1에서 docs/DATA_MODEL.md 대로 추가한다.
+// docs/DATA_MODEL.md 의 요약 DDL을 1:1로 옮긴 스키마.
+// DB 네이밍은 snake_case(@map/@@map), Prisma 모델명은 PascalCase.
 
 generator client {
   provider = "prisma-client-js"
@@ -8,4 +8,386 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ---------- enums ----------
+
+enum Sex {
+  male
+  female
+  other
+
+  @@map("sex")
+}
+
+enum Goal {
+  diet
+  hypertrophy
+  strength
+
+  @@map("goal")
+}
+
+enum ExperienceLevel {
+  beginner
+  intermediate
+  advanced
+
+  @@map("experience_level")
+}
+
+enum MovementPattern {
+  squat
+  hinge
+  lunge
+  knee_extension
+  knee_flexion
+  calf
+  horizontal_push
+  vertical_push
+  horizontal_pull
+  vertical_pull
+  elbow_extension
+  elbow_flexion
+  shoulder_isolation
+  core
+
+  @@map("movement_pattern")
+}
+
+enum Mechanic {
+  compound
+  isolation
+
+  @@map("mechanic")
+}
+
+enum Region {
+  upper
+  lower
+  core
+
+  @@map("region")
+}
+
+enum Equipment {
+  barbell
+  dumbbell
+  machine
+  cable
+  bodyweight
+  ez_bar
+
+  @@map("equipment")
+}
+
+enum Difficulty {
+  beginner
+  intermediate
+  advanced
+
+  @@map("difficulty")
+}
+
+enum Metric {
+  reps
+  time
+
+  @@map("metric")
+}
+
+enum SessionStatus {
+  scheduled
+  in_progress
+  completed
+
+  @@map("session_status")
+}
+
+enum PlanTier {
+  free
+  pro
+
+  @@map("plan_tier")
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  grace
+  expired
+  cancelled
+
+  @@map("subscription_status")
+}
+
+enum SyncEntityType {
+  performed_set
+  session
+  profile
+
+  @@map("sync_entity_type")
+}
+
+enum SyncOp {
+  upsert
+  delete
+
+  @@map("sync_op")
+}
+
+enum SyncStatus {
+  pending
+  applied
+  conflict
+
+  @@map("sync_status")
+}
+
+enum CalibrationStatus {
+  not_started
+  in_progress
+  graduated
+  stale
+
+  @@map("calibration_status")
+}
+
+// ---------- models ----------
+
+model User {
+  id              String          @id @default(uuid()) @db.Uuid
+  sex             Sex
+  birthYear       Int             @map("birth_year")
+  heightCm        Decimal         @map("height_cm") @db.Decimal(5, 1)
+  weightKg        Decimal         @map("weight_kg") @db.Decimal(5, 1)
+  bodyFatPct      Decimal?        @map("body_fat_pct") @db.Decimal(4, 1)
+  goal            Goal
+  experienceLevel ExperienceLevel @map("experience_level")
+  constraints     Json
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  consents         Consent[]
+  programs         Program[]
+  estimated1rm     Estimated1rm[]
+  muscleWeeklyLoad MuscleWeeklyLoad[]
+  subscription     Subscription?
+  syncMutations    SyncMutation[]
+  rirCalibration   UserRirCalibration?
+  calibrationSets  CalibrationSet[]
+
+  @@map("users")
+}
+
+model Consent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String
+  version   String
+  granted   Boolean
+  grantedAt DateTime @map("granted_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("consents")
+}
+
+model Program {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  goal          Goal
+  daysPerWeek   Int      @map("days_per_week")
+  minutesPerDay Int      @map("minutes_per_day")
+  splitType     String   @map("split_type")
+  rulesVersion  String   @map("rules_version")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User             @relation(fields: [userId], references: [id])
+  sessions WorkoutSession[]
+
+  @@map("programs")
+}
+
+model Exercise {
+  id                 String          @id
+  nameKo             String          @map("name_ko")
+  nameEn             String          @map("name_en")
+  movementPattern    MovementPattern @map("movement_pattern")
+  mechanic           Mechanic
+  region             Region
+  primaryMuscles     String[]        @map("primary_muscles")
+  secondaryMuscles   String[]        @map("secondary_muscles")
+  equipment          Equipment
+  difficulty         Difficulty
+  metric             Metric
+  // metric=reps 는 reps 범위를, metric=time 은 time 범위를 채운다(시드 e_plank 참고).
+  defaultRepsLow     Int?            @map("default_reps_low")
+  defaultRepsHigh    Int?            @map("default_reps_high")
+  defaultTimeLowSec  Int?            @map("default_time_low_sec")
+  defaultTimeHighSec Int?            @map("default_time_high_sec")
+  defaultStepKg      Decimal?        @map("default_step_kg") @db.Decimal(5, 2)
+  unilateral         Boolean
+  substitutions      String[]
+  cues               String[]
+  media              Json
+
+  plannedSets     PlannedSet[]
+  estimated1rm    Estimated1rm[]
+  calibrationSets CalibrationSet[]
+
+  @@map("exercises")
+}
+
+model WorkoutSession {
+  id              String        @id @default(uuid()) @db.Uuid
+  programId       String        @map("program_id") @db.Uuid
+  scheduledDate   DateTime      @map("scheduled_date") @db.Date
+  status          SessionStatus
+  completedAt     DateTime?     @map("completed_at") @db.Timestamptz(3)
+  sessionFeedback Json?         @map("session_feedback")
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  program     Program      @relation(fields: [programId], references: [id])
+  plannedSets PlannedSet[]
+
+  @@index([programId, scheduledDate], map: "ix_sessions_prog_date")
+  @@map("workout_sessions")
+}
+
+model PlannedSet {
+  id                String   @id @default(uuid()) @db.Uuid
+  sessionId         String   @map("session_id") @db.Uuid
+  exerciseId        String   @map("exercise_id")
+  setNo             Int      @map("set_no")
+  targetRepsLow     Int      @map("target_reps_low")
+  targetRepsHigh    Int      @map("target_reps_high")
+  targetRir         Int      @map("target_rir")
+  restSec           Int      @map("rest_sec")
+  recommendedWeight Decimal  @map("recommended_weight") @db.Decimal(6, 2)
+  recommendedReps   Int      @map("recommended_reps")
+  reasonCode        String   @map("reason_code")
+  confidence        Decimal  @db.Decimal(3, 2)
+  rulesVersion      String   @map("rules_version")
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  session       WorkoutSession @relation(fields: [sessionId], references: [id])
+  exercise      Exercise       @relation(fields: [exerciseId], references: [id])
+  performedSets PerformedSet[]
+
+  @@index([sessionId], map: "ix_planned_session")
+  @@map("planned_sets")
+}
+
+model PerformedSet {
+  id           String   @id @default(uuid()) @db.Uuid
+  plannedSetId String   @map("planned_set_id") @db.Uuid
+  actualWeight Decimal  @map("actual_weight") @db.Decimal(6, 2)
+  actualReps   Int      @map("actual_reps")
+  actualRir    Int?     @map("actual_rir")
+  painScore    Int?     @map("pain_score")
+  completed    Boolean
+  // client_id = 오프라인 동기화 멱등 키
+  clientId     String   @map("client_id") @db.Uuid
+  performedAt  DateTime @map("performed_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  plannedSet PlannedSet @relation(fields: [plannedSetId], references: [id])
+
+  @@unique([clientId], map: "ux_performed_client")
+  @@map("performed_sets")
+}
+
+model Estimated1rm {
+  userId     String   @map("user_id") @db.Uuid
+  exerciseId String   @map("exercise_id")
+  e1rm       Decimal  @db.Decimal(6, 2)
+  method     String
+  computedAt DateTime @map("computed_at") @db.Timestamptz(3)
+
+  user     User     @relation(fields: [userId], references: [id])
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  @@id([userId, exerciseId, computedAt])
+  @@index([userId, exerciseId, computedAt(sort: Desc)], map: "ix_e1rm_user_ex")
+  @@map("estimated_1rm")
+}
+
+model MuscleWeeklyLoad {
+  userId     String   @map("user_id") @db.Uuid
+  weekStart  DateTime @map("week_start") @db.Date
+  muscle     String
+  hardSets   Int      @map("hard_sets")
+  volumeLoad Decimal  @map("volume_load") @db.Decimal(10, 2)
+  avgRir     Decimal  @map("avg_rir") @db.Decimal(3, 1)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([userId, weekStart, muscle])
+  @@index([userId, weekStart], map: "ix_mwl_user_week")
+  @@map("muscle_weekly_load")
+}
+
+model Subscription {
+  userId        String             @id @map("user_id") @db.Uuid
+  tier          PlanTier
+  provider      String
+  billingKeyRef String?            @map("billing_key_ref")
+  status        SubscriptionStatus
+  startedAt     DateTime?          @map("started_at") @db.Timestamptz(3)
+  renewsAt      DateTime?          @map("renews_at") @db.Timestamptz(3)
+  trialEndsAt   DateTime?          @map("trial_ends_at") @db.Timestamptz(3)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model SyncMutation {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  entityType      SyncEntityType @map("entity_type")
+  entityId        String         @map("entity_id")
+  op              SyncOp
+  payload         Json
+  clientUpdatedAt DateTime       @map("client_updated_at") @db.Timestamptz(3)
+  appliedAt       DateTime?      @map("applied_at") @db.Timestamptz(3)
+  status          SyncStatus
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("sync_mutations")
+}
+
+model UserRirCalibration {
+  userId           String            @id @map("user_id") @db.Uuid
+  biasOverall      Decimal           @map("bias_overall") @db.Decimal(3, 2)
+  biasByRegion     Json              @map("bias_by_region")
+  confidence       Decimal           @db.Decimal(3, 2)
+  samples          Int
+  lastCalibratedAt DateTime?         @map("last_calibrated_at") @db.Timestamptz(3)
+  status           CalibrationStatus
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_rir_calibration")
+}
+
+model CalibrationSet {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  exerciseId     String   @map("exercise_id")
+  sessionDay     Int      @map("session_day")
+  predictedRir   Int      @map("predicted_rir")
+  amrapExtraReps Int      @map("amrap_extra_reps")
+  actualRir      Int      @map("actual_rir")
+  biasSample     Decimal  @map("bias_sample") @db.Decimal(3, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User     @relation(fields: [userId], references: [id])
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  @@map("calibration_set")
 }

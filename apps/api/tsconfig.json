@@ -17,6 +17,6 @@
     "baseUrl": "./",
     "incremental": true
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "prisma/**/*.ts", "../../scripts/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

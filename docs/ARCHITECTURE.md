@@ -50,3 +50,6 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-10 | 테스트 러너 이원화: api=jest+ts-jest, web·shared=vitest | vitest(esbuild)는 emitDecoratorMetadata 미지원 → Nest DI 파손 | 확정(STEP 0) |
 | ADR-11 | lint는 루트 단일 패스(`eslint .`), 패키지별 lint 스크립트 없음 | flat config 표준 방식·패키지별 eslint 중복 설치 회피 | 확정(STEP 0) |
 | ADR-12 | Prettier는 `docs/`·`*.md` 제외(.prettierignore) + CI `format:check` 게이트 | 진실의 원천(openapi.yaml·golden_tests.json) 자동 재작성 방지 | 확정(STEP 0) |
+| ADR-13 | exercises에 `cues`·`default_time_low_sec/high_sec` 추가, `default_reps_low/high`는 nullable | 시드(`exercises_seed.json`)의 실제 필드·`e_plank`(metric=time). 시드는 불변, 스키마가 수용 | 확정(STEP 1) |
+| ADR-14 | 통합 테스트는 `<DB>_test` 파생 DB에 `migrate deploy`+seed 후 검증 | 참조 데이터 시드는 커밋된 상태를 봐야 검증 가능(롤백 불가). 개발 DB 무오염·CI DSN(afc_test) 그대로 사용 | 확정(STEP 1) |
+| ADR-15 | 삭제는 FK CASCADE 대신 RESTRICT + 애플리케이션 퍼지 잡 | SECURITY_PIPA.md의 "소프트 삭제 후 퍼지" 설계와 정합, 실수 삭제 방지 | 잠정(STEP 4에서 사람 리뷰) |
