@@ -9,7 +9,7 @@
 | 1 | DB 스키마 + 시드 | ✅ 완료 (2026-08-05) | 88 → fix 후 재검증 green |
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
-| 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ⬜ 예정 | |
+| 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
 | 5 | 프론트 핵심 플로우 (FEATURES_UX F1~F8) | ⬜ 예정 | |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
@@ -204,11 +204,72 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 
 ---
 
+## STEP 4 — 백엔드 엔드포인트 (완료)
+
+### 스코어카드 (evaluator 1차 77/100 조건부 PASS → fix-now 7건 + 사람 결정 4건 반영)
+| 성공 기준 | 판정 | 근거(실측) |
+|---|---|---|
+| dev-user 격리 | pass | 주입 지점 `app.setup.ts` **1줄**, 읽기는 `@CurrentUser()` 단일 통로. `DEV_USER_ID`가 UUID가 아니면 **부팅 실패**. auth/me/consents/export/delete는 501 유지 |
+| programs generate/current | pass | 201/200 + ajv 계약 통과. 템플릿은 `programs.template`에 고정(ADR-24) |
+| sessions 조회·완료 + 추천 갱신 | pass | 실측: complete 전 `0.00/BASELINE` ×3 → 후 `62.50/WEIGHT_UP_REP_TARGET_MET/0.85` ×3 |
+| 루틴 편집 3종(F5) | pass | 추가(위치 지정)·삭제·교체 실측. 중복은 409 |
+| 데이터가 user_id에 매달림 | pass | 타 사용자 세션에 5개 엔드포인트 전부 404 + 추천 계산 격리 |
+| 통합 테스트 + openapi 응답 검증 | pass | 실제 postgres, ajv가 openapi를 **동적 로드**. api 테스트 **150개** |
+
+### 1차 평가에서 나온 결함과 조치 (전부 fix-now)
+| # | 결함 | 조치·검증 |
+|---|---|---|
+| I-1 **blocker** | 테넌시 술어(`program: { userId }`)를 지워도 85개 테스트가 전부 통과 — 남의 수행기록이 내 추천에 섞여도 미탐지 | `tenancy.spec.ts` 8건 신설. 뮤턴트 재주입 시 **8/8 실패** |
+| I-2 **데이터 손실** | 세션 재완료가 암호화된 `pain`을 `{}`로 파괴 | **멱등 + 키 단위 병합**(ADR-25). 409로 막지 않은 이유: 아웃박스 재시도가 정상 경로 |
+| I-3 | `GET /programs/current`가 세션 편집에 오염(F5 위반) | 템플릿 분리(ADR-24) |
+| I-4 | `sets` 무제한 → `1e10`이 봉투 밖 500 | `@Min(1)@Max(10)` + `ErrorEnvelopeFilter`를 `@Catch()`로 확대(내부 메시지·스택 미노출 단언) |
+| I-12 | ajv가 여분 필드 유출을 못 잡음(평문 `pain`·`user_id`) | 계약 검사에 **키셋 검증** 내장(PIPA) |
+| I-13 | 완료된 세션이 계속 편집 가능 | 409로 차단 |
+| I-15 | 프로덕션에서 dev-user 주입이 그대로 활성 | 명시적 opt-in 없으면 **부팅 거부**(ADR-23) |
+
+### 사람 결정 4건 반영 (2026-08-05)
+1. **`pain_areas` 제외 매핑** → `docs/SAFETY_PAIN_MAPPING.md` 신설(의료 조언 아님 고지, `SUBSTITUTE_PAIN`과의 관계 명시). 실측: `["knee"]` → `e_back_squat`·`e_goblet_squat`·`e_leg_press`·`e_walking_lunge`·`e_leg_extension` 제외(squat/lunge/knee_extension **0건**), 빈자리는 같은 근육군 머신/케이블로 대체, 사유는 `Program.excluded_exercises`로 응답. `wrist`는 제외 없이 머신/케이블 우선 정렬(ADR-28).
+2. **맨몸·시간 진행 모델**(ADR-27) → 골든 **18 → 30건**(기존 케이스 무변경 증명), reason_code 6종 추가, 뮤턴트 12/12 사살.
+   - 이후 **경계 상수를 계약으로 승격**: GC-30~32(맨몸 대체 임계 2회 양방향, 시간 하향 바닥 10초), GC-33~34(**안전 가드레일 `pain_score >= 4` 임계 양방향** — 이전엔 GC-13이 5라 임계를 밟지 않아 `4→5` 회귀가 골든을 통과했다). 엔진 코드는 변경 0 — 부족했던 건 계약 커버리지였다. `equipment: ["bodyweight"]`만으로도 프로그램 생성(이전엔 400). E2E 실측: dips 12/12/12 → `REPS_UP_BODYWEIGHT`(reps_high 6–13), pullup 2/1 → `SUBSTITUTE_TOO_HARD_BODYWEIGHT`, plank 60/65 → `TIME_UP`(20–70초).
+   - **버그 수정**: `step_kg: ?? 0`이 맨몸을 `INVALID_INPUT`으로 만들던 문제 → `?? null`. `0`(잘못된 증량 단위)과 `null`(맨몸)은 다른 의미다.
+3. **openapi에 404/409/400 명시** → 세션 편집 3종·complete에 응답 10개 추가(전부 기존 `Error` 재사용, 순수 추가 증명). 계약 테스트에 **상태코드 축** 추가 — 409를 404로 바꾸거나 계약에서 409 선언만 지워도 실패한다. 존재하지 않는 `exercise_id`는 지시대로 **400**으로 정정.
+4. **세션 내 중복 종목 금지**(ADR-26) → 추가·교체 409, 생성 로직 중복 방지, DB 유니크 제약으로 동시성까지 차단(경합 실측: 제약 제거 시 `[200,500]`, 제약 있으면 `[200,409]`).
+
+### 기술 결정·주의사항
+- `rules_version` **2026.08.1**로 상향(ADR-29). `program-rules.ts`·`golden_tests.json`·`RECOMMENDATION_ENGINE.md`·openapi 예시를 함께 갱신. `exercises_seed.json.rules_version_ref`는 시드 저작 시점 메타데이터라 그대로 뒀다.
+- `complete()`의 엔진 target 출처를 "다음 세션"에서 **"방금 수행한 세션"** 으로 변경 — 맨몸/시간은 목표 범위 자체가 움직여서 기존 방식이면 아웃박스 재전송이 목표를 두 번 올린다. 가중·반복 종목은 값이 동일해 동작 변화 없음.
+- openapi 완화(`recommended_weight` 등 nullable)에서 **`required` 리스트는 한 곳도 바뀌지 않았다** — 키셋 보장은 유지되고 값만 null 허용.
+- DB 컬럼 추가: `workout_sessions.focus`, `planned_sets.order_index`/`target_time_*_sec`, `programs.template`/`excluded_exercises`, `performed_sets.actual_time_sec`. `DATA_MODEL.md` 동기화 완료.
+
+### 최종 재평가(81/100)에서 나온 fix-now 3건 — 처리 완료
+| # | 결함 | 조치·증거 |
+|---|---|---|
+| **비원자적 swap → 데이터 손실** | `swapExercise`가 트랜잭션 없이 delete→create. 동시 요청 시 **사용자는 409(실패)를 받았는데 원래 운동이 소실**(평가자 재현) | `$transaction`으로 swap·add·generate 쓰기를 묶음. 재현 테스트는 커밋 안 한 트랜잭션으로 유니크 인덱스 대기를 만들어 **스케줄링 운에 의존하지 않게** 구성. 뮤턴트(순차 실행 복원) 3건 사살 |
+| **최대 테이블 Seq Scan** | `performed_sets.planned_set_id`·`programs.user_id` 인덱스 부재. `DATA_MODEL.md` 인덱스 절 자체의 공백 | 24만 행 스크래치 DB로 EXPLAIN before/after 실측: buffers **4,966 → 144**(historyFor), **3,693 → 46**(수행기록 가드). 불필요한 인덱스는 근거를 대고 **넣지 않음** |
+| **`pain_areas` 오타가 안전 필터를 무력화** | `"Knee"`·`"knees"`·`"무릎"`이 전부 조용히 통과해 통증 사용자가 스쿼트를 배정받음 | openapi `enum` 8종 + `@IsIn` → 400. 문서↔계약↔코드 동기화 테스트 추가. 400 메시지가 **사용자가 보낸 값을 되뱉지 않음**(건강 입력 누출 방지) |
+| (minor) `Program.excluded_exercises`가 required 아님 | 안전 근거가 계약상 생략 가능 | required 추가. 서비스에서 필드 생략 시 3건 실패 확인 |
+
+**⚠️ `pain_areas` enum은 순수 추가가 아니라 요청 값 제약 강화다**(기존에 임의 문자열을 보내던 클라이언트에는 파괴적). 현재 `pain_areas`를 보내는 프론트 코드가 없어 실영향 0이며, **온보딩 UI는 반드시 이 8개로 입력을 제한해야 한다**(자유 입력이면 사용자가 400을 만난다) — STEP 5 필수 전달사항.
+
+### 남은 사람 결정 / 리스크
+- **프로그램 생성 규칙이 대부분 해석**이다(분할 2-3=full_body/4=upper_lower/5-6=PPL, 운동 수 30분→3…90분→7, `target_rir` 범위 중앙 올림, 세트 3/스트렝스 복합 5). `program-rules.ts`에 문서 근거와 해석이 구분 표기돼 있으나 **제품 리뷰 필요**.
+- `pain_areas`에 enum이 없어 **오타를 조용히 무시**한다 → 안전 필터 무력화 가능. enum 고정 여부는 제품 결정.
+- 시간 종목의 목표가 goal별 표 없이 카탈로그 기본값(20~60초)을 쓴다(스펙 공백).
+- `PlannedSet`의 reps 축이 nullable이 되어 프론트가 `metric`을 봐야 유효 축을 안다. 더 엄격히 하려면 `oneOf` 구조 변경 필요(순수 추가가 아니라 미실시).
+- `performed_sets.actual_time_sec` 추가·`actual_weight/reps` nullable 완화는 STEP 6 `/sync` payload 검증 설계에 영향.
+
+---
+
 ## Deferred(이월) 항목
 - ~~**→ STEP 3**: `packages/shared` 소비 방식 결정(I-8)~~ → **해소**(ADR-19, 양방향 실효 검증 완료).
-- **→ STEP 4 (DoD)**: 모든 200 응답이 openapi 스키마(ajv) 검증을 통과하는 테스트 도입(STEP 2 I-1). `required` 40블록을 강제하는 장치가 현재 0개다.
-- **→ STEP 4**: `ErrorEnvelopeFilter`를 `@Catch()`로 넓혀 비HTTP 500도 엔벨로프로(메시지 누출 금지, STEP 2 I-11).
-- **→ STEP 4**: 배선 스모크 테스트가 엔진 규칙값(62.5)에 결합돼 있다 → 형태 단언으로 완화(STEP 2 I-14).
+- ~~**→ STEP 4 (DoD)**: ajv 응답 스키마 검증~~ → **해소**(키셋 검증까지 포함).
+- ~~**→ STEP 4**: `ErrorEnvelopeFilter`를 `@Catch()`로~~ → **해소**.
+- ~~**→ STEP 4**: 배선 스모크의 62.5 결합 완화~~ → **해소**.
+- ~~**→ STEP 4**: DB 통합 테스트를 `globalSetup`으로 이관~~ → **해소**.
+- **→ STEP 5**: `GET /exercises`(부위별 카탈로그)가 아직 501 — F5 추가/교체 팝업의 후보 목록 소스라 선행 구현 필요. 세션 응답의 `planned_sets[].exercise_id`로 "이미 포함된 종목" 비활성 표시는 가능(계약 추가 불필요).
+- **→ STEP 5**: `BASELINE`의 `weight: 0`과 맨몸의 `weight: null`을 "무게 미정 / 자체중량"으로 렌더링(0kg 추천으로 표시 금지).
+- **→ STEP 6**: `PATCH /programs/{programId}` 구현 시 템플릿과 세션을 함께 갱신(반대 방향 드리프트 방지).
+- **→ STEP 7**: 스텁이 내는 501과 `/me/*`·`/billing/*`·`/webhooks/pg`의 400을 계약에 일괄 선언(구현 시점).
 - **→ STEP 5**: `@next/eslint-plugin-next` + `eslint-plugin-react-hooks` 도입(STEP 0 I-7).
 - **→ STEP 6**: `@serwist/next` 실제 배선(Service Worker·앱셸 캐시).
 - **→ STEP 4**: DB 통합 테스트 부트스트랩을 jest `globalSetup`으로 이관(STEP 1 I-2). DB spec이 2개 이상이 되면 worker별 `migrate deploy` 경합.
@@ -228,14 +289,23 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## 열린 질문 (사람 결정 대기 — STEP 4 착수 전)
-1. **`/sync`의 `client_id` 형식이 openapi 안에서 자기모순**: 스키마는 `format: uuid`인데 같은 파일의 예시는 `m_9f2`다(L372). 현재 DTO는 uuid로 검증한다 — 어느 쪽이 진실인지 확정 필요. 오프라인 멱등 키라 STEP 6에 직접 영향.
-2. **openapi `Exercise`에 `metric`/시간 범위 필드가 없다** → `e_plank`(metric=time, 20~60초)를 계약으로 표현할 수 없다. DB에는 `metric`·`default_time_low_sec/high_sec`가 있다. ① openapi에 `metric`+시간 범위 추가 ② 시간 종목을 reps로 환산해 노출 ③ 그대로 두고 시간 종목은 STEP 5에서 제외 — 택1 필요.
-3. **`POST /webhooks/pg`의 `signature`가 optional**(설명은 "서명 검증 필수"). 결제/보안이라 임의 변경하지 않았다. STEP 7 전 결정 필요.
-4. **감량 방향 해석 확인**: 오프스텝 61kg(step 5)에서 감량·통증 경로가 55가 아닌 **60**(한 칸 아래)으로 간다. "감량은 항상 최소 1스텝"을 원하면 알려달라(테스트 1줄 수정).
+## 사람 결정(확정 — 2026-08-05, 2차)
+1. `/sync` `client_id`는 **uuid 유지**, openapi 예시를 UUID 형식으로 정정 → 반영 완료.
+2. openapi `Exercise`에 `metric`·`default_time_low_sec/high_sec` 추가 → 반영 완료(`metric`은 DB가 non-null이라 non-nullable required, 시간 범위만 nullable).
+3. `/webhooks/pg`의 `signature` **required** → 반영 완료(구현은 스텁 유지).
+4. 감량 방향은 **현재 동작(대칭, 61→60) 유지** → 테스트 미수정.
+5. `pain_areas` 관절→패턴 제외 매핑 도입, 맨몸·시간 진행 모델 도입, 상태코드 계약 반영, 세션 내 중복 종목 금지 → 전부 반영 완료(STEP 4 섹션 참조).
+
+## 열린 질문 (남은 것)
+- **프로그램 생성 규칙**(분할·운동 수·세트 수·`target_rir`)이 문서 근거 없는 해석 — 제품 리뷰 필요.
+- **`pain_areas` enum 부재** — 오타가 안전 필터를 조용히 무력화한다. enum 고정 여부.
+- **시간 종목의 goal별 목표 시간 표**가 스펙에 없다(현재는 카탈로그 기본값).
+- **시간 목표의 "범위 폭 유지" 규칙이 없다** — GC-32처럼 12~15초를 못 하면 목표가 `10~10초`로 폭이 붕괴한다. 규칙(`max(10, x - step)`을 상·하단 독립 적용)에서 그대로 도출된 값이라 구현 오류는 아니지만 UX 검토 대상.
+- 아직 골든이 고정하지 못한 진행 상수: `CONFIDENCE.full`(절대값), `BODYWEIGHT_REPS_CAP` 하향 방향, `TIME_DOWN_RATIO` 상향 방향. **안전 관련 상수는 전부 고정 완료**.
+- SECURITY_PIPA가 요구하는 **건강데이터 접근 감사 로깅 테이블**이 DATA_MODEL에 없다(스펙 공백).
 
 ## 다음 액션
-- **STEP 4**: 고정 dev-user 가드(UUID, 한 곳 격리) → programs generate/current → sessions get/complete(완료 시 `recommendNextSet`로 다음 추천 갱신) → 루틴 편집(add/delete/swap). 통합 테스트는 Testcontainers.
+- **STEP 5**: 온보딩 → 프로그램 확인('왜 이 루틴') → 데일리 루틴(F1~F7: 세트 로깅·휴식 타이머·루틴 편집·운동 종료) → F8 대시보드. frontend + ui-ux + design 병렬 + qa E2E.
 - 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`(`cp .env.example .env`, `FIELD_ENCRYPTION_KEY`는 `openssl rand -base64 32`).
-- STEP 4 진입 전 처리: 위 "열린 질문" 1·2번 결정, ajv 응답 검증(DoD), 민감필드 복호화 경계를 서비스 레이어 한 곳에.
-- `/goal until 3` 지시로 **STEP 3에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 4`.
+- STEP 5 착수 시 함께 처리: `GET /exercises` 구현(F5 후보 목록), `@next/eslint-plugin-next`+`eslint-plugin-react-hooks` 도입, `weight: 0`/`null` 렌더 가드.
+- `/goal until 4` 지시로 **STEP 4에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 5`.

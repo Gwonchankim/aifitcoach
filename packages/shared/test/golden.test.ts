@@ -12,8 +12,12 @@ interface GoldenCase {
   id: string;
   input: Omit<RecommendationInput, "rules_version">;
   expect: {
-    weight?: number;
+    /** null = 자체중량(맨몸)·시간 종목 — 추가 부하 없음. */
+    weight?: number | null;
     reps_low?: number;
+    reps_high?: number;
+    time_low_sec?: number;
+    time_high_sec?: number;
     reason_code?: ReasonCode;
     reason_code_in?: ReasonCode[];
     e1rm?: number;
@@ -33,6 +37,9 @@ const golden = goldenJson as unknown as {
 const KNOWN_EXPECT_KEYS = [
   "weight",
   "reps_low",
+  "reps_high",
+  "time_low_sec",
+  "time_high_sec",
   "reason_code",
   "reason_code_in",
   "e1rm",
@@ -67,6 +74,11 @@ describe("golden_tests.json", () => {
 
       if (c.expect.weight !== undefined) expect(out.weight).toBe(c.expect.weight);
       if (c.expect.reps_low !== undefined) expect(out.reps_low).toBe(c.expect.reps_low);
+      if (c.expect.reps_high !== undefined) expect(out.reps_high).toBe(c.expect.reps_high);
+      if (c.expect.time_low_sec !== undefined) expect(out.time_low_sec).toBe(c.expect.time_low_sec);
+      if (c.expect.time_high_sec !== undefined) {
+        expect(out.time_high_sec).toBe(c.expect.time_high_sec);
+      }
       if (c.expect.reason_code !== undefined) expect(out.reason_code).toBe(c.expect.reason_code);
       if (c.expect.reason_code_in !== undefined) {
         expect(c.expect.reason_code_in).toContain(out.reason_code);
@@ -95,6 +107,15 @@ describe("결정론", () => {
     const first = JSON.stringify(recommendNextSet(input));
     for (let i = 0; i < 100; i++) {
       expect(JSON.stringify(recommendNextSet(input))).toBe(first);
+    }
+  });
+
+  it("모든 골든 케이스가 입력 객체를 변형하지 않는다", () => {
+    for (const c of golden.cases) {
+      const input: RecommendationInput = { ...c.input, rules_version: golden.rules_version };
+      const snapshot = JSON.stringify(input);
+      recommendNextSet(input);
+      expect(JSON.stringify(input), c.id).toBe(snapshot);
     }
   });
 

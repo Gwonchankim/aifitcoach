@@ -707,6 +707,24 @@ export interface paths {
             };
           };
         };
+        /** @description 잘못된 입력(difficulty/pump enum 밖, pain 이 0~10 범위 밖). */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 세션이 없다(내 세션이 아닌 경우 포함). */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
       };
     };
     delete?: never;
@@ -1142,6 +1160,33 @@ export interface paths {
             "application/json": components["schemas"]["Session"];
           };
         };
+        /** @description 잘못된 입력(exercise_id 누락, 존재하지 않는 exercise_id, sets 가 1~10 밖 등). */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 세션이 없다(내 세션이 아닌 경우 포함). */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 같은 exercise_id 는 한 세션에 한 번만 넣을 수 있다. */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
       };
     };
     delete?: never;
@@ -1183,6 +1228,24 @@ export interface paths {
           };
           content: {
             "application/json": components["schemas"]["Session"];
+          };
+        };
+        /** @description 세션이 없거나 그 운동이 세션에 없다. */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 이미 수행 기록이 있는 운동은 뺄 수 없다. */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
           };
         };
       };
@@ -1230,6 +1293,33 @@ export interface paths {
           };
           content: {
             "application/json": components["schemas"]["Session"];
+          };
+        };
+        /** @description 잘못된 입력(to_exercise_id 누락, 존재하지 않는 to_exercise_id 등). */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 세션이 없거나, 교체 대상 운동이 세션에 없다. */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 이미 수행 기록이 있는 운동은 교체할 수 없으며, 이미 이 세션에 있는 종목으로는 교체할 수 없다(중복 금지). */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
           };
         };
       };
@@ -1347,15 +1437,27 @@ export interface components {
       experience_level: "beginner" | "intermediate" | "advanced";
       equipment?: string[];
       avoid_exercises?: string[];
-      pain_areas?: string[];
+      pain_areas?: (
+        "knee" | "lower_back" | "shoulder" | "elbow" | "wrist" | "hip" | "neck" | "ankle"
+      )[];
     };
     Program: {
       program_id: string;
       goal: string;
       /** @example upper_lower */
       split_type: string;
-      /** @example 2026.07.1 */
+      /** @example 2026.08.1 */
       rules_version: string;
+      excluded_exercises: {
+        /** @example e_back_squat */
+        exercise_id: string;
+        /** @example knee */
+        pain_area: string;
+        /** @example squat */
+        movement_pattern: string;
+        /** @example 무릎 통증으로 squat 패턴을 제외했다(일반적 회피 가이드이며 의료적 조언이 아니다). */
+        reason: string;
+      }[];
       sessions: {
         /** @example MON */
         day: string;
@@ -1364,10 +1466,12 @@ export interface components {
         exercises: {
           exercise_id: string;
           sets: number;
-          reps_low: number;
-          reps_high: number;
-          target_rir: number;
+          reps_low: number | null;
+          reps_high: number | null;
+          target_rir: number | null;
           rest_sec: number;
+          time_low_sec?: number | null;
+          time_high_sec?: number | null;
         }[];
       }[];
     };
@@ -1401,12 +1505,14 @@ export interface components {
       id: string;
       exercise_id: string;
       set_no: number;
-      target_reps_low: number;
-      target_reps_high: number;
-      target_rir: number;
+      target_reps_low: number | null;
+      target_reps_high: number | null;
+      target_rir: number | null;
       rest_sec: number;
-      recommended_weight: number;
-      recommended_reps: number;
+      target_time_low_sec?: number | null;
+      target_time_high_sec?: number | null;
+      recommended_weight: number | null;
+      recommended_reps: number | null;
       /** @example WEIGHT_UP_REP_TARGET_MET */
       reason_code: string;
       confidence: number;
@@ -1414,9 +1520,10 @@ export interface components {
     };
     PerformedSet: {
       planned_set_id?: string;
-      actual_weight?: number;
-      actual_reps?: number;
+      actual_weight?: number | null;
+      actual_reps?: number | null;
       actual_rir?: number | null;
+      actual_time_sec?: number | null;
       pain_score?: number | null;
       completed?: boolean;
       /** Format: uuid */
@@ -1426,10 +1533,12 @@ export interface components {
     };
     Recommendation: {
       exercise_id: string;
-      weight: number;
-      reps_low: number;
-      reps_high: number;
+      weight: number | null;
+      reps_low: number | null;
+      reps_high: number | null;
       sets: number;
+      time_low_sec?: number | null;
+      time_high_sec?: number | null;
       reason_code: string;
       confidence: number;
       /** @example 최근 3세트 모두 상단·RIR 2 → +2.5kg */

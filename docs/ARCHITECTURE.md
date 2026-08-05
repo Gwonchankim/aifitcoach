@@ -60,3 +60,10 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-20 | openapi 클라이언트 타입 생성물은 `apps/web/lib/api-types.ts`, CI가 `pnpm codegen` 후 diff로 드리프트 차단 | 생성물을 커밋해 리뷰 가능하게 하고, 계약만 바뀌고 타입이 stale 해지는 것을 게이트로 방지 | 확정(STEP 2) |
 | ADR-21 | api는 전역 `ValidationPipe(whitelist,transform)` + `ErrorEnvelopeFilter`로 `{error:{code,message}}` 단일 생성 지점 | CONVENTIONS.md 에러 엔벨로프를 한 곳에서 강제. 인증 가드도 `configureApp` 이음새 한 곳에 붙인다 | 확정(STEP 2) |
 | ADR-22 | 응답 스키마 `required`는 "서버가 항상 내리는 필드"만, 해당 없으면 `null`을 명시적으로 내린다 | 클라이언트 상태를 `undefined\|null\|값` 3상태에서 2상태로 축소(F8 대시보드 분기) | 확정(STEP 2, 사람 승인) |
+| ADR-23 | dev-user 주입은 `app.setup.ts`의 `app.use(devUserMiddleware)` **한 줄**. 프로덕션에서는 명시적 opt-in 없이 켜지면 **부팅 거부** | 인증 도입 시 이 지점만 OAuth+쿠키+CSRF로 교체. 인증 미배선 상태의 프로덕션 배포 사고 방지 | 확정(STEP 4) |
+| ADR-24 | 세션 편집(F5)은 **세션 스코프**. 프로그램 템플릿은 `programs.template`(JSONB)에 생성 시점 스냅샷으로 고정 | 편집이 템플릿으로 역류해 `GET /programs/current`가 오염되던 문제. 세션은 템플릿의 인스턴스다 | 확정(STEP 4) |
+| ADR-25 | `POST /sessions/{id}/complete`는 **멱등 + 피드백 키 단위 병합**(409 아님), `completed_at`은 최초 값 보존 | STEP 6 아웃박스 재시도가 정상 경로다. 409로 막으면 재시도가 영구 실패로 남고, 전체 교체는 암호화된 `pain`을 파괴한다 | 확정(STEP 4) |
+| ADR-26 | 세션 내 운동 **중복 미지원**(`plannedExerciseId` = `exercise_id`), 중복 추가·교체는 409. DB `ux_planned_session_exercise_set(session_id, exercise_id, set_no)` 유니크로 동시성까지 차단 | 중복 허용 시 하나를 지우면 둘 다 지워진다. 향후 중복이 필요하면 슬롯 고유 id 도입(openapi·DB·프론트 동시 변경) | **확정**(사람 결정 2026-08-05) |
+| ADR-27 | 맨몸(`step_kg = null`)은 반복으로, 시간 종목(`metric = time`)은 유지 시간으로 진행. `weight = null`은 자체중량, `step_kg = 0`은 `INVALID_INPUT`(서로 다른 의미) | 홈트 사용자가 프로그램을 만들 수 없던 문제. 0/null 혼동은 실제 버그였다(`?? 0` → 맨몸이 INVALID_INPUT) | **확정**(사람 결정 2026-08-05) |
+| ADR-28 | 온보딩 `pain_areas`는 `docs/SAFETY_PAIN_MAPPING.md` 표로 movement_pattern을 제외하고, 부족분은 같은 근육군 머신/케이블로 대체. 제외 근거를 응답(`Program.excluded_exercises`)에 포함 | "받고 조용히 버리기"는 안전 결함. 제외로 성립 불가해도 에러 대신 축소 프로그램 | **확정**(사람 결정 2026-08-05) |
+| ADR-29 | `rules_version` 2026.07.1 → **2026.08.1**(맨몸·시간 가산 규칙). 기존 입력의 출력은 불변(골든 18건 무변경) | api가 맨몸·시간 추천을 실제로 내보내기 시작한 시점에 상수·골든·스펙·openapi 예시를 함께 올림 | 확정(STEP 4) |

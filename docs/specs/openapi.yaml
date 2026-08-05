@@ -352,6 +352,16 @@ paths:
                   next_recommendations:
                     type: array
                     items: { $ref: '#/components/schemas/Recommendation' }
+        '400':
+          description: 잘못된 입력(difficulty/pump enum 밖, pain 이 0~10 범위 밖).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 세션이 없다(내 세션이 아닌 경우 포함).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /sync:
     post:
@@ -560,6 +570,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
+        '400':
+          description: 잘못된 입력(exercise_id 누락, 존재하지 않는 exercise_id, sets 가 1~10 밖 등).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 세션이 없다(내 세션이 아닌 경우 포함).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: >
+            상태 충돌. 이미 완료된 세션은 편집할 수 없고,
+            같은 exercise_id 는 한 세션에 한 번만 넣을 수 있다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /sessions/{sessionId}/exercises/{plannedExerciseId}:
     delete:
@@ -581,6 +608,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
+        '404':
+          description: 세션이 없거나 그 운동이 세션에 없다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: >
+            상태 충돌. 이미 완료된 세션은 편집할 수 없고,
+            이미 수행 기록이 있는 운동은 뺄 수 없다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /sessions/{sessionId}/exercises/{plannedExerciseId}/swap:
     post:
@@ -611,6 +650,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
+        '400':
+          description: 잘못된 입력(to_exercise_id 누락, 존재하지 않는 to_exercise_id 등).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 세션이 없거나, 교체 대상 운동이 세션에 없다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: >
+            상태 충돌. 이미 완료된 세션은 편집할 수 없고, 이미 수행 기록이 있는 운동은 교체할 수 없으며,
+            이미 이 세션에 있는 종목으로는 교체할 수 없다(중복 금지).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /dashboard:
     get:
@@ -749,17 +805,40 @@ components:
           type: array
           items: { type: string }
         pain_areas:
+          # 통증 부위 → 제외 movement_pattern 매핑은 docs/SAFETY_PAIN_MAPPING.md 가 유일한 출처이고,
+          # 아래 enum 은 그 매핑표의 8개 부위다.
+          # 알 수 없는 값(오타·대소문자·한글)은 400 이다 — 무시하면 안전 필터가 조용히 무력화된다.
+          # 제외 결과는 Program.excluded_exercises 로 돌려준다.
           type: array
-          items: { type: string }
+          items:
+            type: string
+            enum: [knee, lower_back, shoulder, elbow, wrist, hip, neck, ankle]
+            example: knee
 
     Program:
       type: object
-      required: [program_id, goal, split_type, rules_version, sessions]
+      # excluded_exercises 는 안전 근거(SAFETY_PAIN_MAPPING.md 규칙 3)라 생략 가능하면 안 된다.
+      # 제외가 없었으면 빈 배열이다(구현은 항상 내보낸다).
+      required: [program_id, goal, split_type, rules_version, excluded_exercises, sessions]
       properties:
         program_id: { type: string }
         goal: { type: string }
         split_type: { type: string, example: upper_lower }
-        rules_version: { type: string, example: '2026.07.1' }
+        rules_version: { type: string, example: '2026.08.1' }
+        # pain_areas 로 후보에서 뺀 운동과 사유(docs/SAFETY_PAIN_MAPPING.md 규칙 3).
+        # 비어 있으면 제외가 없었다는 뜻이다.
+        excluded_exercises:
+          type: array
+          items:
+            type: object
+            required: [exercise_id, pain_area, movement_pattern, reason]
+            properties:
+              exercise_id: { type: string, example: e_back_squat }
+              pain_area: { type: string, example: knee }
+              movement_pattern: { type: string, example: squat }
+              reason:
+                type: string
+                example: '무릎 통증으로 squat 패턴을 제외했다(일반적 회피 가이드이며 의료적 조언이 아니다).'
         sessions:
           type: array
           items:
@@ -772,14 +851,17 @@ components:
                 type: array
                 items:
                   type: object
+                  # metric=time 종목(e_plank)은 반복·RIR 대신 time_*_sec 로 처방한다 → 반복 축은 null.
                   required: [exercise_id, sets, reps_low, reps_high, target_rir, rest_sec]
                   properties:
                     exercise_id: { type: string }
                     sets: { type: integer }
-                    reps_low: { type: integer }
-                    reps_high: { type: integer }
-                    target_rir: { type: integer }
+                    reps_low: { type: integer, nullable: true }
+                    reps_high: { type: integer, nullable: true }
+                    target_rir: { type: integer, nullable: true }
                     rest_sec: { type: integer }
+                    time_low_sec: { type: integer, nullable: true }
+                    time_high_sec: { type: integer, nullable: true }
 
     Exercise:
       type: object
@@ -834,6 +916,8 @@ components:
 
     PlannedSet:
       type: object
+      # 맨몸(자체중량) 종목은 recommended_weight 가 null 이고, metric=time 종목(e_plank)은
+      # 반복·RIR 축이 없어 target_reps_*/target_rir/recommended_reps 가 null + target_time_*_sec 를 쓴다.
       required:
         [
           id,
@@ -853,23 +937,28 @@ components:
         id: { type: string }
         exercise_id: { type: string }
         set_no: { type: integer }
-        target_reps_low: { type: integer }
-        target_reps_high: { type: integer }
-        target_rir: { type: integer }
+        target_reps_low: { type: integer, nullable: true }
+        target_reps_high: { type: integer, nullable: true }
+        target_rir: { type: integer, nullable: true }
         rest_sec: { type: integer }
-        recommended_weight: { type: number }
-        recommended_reps: { type: integer }
+        target_time_low_sec: { type: integer, nullable: true }
+        target_time_high_sec: { type: integer, nullable: true }
+        recommended_weight: { type: number, nullable: true }
+        recommended_reps: { type: integer, nullable: true }
         reason_code: { type: string, example: WEIGHT_UP_REP_TARGET_MET }
         confidence: { type: number }
         rules_version: { type: string }
 
     PerformedSet:
       type: object
+      # metric=reps 는 actual_weight/actual_reps 를, metric=time 종목(e_plank)은 actual_time_sec 를
+      # 기록한다(서로 배타적이라 반대쪽 축은 null 이다).
       properties:
         planned_set_id: { type: string }
-        actual_weight: { type: number }
-        actual_reps: { type: integer }
+        actual_weight: { type: number, nullable: true }
+        actual_reps: { type: integer, nullable: true }
         actual_rir: { type: integer, nullable: true }
+        actual_time_sec: { type: integer, nullable: true }
         pain_score: { type: integer, nullable: true }
         completed: { type: boolean }
         client_id: { type: string, format: uuid }
@@ -877,6 +966,8 @@ components:
 
     Recommendation:
       type: object
+      # weight=null 은 자체중량(맨몸·시간 종목) — 추가 부하를 처방하지 않는다는 뜻이다.
+      # metric=time 종목은 reps_low/reps_high 가 null 이고 time_low_sec/time_high_sec 를 채운다.
       required:
         [
           exercise_id,
@@ -891,10 +982,12 @@ components:
         ]
       properties:
         exercise_id: { type: string }
-        weight: { type: number }
-        reps_low: { type: integer }
-        reps_high: { type: integer }
+        weight: { type: number, nullable: true }
+        reps_low: { type: integer, nullable: true }
+        reps_high: { type: integer, nullable: true }
         sets: { type: integer }
+        time_low_sec: { type: integer, nullable: true }
+        time_high_sec: { type: integer, nullable: true }
         reason_code: { type: string }
         confidence: { type: number }
         explanation: { type: string, example: '최근 3세트 모두 상단·RIR 2 → +2.5kg' }
@@ -985,7 +1078,7 @@ components:
       required: [exercise_id]
       properties:
         exercise_id: { type: string }
-        sets: { type: integer, nullable: true }
+        sets: { type: integer, nullable: true, minimum: 1, maximum: 10 }
         position: { type: integer, nullable: true }
 
     DashboardSummary:

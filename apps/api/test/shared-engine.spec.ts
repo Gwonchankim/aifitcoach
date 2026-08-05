@@ -21,8 +21,12 @@ describe("shared 추천 엔진 배선", () => {
 
     const out = recommendNextSet(input);
 
-    expect(out.weight).toBe(62.5);
-    expect(out.reason_code).toBe("WEIGHT_UP_REP_TARGET_MET");
-    expect(out.rules_version).toBe("2026.07.1");
+    // 규칙값(무게·reason_code)은 packages/shared 의 골든 테스트가 검증한다.
+    // 여기서는 "호출되고 Recommendation 모양으로 돌아온다"만 본다.
+    expect(typeof out.weight).toBe("number");
+    expect(typeof out.reps_low).toBe("number");
+    expect(typeof out.confidence).toBe("number");
+    expect(typeof out.reason_code).toBe("string");
+    expect(out.rules_version).toBe(input.rules_version);
   });
 });

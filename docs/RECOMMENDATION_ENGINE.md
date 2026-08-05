@@ -1,16 +1,25 @@
 # 추천 엔진 (핵심 IP) — 구현 규칙
 
 > 계약(테스트): `specs/golden_tests.json`. 이 규칙과 그 테스트를 **모두** 만족해야 한다.
-> `rules_version = "2026.07.1"`. 규칙 변경 시 버전과 골든 테스트를 함께 갱신한다.
+> `rules_version = "2026.08.1"`. 규칙 변경 시 버전과 골든 테스트를 함께 갱신한다.
+> 2026.08.1 = 2026.07.1 + "맨몸(체중 부하) 종목"·"시간 종목" **가산 규칙**. 기존(가중·반복) 입력의 출력은
+> 하나도 바뀌지 않는다(골든 18건 무변경, 신규 7건 추가). apps/api가 맨몸·시간 처방을 실제로 내보내기 시작한
+> 시점(STEP 4)에 `RULES_VERSION`·golden·openapi를 함께 올렸다.
 > 구현은 `packages/shared`의 순수 함수로 두어 백엔드(권위)와 프론트(오프라인 미러)가 공유한다.
 
 ## 함수 시그니처
 ```ts
 recommendNextSet(input): Recommendation
-// input:  { goal, exercise:{type:'compound'|'isolation', region:'upper'|'lower'|'core', step_kg},
-//           target:{reps_low, reps_high, rir}, last_sets:[{w,reps,rir?}],
+// input:  { goal, exercise:{type:'compound'|'isolation', region:'upper'|'lower'|'core',
+//                           step_kg:number|null,           // null = 맨몸(자체중량)
+//                           metric?:'reps'|'time'},        // 기본 'reps'
+//           target:{reps_low?, reps_high?, rir?,           // metric='reps'
+//                   time_low_sec?, time_high_sec?},        // metric='time'
+//           last_sets:[{w?,reps?,rir?,time_sec?}],
 //           calibration?:{rir_bias}, safety?:{pain_score}, rules_version }
-// output: { weight, reps_low, reps_high?, sets?, reason_code, confidence, rules_version }
+// output: { weight:number|null, reps_low?, reps_high?, sets?,   // weight null = 자체중량
+//           time_low_sec?, time_high_sec?,                      // metric='time'
+//           reason_code, confidence, rules_version }
 ```
 
 ## 목표별 파라미터
@@ -46,6 +55,49 @@ ELSE:
     reason = ADD_ONE_REP
 ```
 - 무게 증가가 어려운 고립운동은 반복 증가를 우선 과부하 수단으로 사용.
+
+## 맨몸(체중 부하) 종목 — `step_kg = null`, `metric = reps`
+> 대상: `e_dips`, `e_pullup` 등 `default_step_kg`가 없는 종목. **부하 대신 반복으로 진행**한다.
+> `step_kg = 0`은 맨몸이 아니라 잘못된 증량 단위다(`INVALID_INPUT`). 맨몸은 반드시 `null`.
+
+- 출력 `weight = null`(자체중량). 어떤 분기에서도 부하를 처방하지 않는다. `e1rm`도 내지 않는다(외부 부하 없음).
+- RIR은 **부하 축(증량/감량) 판정에 쓰지 않는다** — 조절할 부하가 없다. `too_hard` 판정(유지 신호)에는 그대로 쓴다.
+```
+IF 어느 세트 reps <= 2 AND reps < target.reps_low:      # 하단에 크게 미달
+    → 무한 하향 대신 보조 종목(랫풀다운·체스트프레스 머신 등) 제안
+      reason = SUBSTITUTE_TOO_HARD_BODYWEIGHT (+ suggest_substitution: true)
+ELIF hit_top AND NOT too_hard:
+    IF target.reps_high >= 20:                          # 진행 상한
+        reps 범위 유지 + 가중(웨이트 벨트)·난이도 상향 제안
+        reason = PROGRESSION_CAP_BODYWEIGHT
+    ELSE:
+        reps_high = target.reps_high + 1                # 범위 자체를 올린다(부하 대신)
+        reason = REPS_UP_BODYWEIGHT
+ELIF too_hard:
+    reps 범위 유지                                       reason = TOO_HARD / HOLD_RIR_LOW
+ELSE:
+    reps_low = min(최저 세트 reps + 1, reps_high)        reason = ADD_ONE_REP
+```
+- `REPS_UP_BODYWEIGHT`은 **상단만** 올린다(하단은 유지). 하단까지 함께 올리면 아직 못 하는 반복을 최소치로 강제하게 된다.
+- 골든: GC-23(상단 도달), GC-24(미달), GC-25(상한), GC-26(대체 제안).
+
+## 시간 종목 — `metric = time`
+> 대상: `e_plank` 등. 무게·반복 대신 **목표 유지 시간**(`time_low_sec`/`time_high_sec`)을 처방한다.
+
+- 출력: `weight = null`, `time_low_sec`, `time_high_sec`. `reps_low`/`reps_high`/`e1rm`은 내지 않는다.
+- **RIR은 시간 종목에 적용하지 않는다(수집도 생략)** → RIR 결측을 이유로 `confidence`를 깎지 않는다.
+- 진행 단위 `time_step` = 상단 60초 미만이면 **+5초**, 60초 이상이면 **+10초**. 하향 바닥은 10초.
+```
+min_time = 유효 세트(time_sec > 0) 중 최소
+IF min_time >= target.time_high_sec:                    # 모든 세트가 상단 도달
+    time_high_sec += time_step                          reason = TIME_UP
+ELIF min_time < target.time_low_sec * 0.5:              # 하단의 절반에도 크게 미달
+    time_low_sec  = max(10, time_low_sec  - time_step)
+    time_high_sec = max(10, time_high_sec - time_step)  reason = TIME_DOWN
+ELSE:
+    범위 유지                                            reason = TIME_HOLD
+```
+- 골든: GC-27(상단 도달), GC-28(유지), GC-29(하향).
 
 ## RIR 기반 오토레귤레이션 (P1) — 부하 자기조절 1차 신호
 ```
@@ -84,7 +136,9 @@ ELSE:
 WEIGHT_UP_REP_TARGET_MET, ADD_ONE_REP, HOLD_RIR_LOW, TOO_HARD, SIMILAR_INIT, BASELINE,
 INVALID_INPUT, SUBSTITUTE_PAIN, VOLUME_SPIKE_CAP, DELOAD_SUGGESTED,
 RIR_TOO_EASY_INCREASE, RIR_ON_TARGET_HOLD, RIR_TOO_HARD_REDUCE,
-CALIBRATION_NEEDED, CALIBRATION_GRADUATED, CALIBRATION_STALE
+CALIBRATION_NEEDED, CALIBRATION_GRADUATED, CALIBRATION_STALE,
+REPS_UP_BODYWEIGHT, PROGRESSION_CAP_BODYWEIGHT, SUBSTITUTE_TOO_HARD_BODYWEIGHT,
+TIME_UP, TIME_HOLD, TIME_DOWN
 
 ## 재현성
 - 모든 추천에 `reason_code`와 `rules_version`을 부여·기록(분석·A/B). 골든 테스트가 회귀를 막는다.

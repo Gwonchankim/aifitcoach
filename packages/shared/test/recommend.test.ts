@@ -18,7 +18,8 @@ const base: RecommendationInput = {
 describe("recommendNextSet", () => {
   it("추천 무게는 step_kg의 배수다", () => {
     const out = recommendNextSet(base);
-    expect(Number.isInteger(out.weight / base.exercise.step_kg)).toBe(true);
+    // 가중 종목이므로 weight·step_kg 는 non-null (맨몸은 별도 describe).
+    expect(Number.isInteger(out.weight! / base.exercise.step_kg!)).toBe(true);
   });
 
   it("입력의 rules_version을 그대로 출력에 담는다", () => {
@@ -133,7 +134,7 @@ describe("오프스텝 무게 정규화 (1스텝 상한 보장, ADR-18)", () => 
   it("어떤 경로든 추천 무게는 마지막 무게 +1스텝을 넘지 않는다", () => {
     for (const w of [61, 62.5, 60, 63.9]) {
       const out = recommendNextSet({ ...lower, last_sets: atTop(w) });
-      expect(out.weight).toBeLessThanOrEqual(w + lower.exercise.step_kg);
+      expect(out.weight).toBeLessThanOrEqual(w + lower.exercise.step_kg!);
       expect(out.weight).toBeGreaterThan(w);
     }
   });
@@ -220,6 +221,204 @@ describe("confidence 등급", () => {
       expect(out.confidence).toBeGreaterThan(0);
       expect(out.confidence).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe("맨몸 종목 (step_kg = null)", () => {
+  // 골든(GC-23~26)이 고정하지 못하는 경계·부수 규칙만 둔다.
+  const bw: RecommendationInput = {
+    goal: "hypertrophy",
+    exercise: { type: "compound", region: "upper", step_kg: null, metric: "reps" },
+    target: { reps_low: 6, reps_high: 15, rir: 2 },
+    last_sets: [{ reps: 15, rir: 2 }],
+    rules_version: "2026.07.1",
+  };
+  const setsOf = (reps: number[], rir?: number) =>
+    reps.map((r) => (rir === undefined ? { reps: r } : { reps: r, rir }));
+
+  it("어떤 경로에서도 weight 는 null 이다(자체중량)", () => {
+    const paths: RecommendationInput[] = [
+      { ...bw, last_sets: setsOf([15, 15], 2) }, // REPS_UP_BODYWEIGHT
+      { ...bw, last_sets: setsOf([10, 9], 2) }, // ADD_ONE_REP
+      { ...bw, last_sets: setsOf([5, 5], 2) }, // TOO_HARD
+      { ...bw, last_sets: setsOf([2, 1], 0) }, // SUBSTITUTE_TOO_HARD_BODYWEIGHT
+      { ...bw, last_sets: [] }, // BASELINE
+      { ...bw, safety: { pain_score: 5 } }, // SUBSTITUTE_PAIN
+    ];
+    for (const input of paths) {
+      expect(recommendNextSet(input).weight).toBeNull();
+    }
+  });
+
+  it("상한 직전(19)은 20으로 올린다", () => {
+    const out = recommendNextSet({
+      ...bw,
+      target: { reps_low: 10, reps_high: 19, rir: 2 },
+      last_sets: setsOf([19, 19], 2),
+    });
+    expect(out.reason_code).toBe("REPS_UP_BODYWEIGHT");
+    expect(out.reps_high).toBe(20);
+  });
+
+  it("상한을 넘겨 올리지 않는다(20 → 20, PROGRESSION_CAP_BODYWEIGHT)", () => {
+    const out = recommendNextSet({
+      ...bw,
+      target: { reps_low: 10, reps_high: 20, rir: 2 },
+      last_sets: setsOf([22, 21], 2),
+    });
+    expect(out.reason_code).toBe("PROGRESSION_CAP_BODYWEIGHT");
+    expect(out.reps_high).toBe(20);
+  });
+
+  it("2회도 대체 제안 임계에 포함된다(경계: <= 2)", () => {
+    const out = recommendNextSet({
+      ...bw,
+      target: { reps_low: 4, reps_high: 12, rir: 2 },
+      last_sets: setsOf([2, 2], 0),
+    });
+    expect(out.reason_code).toBe("SUBSTITUTE_TOO_HARD_BODYWEIGHT");
+    expect(out.suggest_substitution).toBe(true);
+  });
+
+  it("하단 미달이지만 3회 이상이면 대체가 아니라 TOO_HARD(범위 유지)", () => {
+    const out = recommendNextSet({ ...bw, last_sets: setsOf([4, 3], 1) });
+    expect(out.reason_code).toBe("TOO_HARD");
+    expect(out.reps_low).toBe(6);
+    expect(out.reps_high).toBe(15);
+  });
+
+  it("목표 하단이 2 이하면 2회는 미달이 아니므로 대체를 제안하지 않는다", () => {
+    const out = recommendNextSet({
+      ...bw,
+      target: { reps_low: 2, reps_high: 6, rir: 2 },
+      last_sets: setsOf([2, 2], 2),
+    });
+    expect(out.reason_code).toBe("ADD_ONE_REP");
+    expect(out.suggest_substitution).toBeUndefined();
+  });
+
+  it("반복은 지켰지만 RIR 이 낮으면 HOLD_RIR_LOW(하향할 부하가 없다)", () => {
+    const out = recommendNextSet({ ...bw, last_sets: setsOf([10, 10], 0) });
+    expect(out.reason_code).toBe("HOLD_RIR_LOW");
+    expect(out.weight).toBeNull();
+  });
+
+  it("RIR 이 높아도 부하 증량 대신 반복 진행을 쓴다", () => {
+    const out = recommendNextSet({
+      ...bw,
+      calibration: { rir_bias: 0 },
+      last_sets: setsOf([10, 10], 4),
+    });
+    expect(out.reason_code).toBe("ADD_ONE_REP");
+  });
+
+  it("외부 부하가 없어 e1rm 을 내지 않는다", () => {
+    expect(recommendNextSet({ ...bw, last_sets: setsOf([15, 15], 2) }).e1rm).toBeUndefined();
+  });
+
+  it("step_kg = 0 은 맨몸이 아니라 INVALID_INPUT 이다(0 과 null 을 구분한다)", () => {
+    const out = recommendNextSet({
+      ...bw,
+      exercise: { type: "compound", region: "upper", step_kg: 0 },
+      last_sets: [{ w: 0, reps: 15, rir: 2 }],
+    });
+    expect(out.reason_code).toBe("INVALID_INPUT");
+  });
+});
+
+describe("시간 종목 (metric = time)", () => {
+  const plank: RecommendationInput = {
+    goal: "hypertrophy",
+    exercise: { type: "isolation", region: "core", step_kg: null, metric: "time" },
+    target: { time_low_sec: 20, time_high_sec: 60 },
+    last_sets: [{ time_sec: 60 }],
+    rules_version: "2026.07.1",
+  };
+
+  it("상단 60초 미만이면 +5초 상향", () => {
+    const out = recommendNextSet({
+      ...plank,
+      target: { time_low_sec: 20, time_high_sec: 45 },
+      last_sets: [{ time_sec: 45 }, { time_sec: 50 }],
+    });
+    expect(out.reason_code).toBe("TIME_UP");
+    expect(out.time_low_sec).toBe(20);
+    expect(out.time_high_sec).toBe(50);
+  });
+
+  it("한 세트라도 상단에 미달하면 올리지 않는다", () => {
+    const out = recommendNextSet({ ...plank, last_sets: [{ time_sec: 60 }, { time_sec: 55 }] });
+    expect(out.reason_code).toBe("TIME_HOLD");
+    expect(out.time_high_sec).toBe(60);
+  });
+
+  it("하단 미달이라도 하단의 절반 이상이면 하향하지 않는다(15 >= 20*0.5)", () => {
+    const out = recommendNextSet({ ...plank, last_sets: [{ time_sec: 15 }] });
+    expect(out.reason_code).toBe("TIME_HOLD");
+    expect(out.time_low_sec).toBe(20);
+    expect(out.time_high_sec).toBe(60);
+  });
+
+  it("하향은 최소 10초 아래로 내려가지 않는다(12 - 5 = 7 이지만 10)", () => {
+    const out = recommendNextSet({
+      ...plank,
+      target: { time_low_sec: 12, time_high_sec: 30 },
+      last_sets: [{ time_sec: 5 }],
+    });
+    expect(out.reason_code).toBe("TIME_DOWN");
+    expect(out.time_low_sec).toBe(10);
+    expect(out.time_high_sec).toBe(25);
+  });
+
+  it("무게·반복을 처방하지 않는다", () => {
+    const out = recommendNextSet(plank);
+    expect(out.weight).toBeNull();
+    expect(out.reps_low).toBeUndefined();
+    expect(out.reps_high).toBeUndefined();
+    expect(out.e1rm).toBeUndefined();
+  });
+
+  it("RIR 은 적용하지 않는다(보고돼도 판정·confidence 가 변하지 않는다)", () => {
+    const withRir = recommendNextSet({
+      ...plank,
+      calibration: { rir_bias: 0 },
+      last_sets: [{ time_sec: 45, rir: 0 }],
+    });
+    const withoutRir = recommendNextSet({ ...plank, last_sets: [{ time_sec: 45 }] });
+    expect(withRir.reason_code).toBe(withoutRir.reason_code);
+    expect(withRir.confidence).toBe(withoutRir.confidence);
+    // RIR 미수집이 정상이므로 결측 등급이 아니라 기록 있음(full) 등급을 쓴다.
+    expect(withoutRir.confidence).toBe(
+      recommendNextSet({ ...base, last_sets: [{ w: 60, reps: 10, rir: 2 }] }).confidence,
+    );
+    expect(withoutRir.confidence).toBeGreaterThan(
+      recommendNextSet({ ...base, last_sets: [{ w: 60, reps: 10 }] }).confidence,
+    );
+  });
+
+  it("기록이 없으면 목표 시간을 그대로 유지한 BASELINE", () => {
+    const out = recommendNextSet({ ...plank, last_sets: [] });
+    expect(out.reason_code).toBe("BASELINE");
+    expect(out.time_low_sec).toBe(20);
+    expect(out.time_high_sec).toBe(60);
+  });
+
+  it("목표 시간이 없거나 뒤집혀 있으면 INVALID_INPUT", () => {
+    expect(recommendNextSet({ ...plank, target: {} }).reason_code).toBe("INVALID_INPUT");
+    expect(
+      recommendNextSet({ ...plank, target: { time_low_sec: 60, time_high_sec: 20 } }).reason_code,
+    ).toBe("INVALID_INPUT");
+  });
+
+  it("통증 가드레일이 시간 진행보다 우선한다", () => {
+    const out = recommendNextSet({ ...plank, safety: { pain_score: 5 } });
+    expect(out.reason_code).toBe("SUBSTITUTE_PAIN");
+    expect(out.suggest_substitution).toBe(true);
+  });
+
+  it("time_sec 이 0 이하인 세트는 계산에서 제외한다", () => {
+    const out = recommendNextSet({ ...plank, last_sets: [{ time_sec: 0 }, { time_sec: 60 }] });
+    expect(out.reason_code).toBe("TIME_UP");
   });
 });
 

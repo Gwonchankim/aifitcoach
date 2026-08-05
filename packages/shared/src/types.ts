@@ -6,6 +6,8 @@
 export type Goal = "diet" | "hypertrophy" | "strength";
 export type ExerciseType = "compound" | "isolation";
 export type Region = "upper" | "lower" | "core";
+/** 진행 축. reps = 무게·반복, time = 유지 시간(e_plank). 미지정이면 reps. */
+export type Metric = "reps" | "time";
 
 export const REASON_CODES = [
   "WEIGHT_UP_REP_TARGET_MET",
@@ -24,14 +26,23 @@ export const REASON_CODES = [
   "CALIBRATION_NEEDED",
   "CALIBRATION_GRADUATED",
   "CALIBRATION_STALE",
+  "REPS_UP_BODYWEIGHT",
+  "PROGRESSION_CAP_BODYWEIGHT",
+  "SUBSTITUTE_TOO_HARD_BODYWEIGHT",
+  "TIME_UP",
+  "TIME_HOLD",
+  "TIME_DOWN",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
 
+/** metric=reps 는 w/reps(맨몸이면 w 생략 가능), metric=time 은 time_sec 만 채운다. */
 export interface PerformedSet {
-  w: number;
-  reps: number;
+  w?: number;
+  reps?: number;
   rir?: number;
+  /** metric=time 종목의 유지 시간(초). 시간 종목은 RIR 을 수집하지 않는다. */
+  time_sec?: number;
 }
 
 export interface RecommendationInput {
@@ -39,12 +50,18 @@ export interface RecommendationInput {
   exercise: {
     type: ExerciseType;
     region: Region;
-    step_kg: number;
+    /** null = 맨몸(자체중량): 부하 대신 반복으로 진행한다. 0 은 잘못된 증량 단위(INVALID_INPUT). */
+    step_kg: number | null;
+    /** 기본값 reps. */
+    metric?: Metric;
   };
+  /** metric=reps 는 reps_low/reps_high/rir, metric=time 은 time_low_sec/time_high_sec 이 필요하다. */
   target: {
-    reps_low: number;
-    reps_high: number;
-    rir: number;
+    reps_low?: number;
+    reps_high?: number;
+    rir?: number;
+    time_low_sec?: number;
+    time_high_sec?: number;
   };
   last_sets: PerformedSet[];
   calibration?: { rir_bias: number };
@@ -53,10 +70,15 @@ export interface RecommendationInput {
 }
 
 export interface Recommendation {
-  weight: number;
-  reps_low: number;
+  /** null = 자체중량(맨몸)·시간 종목 — 추가 부하를 처방하지 않는다. */
+  weight: number | null;
+  /** metric=reps 에서만 채운다. */
+  reps_low?: number;
   reps_high?: number;
   sets?: number;
+  /** metric=time 에서만 채운다. */
+  time_low_sec?: number;
+  time_high_sec?: number;
   reason_code: ReasonCode;
   confidence: number;
   rules_version: string;
