@@ -1,0 +1,196 @@
+/**
+ * 항목 4: 에러 경로에서 **사용자에게 실제로 뜨는 화면**을 확인한다.
+ * 에러코드(`CONFLICT` 등)·영문 원문·서버 해라체 메시지가 노출되면 결함이다.
+ */
+import { expect, test, type Page } from "@playwright/test";
+import { API_V1, openSession, seedProgram, shot, todaySession } from "./helpers";
+
+/** 화면 어디에도 개발자용 원문이 없어야 한다. */
+async function assertNoRawServerText(page: Page): Promise<void> {
+  const body = await page.locator("body").innerText();
+  expect(body).not.toMatch(/VALIDATION_ERROR|NOT_FOUND|CONFLICT|INTERNAL_ERROR|NOT_IMPLEMENTED/);
+  expect(body).not.toMatch(/e_[a-z_]+/);
+  expect(body).not.toMatch(/must not be|must be one of|Cannot (GET|POST)/);
+  // 서버 메시지는 해라체다("…없다.", "…이다."). 사용자 문구는 존댓말만 쓴다.
+  expect(body).not.toMatch(/찾을 수 없다|포함된 운동입니다|운동이 없다/);
+}
+
+test.describe("404", () => {
+  test("없는 세션 id 로 진입하면 안내 + [다시 불러오기] 가 보인다(E-6)", async ({ page }) => {
+    await page.goto("/session/11111111-1111-4111-8111-111111111111");
+    await expect(
+      page.getByText("오늘 운동을 찾을 수 없어요. 대시보드에서 다시 시작해 주세요."),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "다시 불러오기" })).toBeVisible();
+    await assertNoRawServerText(page);
+    await shot(page, "30-error-404-session");
+  });
+
+  test("계획이 없으면 /program 은 빈 상태로 안내한다(E-5)", async ({ page }) => {
+    await page.route("**/v1/programs/current", (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "NOT_FOUND", message: "생성된 프로그램이 없다." } }),
+      }),
+    );
+    await page.goto("/program");
+    await expect(page.getByText("아직 운동 계획이 없어요.")).toBeVisible();
+    await assertNoRawServerText(page);
+    await shot(page, "31-error-404-program");
+  });
+});
+
+test.describe("400", () => {
+  test("EZ바만 골라 계획을 만들면 장비 안내 배너가 뜬다(E-3, 실제 클릭)", async ({ page }) => {
+    await page.goto("/onboarding");
+    for (let i = 0; i < 5; i += 1) await page.getByRole("button", { name: "다음" }).click();
+
+    // 6/7 장비: 기본 전체 선택 → EZ바만 남긴다
+    await expect(
+      page.getByRole("heading", { name: "쓸 수 있는 장비를 골라 주세요" }),
+    ).toBeVisible();
+    for (const label of ["바벨", "덤벨", "머신", "케이블", "맨몸"]) {
+      await page.getByRole("button", { name: label, exact: true }).click();
+    }
+    await page.getByRole("button", { name: "다음" }).click();
+    await page.getByRole("button", { name: "계획 만들기" }).click();
+
+    await expect(
+      page.getByText("지금 고른 장비로는 계획을 만들기 어려워요. 장비를 하나 더 선택해 주세요."),
+    ).toBeVisible();
+    // 입력값이 보존되고 화면은 마지막 스텝에 머문다
+    await expect(
+      page.getByRole("heading", { name: "운동할 때 불편한 곳이 있나요?" }),
+    ).toBeVisible();
+    await assertNoRawServerText(page);
+    await shot(page, "32-error-400-generate");
+  });
+});
+
+test.describe("409", () => {
+  test.beforeEach(async ({ request }) => {
+    await seedProgram(request);
+  });
+
+  test("이미 루틴에 있는 운동은 추가 팝업에서 선택 자체가 막힌다(§3.3 예방)", async ({
+    page,
+    request,
+  }) => {
+    const sessionId = await todaySession(request);
+    await openSession(page, sessionId);
+
+    const firstName = (
+      (await page
+        .getByRole("button", { name: /1세트 완료 처리$/ })
+        .first()
+        .getAttribute("aria-label")) ?? ""
+    ).replace(/ 1세트 완료 처리$/, "");
+
+    await page.getByRole("button", { name: "운동 추가" }).click();
+    const picker = page.getByRole("dialog", { name: "운동 추가" });
+    // 오늘 루틴에 있는 종목의 탭을 찾아 순회한다.
+    for (const region of ["가슴", "등", "어깨", "팔", "하체", "코어"]) {
+      await picker.getByRole("tab", { name: region }).click();
+      const already = picker.getByRole("button", { name: new RegExp(firstName) });
+      if ((await already.count()) > 0) {
+        await expect(already.first()).toBeDisabled();
+        await expect(picker.getByText("이미 루틴에 있어요").first()).toBeVisible();
+        await shot(page, "33-conflict-prevented-duplicate");
+        return;
+      }
+    }
+    throw new Error("루틴에 있는 종목을 추가 팝업에서 찾지 못했다");
+  });
+
+  test("서버가 실제로 409 를 주면 팝업 안에 안내가 뜬다(중복 종목)", async ({ page, request }) => {
+    const sessionId = await todaySession(request);
+    const session = await (await request.get(`${API_V1}/sessions/${sessionId}`)).json();
+    const duplicateId = session.planned_sets[0].exercise_id as string;
+
+    await openSession(page, sessionId);
+
+    // UI 가 막고 있으므로, 서버 409 화면을 보기 위해 요청 본문만 중복 종목으로 바꾼다.
+    await page.route("**/v1/sessions/*/exercises", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await route.continue({ postData: JSON.stringify({ exercise_id: duplicateId }) });
+    });
+
+    await page.getByRole("button", { name: "운동 추가" }).click();
+    const picker = page.getByRole("dialog", { name: "운동 추가" });
+    await picker.getByRole("tab", { name: "코어" }).click();
+    await picker.getByRole("button", { name: /플랭크/ }).click();
+
+    await expect(picker.getByText("이미 오늘 루틴에 있는 운동이에요.")).toBeVisible();
+    await assertNoRawServerText(page);
+    await shot(page, "34-conflict-409-duplicate");
+  });
+
+  test("다른 곳에서 세션이 종료된 뒤 편집하면 409 안내가 뜬다", async ({ page, request }) => {
+    const sessionId = await todaySession(request);
+    await openSession(page, sessionId);
+
+    // 화면을 띄운 뒤 서버에서 세션을 종료한다(다른 기기에서 종료한 상황).
+    const done = await request.post(`${API_V1}/sessions/${sessionId}/complete`, {
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev" },
+      data: {},
+    });
+    expect(done.status()).toBe(200);
+
+    await page.getByRole("button", { name: "운동 추가" }).click();
+    const picker = page.getByRole("dialog", { name: "운동 추가" });
+    await picker.getByRole("tab", { name: "코어" }).click();
+    await picker.getByRole("button", { name: /플랭크/ }).click();
+
+    // E-10: 원인이 "완료된 세션"이므로 중복 종목 문구(E-11)가 나오면 안 된다.
+    await expect(picker.getByText("이미 종료한 운동이라 루틴을 바꿀 수 없어요.")).toBeVisible();
+    await expect(picker.getByText("이미 오늘 루틴에 있는 운동이에요.")).toHaveCount(0);
+    await assertNoRawServerText(page);
+    await shot(page, "35-conflict-409-completed-session");
+  });
+});
+
+test.describe("500 / 오프라인", () => {
+  test("대시보드 500 은 카드 단위로 격리되고 [다시 시도] 가 보인다(AC-S3-2)", async ({ page }) => {
+    await page.route("**/v1/dashboard", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "INTERNAL_ERROR", message: "서버 오류다." } }),
+      }),
+    );
+    await page.goto("/");
+    await expect(page.getByText("요약을 지금은 불러올 수 없어요.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "주요 리프트 추세" })).toBeVisible();
+    await assertNoRawServerText(page);
+    await shot(page, "36-error-500-dashboard");
+  });
+
+  test("화면을 띄운 뒤 네트워크가 끊기면 오프라인 문구가 보인다", async ({ page }) => {
+    await page.route("**/v1/**", (route) => route.abort("internetdisconnected"));
+    await page.goto("/");
+    await expect(
+      page.getByText(/인터넷이 연결되면 요약을 보여드릴게요\.|인터넷 연결이 불안정해요/),
+    ).toBeVisible();
+    await shot(page, "37-offline-dashboard");
+  });
+
+  /**
+   * 결함 D-2 재현: 서비스 워커가 등록되지 않아(next.config.mjs 에 @serwist/next 미연결,
+   * public/manifest 없음) 오프라인 상태에서 새로고침하면 앱 셸조차 뜨지 않는다.
+   * UX_STATES §2.3 "오프라인 · 캐시 있음" 상태로 갈 수 없다.
+   * PWA 가 붙으면 이 테스트는 "예상치 못한 통과"로 뒤집혀 갱신을 강제한다.
+   */
+  test("오프라인에서 새로고침해도 앱 셸이 뜬다(PWA) — 현재 실패가 정상", async ({
+    page,
+    context,
+  }) => {
+    test.fail(true, "결함 D-2: 서비스 워커 미등록");
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await context.setOffline(false);
+  });
+});

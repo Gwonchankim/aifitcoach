@@ -7,20 +7,26 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.101.4",
     "next": "15.5.22",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "shared": "workspace:*"
+    "shared": "workspace:*",
+    "zustand": "5.0.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.1",
     "@serwist/next": "9.5.12",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "22.20.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "lighthouse": "13.4.1",
     "serwist": "9.5.12",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",

@@ -22,8 +22,8 @@ describe("스텁 엔드포인트", () => {
     await app?.close();
   });
 
-  it("GET /v1/exercises → 501 + 에러 엔벨로프", async () => {
-    const response = await request(app.getHttpServer()).get("/v1/exercises");
+  it("GET /v1/subscriptions/status → 501 + 에러 엔벨로프", async () => {
+    const response = await request(app.getHttpServer()).get("/v1/subscriptions/status");
 
     expect(response.status).toBe(501);
     expect(response.body).toEqual({

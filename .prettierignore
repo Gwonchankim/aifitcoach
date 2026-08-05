@@ -6,6 +6,13 @@ coverage/
 pnpm-lock.yaml
 *.tsbuildinfo
 
+# Playwright/axe/Lighthouse 산출물(도구가 만든 파일)
+apps/web/e2e/.artifacts/
+apps/web/e2e/.report/
+apps/web/e2e/lighthouse/
+apps/web/e2e/axe-results.jsonl
+apps/web/e2e/mobile-metrics.*.json
+
 # 진실의 원천(docs/specs)과 지침 문서는 포맷터가 재작성하지 않는다.
 docs/
 *.md

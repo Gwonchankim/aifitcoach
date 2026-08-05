@@ -1,3 +1,5 @@
+import { DashboardScreen } from "../components/dashboard/DashboardScreen";
+
 export default function Home() {
-  return <main className="p-6">AIFITCOACH</main>;
+  return <DashboardScreen />;
 }

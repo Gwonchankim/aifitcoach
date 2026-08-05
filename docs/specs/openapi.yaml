@@ -1089,9 +1089,12 @@ components:
         today:
           type: object
           # routine_summary/done_summary 는 상태와 무관하게 항상 내려가고, 해당 없으면 null 이다.
-          required: [status, routine_summary, done_summary]
+          required: [status, session_id, routine_summary, done_summary]
           properties:
             status: { type: string, enum: [workout, rest, done] }
+            # 오늘 세션(workout_session)의 id. 대시보드 → 데일리 루틴 진입 경로다.
+            # 휴식일(status=rest)이면 null.
+            session_id: { type: string, nullable: true }
             routine_summary:
               type: object
               nullable: true

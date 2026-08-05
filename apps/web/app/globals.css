@@ -1,1 +1,160 @@
 @import "tailwindcss";
+
+/* ==========================================================================
+   AFC 디자인 토큰 (Tailwind v4 CSS-first)
+
+   원칙
+   - 로깅 화면이 기준이므로 **다크가 기본값**이다(`:root`). 라이트가 필요한 화면만
+     상위 엘리먼트에 `class="theme-light"` 를 붙인다. layout.tsx 수정 불필요.
+   - 컴포넌트는 **의미 토큰만** 쓴다(`bg-surface`, `text-fg-muted` …). hex·gray-800 직접 사용 금지.
+   - 모든 전경/배경 조합은 WCAG AA(본문 4.5:1, UI 경계 3:1)로 계산 검증했다.
+   - 상태색(success/warn/danger)은 **색 단독으로 의미를 전달하지 않는다**. 항상 아이콘+텍스트를 함께 둔다.
+   ========================================================================== */
+
+@theme inline {
+  /* --- 색: 면(surface) --- */
+  --color-bg: var(--afc-bg);
+  --color-surface: var(--afc-surface);
+  --color-raised: var(--afc-raised);
+  --color-overlay: var(--afc-overlay);
+
+  /* --- 색: 경계 ---
+     border        = 장식용 구분선(비상호작용, 대비 기준 없음)
+     border-strong = 입력/컨트롤 테두리(대비 3:1 충족) */
+  --color-border: var(--afc-border);
+  --color-border-strong: var(--afc-border-strong);
+
+  /* --- 색: 글자 --- */
+  --color-fg: var(--afc-fg);
+  --color-fg-muted: var(--afc-fg-muted);
+
+  /* --- 색: 브랜드/상태 (accent + 그 위에 올라가는 글자색 쌍) --- */
+  --color-primary: var(--afc-primary);
+  --color-primary-fg: var(--afc-primary-fg);
+  --color-success: var(--afc-success);
+  --color-success-fg: var(--afc-success-fg);
+  --color-warn: var(--afc-warn);
+  --color-warn-fg: var(--afc-warn-fg);
+  --color-danger: var(--afc-danger);
+  --color-danger-fg: var(--afc-danger-fg);
+
+  /* --- 색: 상태(비활성/포커스) --- */
+  --color-disabled: var(--afc-disabled);
+  --color-disabled-fg: var(--afc-disabled-fg);
+  --color-focus: var(--afc-focus);
+
+  /* --- 타이포: 기본 스케일은 Tailwind 기본값을 그대로 쓴다.
+         화면 건너 읽어야 하는 숫자 2종만 토큰으로 추가한다. --- */
+  --text-metric: 2rem; /* 무게/횟수 등 큰 수치 */
+  --text-metric--line-height: 1.1;
+  --text-timer: 3.75rem; /* 휴식 타이머 카운트다운 */
+  --text-timer--line-height: 1;
+
+  /* --- 스페이싱: 탭 타겟 (땀 묻은 손가락·한 손 조작) --- */
+  --spacing-tap: 2.75rem; /* 44px — 모든 탭 가능 요소의 최소 높이 */
+  --spacing-tap-lg: 3.5rem; /* 56px — 기본 액션 버튼 */
+  --spacing-tap-xl: 4.5rem; /* 72px — 세트 완료 체크·휴식 종료 */
+  --spacing-safe-bottom: env(safe-area-inset-bottom); /* 하단 고정 액션 여백(PWA) */
+
+  /* --- 라운드 --- */
+  --radius-control: 0.75rem; /* 버튼·입력·칩 */
+  --radius-card: 1rem; /* 카드 */
+  --radius-sheet: 1.5rem; /* 바텀시트 상단 */
+
+  /* --- 그림자 (테마별로 값이 다르므로 var 경유) --- */
+  --shadow-card: var(--afc-shadow-card);
+  --shadow-sheet: var(--afc-shadow-sheet);
+}
+
+/* --- 다크(기본, 로깅 화면) --- */
+:root {
+  color-scheme: dark;
+
+  --afc-bg: #0b0f14;
+  --afc-surface: #1b232d;
+  --afc-raised: #2a3542;
+  --afc-overlay: rgb(0 0 0 / 0.72);
+
+  --afc-border: #303b49;
+  --afc-border-strong: #74839a;
+
+  --afc-fg: #f3f6f9;
+  --afc-fg-muted: #a7b4c4;
+
+  --afc-primary: #38bdf8;
+  --afc-primary-fg: #06121b;
+  --afc-success: #34d399;
+  --afc-success-fg: #04160f;
+  --afc-warn: #fbbf24;
+  --afc-warn-fg: #1a1204;
+  --afc-danger: #f87171;
+  --afc-danger-fg: #1b0606;
+
+  --afc-disabled: #262f3a;
+  --afc-disabled-fg: #8794a6;
+  --afc-focus: #7dd3fc;
+
+  --afc-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
+  --afc-shadow-sheet: 0 -12px 32px rgb(0 0 0 / 0.6);
+}
+
+/* --- 라이트(로깅 외 화면에서 선택적으로 사용) --- */
+.theme-light {
+  color-scheme: light;
+
+  --afc-bg: #f2f5f8;
+  --afc-surface: #ffffff;
+  --afc-raised: #ffffff;
+  --afc-overlay: rgb(16 24 32 / 0.5);
+
+  --afc-border: #e2e7ee;
+  --afc-border-strong: #6e7885;
+
+  --afc-fg: #101820;
+  --afc-fg-muted: #5a6675;
+
+  --afc-primary: #0369a1;
+  --afc-primary-fg: #ffffff;
+  --afc-success: #046c4e;
+  --afc-success-fg: #ffffff;
+  --afc-warn: #9a5b00;
+  --afc-warn-fg: #ffffff;
+  --afc-danger: #b42318;
+  --afc-danger-fg: #ffffff;
+
+  --afc-disabled: #e4e9ef;
+  --afc-disabled-fg: #6b7684;
+  --afc-focus: #0369a1;
+
+  --afc-shadow-card: 0 1px 2px rgb(16 24 32 / 0.08);
+  --afc-shadow-sheet: 0 -12px 32px rgb(16 24 32 / 0.16);
+}
+
+@layer base {
+  html {
+    background-color: var(--color-bg);
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 라이트 영역이 페이지 일부에만 쓰일 수 있으므로 배경을 스스로 칠한다. */
+  .theme-light {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

@@ -1,0 +1,467 @@
+/**
+ * 데일리 루틴 화면(F1~F7). 오늘 세션을 운동 단위로 그리고, 세트 로깅·휴식 타이머·
+ * 루틴 편집·운동 종료를 조율한다. 계산·판정은 전부 옆 모듈(순수 함수)에 있다.
+ */
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, type PlannedSet, type Recommendation, type Session } from "../../lib/api";
+import { startRest, type RestTimer } from "../../lib/rest-timer";
+import { Button, Card } from "../ui";
+import { ExerciseCard } from "./ExerciseCard";
+import { ExerciseMenuSheet } from "./ExerciseMenuSheet";
+import { ExercisePickerSheet, type PickerMode } from "./ExercisePickerSheet";
+import { FinishSheet } from "./FinishSheet";
+import { PainSheet } from "./PainSheet";
+import { RestTimerSheet } from "./RestTimerSheet";
+import { SessionSummary } from "./SessionSummary";
+import { primaryInputId } from "./SetRow";
+import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
+import { fetchAllExercises } from "./exercise-catalog";
+import { hasWeightInput, setKind, type SetValues } from "./set-rules";
+import { painOf, summarize, useSessionLog } from "./session-store";
+
+type CompleteResponse = {
+  session: Session;
+  next_recommendations: (Recommendation & { exercise_id: string })[];
+};
+
+type RestState = { plannedSetId: string; title: string; timer: RestTimer };
+
+const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
+
+export function SessionScreen({ sessionId }: { sessionId: string }) {
+  const queryClient = useQueryClient();
+  const drafts = useSessionLog((state) => state.drafts);
+  const begin = useSessionLog((state) => state.begin);
+  const completeSetInStore = useSessionLog((state) => state.completeSet);
+  const uncompleteSetInStore = useSessionLog((state) => state.uncompleteSet);
+  const reportPainInStore = useSessionLog((state) => state.reportPain);
+
+  const [rest, setRest] = useState<RestState | null>(null);
+  const [menuExerciseId, setMenuExerciseId] = useState<string | null>(null);
+  const [painExerciseId, setPainExerciseId] = useState<string | null>(null);
+  const [picker, setPicker] = useState<PickerMode | null>(null);
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [summary, setSummary] = useState<CompleteResponse | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    begin(sessionId);
+  }, [sessionId, begin]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const sessionQuery = useQuery({
+    queryKey: ["session", sessionId],
+    queryFn: () => api.session(sessionId),
+  });
+
+  const catalogQuery = useQuery({
+    queryKey: ["exercises"],
+    queryFn: fetchAllExercises,
+    staleTime: Infinity,
+  });
+
+  const session = sessionQuery.data;
+  const catalog = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
+  const catalogById = useMemo(
+    () => new Map(catalog.map((exercise) => [exercise.id, exercise])),
+    [catalog],
+  );
+
+  /** 운동 단위 그룹. 계약에 순서 필드가 없어 서버가 준 배열 순서를 그대로 쓴다. */
+  const groups = useMemo(() => {
+    const byExercise = new Map<string, PlannedSet[]>();
+    for (const set of session?.planned_sets ?? []) {
+      const sets = byExercise.get(set.exercise_id) ?? [];
+      sets.push(set);
+      byExercise.set(set.exercise_id, sets);
+    }
+    return [...byExercise.entries()].map(([exerciseId, sets]) => ({
+      exerciseId,
+      sets: [...sets].sort((a, b) => a.set_no - b.set_no),
+    }));
+  }, [session]);
+
+  const orderedSets = useMemo(() => groups.flatMap((group) => group.sets), [groups]);
+  /**
+   * 카탈로그가 도착했거나(성공) 끝내 실패했을 때만 운동 카드를 그린다.
+   * 실패하면 이름을 알 방법이 없으므로 순번 이름으로 낮춰서라도 기록은 계속할 수 있게 둔다
+   * (배너 + [다시 시도] 가 위에 함께 보인다, E-21).
+   */
+  const catalogResolved = catalogQuery.isSuccess || catalogQuery.isError;
+  const nameOf = (exerciseId: string, index: number) =>
+    catalogById.get(exerciseId)?.name_ko ?? `운동 ${index + 1}`;
+
+  const { completedCount, totalVolume } = summarize(drafts);
+  const readOnly = session?.status === "completed" && summary == null;
+  const modalOpen =
+    rest != null ||
+    picker != null ||
+    menuExerciseId != null ||
+    painExerciseId != null ||
+    finishOpen;
+
+  const applySession = (updated: Session) => {
+    queryClient.setQueryData(["session", sessionId], updated);
+    setEditError(null);
+  };
+
+  /**
+   * 409 는 세 원인(완료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
+   * 서버 한국어 메시지를 매칭하면 문구가 바뀔 때 깨지므로, **세션 상태를 다시 받아** 판정한다.
+   * 다른 기기에서 종료된 세션이면 E-10 문구 + 읽기 전용(= session.status 가 completed 로 갱신)이다.
+   */
+  const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
+    if (shouldRefetch(error)) {
+      const latest = await queryClient
+        .fetchQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId) })
+        .catch(() => null);
+      if (isConflict(error) && latest?.status === "completed") {
+        setEditError(SESSION_COMPLETED);
+        return;
+      }
+    }
+    setEditError(errorMessage(error, action));
+  };
+
+  const addMutation = useMutation({
+    mutationFn: (exerciseId: string) => api.addExercise(sessionId, { exercise_id: exerciseId }),
+    onSuccess: (updated, exerciseId) => {
+      applySession(updated);
+      setPicker(null);
+      setNotice(`${catalogById.get(exerciseId)?.name_ko ?? "운동"}을(를) 루틴에 추가했어요`);
+    },
+    onError: (error) => void handleEditError(error, "add"),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (exerciseId: string) => api.removeExercise(sessionId, exerciseId),
+    onSuccess: (updated, exerciseId) => {
+      applySession(updated);
+      setMenuExerciseId(null);
+      setNotice(`${catalogById.get(exerciseId)?.name_ko ?? "운동"}을(를) 루틴에서 뺐어요`);
+    },
+    onError: (error) => void handleEditError(error, "remove"),
+  });
+
+  const swapMutation = useMutation({
+    mutationFn: (params: { from: string; to: string }) =>
+      api.swapExercise(sessionId, params.from, { to_exercise_id: params.to }),
+    onSuccess: (updated, params) => {
+      applySession(updated);
+      setPicker(null);
+      setMenuExerciseId(null);
+      setNotice(`${catalogById.get(params.to)?.name_ko ?? "운동"}으로 바꿨어요`);
+    },
+    onError: (error) => void handleEditError(error, "swap"),
+  });
+
+  const completeMutation = useMutation({
+    mutationFn: (pain: number | null) =>
+      api.completeSession(sessionId, pain == null ? {} : { pain }),
+    onSuccess: (data) => {
+      setFinishOpen(false);
+      setFinishError(null);
+      setSummary(data as CompleteResponse);
+    },
+    onError: (error) => setFinishError(errorMessage(error, "complete")),
+  });
+
+  const handleComplete = (exerciseName: string, set: PlannedSet, values: SetValues) => {
+    completeSetInStore(set.id, values);
+    setNotice(`${set.set_no}세트 완료`);
+    setRest({
+      plannedSetId: set.id,
+      title: `${exerciseName} ${set.set_no}세트 후 휴식`,
+      timer: startRest(set.rest_sec, Date.now()),
+    });
+  };
+
+  const handleUncomplete = (set: PlannedSet) => {
+    uncompleteSetInStore(set.id);
+    // 해제한 세트의 타이머가 떠 있으면 함께 닫는다.
+    setRest((previous) => (previous?.plannedSetId === set.id ? null : previous));
+  };
+
+  /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
+  const closeRest = () => {
+    const from = rest?.plannedSetId;
+    setRest(null);
+    if (!from) return;
+
+    const index = orderedSets.findIndex((set) => set.id === from);
+    const next = orderedSets.slice(index + 1).find((set) => !drafts[set.id]?.completed);
+    window.setTimeout(() => {
+      const target = next
+        ? document.getElementById(
+            primaryInputId(next, setKind(next, catalogById.get(next.exercise_id)?.metric)),
+          )
+        : document.querySelector<HTMLElement>(`[data-set-check="${from}"]`);
+      target?.focus();
+    }, 20);
+  };
+
+  if (sessionQuery.isPending) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col gap-3 p-4">
+        <p className="sr-only">오늘 루틴을 불러오는 중이에요.</p>
+        {[0, 1].map((index) => (
+          <Card key={index} aria-hidden="true" className="h-48 animate-pulse bg-raised" />
+        ))}
+      </div>
+    );
+  }
+
+  if (sessionQuery.isError || !session) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col gap-3 p-4">
+        <p role="alert" className="text-base text-fg">
+          {errorMessage(sessionQuery.error, "session")}
+        </p>
+        <Button size="md" onClick={() => void sessionQuery.refetch()}>
+          다시 불러오기
+        </Button>
+      </div>
+    );
+  }
+
+  if (summary) {
+    return (
+      <div className="mx-auto max-w-md p-4">
+        <SessionSummary
+          completedCount={completedCount}
+          totalVolume={totalVolume}
+          nextRecommendations={summary.next_recommendations}
+          catalogById={catalogById}
+        />
+      </div>
+    );
+  }
+
+  const menuIndex = groups.findIndex((group) => group.exerciseId === menuExerciseId);
+  const inRoutine = new Set(groups.map((group) => group.exerciseId));
+
+  // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다.
+  const painIndex = groups.findIndex((group) => group.exerciseId === painExerciseId);
+  const painGroup = painIndex >= 0 ? groups[painIndex] : null;
+  const painSetIds = painGroup?.sets.map((set) => set.id) ?? [];
+  /** [무게 줄이고 계속]이 향할 곳: 아직 남은 세트 중 무게 입력이 있는 첫 세트. */
+  const painWeightTarget = painGroup?.sets.find(
+    (set) =>
+      !drafts[set.id]?.completed &&
+      hasWeightInput(setKind(set, catalogById.get(set.exercise_id)?.metric)),
+  );
+
+  return (
+    <>
+      {/* 랜드마크 <main> 과 스킵 링크는 app/layout.tsx 에 하나씩만 둔다(중복 금지). */}
+      {/* pb-28 = 하단 고정 바(버튼 72 + 패딩 24)를 가릴 만큼만 비운다. */}
+      <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
+          <p className="text-sm text-fg-muted">
+            {completedCount}세트 완료 · 계획 {orderedSets.length}세트
+          </p>
+          {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
+        </header>
+
+        {catalogQuery.isError ? (
+          <Card className="flex flex-col gap-2">
+            <p role="alert" className="text-sm text-fg">
+              {errorMessage(catalogQuery.error, "catalog")}
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => void catalogQuery.refetch()}>
+              다시 시도
+            </Button>
+          </Card>
+        ) : null}
+
+        {editError ? (
+          <p role="alert" className="rounded-control bg-danger px-3 py-2 text-sm text-danger-fg">
+            {editError}
+          </p>
+        ) : null}
+
+        <div className="flex flex-col gap-3">
+          {groups.length === 0 ? (
+            <Card className="flex flex-col gap-3">
+              <p className="text-base text-fg">
+                오늘 루틴이 비어 있어요. 하고 싶은 운동을 추가해 보세요.
+              </p>
+            </Card>
+          ) : !catalogResolved ? (
+            /* 이름을 카탈로그에서만 얻으므로, 도착 전에는 임시 이름 대신 스켈레톤을 세운다(§2.4). */
+            <>
+              <p className="sr-only">운동 목록을 불러오는 중이에요.</p>
+              {groups.map((group) => (
+                <Card
+                  key={group.exerciseId}
+                  aria-hidden="true"
+                  className="h-48 animate-pulse bg-raised"
+                />
+              ))}
+            </>
+          ) : (
+            groups.map((group, index) => {
+              const locked = group.sets.some((set) => drafts[set.id]?.completed);
+              return (
+                <ExerciseCard
+                  key={group.exerciseId}
+                  name={nameOf(group.exerciseId, index)}
+                  exercise={catalogById.get(group.exerciseId) ?? null}
+                  sets={group.sets}
+                  drafts={drafts}
+                  readOnly={readOnly}
+                  lockedReason={locked ? LOCKED_REASON : null}
+                  painScore={painOf(
+                    drafts,
+                    group.sets.map((set) => set.id),
+                  )}
+                  onEdit={() => {
+                    setEditError(null);
+                    setMenuExerciseId(group.exerciseId);
+                  }}
+                  onReportPain={() => setPainExerciseId(group.exerciseId)}
+                  onComplete={(set, values) =>
+                    handleComplete(nameOf(group.exerciseId, index), set, values)
+                  }
+                  onUncomplete={handleUncomplete}
+                />
+              );
+            })
+          )}
+
+          {readOnly || !catalogResolved ? null : (
+            <Button
+              variant="secondary"
+              size="md"
+              fullWidth
+              onClick={() => {
+                setEditError(null);
+                setPicker({ type: "add" });
+              }}
+            >
+              운동 추가
+            </Button>
+          )}
+        </div>
+
+        <p role="status" className="sr-only">
+          {notice}
+        </p>
+      </div>
+
+      {readOnly ? null : (
+        <div
+          inert={modalOpen}
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
+        >
+          <div className="mx-auto max-w-md pb-safe-bottom">
+            <Button
+              size="lg"
+              fullWidth
+              onClick={() => {
+                setFinishError(null);
+                setFinishOpen(true);
+              }}
+            >
+              운동 종료
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 타이머 시트는 열려 있을 때만 마운트해서 틱을 멈춘다. */}
+      {rest ? (
+        <RestTimerSheet
+          open
+          title={rest.title}
+          timer={rest.timer}
+          onChange={(timer) => setRest({ ...rest, timer })}
+          onClose={closeRest}
+        />
+      ) : null}
+
+      <ExerciseMenuSheet
+        open={menuExerciseId != null}
+        exerciseName={menuIndex >= 0 ? nameOf(groups[menuIndex].exerciseId, menuIndex) : "운동"}
+        pending={removeMutation.isPending}
+        errorText={editError}
+        onSwap={() => {
+          if (!menuExerciseId) return;
+          setEditError(null);
+          setPicker({ type: "swap", exerciseId: menuExerciseId });
+          setMenuExerciseId(null);
+        }}
+        onRemove={() => menuExerciseId && removeMutation.mutate(menuExerciseId)}
+        onClose={() => setMenuExerciseId(null)}
+      />
+
+      {picker ? (
+        <ExercisePickerSheet
+          open
+          mode={picker}
+          catalog={catalog}
+          inRoutine={inRoutine}
+          pending={addMutation.isPending || swapMutation.isPending}
+          errorText={editError}
+          onSelect={(exerciseId) => {
+            if (picker.type === "add") addMutation.mutate(exerciseId);
+            else swapMutation.mutate({ from: picker.exerciseId, to: exerciseId });
+          }}
+          onClose={() => setPicker(null)}
+        />
+      ) : null}
+
+      {painGroup ? (
+        <PainSheet
+          open
+          exerciseName={nameOf(painGroup.exerciseId, painIndex)}
+          score={painOf(drafts, painSetIds)}
+          swapBlockedReason={
+            painGroup.sets.some((set) => drafts[set.id]?.completed) ? LOCKED_REASON : null
+          }
+          canReduceWeight={painWeightTarget != null}
+          onSelect={(score) => {
+            reportPainInStore(painSetIds, score);
+            setNotice(score == null ? "통증 기록을 지웠어요" : `통증 ${score}점을 기록했어요`);
+          }}
+          onSwap={() => {
+            setEditError(null);
+            setPicker({ type: "swap", exerciseId: painGroup.exerciseId });
+            setPainExerciseId(null);
+          }}
+          onReduceWeight={() => {
+            const target = painWeightTarget;
+            setPainExerciseId(null);
+            if (!target) return;
+            window.setTimeout(
+              () => document.getElementById(`set-${target.id}-weight`)?.focus(),
+              20,
+            );
+          }}
+          onClose={() => setPainExerciseId(null)}
+        />
+      ) : null}
+
+      <FinishSheet
+        open={finishOpen}
+        completedCount={completedCount}
+        remainingCount={orderedSets.length - completedCount}
+        pending={completeMutation.isPending}
+        errorText={finishError}
+        onConfirm={(pain) => completeMutation.mutate(pain)}
+        onClose={() => setFinishOpen(false)}
+      />
+    </>
+  );
+}

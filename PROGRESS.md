@@ -10,7 +10,7 @@
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
-| 5 | 프론트 핵심 플로우 (FEATURES_UX F1~F8) | ⬜ 예정 | |
+| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | ✅ 완료 (2026-08-05) | 69.5 → fix 8건 반영 후 재검증 |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
@@ -260,6 +260,55 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 
 ---
 
+## STEP 5 — 프론트 핵심 플로우 (완료)
+
+### 스코어카드 (evaluator 69.5/100 → fix 8건 반영. **디자인·UI·UX가 처음 채점된 STEP**)
+| 항목 | 배점 | 점수 | 근거 |
+|---|---|---|---|
+| 기능 완성도 | 25 | 18 | F0-1·F1~F5·F7 충실. 감점: 로깅 통증 보고 누락(→수정), F0 프로필 폐기(→수정), C-5/C-7 임의결정 |
+| 코드 품질·보안 | 15 | 10.5 | 순수함수 분리·CORS 부팅 가드·에러 원문 차단 우수. 감점: 컴포넌트/DOM 테스트 0개(→일부 도입), Next lint 플러그인 미도입(→도입) |
+| 디자인 | 12 | 8.5 | 의미 토큰·AA 계산 근거·탭 토큰 우수. 감점: 세로 밀도 폭발(→수정), 요약 여백, 비활성 시각 미구분(→수정) |
+| UI | 12 | 8 | 프리미티브 일관·가로 스크롤 0. 감점: 읽기 전용 입력칸 잔존(→수정), 제외 목록 미접힘 |
+| UX | 14 | 9.5 | 키보드 완주·axe 0·드래프트 재개·자연스러운 한국어. 감점: 삭제될 데이터를 묻는 스텝(→수정), 운동별 통증 보고 부재(→수정) |
+| 성능 | 12 | 9 | LH 98~100/100/100, TBT 20~30ms. 감점: LH가 일회성 산출물(CI 게이트 아님) |
+| 실 사용성 | 10 | 6 | 실브라우저·실API 종단 루프 성립. 감점: 새로고침 시 기록 소실(**STEP 6 범위 — 아래 판정**) |
+
+### 하드 게이트 판정 정정 (기술총괄)
+evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용했으나 **근거 문서를 잘못 골랐다**.
+- 원천: `PROMPTS.md` STEP 6 = "IndexedDB(Dexie) 미러 + outbox", `FEATURES_UX.md` F1 = "로컬 우선 저장 → outbox, **STEP 6**", "오프라인(**STEP 6**)".
+- evaluator가 인용한 `UX_STATES.md:67`("STEP 5에서는 로컬 IndexedDB 저장까지")은 **파생 문서가 원천과 모순된 것** → 원천에 맞게 정정했다(ADR-32).
+- 실점 69.5가 이미 상한 미만이라 **점수 자체는 변하지 않는다**. 분류만 바로잡았다.
+
+### 평가 지적 중 실제 결함 — 전부 수정
+| # | 결함 | 조치·검증 |
+|---|---|---|
+| **안전·스펙 위반** | 로깅 화면에 통증 보고가 없어 **운동별 `SUBSTITUTE_PAIN`을 UI에서 유발할 수 없었다**(FEATURES_UX 안전 절) | 운동 카드에 [통증 기록] 보조 액션 + `PainSheet`(0~10 라디오). `pain>=4`면 [운동 교체]/[무게 줄이고 계속]/[그냥 계속] + 의료 고지. `SetDraft.pain_score`로 openapi `PerformedSet`과 계속 1:1 → STEP 6 `/sync`에 그대로 실린다 |
+| **버그** | 프리필된 무게를 지우고 완료하면 `actual_weight: null`(볼륨 0) | UX_STATES §2.4대로 **빈 축은 추천값으로 확정**, 프리필이 없으면 차단+포커스. red→green |
+| **F0 위반** | 온보딩이 프로필 4개를 묻고 제출 즉시 폐기 | 저장소 분리(ADR-33). 프로필은 로컬 잔존, **`pain_areas`는 어디에도 저장 안 함**(PIPA) |
+| UI | 완료 세션에 `disabled` 입력칸 잔존 → "시작 안 한 운동"처럼 보임 | `readOnly`면 **미렌더** + 기록 요약행. `react-dom/server`로 실제 렌더해 `<input>` 0개 고정 |
+| 디자인 | 15세트 페이지 **5,064px**(6화면 스크롤) | 원인 실측: RIR 줄 가용폭 218px < 필요폭 390px → 구조적 2줄. `ScaleGroup`(한 줄+가로 스크롤, 44px 유지) + 2줄 그리드 + compact 밀도 → **3,208px(-37%)** |
+| 접근성 | 10분 상한 버튼이 시각적으로 구분 안 됨 | `Button`의 variant 클래스 교체 방식(`aria-disabled:` 변형은 `hover:`와 특이도가 같아 소스 순서 의존). 대비 다크 4.40:1 / 라이트 3.78:1 |
+| 이월분 | `@next/eslint-plugin-next`·`eslint-plugin-react-hooks` 미도입(STEP 0 이월) | 도입 + `exhaustive-deps`를 error로. 새로 잡힌 `no-img-element` 1건은 억제하지 않고 `next/image`로 교체 |
+| 정직성 | complete 실패 문구가 "기록은 저장했어요"(영속화 없음 = 거짓) | 문구 교정 + "저장" 문자열 금지 테스트 |
+
+### 브라우저 검증 (qa, Playwright 1.62.1 — 이 저장소 첫 DOM 검증)
+- **E2E 37/37**(chromium-mobile + webkit-ios), 프로덕션 빌드 기동, 실서버 직접 호출
+- **axe 15개 화면 위반 0**(모달 열린 상태 포함)
+- **Lighthouse**(프로덕션 빌드): 성능 98~100 / 접근성 100 / 베스트프랙티스 100. 각 리포트에서 **API 200 수신을 확인**해 "빈 화면 고득점"이 아님을 검증
+- **모바일 390×844 실측**: 완료 체크 72×72, 휴식 종료 358×72(y=756), 운동 종료 358×72(y=760), 가로 스크롤 0
+- **타이머**: 10초 실대기로 `2:00→1:50` + 진행 바를 `boundingBox().width`로 실측, +30초 3연타 = +90초, 10분 상한
+- qa가 **자기 보고를 스스로 정정**했다: 1차 측정이 코드 변경 중에 이뤄졌고, 일부 Lighthouse 수치는 프록시가 죽은 상태(에러 화면)를 잰 무효값이었으며, **자신의 테스트 2개가 잘못된 동작("운동 1" 임시 이름)을 정답으로 고정**하고 있었다 → 전량 재측정·재작성
+
+### 발견·수정된 blocker
+**API에 CORS 설정이 없어 브라우저에서 앱이 전혀 동작하지 않았다**(`OPTIONS` 프리플라이트 404 → 모든 POST/DELETE 차단). 브라우저 검증을 하지 않았다면 끝까지 발견되지 않았을 결함이다. `WEB_ORIGIN` 허용목록으로 수정(ADR-34).
+
+### 기술총괄 결정 (평가자가 "임의결정"으로 지적 → 정식 기록)
+- **C-5**: 운동 종료 시트에서 통증(0~10) 수집 — 근거: FEATURES_UX 안전 절. 이후 **운동별 통증 보고를 추가**해 세션 단위만으로 부족했던 점을 해소.
+- **C-7**: '운동 종료'를 하단 **고정 바**로 — F6 "최하단"의 한 손 조작 해석. qa 실측 y=760(하단 10%).
+- **F5 부위 탭**: 계약에 `region` 쿼리·필드가 없어 **클라이언트 필터**(30종 규모). 카탈로그가 커지면 계약 추가 제안.
+
+---
+
 ## Deferred(이월) 항목
 - ~~**→ STEP 3**: `packages/shared` 소비 방식 결정(I-8)~~ → **해소**(ADR-19, 양방향 실효 검증 완료).
 - ~~**→ STEP 4 (DoD)**: ajv 응답 스키마 검증~~ → **해소**(키셋 검증까지 포함).
@@ -269,7 +318,15 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 - **→ STEP 5**: `GET /exercises`(부위별 카탈로그)가 아직 501 — F5 추가/교체 팝업의 후보 목록 소스라 선행 구현 필요. 세션 응답의 `planned_sets[].exercise_id`로 "이미 포함된 종목" 비활성 표시는 가능(계약 추가 불필요).
 - **→ STEP 5**: `BASELINE`의 `weight: 0`과 맨몸의 `weight: null`을 "무게 미정 / 자체중량"으로 렌더링(0kg 추천으로 표시 금지).
 - **→ STEP 6**: `PATCH /programs/{programId}` 구현 시 템플릿과 세션을 함께 갱신(반대 방향 드리프트 방지).
+- **→ STEP 6 (F1 "이전 기록" 표시 완성)** — 사람 승인(2026-08-05):
+  1. STEP 6에서 **Dexie 로컬 미러**가 붙으면 클라이언트가 **지난 세션의 `performed_set`을 조회**할 수 있게 된다. 그때 F1의 "이전 기록도 함께 보여준다"를 완성한다.
+  2. STEP 6 이후에도 **서버 조회가 필요하다고 판단되면**(기기 교체·초기 설치로 로컬 이력이 없는 경우 등) openapi에 **이력 조회 계약 추가를 별도로 제안**한다. **임의로 만들지 않는다.**
+  3. 그때까지는 **"직전 세트만 표시"가 의도된 축소**임을 UI에서 오해 없게 처리한다(이전 기록이 없을 때의 빈 상태 문구 등).
+  - 배경: 현재 `Session`·`PlannedSet` 어디에도 지난 세션 실측이 없고 조회 계약도 없어, 같은 세션 안의 직전 완료 세트만 표시 가능하다.
 - **→ STEP 7**: 스텁이 내는 501과 `/me/*`·`/billing/*`·`/webhooks/pg`의 400을 계약에 일괄 선언(구현 시점).
+- **→ STEP 6 (STEP 5 평가에서 확인된 것)**: ① Dexie 영속화 — `session-store.ts`의 `write()` 단일 관문과 `PerformedSet` 1:1 드래프트(9키, `pain_score` 포함)가 이미 준비돼 있어 배선만 하면 된다. 완료 후 **"세트 3개 체크 → reload → 유지"** E2E로 고정. ② `@serwist/next` 배선(현재 `test.fail()` 마커가 회귀를 감시한다). ③ `next_recommendations`·대시보드 `done_summary`·요약 PR은 `/sync`로 서버에 수행기록이 실린 뒤에야 종단 검증 가능.
+- **→ STEP 8**: Lighthouse를 일회성 산출물이 아니라 `pnpm --filter web lh` + CI 임계값 게이트로 승격. 컴포넌트 테스트(jsdom+Testing Library) 확대 — 현재 web 143개 중 렌더 테스트는 읽기 전용 행 1건뿐이라 렌더 회귀는 대부분 E2E에만 의존한다.
+- **→ STEP 8**: E2E는 **직렬 실행 필수**. 여러 프로세스가 같은 API·DB를 쓰면 `GET /dashboard`가 최신 프로그램 1개만 보기 때문에 서로의 "오늘 세션"을 갈아치운다(실측: 15초에 프로그램 6개 생성 → 대량 실패). Windows에서 `.next` 삭제 직후 첫 `next build`가 manifest ENOENT로 실패하는 현상도 있어 CI에 재시도가 필요하다.
 - **→ STEP 5**: `@next/eslint-plugin-next` + `eslint-plugin-react-hooks` 도입(STEP 0 I-7).
 - **→ STEP 6**: `@serwist/next` 실제 배선(Service Worker·앱셸 캐시).
 - **→ STEP 4**: DB 통합 테스트 부트스트랩을 jest `globalSetup`으로 이관(STEP 1 I-2). DB spec이 2개 이상이 되면 worker별 `migrate deploy` 경합.
@@ -304,8 +361,18 @@ pnpm typecheck/lint/format:check/build/test → 전부 green (api 5, web 1, shar
 - 아직 골든이 고정하지 못한 진행 상수: `CONFIDENCE.full`(절대값), `BODYWEIGHT_REPS_CAP` 하향 방향, `TIME_DOWN_RATIO` 상향 방향. **안전 관련 상수는 전부 고정 완료**.
 - SECURITY_PIPA가 요구하는 **건강데이터 접근 감사 로깅 테이블**이 DATA_MODEL에 없다(스펙 공백).
 
+## 화면 확인 방법 (개발자 직접 확인)
+```
+pnpm db:up                                   # postgres/redis (Docker Desktop 필요)
+pnpm --filter api start:dev                  # 실서버 :3001 (/v1 prefix)
+pnpm --filter web dev                        # :3000  ← API CORS 허용 origin이 localhost:3000 이다
+```
+`.env`에 `DATABASE_URL`·`FIELD_ENCRYPTION_KEY`(`openssl rand -base64 32`)가 필요하다. 목서버로 보려면 `pnpm mock`(:4010) 후 `NEXT_PUBLIC_API_BASE_URL=http://localhost:4010`(브라우저에서 `document.cookie="sid=dev"` 1회 필요).
+
+**확인 순서**: `/onboarding`(7스텝, 통증 칩 8종+"해당 없음") → 계획 만들기 → `/program`(왜 이 루틴 + 제외된 운동·사유) → `/`(대시보드, [운동 시작]) → `/session/{id}`(세트 입력 → 완료 체크 → **휴식 타이머 팝업**에서 +30초 연타·휴식 종료 → [편집]으로 추가/교체/삭제 → 운동 종료) → 요약.
+확인 포인트: 플랭크는 시간 1칸·RIR 없음, 풀업은 "자체중량"(무게칸 없음), 첫 세션은 "무게 미정"(0kg 아님), 운동 카드 [통증 기록]에서 4 이상 선택 시 안전 안내.
+
 ## 다음 액션
-- **STEP 5**: 온보딩 → 프로그램 확인('왜 이 루틴') → 데일리 루틴(F1~F7: 세트 로깅·휴식 타이머·루틴 편집·운동 종료) → F8 대시보드. frontend + ui-ux + design 병렬 + qa E2E.
-- 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`(`cp .env.example .env`, `FIELD_ENCRYPTION_KEY`는 `openssl rand -base64 32`).
-- STEP 5 착수 시 함께 처리: `GET /exercises` 구현(F5 후보 목록), `@next/eslint-plugin-next`+`eslint-plugin-react-hooks` 도입, `weight: 0`/`null` 렌더 가드.
-- `/goal until 4` 지시로 **STEP 4에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 5`.
+- **STEP 6**: IndexedDB(Dexie) 미러 + outbox + Service Worker(Workbox/serwist) + `POST /v1/sync`(client_id 멱등·LWW·since 커서). E2E로 '오프라인 로깅 → 복귀 → sync → 서버 추천 반영'과 **중복 0·유실 0**을 단언.
+- 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`.
+- `/goal until 5` 지시로 **STEP 5에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 6`.

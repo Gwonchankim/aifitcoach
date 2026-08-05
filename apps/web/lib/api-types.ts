@@ -1624,6 +1624,7 @@ export interface components {
       today: {
         /** @enum {string} */
         status: "workout" | "rest" | "done";
+        session_id: string | null;
         routine_summary: {
           exercise_count: number;
           focus: string;

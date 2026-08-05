@@ -67,3 +67,8 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-27 | 맨몸(`step_kg = null`)은 반복으로, 시간 종목(`metric = time`)은 유지 시간으로 진행. `weight = null`은 자체중량, `step_kg = 0`은 `INVALID_INPUT`(서로 다른 의미) | 홈트 사용자가 프로그램을 만들 수 없던 문제. 0/null 혼동은 실제 버그였다(`?? 0` → 맨몸이 INVALID_INPUT) | **확정**(사람 결정 2026-08-05) |
 | ADR-28 | 온보딩 `pain_areas`는 `docs/SAFETY_PAIN_MAPPING.md` 표로 movement_pattern을 제외하고, 부족분은 같은 근육군 머신/케이블로 대체. 제외 근거를 응답(`Program.excluded_exercises`)에 포함 | "받고 조용히 버리기"는 안전 결함. 제외로 성립 불가해도 에러 대신 축소 프로그램 | **확정**(사람 결정 2026-08-05) |
 | ADR-29 | `rules_version` 2026.07.1 → **2026.08.1**(맨몸·시간 가산 규칙). 기존 입력의 출력은 불변(골든 18건 무변경) | api가 맨몸·시간 추천을 실제로 내보내기 시작한 시점에 상수·골든·스펙·openapi 예시를 함께 올림 | 확정(STEP 4) |
+| ADR-30 | 디자인은 **다크 기본**(`:root`) + `theme-light` opt-in, 의미 토큰만 사용, 탭 토큰 44/56/**72px** | 로깅 화면 다크 요구를 기본값으로 충족하고 `layout.tsx` 수정을 없앤다. 대비는 전 조합 계산 검증(AA 미달 0) | 확정(STEP 5) |
+| ADR-31 | 값 눈금(RIR 0~6, 통증 0~10)은 **줄바꿈 금지·가로 스크롤 1줄**(`ScaleGroup`), 탭 타깃 44px 유지 | 390px에서 RIR 줄 가용폭 218px < 필요폭 390px → 구조적으로 2줄이 되어 15세트 페이지가 5,064px가 됐다. 타깃을 줄이는 대신 가로로 넘긴다 | 확정(STEP 5) |
+| ADR-32 | 세트 완료 기록은 **STEP 5에서 메모리 상태**, IndexedDB(Dexie)·서비스워커·`/sync`는 **STEP 6** | 원천 문서(`PROMPTS.md` STEP 6, `FEATURES_UX.md` F1·오프라인 절)가 STEP 6으로 규정. 파생 문서(UX_STATES)의 상반된 기술은 원천에 맞춰 정정 | 확정(STEP 5) |
+| ADR-33 | 온보딩 로컬 저장은 **프로필(`afc.profile.v1`)과 진행 초안(`afc.onboarding.draft.v1`) 분리**, `pain_areas`는 **어디에도 저장하지 않음** | 프로필은 F0대로 로컬 보관(인증 도입 시 서버 이전). 통증 부위는 건강 민감정보라 브라우저에 무기한 잔존시키지 않는다(SECURITY_PIPA) | 확정(STEP 5) |
+| ADR-34 | API CORS는 `WEB_ORIGIN` **명시적 허용목록**(`*` 금지, 빈 값·와일드카드면 부팅 거부), 허용 헤더에 `X-CSRF-Token` | 쿠키 세션과 `*`는 양립 불가. reflect 방식은 "개발에선 되고 배포하면 깨지는" 함정을 만든다 | 확정(STEP 5) |

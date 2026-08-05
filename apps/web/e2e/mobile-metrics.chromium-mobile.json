@@ -1,0 +1,130 @@
+{
+  "browserName": "chromium",
+  "screens": [
+    {
+      "screen": "S4-routine",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "targets": [
+        {
+          "label": "세트 완료 체크",
+          "width": 72,
+          "height": 72,
+          "y": 259
+        },
+        {
+          "label": "무게 입력",
+          "width": 87,
+          "height": 44,
+          "y": 238
+        },
+        {
+          "label": "RIR 칩",
+          "width": 44,
+          "height": 44,
+          "y": 288
+        },
+        {
+          "label": "루틴 편집",
+          "width": 62,
+          "height": 44,
+          "y": 93
+        },
+        {
+          "label": "운동 추가",
+          "width": 358,
+          "height": 56,
+          "y": 3040
+        },
+        {
+          "label": "운동 종료(하단 고정)",
+          "width": 358,
+          "height": 72,
+          "y": 760
+        }
+      ],
+      "scroll": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "screen": "S4-rest-timer",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "targets": [
+        {
+          "label": "+5초",
+          "width": 84,
+          "height": 56,
+          "y": 684
+        },
+        {
+          "label": "+10초",
+          "width": 84,
+          "height": 56,
+          "y": 684
+        },
+        {
+          "label": "+30초",
+          "width": 84,
+          "height": 56,
+          "y": 684
+        },
+        {
+          "label": "+1분",
+          "width": 84,
+          "height": 56,
+          "y": 684
+        },
+        {
+          "label": "휴식 종료",
+          "width": 358,
+          "height": 72,
+          "y": 756
+        }
+      ],
+      "scroll": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "screen": "dashboard",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scroll": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "screen": "program",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scroll": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "screen": "onboarding",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scroll": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  ]
+}
