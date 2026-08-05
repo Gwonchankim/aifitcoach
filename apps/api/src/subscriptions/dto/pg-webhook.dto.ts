@@ -1,20 +1,20 @@
-import { IsObject, IsOptional, IsString } from "class-validator";
+import { IsNotEmpty, IsObject, IsOptional, IsString } from "class-validator";
 
 /** openapi: POST /webhooks/pg requestBody (서명 검증은 구현 시 SECURITY_PIPA.md 를 따른다) */
 export class PgWebhookDto {
-  @IsOptional()
   @IsString()
-  event_type?: string;
+  @IsNotEmpty()
+  event_type!: string;
 
   @IsOptional()
   @IsString()
   billing_key?: string;
 
-  @IsOptional()
+  /** 계약상 필수. 서명 없는 웹훅은 파싱 전에 거절된다. */
   @IsString()
-  signature?: string;
+  @IsNotEmpty()
+  signature!: string;
 
-  @IsOptional()
   @IsObject()
-  data?: Record<string, unknown>;
+  data!: Record<string, unknown>;
 }

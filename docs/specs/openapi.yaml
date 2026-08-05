@@ -369,7 +369,7 @@ paths:
             example:
               since: '2026-07-16T00:00:00Z'
               mutations:
-                - client_id: m_9f2
+                - client_id: 3f1b7c92-6a1e-4d8f-9b2a-5c7e0a1d4e63
                   entity: performed_set
                   op: upsert
                   payload:
@@ -529,6 +529,8 @@ paths:
           application/json:
             schema:
               type: object
+              # 서명 검증이 필수이므로 signature 는 계약상 반드시 있어야 한다.
+              required: [event_type, signature, data]
               properties:
                 event_type: { type: string, example: subscription.renewed }
                 billing_key: { type: string }
@@ -781,7 +783,8 @@ components:
 
     Exercise:
       type: object
-      # rep_range_low/high 는 metric=time 종목(e_plank)에서 비어 있어 required 에서 제외한다.
+      # metric=reps 종목은 rep_range_*, metric=time 종목(e_plank)은 default_time_*_sec 를 채운다.
+      # 서로 배타적이라 rep_range_low/high 는 required 에서 제외한다.
       required:
         [
           id,
@@ -791,6 +794,9 @@ components:
           primary_muscles,
           equipment,
           difficulty,
+          metric,
+          default_time_low_sec,
+          default_time_high_sec,
           substitutions,
           media_url,
         ]
@@ -804,8 +810,11 @@ components:
           items: { type: string }
         equipment: { type: string }
         difficulty: { type: string }
+        metric: { type: string, enum: [reps, time] }
         rep_range_low: { type: integer }
         rep_range_high: { type: integer }
+        default_time_low_sec: { type: integer, nullable: true }
+        default_time_high_sec: { type: integer, nullable: true }
         substitutions:
           type: array
           items: { type: string }

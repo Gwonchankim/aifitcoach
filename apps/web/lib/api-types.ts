@@ -747,7 +747,7 @@ export interface paths {
            *       "since": "2026-07-16T00:00:00Z",
            *       "mutations": [
            *         {
-           *           "client_id": "m_9f2",
+           *           "client_id": "3f1b7c92-6a1e-4d8f-9b2a-5c7e0a1d4e63",
            *           "entity": "performed_set",
            *           "op": "upsert",
            *           "payload": {
@@ -1080,10 +1080,10 @@ export interface paths {
         content: {
           "application/json": {
             /** @example subscription.renewed */
-            event_type?: string;
+            event_type: string;
             billing_key?: string;
-            signature?: string;
-            data?: {
+            signature: string;
+            data: {
               [key: string]: unknown;
             };
           };
@@ -1379,8 +1379,12 @@ export interface components {
       primary_muscles: string[];
       equipment: string;
       difficulty: string;
+      /** @enum {string} */
+      metric: "reps" | "time";
       rep_range_low?: number;
       rep_range_high?: number;
+      default_time_low_sec: number | null;
+      default_time_high_sec: number | null;
       substitutions: string[];
       media_url: string | null;
     };
