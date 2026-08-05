@@ -104,6 +104,15 @@ enum SessionStatus {
   @@map("session_status")
 }
 
+// 세션이 프로그램 계획에서 나왔는지(planned), 사용자가 그날 즉석으로 만든 것인지(ad_hoc).
+// 즉석 세션은 focus 가 부위명(chest/legs...)이라 focus 만으로는 계획 세션과 구분되지 않는다.
+enum SessionOrigin {
+  planned
+  ad_hoc
+
+  @@map("session_origin")
+}
+
 enum PlanTier {
   free
   pro
@@ -255,6 +264,9 @@ model WorkoutSession {
   // 세션의 분할 포커스(upper/lower/push/pull/legs/full_body)를 저장한다(DATA_MODEL.md 미기재 — STEP 4 추가).
   focus           String
   status          SessionStatus
+  // 즉석 세션(F8-1)은 계획이 아니다 → 스트릭·주간 완료율의 "계획된 날"에서 빠진다
+  // (DATA_MODEL.md 미기재 — 대시보드 결함 D-1 수정으로 추가).
+  origin          SessionOrigin @default(planned)
   completedAt     DateTime?     @map("completed_at") @db.Timestamptz(3)
   // sessionFeedback.pain 은 JSON 안에 암호화 저장(v1:iv:tag:ciphertext) — SECURITY_PIPA.md
   sessionFeedback Json?         @map("session_feedback")

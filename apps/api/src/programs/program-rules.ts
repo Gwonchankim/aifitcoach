@@ -156,6 +156,39 @@ export function patternsFor(focus: Focus): MovementPattern[] {
 }
 
 /**
+ * F8-1 즉석 세션의 **부위**(openapi CreateAdHocSessionRequest.body_part) → 동작 패턴 우선순위.
+ * F5 운동 추가 팝업의 6개 부위와 같고, focus 표와 같은 규칙으로 앞에서부터 채운다.
+ * 하체는 focus lower/legs 목록에서 core 를 뺀 것이다 — 코어는 별도 부위라 사용자가 직접 고른다.
+ */
+const PATTERNS_BY_BODY_PART: Record<string, MovementPattern[]> = {
+  chest: ["horizontal_push"],
+  back: ["vertical_pull", "horizontal_pull"],
+  shoulders: ["vertical_push", "shoulder_isolation"],
+  arms: ["elbow_flexion", "elbow_extension"],
+  legs: ["squat", "hinge", "lunge", "knee_extension", "knee_flexion", "calf"],
+  core: ["core"],
+};
+
+/**
+ * 서버가 받아들이는 부위 = openapi CreateAdHocSessionRequest.body_part 의 enum.
+ * 매핑에서 파생하므로 계약·검증이 갈라질 수 없다(pain_areas 와 같은 방식).
+ */
+export const BODY_PARTS = Object.keys(PATTERNS_BY_BODY_PART);
+
+/**
+ * 부위별 패턴 목록은 focus 보다 짧다(가슴·코어는 1개) → 하루 최대 운동 수만큼 우선순위를 순환시킨다.
+ * 선택 로직은 같은 패턴이 다시 나오면 그 패턴의 다음 후보 종목을 고른다(PATTERNS_BY_FOCUS.push 와 같은 방식).
+ */
+export function patternsForBodyPart(bodyPart: string): MovementPattern[] {
+  const base = PATTERNS_BY_BODY_PART[bodyPart];
+  if (!base) {
+    throw new Error(`지원하지 않는 body_part: ${bodyPart}`);
+  }
+  const maxExercises = Math.max(...Object.values(EXERCISE_COUNT));
+  return Array.from({ length: maxExercises }, () => base).flat();
+}
+
+/**
  * 통증 부위 → 제외할 movement_pattern. **docs/SAFETY_PAIN_MAPPING.md 매핑표를 그대로 옮긴 값**이고
  * 사람이 확정한 안전 계약이다(코드에서 임의로 바꾸지 않는다 — 변경 시 사람 리뷰).
  * `wrist` 는 제외 패턴이 없고, 대신 머신/케이블 우선 정렬만 적용한다(규칙 4).

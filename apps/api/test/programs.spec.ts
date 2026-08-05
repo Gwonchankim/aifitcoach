@@ -344,6 +344,20 @@ describe("programs", () => {
     });
 
     /**
+     * D-2: 제외가 0건인 부위(wrist)도 프로그램에 **기록**은 남긴다 — 즉석 세션(F8-1)이 여기서
+     * 통증 부위를 되읽어 머신/케이블 우선을 다시 적용하기 때문이다. exercise_id="" 가 "제외한 운동 없음"
+     * 표시이고, 응답에서는 걸러낸다(위 테스트의 excluded_exercises=[] 가 그대로 유지된다).
+     */
+    it("제외 0건인 부위(wrist)도 통증 부위 기록은 남는다", async () => {
+      await generateWith(["wrist"]);
+
+      const program = await prisma.program.findFirstOrThrow({ where: { userId: USER_ID } });
+      expect(program.excludedExercises).toEqual([
+        { exercise_id: "", pain_area: "wrist", movement_pattern: "", reason: expect.any(String) },
+      ]);
+    });
+
+    /**
      * 안전 입력은 조용히 실패하면 안 된다(계약 변경, 기술총괄 판단): 예전에는 모르는 부위를 무시했는데
      * 그러면 오타·대소문자·한글이 전부 통과해 "통증을 입력했지만 아무것도 제외되지 않는" 상태가 된다
      * (최종 평가 재현: pain_areas=["Knee","무릎",...] → excluded_exercises=[], e_back_squat 배정).

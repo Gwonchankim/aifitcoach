@@ -6,7 +6,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
-import type { SessionStatus } from "@prisma/client";
+import type { SessionOrigin, SessionStatus } from "@prisma/client";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
@@ -91,6 +91,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
     focus: string,
     status: SessionStatus,
     exercises: SeedExercise[] = [],
+    origin: SessionOrigin = "planned",
   ): Promise<string> {
     const session = await prisma.workoutSession.create({
       data: {
@@ -98,6 +99,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
         scheduledDate: date,
         focus,
         status,
+        origin,
         ...(status === "completed" ? { completedAt: date } : {}),
       },
     });
@@ -331,6 +333,41 @@ describe("GET /dashboard (F8 대시보드)", () => {
 
       expect((await dashboard()).streak_days).toBe(1);
     });
+
+    /**
+     * 즉석 세션(F8-1)은 **계획이 아니다**. 계획에 없던 운동을 더 하려고 만든 세션이 미완료로 남았다고
+     * 스트릭을 끊으면, 앱이 "더 하려는 시도"를 처벌한다(재평가 D-1 재현).
+     * 같은 기반(-1·-2 완료, -3 휴식, -4·-5 완료)에 A/B/C 세 시나리오를 고정한다.
+     */
+    describe("휴식일 즉석 세션 (D-1)", () => {
+      async function streakBase(): Promise<string> {
+        const programId = await createProgram(USER_ID);
+        for (const offset of [-1, -2, -4, -5]) {
+          await seedSession(programId, utcDay(offset), "upper", "completed");
+        }
+        return programId;
+      }
+
+      it("A) 휴식일에 아무것도 안 하면 스트릭이 이어진다", async () => {
+        await streakBase();
+
+        expect((await dashboard()).streak_days).toBe(4);
+      });
+
+      it("B) 휴식일에 즉석 세션을 만들고 완료하지 않아도 스트릭이 줄지 않는다", async () => {
+        const programId = await streakBase();
+        await seedSession(programId, utcDay(-3), "chest", "scheduled", [], "ad_hoc");
+
+        expect((await dashboard()).streak_days).toBe(4);
+      });
+
+      it("C) 휴식일 즉석 세션을 완료하면 스트릭이 하루 늘어난다", async () => {
+        const programId = await streakBase();
+        await seedSession(programId, utcDay(-3), "chest", "completed", [], "ad_hoc");
+
+        expect((await dashboard()).streak_days).toBe(5);
+      });
+    });
   });
 
   it("weekly_completion_rate = 이번 주 완료 세션 / 이번 주 예정 세션", async () => {
@@ -345,6 +382,55 @@ describe("GET /dashboard (F8 대시보드)", () => {
     await seedSession(programId, new Date(monday.getTime() - 3 * DAY_MS), "upper", "scheduled");
 
     expect((await dashboard()).weekly_completion_rate).toBe(0.5);
+  });
+
+  /**
+   * weekly_completion_rate = **계획 준수율**이다. 즉석 세션은 계획이 아니므로 분모에도 분자에도
+   * 들어가지 않는다 — 분모만 늘면 즉석 세션을 만든 것 자체가 지표를 깎고(이중 처벌, D-1),
+   * 분자에 넣으면 계획을 다 지킨 주에 100% 를 넘는다.
+   */
+  describe("즉석 세션과 weekly_completion_rate (D-1)", () => {
+    /** 이번 주 계획: 월·화 완료, 수·목 미완료 = 0.5 */
+    async function plannedWeek(): Promise<string> {
+      const programId = await createProgram(USER_ID);
+      const monday = mondayOfThisWeek();
+      for (const [index, status] of (
+        ["completed", "completed", "scheduled", "scheduled"] as SessionStatus[]
+      ).entries()) {
+        await seedSession(programId, new Date(monday.getTime() + index * DAY_MS), "upper", status);
+      }
+      return programId;
+    }
+
+    it("미완료 즉석 세션은 분모를 늘리지 않는다", async () => {
+      const programId = await plannedWeek();
+      const monday = mondayOfThisWeek();
+      await seedSession(
+        programId,
+        new Date(monday.getTime() + 4 * DAY_MS),
+        "chest",
+        "scheduled",
+        [],
+        "ad_hoc",
+      );
+
+      expect((await dashboard()).weekly_completion_rate).toBe(0.5);
+    });
+
+    it("완료한 즉석 세션도 계획 준수율을 부풀리지 않는다", async () => {
+      const programId = await plannedWeek();
+      const monday = mondayOfThisWeek();
+      await seedSession(
+        programId,
+        new Date(monday.getTime() + 5 * DAY_MS),
+        "core",
+        "completed",
+        [],
+        "ad_hoc",
+      );
+
+      expect((await dashboard()).weekly_completion_rate).toBe(0.5);
+    });
   });
 
   /**

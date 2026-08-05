@@ -8,10 +8,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type PlannedSet, type Recommendation, type Session } from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
+import { isUtcToday } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
-import { ExerciseMenuSheet } from "./ExerciseMenuSheet";
 import { ExercisePickerSheet, type PickerMode } from "./ExercisePickerSheet";
+import { RemoveExerciseSheet } from "./RemoveExerciseSheet";
 import { FinishSheet } from "./FinishSheet";
 import { PainSheet } from "./PainSheet";
 import { RestTimerSheet } from "./RestTimerSheet";
@@ -40,7 +41,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const reportPainInStore = useSessionLog((state) => state.reportPain);
 
   const [rest, setRest] = useState<RestState | null>(null);
-  const [menuExerciseId, setMenuExerciseId] = useState<string | null>(null);
+  /** 펼쳐 둔 완료 세트. 한 번에 하나만 펼친다(AC-SET-8) → 화면 전체에서 값 하나로 관리한다. */
+  const [expandedSetId, setExpandedSetId] = useState<string | null>(null);
+  const [removeExerciseId, setRemoveExerciseId] = useState<string | null>(null);
   const [painExerciseId, setPainExerciseId] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerMode | null>(null);
   const [finishOpen, setFinishOpen] = useState(false);
@@ -102,30 +105,45 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     catalogById.get(exerciseId)?.name_ko ?? `운동 ${index + 1}`;
 
   const { completedCount, totalVolume } = summarize(drafts);
-  const readOnly = session?.status === "completed" && summary == null;
+  /*
+    F6-1. 종료했다고 잠그지 않는다 — **오늘 세션이면** 세트를 더하거나 고칠 수 있다(재개/편집 모드).
+    잠그는 건 **다른 날짜**의 종료된 세션뿐이다(서버도 같은 조건으로 409 를 낸다).
+    판정 기준은 서버와 같은 UTC 다(lib/utc-day.ts) — 로컬 시간대로 보면 자정 근처가 어긋난다.
+  */
+  const finishedToday = session?.status === "completed" && isUtcToday(session.scheduled_date);
+  const readOnly = session?.status === "completed" && !finishedToday;
   const modalOpen =
     rest != null ||
     picker != null ||
-    menuExerciseId != null ||
+    removeExerciseId != null ||
     painExerciseId != null ||
     finishOpen;
 
+  /**
+   * 루틴이 바뀌면 서버가 추천을 다시 계산한다(F6-1) → 대시보드의 오늘 요약도 낡는다.
+   * 세션 캐시만 갈아 끼우고 끝내면 대시보드가 옛 운동 수를 계속 보여준다.
+   */
   const applySession = (updated: Session) => {
     queryClient.setQueryData(["session", sessionId], updated);
+    void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     setEditError(null);
   };
 
   /**
-   * 409 는 세 원인(완료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
+   * 409 는 세 원인(다른 날짜의 종료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
    * 서버 한국어 메시지를 매칭하면 문구가 바뀔 때 깨지므로, **세션 상태를 다시 받아** 판정한다.
-   * 다른 기기에서 종료된 세션이면 E-10 문구 + 읽기 전용(= session.status 가 completed 로 갱신)이다.
+   * 종료된 세션이어도 **오늘이면 편집이 열려 있다**(F6-1) → 날짜까지 봐야 원인을 맞게 고른다.
    */
   const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
     if (shouldRefetch(error)) {
       const latest = await queryClient
         .fetchQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId) })
         .catch(() => null);
-      if (isConflict(error) && latest?.status === "completed") {
+      if (
+        isConflict(error) &&
+        latest?.status === "completed" &&
+        !isUtcToday(latest.scheduled_date)
+      ) {
         setEditError(SESSION_COMPLETED);
         return;
       }
@@ -147,7 +165,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     mutationFn: (exerciseId: string) => api.removeExercise(sessionId, exerciseId),
     onSuccess: (updated, exerciseId) => {
       applySession(updated);
-      setMenuExerciseId(null);
+      setRemoveExerciseId(null);
       setNotice(`${catalogById.get(exerciseId)?.name_ko ?? "운동"}을(를) 루틴에서 뺐어요`);
     },
     onError: (error) => void handleEditError(error, "remove"),
@@ -159,7 +177,6 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     onSuccess: (updated, params) => {
       applySession(updated);
       setPicker(null);
-      setMenuExerciseId(null);
       setNotice(`${catalogById.get(params.to)?.name_ko ?? "운동"}으로 바꿨어요`);
     },
     onError: (error) => void handleEditError(error, "swap"),
@@ -172,6 +189,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setFinishOpen(false);
       setFinishError(null);
       setSummary(data as CompleteResponse);
+      // 종료(또는 재종료)로 상태·추천이 바뀐다 → 세션 캐시를 응답으로 갱신하고 대시보드는 다시 받는다.
+      queryClient.setQueryData(["session", sessionId], data.session);
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error) => setFinishError(errorMessage(error, "complete")),
   });
@@ -190,6 +210,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     uncompleteSetInStore(set.id);
     // 해제한 세트의 타이머가 떠 있으면 함께 닫는다.
     setRest((previous) => (previous?.plannedSetId === set.id ? null : previous));
+    setExpandedSetId((previous) => (previous === set.id ? null : previous));
+  };
+
+  /**
+   * 완료 세트의 값 수정(AC-SET-7). 완료 상태를 그대로 두고 기록만 갈아 끼운다 —
+   * **휴식 타이머를 열지 않는다**(§2.4.3: 타이머는 "완료 체크" 시점에만 연다).
+   */
+  const handleEdit = (set: PlannedSet, values: SetValues) => {
+    completeSetInStore(set.id, values);
   };
 
   /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
@@ -242,12 +271,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           totalVolume={totalVolume}
           nextRecommendations={summary.next_recommendations}
           catalogById={catalogById}
+          /* F6-1: 오늘이면 종료 후에도 돌아가서 더 하거나 고칠 수 있다. */
+          onResume={isUtcToday(summary.session.scheduled_date) ? () => setSummary(null) : undefined}
         />
       </div>
     );
   }
 
-  const menuIndex = groups.findIndex((group) => group.exerciseId === menuExerciseId);
+  const removeIndex = groups.findIndex((group) => group.exerciseId === removeExerciseId);
   const inRoutine = new Set(groups.map((group) => group.exerciseId));
 
   // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다.
@@ -272,6 +303,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             {completedCount}세트 완료 · 계획 {orderedSets.length}세트
           </p>
           {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
+          {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
+          {finishedToday ? (
+            <div className="flex flex-col gap-1 rounded-control bg-raised px-3 py-2">
+              <p className="text-sm text-fg">
+                이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
+              </p>
+              {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
+              <p className="text-sm text-fg-muted">
+                고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
+              </p>
+            </div>
+          ) : null}
         </header>
 
         {catalogQuery.isError ? (
@@ -326,10 +369,22 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                     drafts,
                     group.sets.map((set) => set.id),
                   )}
-                  onEdit={() => {
+                  expandedSetId={expandedSetId}
+                  onToggleExpand={(plannedSetId) =>
+                    setExpandedSetId((previous) =>
+                      previous === plannedSetId ? null : plannedSetId,
+                    )
+                  }
+                  onEdit={handleEdit}
+                  onSwap={() => {
                     setEditError(null);
-                    setMenuExerciseId(group.exerciseId);
+                    setPicker({ type: "swap", exerciseId: group.exerciseId });
                   }}
+                  onRemove={() => {
+                    setEditError(null);
+                    setRemoveExerciseId(group.exerciseId);
+                  }}
+                  onRemoveBlocked={() => setNotice(LOCKED_REASON)}
                   onReportPain={() => setPainExerciseId(group.exerciseId)}
                   onComplete={(set, values) =>
                     handleComplete(nameOf(group.exerciseId, index), set, values)
@@ -374,7 +429,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 setFinishOpen(true);
               }}
             >
-              운동 종료
+              {finishedToday ? "수정 마치기" : "운동 종료"}
             </Button>
           </div>
         </div>
@@ -391,19 +446,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         />
       ) : null}
 
-      <ExerciseMenuSheet
-        open={menuExerciseId != null}
-        exerciseName={menuIndex >= 0 ? nameOf(groups[menuIndex].exerciseId, menuIndex) : "운동"}
+      <RemoveExerciseSheet
+        open={removeExerciseId != null}
+        exerciseName={
+          removeIndex >= 0 ? nameOf(groups[removeIndex].exerciseId, removeIndex) : "운동"
+        }
         pending={removeMutation.isPending}
         errorText={editError}
-        onSwap={() => {
-          if (!menuExerciseId) return;
-          setEditError(null);
-          setPicker({ type: "swap", exerciseId: menuExerciseId });
-          setMenuExerciseId(null);
-        }}
-        onRemove={() => menuExerciseId && removeMutation.mutate(menuExerciseId)}
-        onClose={() => setMenuExerciseId(null)}
+        onRemove={() => removeExerciseId && removeMutation.mutate(removeExerciseId)}
+        onClose={() => setRemoveExerciseId(null)}
       />
 
       {picker ? (
@@ -455,6 +506,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
       <FinishSheet
         open={finishOpen}
+        resumed={finishedToday === true}
         completedCount={completedCount}
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}

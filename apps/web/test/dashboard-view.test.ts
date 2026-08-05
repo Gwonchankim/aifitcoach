@@ -127,6 +127,46 @@ describe("오늘 카드", () => {
     expect(view.today.notes).toEqual([]);
   });
 
+  /*
+    요약 화면은 "오늘 2세트, 980kg" 인데 대시보드가 "기록한 세트는 없어요" 라고 말하면
+    두 화면이 서로를 부정한다. 서버 수행 기록이 아직 없을 뿐이므로 **없다고 단정하지 않는다**.
+  */
+  it("서버 기록이 0인데 이 기기에 완료 세트가 있으면 없다고 단정하지 않는다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "done",
+          session_id: "s_9",
+          routine_summary: { exercise_count: 3, focus: "upper" },
+          done_summary: { total_volume: 0, sets_completed: 0, pr_count: 0 },
+        },
+      }),
+      2,
+    );
+
+    expect(view.today.message).toBe(
+      "오늘 2세트를 기록했어요. 이 기기에만 있는 기록이라 연결되면 요약에 반영돼요.",
+    );
+    expect(view.today.message).not.toContain("기록한 세트는 없어요");
+    expect(view.today.notes).toEqual([]);
+  });
+
+  it("서버 기록이 있으면 로컬 값과 무관하게 서버 요약을 그대로 보여준다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "done",
+          session_id: "s_9",
+          routine_summary: null,
+          done_summary: { total_volume: 1200, sets_completed: 8, pr_count: 0 },
+        },
+      }),
+      2,
+    );
+
+    expect(view.today.message).toBe("오늘 운동 완료! 총 1,200kg · 8세트");
+  });
+
   it("세션 id 가 없으면 진입 링크를 만들지 않는다", () => {
     const view = buildDashboardView(
       summary({

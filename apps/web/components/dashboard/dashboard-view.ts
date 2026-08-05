@@ -46,12 +46,24 @@ type DoneSummary = { total_volume: number; sets_completed: number; pr_count: num
 /**
  * `total_volume` 은 맨몸·시간 종목을 빼고 센 값인데 `sets_completed` 에는 그 세트가 들어간다.
  * 그래서 맨몸만 한 날은 볼륨이 0으로 온다 — `0kg` 을 그대로 쓰지 않고 세트 수로 말한다.
+ *
+ * @param localSetsCompleted 이 기기에 남아 있는 완료 세트 수. 서버 요약이 0인데 이 값이 있으면
+ * "기록이 없다"고 **단정하지 않는다** — 요약 화면은 같은 순간에 세트 수를 보여주고 있다.
  */
-function doneCopy(done: DoneSummary): { message: string; notes: string[] } {
+function doneCopy(
+  done: DoneSummary,
+  localSetsCompleted: number,
+): { message: string; notes: string[] } {
   const notes: string[] = [];
 
   if (done.sets_completed === 0) {
-    return { message: "오늘 운동을 마쳤어요. 기록한 세트는 없어요.", notes };
+    return {
+      message:
+        localSetsCompleted > 0
+          ? `오늘 ${localSetsCompleted}세트를 기록했어요. 이 기기에만 있는 기록이라 연결되면 요약에 반영돼요.`
+          : "오늘 운동을 마쳤어요. 기록한 세트는 없어요.",
+      notes,
+    };
   }
 
   const message =
@@ -69,7 +81,7 @@ function doneCopy(done: DoneSummary): { message: string; notes: string[] } {
   return { message, notes };
 }
 
-function todayCard(today: DashboardSummary["today"]): TodayCard {
+function todayCard(today: DashboardSummary["today"], localSetsCompleted: number): TodayCard {
   const sessionHref = today.session_id ? `/session/${today.session_id}` : null;
 
   if (today.status === "rest") {
@@ -86,7 +98,9 @@ function todayCard(today: DashboardSummary["today"]): TodayCard {
   // 분기는 status 로만 한다. routine_summary 는 done 일 때도 non-null 로 내려온다.
   if (today.status === "done") {
     const done = today.done_summary;
-    const copy = done ? doneCopy(done) : { message: "오늘 운동을 마쳤어요.", notes: [] };
+    const copy = done
+      ? doneCopy(done, localSetsCompleted)
+      : { message: "오늘 운동을 마쳤어요.", notes: [] };
     return {
       status: "done",
       heading: "오늘 수행한 운동",
@@ -108,9 +122,12 @@ function todayCard(today: DashboardSummary["today"]): TodayCard {
   };
 }
 
-export function buildDashboardView(summary: DashboardSummary): DashboardView {
+export function buildDashboardView(
+  summary: DashboardSummary,
+  localSetsCompleted = 0,
+): DashboardView {
   return {
-    today: todayCard(summary.today),
+    today: todayCard(summary.today, localSetsCompleted),
     tomorrow: {
       heading: "내일",
       message:

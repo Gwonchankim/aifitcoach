@@ -16,6 +16,8 @@ const PAIN_SCORES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 export type FinishSheetProps = {
   open: boolean;
+  /** F6-1 재개/편집 모드 — 이미 종료한 오늘 운동을 고치는 중이다(첫 종료가 아니다). */
+  resumed?: boolean;
   completedCount: number;
   remainingCount: number;
   pending: boolean;
@@ -26,6 +28,7 @@ export type FinishSheetProps = {
 
 export function FinishSheet({
   open,
+  resumed = false,
   completedCount,
   remainingCount,
   pending,
@@ -37,8 +40,9 @@ export function FinishSheet({
 
   useModal(open, SHEET_ID, onClose, CANCEL_ID);
 
-  const question =
-    completedCount === 0
+  const question = resumed
+    ? "고친 내용을 오늘 기록에 반영할게요."
+    : completedCount === 0
       ? "완료한 세트가 없어요. 종료하면 오늘은 기록이 남지 않아요."
       : remainingCount > 0
         ? `아직 ${remainingCount}개 세트가 남았어요. 지금 종료하면 완료한 ${completedCount}개 세트만 기록돼요.`
@@ -48,12 +52,18 @@ export function FinishSheet({
     <Sheet
       open={open}
       id={SHEET_ID}
-      title="운동 종료"
+      title={resumed ? "수정 마치기" : "운동 종료"}
       onScrimClick={onClose}
       footer={
         <div className="flex flex-col gap-2">
           <Button size="lg" fullWidth disabled={pending} onClick={() => onConfirm(pain)}>
-            {pending ? "기록하는 중이에요" : remainingCount > 0 ? "그래도 종료" : "운동 종료"}
+            {pending
+              ? "기록하는 중이에요"
+              : resumed
+                ? "기록 반영"
+                : remainingCount > 0
+                  ? "그래도 종료"
+                  : "운동 종료"}
           </Button>
           <Button
             id={CANCEL_ID}

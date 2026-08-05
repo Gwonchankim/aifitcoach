@@ -49,11 +49,17 @@ function render(props: { readOnly: boolean; draft?: SetDraft }) {
       fallbackWeight: null,
       previous: null,
       readOnly: props.readOnly,
+      expanded: false,
+      onToggleExpand: () => {},
       onComplete: () => {},
+      onEdit: () => {},
       onUncomplete: () => {},
     }),
   );
 }
+
+/** AC-SET-9: 다른 날짜의 완료 세션에서 축약 행은 버튼이 아니다. */
+const buttonCount = (html: string) => (html.match(/<button/g) ?? []).length;
 
 const inputCount = (html: string) => (html.match(/<input/g) ?? []).length;
 
@@ -79,5 +85,9 @@ describe("완료된 세션(읽기 전용) 세트 행", () => {
 
   it("진행 중인 세션에서는 입력칸이 그대로 있다", () => {
     expect(inputCount(render({ readOnly: false }))).toBeGreaterThan(0);
+  });
+
+  it("축약 행이 버튼이 아니다 — 펼칠 수 없다(AC-SET-9)", () => {
+    expect(buttonCount(render({ readOnly: true, draft: draft() }))).toBe(0);
   });
 });

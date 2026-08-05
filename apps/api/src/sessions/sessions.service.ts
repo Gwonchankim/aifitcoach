@@ -6,9 +6,19 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PlannedSet } from "@prisma/client";
+import type { Goal } from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
+import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 import { PlannedSetFactory, PlannedSetRow } from "../programs/planned-set.factory";
+import {
+  MovementPattern,
+  excludedPatternsFor,
+  exerciseCountFor,
+  patternsForBodyPart,
+  prefersStableEquipment,
+} from "../programs/program-rules";
+import { DIFFICULTY_RANK, selectExercises } from "../programs/programs.service";
 import {
   ApiRecommendation,
   EngineTarget,
@@ -17,6 +27,7 @@ import {
 } from "../recommendation/recommendation.service";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
+import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
 import { SwapExerciseDto } from "./dto/swap-exercise.dto";
 
 /** openapi: components.schemas.PlannedSet */
@@ -93,6 +104,26 @@ export class SessionsService {
       },
     });
 
+    return {
+      session: toSessionResponse(await this.load(userId, sessionId)),
+      next_recommendations: await this.recompute(userId, session),
+    };
+  }
+
+  /**
+   * 수행기록 → 다음 세션 추천 재계산. 종료(complete)와 **당일 종료 세션 수정**(F6-1)이 같이 쓴다.
+   * 절대값 덮어쓰기 + 목표를 방금 수행한 세션에서 읽으므로 몇 번을 돌려도 결과가 같다(멱등).
+   */
+  private async recompute(
+    userId: string,
+    session: {
+      id: string;
+      programId: string;
+      scheduledDate: Date;
+      plannedSets: PlannedSet[];
+      program: { goal: Goal };
+    },
+  ): Promise<ApiRecommendation[]> {
     const performed = await this.prisma.performedSet.findMany({
       where: { completed: true, plannedSet: { sessionId: session.id } },
       select: {
@@ -167,10 +198,94 @@ export class SessionsService {
       );
     }
 
-    return {
-      session: toSessionResponse(await this.load(userId, sessionId)),
-      next_recommendations,
-    };
+    return next_recommendations;
+  }
+
+  /**
+   * F8-1 즉석 세션. 오늘(UTC) 날짜로 현재 프로그램에 세션을 만들고 고른 부위 루틴을 배정한다.
+   * 종목 선택·목표·세트 수는 프로그램 생성과 같은 규칙(program-rules)이고,
+   * 프로그램 생성 때 적용한 통증 부위 제외도 그대로 다시 적용한다(SAFETY_PAIN_MAPPING.md).
+   */
+  async createAdHoc(userId: string, dto: CreateAdHocSessionDto): Promise<SessionResponse> {
+    const program = await this.prisma.program.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!program) {
+      throw new NotFoundException("생성된 프로그램이 없다.");
+    }
+    const today = utcToday();
+    // 오늘 세션이 둘이면 대시보드의 "오늘"이 갈라진다 → 만들지 않고 기존 세션으로 보낸다.
+    // (여기 조회는 빠른 거절용이고, 실제 보장은 아래 트랜잭션 안의 재확인이 한다.)
+    await this.assertNoSessionToday(this.prisma, program.id, today);
+
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    // 통증 부위는 프로그램 생성 결과(excluded_exercises)에 남아 있는 값을 그대로 다시 쓴다.
+    const painAreas = painAreasOf(program.excludedExercises);
+    const excludedPatterns = excludedPatternsFor(painAreas);
+    const catalog = await this.prisma.exercise.findMany();
+    const allowed = catalog.filter(
+      (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
+    );
+    // 제외로 후보가 모자라면 축소된 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
+    // 다른 부위 종목으로 메우지 않는다 — 사용자가 고른 부위가 아닌 운동이 섞이면 선택의 의미가 없다.
+    const exercises = selectExercises(
+      allowed,
+      patternsForBodyPart(dto.body_part),
+      exerciseCountFor(program.minutesPerDay),
+      {
+        levelRank: DIFFICULTY_RANK[user.experienceLevel],
+        preferStable: prefersStableEquipment(painAreas),
+        substituteMuscles: new Set<string>(),
+      },
+    );
+
+    const rows: PlannedSetRow[] = [];
+    for (const [orderIndex, exercise] of exercises.entries()) {
+      rows.push(
+        ...(await this.plannedSets.build({ userId, goal: program.goal, exercise, orderIndex })),
+      );
+    }
+
+    // 세션과 계획세트는 한 덩어리다(계획세트 없는 빈 세션이 남으면 오늘이 통째로 막힌다).
+    const session = await this.prisma.$transaction(async (tx) => {
+      // 동시 요청(더블 탭)이 둘 다 앞의 조회를 통과하면 오늘 세션이 두 개가 된다.
+      // 프로그램 행을 잠그고 그 안에서 다시 확인한다 → 한 쪽만 만들고 다른 쪽은 409.
+      await tx.$queryRaw`SELECT id FROM programs WHERE id = ${program.id}::uuid FOR UPDATE`;
+      await this.assertNoSessionToday(tx, program.id, today);
+      const created = await tx.workoutSession.create({
+        data: {
+          programId: program.id,
+          scheduledDate: today,
+          // focus 는 계약상 자유 문자열이라 고른 부위를 그대로 남긴다(대시보드 routine_summary.focus).
+          focus: dto.body_part,
+          status: "scheduled",
+          // 계획이 아니라 사용자가 그날 추가한 세션이다 → 대시보드가 "계획된 날"에서 뺀다(D-1).
+          origin: "ad_hoc",
+        },
+      });
+      await tx.plannedSet.createMany({
+        data: rows.map((row) => ({ ...row, sessionId: created.id })),
+      });
+      return created;
+    });
+
+    return this.detail(userId, session.id);
+  }
+
+  /** 하루에 세션 하나 — 이미 있으면 409(F8-1: 기존 세션으로 이동). */
+  private async assertNoSessionToday(
+    client: Pick<PrismaService, "workoutSession">,
+    programId: string,
+    today: Date,
+  ): Promise<void> {
+    const existing = await client.workoutSession.findFirst({
+      where: { programId, scheduledDate: today },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException("오늘은 이미 세션이 있다. 기존 세션에서 이어서 하면 된다.");
+    }
   }
 
   /** F5 운동 추가. position 이 있으면 그 자리에 끼워 넣고 뒤 운동들을 한 칸 민다. */
@@ -213,7 +328,7 @@ export class SessionsService {
       dto.exercise_id,
     );
 
-    return this.detail(userId, sessionId);
+    return this.afterEdit(userId, sessionId);
   }
 
   /** F5 운동 삭제. 이미 수행 기록이 있으면 건강 기록을 지우지 않기 위해 409 로 거절한다. */
@@ -226,7 +341,7 @@ export class SessionsService {
     assertEditable(session);
     const ids = await this.removableSetIds(session.plannedSets, exerciseId);
     await this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } });
-    return this.detail(userId, sessionId);
+    return this.afterEdit(userId, sessionId);
   }
 
   /** F5 운동 교체. 자리(orderIndex)와 세트 수는 유지하고 목표·추천값은 새 운동 기준으로 다시 계산한다. */
@@ -267,7 +382,20 @@ export class SessionsService {
       dto.to_exercise_id,
     );
 
-    return this.detail(userId, sessionId);
+    return this.afterEdit(userId, sessionId);
+  }
+
+  /**
+   * 편집 후 응답. **당일** 종료 세션을 고친 경우(F6-1) 종료 시의 추천 재계산을 그대로 다시 돌린다 —
+   * 계획세트가 바뀌면 다음 세션에 나간 추천의 근거도 바뀌기 때문이다.
+   * 재계산은 멱등이라 몇 번을 고쳐도 목표가 누적해서 올라가지 않는다.
+   */
+  private async afterEdit(userId: string, sessionId: string): Promise<SessionResponse> {
+    const session = await this.load(userId, sessionId);
+    if (session.status === "completed") {
+      await this.recompute(userId, session);
+    }
+    return toSessionResponse(session);
   }
 
   /**
@@ -336,13 +464,31 @@ export class SessionsService {
 }
 
 /**
- * F5 편집은 "오늘 루틴"(아직 끝나지 않은 세션) 스코프다. 완료된 세션을 편집하면 과거 수행 기록의
- * 근거(계획세트)가 바뀐다 → 409.
+ * 편집 가능 여부는 **날짜** 기준이다(FEATURES_UX F6-1).
+ * 당일 세션은 종료 후에도 고칠 수 있다 — 끝내고 더 하거나 잘못 입력한 값을 고치는 일이 흔하다.
+ * 다른 날짜의 종료된 세션은 읽기 전용이다: 이미 나간 추천의 근거(과거 계획세트)를 소급해 바꾸지 않는다 → 409.
+ * "오늘"의 기준은 대시보드와 같은 UTC 다(common/date/utc-day).
  */
-function assertEditable(session: { status: string }): void {
-  if (session.status === "completed") {
-    throw new ConflictException("이미 완료한 세션의 루틴은 바꿀 수 없다.");
+function assertEditable(session: { status: string; scheduledDate: Date }): void {
+  if (session.status === "completed" && !isUtcToday(session.scheduledDate)) {
+    throw new ConflictException("다른 날짜의 종료된 세션은 바꿀 수 없다.");
   }
+}
+
+/**
+ * 프로그램 생성 때 쓴 통증 부위를 excluded_exercises(안전 근거)에서 되읽는다.
+ * 제외된 운동이 0건인 부위(wrist)도 항목으로 남아 있으므로 여기서 같이 읽힌다(D-2).
+ */
+function painAreasOf(excludedExercises: Prisma.JsonValue): string[] {
+  if (!Array.isArray(excludedExercises)) return [];
+  const areas = excludedExercises
+    .map((item) =>
+      item !== null && typeof item === "object" && !Array.isArray(item)
+        ? (item as { pain_area?: unknown }).pain_area
+        : undefined,
+    )
+    .filter((area): area is string => typeof area === "string");
+  return [...new Set(areas)];
 }
 
 /**

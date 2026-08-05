@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { isoDate, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 
 /** openapi: DashboardSummary.today.routine_summary / tomorrow.routine_summary */
@@ -38,6 +39,8 @@ interface SessionRow {
   scheduledDate: Date;
   status: string;
   focus: string;
+  /** planned = 프로그램 계획, ad_hoc = 사용자가 그날 추가한 즉석 세션(F8-1). */
+  origin: string;
 }
 
 const DAY_MS = 86_400_000;
@@ -68,7 +71,7 @@ export class DashboardService {
 
     const sessions = await this.prisma.workoutSession.findMany({
       where: { programId: program.id },
-      select: { id: true, scheduledDate: true, status: true, focus: true },
+      select: { id: true, scheduledDate: true, status: true, focus: true, origin: true },
       orderBy: { scheduledDate: "asc" },
     });
     const todaySession = sessionOn(sessions, today);
@@ -203,6 +206,11 @@ function emptySummary(today: Date): DashboardResponse {
   };
 }
 
+/** 프로그램 계획에서 나온 세션인가(즉석 세션 F8-1 은 아니다). */
+function isPlanned(session: SessionRow): boolean {
+  return session.origin === "planned";
+}
+
 function sessionOn(sessions: SessionRow[], date: Date): SessionRow | null {
   return sessions.find((session) => isoDate(session.scheduledDate) === isoDate(date)) ?? null;
 }
@@ -220,6 +228,10 @@ function routineSummary(
  * 스트릭 = 오늘(오늘 기록이 아직 없으면 어제)부터 하루씩 거슬러 올라가며 센 **연속 완료 운동일 수**.
  * 계획이 없는 날(휴식일)은 끊지 않고 건너뛴다 — 주 4일 프로그램에서 휴식일이 끊으면 지표가 항상 1~2 에
  * 갇힌다. 계획이 있었는데 완료하지 않은 날에서 끊는다. 오늘은 아직 남았으므로 미완료여도 끊지 않는다.
+ *
+ * "계획된 날"은 **origin=planned 세션이 있는 날**이다. 즉석 세션(F8-1)은 계획이 아니므로 미완료로
+ * 남아도 끊지 않는다 — 계획에 없던 운동을 더 하려 한 시도가 스트릭을 깨면 앱이 사용자를 처벌한다(D-1).
+ * 완료한 즉석 세션은 그날을 운동일로 세므로 스트릭이 늘어난다.
  */
 function streakDays(sessions: SessionRow[], today: Date): number {
   const earliest = sessions[0]?.scheduledDate;
@@ -230,26 +242,34 @@ function streakDays(sessions: SessionRow[], today: Date): number {
       .filter((session) => session.status === "completed")
       .map((s) => isoDate(s.scheduledDate)),
   );
-  const scheduled = new Set(sessions.map((session) => isoDate(session.scheduledDate)));
+  const planned = new Set(
+    sessions.filter(isPlanned).map((session) => isoDate(session.scheduledDate)),
+  );
 
   let cursor = completed.has(isoDate(today)) ? today : addDays(today, -1);
   let streak = 0;
   while (cursor.getTime() >= earliest.getTime()) {
     const day = isoDate(cursor);
     if (completed.has(day)) streak += 1;
-    else if (scheduled.has(day)) break;
+    else if (planned.has(day)) break;
     cursor = addDays(cursor, -1);
   }
   return streak;
 }
 
-/** 이번 주(UTC 월~일) 완료 세션 / 예정 세션. 이번 주 계획이 0 이면 0 이다(UX_STATES S3 빈 상태 ③). */
+/**
+ * 이번 주(UTC 월~일) 완료 세션 / 예정 세션. 이번 주 계획이 0 이면 0 이다(UX_STATES S3 빈 상태 ③).
+ * 이 값은 **계획 준수율**이라 즉석 세션은 분모에도 분자에도 넣지 않는다: 분모만 늘리면 즉석 세션을
+ * 만든 것 자체가 지표를 깎고(D-1 이중 처벌), 분자에 넣으면 계획을 다 지킨 주에 100% 를 넘는다.
+ */
 function weeklyCompletionRate(sessions: SessionRow[], today: Date): number {
   const monday = mondayOfWeek(today).getTime();
   const nextMonday = monday + 7 * DAY_MS;
   const week = sessions.filter(
     (session) =>
-      session.scheduledDate.getTime() >= monday && session.scheduledDate.getTime() < nextMonday,
+      isPlanned(session) &&
+      session.scheduledDate.getTime() >= monday &&
+      session.scheduledDate.getTime() < nextMonday,
   );
   if (week.length === 0) return 0;
   const done = week.filter((session) => session.status === "completed").length;
@@ -261,21 +281,12 @@ function e1rm(weight: number, reps: number): number {
   return weight * (1 + reps / 30);
 }
 
-function utcToday(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
 function mondayOfWeek(date: Date): Date {
   return addDays(date, -((date.getUTCDay() + 6) % 7));
 }
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * DAY_MS);
-}
-
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function round2(value: number): number {

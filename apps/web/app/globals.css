@@ -43,6 +43,17 @@
   --color-disabled-fg: var(--afc-disabled-fg);
   --color-focus: var(--afc-focus);
 
+  /* --- 색: 완료(기록이 확정된 세트 행) ---
+     `opacity` 로 흐리지 마라. opacity 는 글자와 배경을 **함께** 섞어서 대비를 깎는다
+     (실측: 완료 행 `opacity-70` → 단위 라벨 4.01:1, 비활성 입력값 2.93:1 = AA 위반).
+     완료 표시는 이 토큰으로 **색을 갈아 끼워서** 한다 — 값은 done 배경 위에서 4.5:1 이상이다.
+       done        = 완료 행 배경,  done-fg = 완료 행의 보조 글자(6.6:1),
+       done-border = 완료 행 테두리(장식용, 대비 기준 없음).
+     완료 행의 **기록값 본문은 `text-fg`** 를 그대로 쓴다(13.9:1) — 기록은 흐려질 대상이 아니다. */
+  --color-done: var(--afc-done);
+  --color-done-fg: var(--afc-done-fg);
+  --color-done-border: var(--afc-done-border);
+
   /* --- 타이포: 기본 스케일은 Tailwind 기본값을 그대로 쓴다.
          화면 건너 읽어야 하는 숫자 2종만 토큰으로 추가한다. --- */
   --text-metric: 2rem; /* 무게/횟수 등 큰 수치 */
@@ -55,6 +66,11 @@
   --spacing-tap-lg: 3.5rem; /* 56px — 기본 액션 버튼 */
   --spacing-tap-xl: 4.5rem; /* 72px — 세트 완료 체크·휴식 종료 */
   --spacing-safe-bottom: env(safe-area-inset-bottom); /* 하단 고정 액션 여백(PWA) */
+  /* 하단 액션 바 전용 아래 여백. 홈 인디케이터가 없는 기기에서도 버튼이 화면 맨 끝에
+     붙지 않게 12px 를 하한으로 둔다(F0-0). */
+  /* 하단 액션 바 여백. 24px 하한은 UX_STATES AC-S1-8("버튼 블록 하단 여백 >= 24px")이 근거다 —
+     노치가 없는 기기에서 safe-area 가 0이라 하한이 없으면 버튼이 화면 맨 끝에 붙는다. */
+  --spacing-action-bottom: max(env(safe-area-inset-bottom), 1.5rem);
 
   /* --- 라운드 --- */
   --radius-control: 0.75rem; /* 버튼·입력·칩 */
@@ -94,6 +110,10 @@
   --afc-disabled-fg: #8794a6;
   --afc-focus: #7dd3fc;
 
+  --afc-done: #152a23;
+  --afc-done-fg: #93b3a5;
+  --afc-done-border: #35604f;
+
   --afc-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
   --afc-shadow-sheet: 0 -12px 32px rgb(0 0 0 / 0.6);
 }
@@ -125,6 +145,10 @@
   --afc-disabled: #e4e9ef;
   --afc-disabled-fg: #6b7684;
   --afc-focus: #0369a1;
+
+  --afc-done: #e4f2ea;
+  --afc-done-fg: #3c5a4e;
+  --afc-done-border: #8fc2af;
 
   --afc-shadow-card: 0 1px 2px rgb(16 24 32 / 0.08);
   --afc-shadow-sheet: 0 -12px 32px rgb(16 24 32 / 0.16);

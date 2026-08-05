@@ -1,7 +1,7 @@
 /**
  * 세트 기록 상태 계약(F1 되돌리기·F7 부분 수행, STEP 6 /sync payload 모양).
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   painOf,
   summarize,
@@ -14,6 +14,9 @@ const VALUES = { weight: 62.5, reps: 9, rir: 2, timeSec: null };
 beforeEach(() => {
   useSessionLog.setState({ sessionId: null, drafts: {} });
 });
+
+/** openapi PerformedSet.client_id / Mutation.client_id = `format: uuid`. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe("완료 체크", () => {
   it("체크 → 해제 → 재체크에서 값이 사라지지 않는다(AC-S4-1)", () => {
@@ -60,6 +63,48 @@ describe("완료 체크", () => {
     );
     expect(draft.actual_time_sec).toBe(45);
     expect(draft.actual_weight).toBeNull();
+  });
+
+  it("client_id 는 세트마다 다른 uuid 다", () => {
+    const store = useSessionLog.getState();
+    store.completeSet("ps_1", VALUES);
+    store.completeSet("ps_2", VALUES);
+
+    const drafts = useSessionLog.getState().drafts;
+    expect(drafts.ps_1.client_id).toMatch(UUID_V4);
+    expect(drafts.ps_2.client_id).toMatch(UUID_V4);
+    expect(drafts.ps_1.client_id).not.toBe(drafts.ps_2.client_id);
+  });
+});
+
+/**
+ * 실기기 재현(blocker): 폰에서 `http://192.168.x.x:3000` 으로 열면 **secure context 가 아니다**.
+ * 그 환경에서 `crypto.randomUUID` 는 아예 없다(`crypto.getRandomValues` 는 있다).
+ * 여기서 예외가 나면 완료 체크가 통째로 죽는다 → 휴식 타이머도 안 뜨고 종료 시 0세트가 된다.
+ */
+describe("비보안 출처(http) 실기기", () => {
+  beforeEach(() => {
+    // 프로토타입의 randomUUID 를 own 프로퍼티로 가린다(브라우저의 비보안 출처와 같은 모양).
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: undefined,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    delete (globalThis.crypto as { randomUUID?: unknown }).randomUUID;
+  });
+
+  it("crypto.randomUUID 가 없어도 완료 체크가 기록된다", () => {
+    expect(globalThis.crypto.randomUUID).toBeUndefined();
+
+    expect(() => useSessionLog.getState().completeSet("ps_1", VALUES)).not.toThrow();
+
+    const draft = useSessionLog.getState().drafts.ps_1;
+    expect(draft.completed).toBe(true);
+    expect(draft.actual_weight).toBe(62.5);
+    expect(draft.client_id).toMatch(UUID_V4);
+    expect(summarize(useSessionLog.getState().drafts).completedCount).toBe(1);
   });
 });
 

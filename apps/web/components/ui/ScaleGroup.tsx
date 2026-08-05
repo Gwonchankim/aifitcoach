@@ -1,10 +1,11 @@
 /**
- * 사용법: 0~6 RIR·0~10 통증처럼 **값 하나를 고르는 눈금**을 한 줄에 담는다.
+ * 사용법: 0~10 통증 점수처럼 **값 하나를 고르는 눈금**을 한 줄에 담는다.
+ * (RIR 은 F1-1 2차 개정으로 **입력칸 하나**가 됐다 → components/session/RirField.tsx)
  *
- *   <ScaleGroup label={`${setLabel} 남은 반복 수(RIR), 선택 입력`} prefix="RIR" disabled={completed}>
- *     {RIR_OPTIONS.map((n) => (
- *       <ScaleOption key={n} name={`rir-${set.id}`} label={`RIR ${n}`}
- *         checked={rir === n} onChange={() => setRir(n)}>{n}</ScaleOption>
+ *   <ScaleGroup label={`${exerciseName} 통증 점수, 0~10, 선택 입력`}>
+ *     {PAIN_SCORES.map((n) => (
+ *       <ScaleOption key={n} name={`pain-${id}`} label={`통증 ${n}점`}
+ *         checked={score === n} onChange={() => setScore(n)}>{n}</ScaleOption>
  *     ))}
  *   </ScaleGroup>
  *

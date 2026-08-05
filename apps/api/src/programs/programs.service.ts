@@ -51,7 +51,14 @@ export interface ProgramResponse {
 /** 주 단위 템플릿을 실제 날짜로 펼칠 사이클 수. 2주치를 만들어 "다음 세션"이 항상 존재하게 한다. */
 const CYCLES = 2;
 
-const DIFFICULTY_RANK = { beginner: 0, intermediate: 1, advanced: 2 } as const;
+/**
+ * excluded_exercises 항목의 "제외한 운동 없음" 표시(exercise_id/movement_pattern).
+ * 이 항목은 통증 부위를 기록하기 위한 것이라 API 응답에서는 걸러낸다(toResponse).
+ */
+const NO_EXCLUSION = "";
+
+/** 난이도 서열(초급 < 중급 < 고급). 즉석 세션도 같은 서열로 종목을 고른다. */
+export const DIFFICULTY_RANK = { beginner: 0, intermediate: 1, advanced: 2 } as const;
 
 @Injectable()
 export class ProgramsService {
@@ -73,7 +80,10 @@ export class ProgramsService {
     );
     const painAreas = dto.pain_areas ?? [];
     const excludedPatterns = excludedPatternsFor(painAreas);
-    const excluded = excludedExercises(available, excludedPatterns);
+    const removed = excludedExercises(available, excludedPatterns);
+    // 저장용: 제외가 0건인 부위(wrist 등)도 항목을 남긴다 — 즉석 세션(F8-1)이 여기서 통증 부위를
+    // 되읽어 머신/케이블 우선을 다시 적용한다(D-2). 응답에서는 toResponse 가 걸러낸다.
+    const excluded = [...removed, ...painAreasWithoutExclusion(painAreas, removed)];
     const allowed = available.filter(
       (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
     );
@@ -81,16 +91,16 @@ export class ProgramsService {
       levelRank: DIFFICULTY_RANK[dto.experience_level],
       preferStable: prefersStableEquipment(painAreas),
       // 규칙 1: 제외로 부족하면 같은 근육군의 머신/케이블 종목으로 대체한다.
-      substituteMuscles: new Set(excluded.flatMap((item) => muscles(available, item.exercise_id))),
+      substituteMuscles: new Set(removed.flatMap((item) => muscles(available, item.exercise_id))),
     };
 
     // focus 별 선택은 결정론적이므로 한 번만 계산해 같은 focus 인 날마다 재사용한다.
     const rowsByFocus = new Map<Focus, PlannedSetRow[]>();
     for (const { focus } of schedule) {
       if (rowsByFocus.has(focus)) continue;
-      const exercises = selectExercises(allowed, focus, exerciseCount, options);
+      const exercises = selectExercises(allowed, patternsFor(focus), exerciseCount, options);
       // 통증 제외로 비었다면 에러 대신 축소된(빈) 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
-      if (exercises.length === 0 && excluded.length === 0) {
+      if (exercises.length === 0 && removed.length === 0) {
         throw new BadRequestException(
           `조건(equipment/avoid_exercises)에 맞는 ${focus} 운동이 없다.`,
         );
@@ -157,6 +167,8 @@ export class ProgramsService {
   /**
    * 프로그램 템플릿은 생성 시점에 고정된 값(programs.template)을 그대로 돌려준다.
    * 세션에서 되읽으면 세션 스코프 편집(F5)이 템플릿을 오염시킨다(STEP 4 평가 I-12).
+   *
+   * excluded_exercises 는 계약상 "제외된 운동 목록"이므로 통증 부위 기록(NO_EXCLUSION)은 걸러낸다.
    */
   private toResponse(program: Program): ProgramResponse {
     return {
@@ -164,7 +176,9 @@ export class ProgramsService {
       goal: program.goal,
       split_type: program.splitType,
       rules_version: program.rulesVersion,
-      excluded_exercises: program.excludedExercises as unknown as ExcludedExercise[],
+      excluded_exercises: (program.excludedExercises as unknown as ExcludedExercise[]).filter(
+        (item) => item.exercise_id !== NO_EXCLUSION,
+      ),
       sessions: program.template as unknown as ProgramSessionTemplate[],
     };
   }
@@ -241,11 +255,37 @@ function excludedExercises(
     .sort((a, b) => a.exercise_id.localeCompare(b.exercise_id));
 }
 
+/**
+ * 제외된 운동이 **없는** 통증 부위의 기록(저장 전용). `wrist` 는 제외 패턴이 0건이고
+ * `neck` 처럼 다른 부위가 이미 같은 패턴을 가져간 경우도 여기 들어온다.
+ *
+ * 기록을 남기지 않으면 프로그램에 통증 부위가 한 톨도 안 남아, 즉석 세션(F8-1)이 머신/케이블 우선
+ * 배려를 잃는다(재평가 D-2). 항목 스키마는 4개 필드가 required 라 계약을 바꾸지 않고 남기려면
+ * "제외한 운동 없음"을 값으로 표현해야 한다 → exercise_id·movement_pattern 을 빈 문자열로 둔다.
+ */
+function painAreasWithoutExclusion(
+  painAreas: string[],
+  removed: ExcludedExercise[],
+): ExcludedExercise[] {
+  const covered = new Set(removed.map((item) => item.pain_area));
+  return [...new Set(painAreas)]
+    .filter((area) => !covered.has(area))
+    .sort()
+    .map((area) => ({
+      exercise_id: NO_EXCLUSION,
+      pain_area: area,
+      movement_pattern: NO_EXCLUSION,
+      reason:
+        `${area} 통증으로 제외한 운동은 없다. 대신 머신/케이블처럼 궤적이 고정된 종목을 먼저 고른다` +
+        `(일반적 회피 가이드이며 의료적 조언이 아니다).`,
+    }));
+}
+
 function muscles(available: Exercise[], exerciseId: string): string[] {
   return available.find((exercise) => exercise.id === exerciseId)?.primaryMuscles ?? [];
 }
 
-interface SelectionOptions {
+export interface SelectionOptions {
   levelRank: number;
   /** 통증이 보고되면 궤적이 고정된 머신/케이블을 먼저 고른다(규칙 1·4). */
   preferStable: boolean;
@@ -254,19 +294,19 @@ interface SelectionOptions {
 }
 
 /**
- * focus 의 동작 패턴 우선순위대로 종목을 하나씩 고른다.
+ * 주어진 동작 패턴 우선순위대로 종목을 하나씩 고른다(프로그램의 focus · 즉석 세션의 body_part 공용).
  * 후보(catalog)는 equipment/avoid_exercises/pain_areas 로 이미 걸러진 목록이다.
  * 맨몸(default_step_kg 없음)·시간(metric=time) 종목도 후보에 포함한다 — 엔진이 두 축을 모두 처방한다.
  */
-function selectExercises(
+export function selectExercises(
   catalog: Exercise[],
-  focus: Focus,
+  patterns: MovementPattern[],
   count: number,
   options: SelectionOptions,
 ): Exercise[] {
   const picked: Exercise[] = [];
   const used = new Set<string>();
-  for (const pattern of patternsFor(focus)) {
+  for (const pattern of patterns) {
     if (picked.length >= count) break;
     const [chosen] = catalog
       .filter((exercise) => exercise.movementPattern === pattern && !used.has(exercise.id))

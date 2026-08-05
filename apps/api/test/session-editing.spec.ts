@@ -17,6 +17,16 @@ const PROGRAM = {
   experience_level: "intermediate",
 } as const;
 
+const DAY_MS = 86_400_000;
+
+/** 서비스와 같은 기준(UTC)의 날짜. offset=0 이 오늘이다. */
+function utcDay(offset: number): Date {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offset * DAY_MS,
+  );
+}
+
 const ADD_PATH = "/sessions/{sessionId}/exercises";
 const ITEM_PATH = "/sessions/{sessionId}/exercises/{plannedExerciseId}";
 const SWAP_PATH = "/sessions/{sessionId}/exercises/{plannedExerciseId}/swap";
@@ -489,11 +499,16 @@ describe("데일리 루틴 편집 (F5)", () => {
   });
 
   /**
-   * F5 편집은 "오늘 루틴"(아직 안 끝난 세션) 스코프다. 이미 완료한 세션을 편집하면 과거 기록이 바뀐다
-   * (STEP 4 평가 I-13) → 409.
+   * F6-1(확정 2026-08-05): 편집 가능 여부는 상태가 아니라 **날짜**로 갈린다.
+   * 다른 날짜의 종료 세션은 읽기 전용(409) — 이미 나간 추천의 근거를 소급해 바꾸지 않는다.
+   * 날짜 기준은 대시보드와 같은 UTC 다(오늘이 무슨 요일이든 흔들리지 않게 명시적으로 옮긴다).
    */
-  describe("완료된 세션은 편집할 수 없다", () => {
+  describe("다른 날짜의 종료된 세션은 편집할 수 없다", () => {
     beforeEach(async () => {
+      await prisma.workoutSession.update({
+        where: { id: sessionId },
+        data: { scheduledDate: utcDay(-1) },
+      });
       await request(app.getHttpServer())
         .post(`/v1/sessions/${sessionId}/complete`)
         .send({})
@@ -532,6 +547,82 @@ describe("데일리 루틴 편집 (F5)", () => {
       await expect(
         prisma.plannedSet.count({ where: { sessionId, exerciseId: exerciseIds[0] } }),
       ).resolves.toBe(3);
+    });
+  });
+
+  /** F6-1: 당일 세션은 종료 후에도 추가·삭제·교체가 된다(끝내고 더 하거나 잘못 입력한 값을 고친다). */
+  describe("당일 종료 세션은 편집할 수 있다", () => {
+    beforeEach(async () => {
+      await prisma.workoutSession.update({
+        where: { id: sessionId },
+        data: { scheduledDate: utcDay(0) },
+      });
+      await request(app.getHttpServer())
+        .post(`/v1/sessions/${sessionId}/complete`)
+        .send({})
+        .expect(200);
+    });
+
+    it("추가는 200 이고 세션은 completed 그대로다", async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/v1/sessions/${sessionId}/exercises`)
+        .send({ exercise_id: "e_face_pull" })
+        .expect(200);
+
+      expectMatchesContract("post", ADD_PATH, 200, response.body);
+      expect(response.body.status).toBe("completed");
+      expect(exerciseOrder(response.body)).toEqual([...exerciseIds, "e_face_pull"]);
+    });
+
+    it("삭제는 200 이고 해당 운동의 계획세트가 사라진다", async () => {
+      const removed = exerciseIds[1];
+
+      const response = await request(app.getHttpServer())
+        .delete(`/v1/sessions/${sessionId}/exercises/${removed}`)
+        .expect(200);
+
+      expectMatchesContract("delete", ITEM_PATH, 200, response.body);
+      await expect(
+        prisma.plannedSet.count({ where: { sessionId, exerciseId: removed } }),
+      ).resolves.toBe(0);
+    });
+
+    it("교체는 200 이다", async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/v1/sessions/${sessionId}/exercises/${exerciseIds[0]}/swap`)
+        .send({ to_exercise_id: "e_chest_press_machine" })
+        .expect(200);
+
+      expectMatchesContract("post", SWAP_PATH, 200, response.body);
+      expect(exerciseOrder(response.body)).toEqual([
+        "e_chest_press_machine",
+        ...exerciseIds.slice(1),
+      ]);
+    });
+
+    /** 수행 기록이 있는 운동은 날짜와 무관하게 보호된다(건강 기록 보존). */
+    it("이미 수행 기록이 있는 운동은 당일이어도 뺄 수 없다(409)", async () => {
+      const planned = await prisma.plannedSet.findFirstOrThrow({
+        where: { sessionId, exerciseId: exerciseIds[0] },
+      });
+      await prisma.performedSet.create({
+        data: {
+          plannedSetId: planned.id,
+          actualWeight: 60,
+          actualReps: 10,
+          actualRir: 2,
+          painScore: null,
+          completed: true,
+          clientId: randomUUID(),
+          performedAt: new Date(),
+        },
+      });
+
+      const response = await request(app.getHttpServer()).delete(
+        `/v1/sessions/${sessionId}/exercises/${exerciseIds[0]}`,
+      );
+
+      expectErrorMatchesContract("delete", ITEM_PATH, 409, response);
     });
   });
 });

@@ -15,6 +15,8 @@ export type Exercise = components["schemas"]["Exercise"];
 export type DashboardSummary = components["schemas"]["DashboardSummary"];
 export type Recommendation = components["schemas"]["Recommendation"];
 export type GenerateProgramRequest = components["schemas"]["GenerateProgramRequest"];
+/** 즉석 세션(F8-1)의 부위. 계약 enum 에서 직접 가져와 UI 가 목록 밖 값을 만들 수 없게 한다. */
+export type BodyPart = components["schemas"]["CreateAdHocSessionRequest"]["body_part"];
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001/v1";
 
@@ -78,6 +80,10 @@ export const api = {
   dashboard: () => request<DashboardSummary>("/dashboard"),
 
   session: (sessionId: string) => request<Session>(`/sessions/${sessionId}`),
+
+  /** F8-1 휴식일에도 운동하기: 부위를 골라 오늘 세션을 즉석 생성한다. 이미 있으면 409. */
+  createAdHocSession: (body: { body_part: BodyPart }) =>
+    request<Session>("/sessions/ad-hoc", { method: "POST", body: JSON.stringify(body) }),
 
   completeSession: (
     sessionId: string,

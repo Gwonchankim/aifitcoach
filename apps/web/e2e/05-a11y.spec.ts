@@ -86,25 +86,46 @@ test("S4 루틴 · 타이머 팝업 · 편집 팝업(열린 상태)", async ({ p
     .getByRole("button", { name: "닫기" })
     .click();
 
-  // 편집 시트 열린 상태
-  const editButton = page.getByRole("button", { name: /루틴 편집$/ }).first();
-  const editLabel = (await editButton.getAttribute("aria-label")) ?? "";
-  await editButton.click();
-  await expect(
-    page.getByRole("dialog", { name: new RegExp(editLabel.replace(" 루틴 편집", "")) }),
-  ).toBeVisible();
-  await scan(page, "S4-exercise-menu-open");
+  // 교체 팝업 열린 상태(F5: [교체] 는 중간 메뉴 없이 바로 연다)
+  const swapButton = page.getByRole("button", { name: /교체$/ }).first();
+  const swapLabel = (await swapButton.getAttribute("aria-label")) ?? "";
+  await swapButton.click();
+  await expect(page.getByRole("dialog", { name: swapLabel })).toBeVisible();
+  await scan(page, "S4-picker-swap-open");
+  await page.keyboard.press("Escape");
+
+  // 삭제 확인 시트 열린 상태(F5 휴지통)
+  const trashLabel = swapLabel.replace(/ 교체$/, " 삭제");
+  await page.getByRole("button", { name: trashLabel }).click();
+  await expect(page.getByRole("dialog", { name: /빼기/ })).toBeVisible();
+  await scan(page, "S4-exercise-remove-open");
   await page.keyboard.press("Escape");
 
   // 타이머 팝업 열린 상태
   const check = page.getByRole("button", { name: /1세트 완료 처리$/ }).first();
   const name = ((await check.getAttribute("aria-label")) ?? "").replace(/ 1세트 완료 처리$/, "");
+
+  // RIR 고르기 시트 열린 상태(M-7). 셰브론은 탭 순서 밖이라 클릭으로만 연다.
+  await page.getByRole("button", { name: `${name} 1세트 RIR 고르기` }).click();
+  await expect(page.getByRole("dialog", { name: "RIR 고르기" })).toBeVisible();
+  await scan(page, "S4-rir-sheet-open");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "RIR 고르기" })).toBeHidden();
+
   await page.getByLabel(`${name} 1세트 무게, 킬로그램`).fill("40");
   await page.getByLabel(`${name} 1세트 횟수, 회`).fill("10");
   await check.click();
   await expect(page.getByRole("dialog", { name: /후 휴식/ })).toBeVisible();
   await scan(page, "S4-rest-timer-open");
   await page.keyboard.press("Escape");
+
+  /*
+    **완료 세트가 있는 상태**도 반드시 스캔한다.
+    완료 행은 배경·글자색이 통째로 바뀌는 유일한 상태라, 여기를 안 보면 대비 위반이 숨는다
+    (예전에 완료 행 opacity-70 으로 4.01:1 위반이 있었는데 스캔 대상이 아니라 안 잡혔다).
+  */
+  await expect(page.getByRole("button", { name: `${name} 1세트 완료 취소` })).toBeVisible();
+  await scan(page, "S4-routine-with-completed-set");
 
   // 운동 종료 확인 시트 열린 상태
   await page.getByRole("button", { name: "운동 종료" }).click();
@@ -151,8 +172,9 @@ test("키보드만으로 세트 완료 → 타이머 → 휴식 종료 루프를
   await page.keyboard.press("Tab"); // 횟수
   await expect(page.getByLabel(`${name} 1세트 횟수, 회`)).toBeFocused();
   await page.keyboard.type("8");
-  await page.keyboard.press("Tab"); // RIR 라디오 그룹
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Tab"); // RIR (F1-1: 한 칸에서 직접 입력 + 목록 선택)
+  await expect(page.getByLabel(`${name} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`)).toBeFocused();
+  await page.keyboard.type("2");
   await page.keyboard.press("Tab"); // 완료 체크
   await expect(check).toBeFocused();
   await page.keyboard.press("Enter");

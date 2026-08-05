@@ -12,8 +12,11 @@ const NETWORK = "인터넷 연결이 불안정해요. 연결되면 자동으로 
 const SERVER = "잠시 문제가 있었어요. 다시 시도해 주세요.";
 const SESSION_NOT_FOUND = "오늘 운동을 찾을 수 없어요. 대시보드에서 다시 시작해 주세요.";
 
-/** E-10. 다른 기기에서 세션이 종료된 뒤 편집을 시도한 경우(409). 상태 재조회로만 판정한다. */
-export const SESSION_COMPLETED = "이미 종료한 운동이라 루틴을 바꿀 수 없어요.";
+/**
+ * E-10. **다른 날짜의** 종료된 운동을 편집하려 한 경우(409). 상태·날짜 재조회로만 판정한다.
+ * 오늘 종료한 운동은 F6-1 로 편집이 열려 있으므로 여기 문구가 나오면 안 된다.
+ */
+export const SESSION_COMPLETED = "지난 운동 기록은 바꿀 수 없어요. 오늘 기록만 고칠 수 있어요.";
 
 const BY_ACTION: Record<ErrorAction, Partial<Record<number, string>>> = {
   session: {

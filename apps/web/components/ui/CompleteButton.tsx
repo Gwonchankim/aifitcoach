@@ -12,16 +12,33 @@ export type CompleteButtonProps = Omit<
   completed: boolean;
   /** 어떤 세트인지 스크린리더에 알린다(예: "3세트"). */
   setLabel?: string;
+  /**
+   * `lg`(72px) = 미완료 세트의 기본 크기. `md`(48px) = 완료 세트의 축약 행(높이 <= 64px)용.
+   * 축약 행에 72px 버튼은 들어가지 않는다. 44px 하한은 md 도 지킨다.
+   */
+  size?: "lg" | "md";
 };
 
-export function CompleteButton({ completed, setLabel, className, ...props }: CompleteButtonProps) {
+const sizeClass: Record<"lg" | "md", string> = {
+  lg: "size-tap-xl gap-1",
+  md: "size-12 gap-0 [&_svg]:size-6",
+};
+
+export function CompleteButton({
+  completed,
+  setLabel,
+  size = "lg",
+  className,
+  ...props
+}: CompleteButtonProps) {
   return (
     <button
       type="button"
       aria-pressed={completed}
       aria-label={setLabel ? `${setLabel} 완료` : undefined}
       className={cn(
-        "flex size-tap-xl shrink-0 touch-manipulation flex-col items-center justify-center gap-1",
+        "flex shrink-0 touch-manipulation flex-col items-center justify-center",
+        sizeClass[size],
         "rounded-control border-2 font-semibold transition-colors",
         "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",

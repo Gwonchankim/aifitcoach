@@ -2,12 +2,25 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post } from "@nestjs/co
 import { CurrentUser } from "../auth/current-user.decorator";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
+import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
 import { SwapExerciseDto } from "./dto/swap-exercise.dto";
 import { CompleteSessionResponse, SessionResponse, SessionsService } from "./sessions.service";
 
 @Controller("sessions")
 export class SessionsController {
   constructor(private readonly sessions: SessionsService) {}
+
+  /**
+   * POST /sessions/ad-hoc — 휴식일 즉석 세션 생성(부위 선택, F8-1).
+   * `:sessionId` 라우트보다 먼저 선언해 고정 경로가 파라미터에 잡아먹히지 않게 한다.
+   */
+  @Post("ad-hoc")
+  createAdHoc(
+    @CurrentUser() userId: string,
+    @Body() body: CreateAdHocSessionDto,
+  ): Promise<SessionResponse> {
+    return this.sessions.createAdHoc(userId, body);
+  }
 
   /** GET /sessions/{sessionId} — 세션 + 계획세트(추천값 포함) 조회 */
   @Get(":sessionId")

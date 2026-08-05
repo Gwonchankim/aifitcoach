@@ -2,6 +2,8 @@
  * 사용법: import { Button, Card } from "../../components/ui";
  * (web tsconfig에 path alias가 없어 상대경로로 import한다.)
  */
+export { ActionBar } from "./ActionBar";
+export type { ActionBarProps } from "./ActionBar";
 export { Badge } from "./Badge";
 export type { BadgeProps, BadgeTone } from "./Badge";
 export { Button, buttonBase } from "./Button";
@@ -14,6 +16,8 @@ export { Chip } from "./Chip";
 export type { ChipProps } from "./Chip";
 export { CompleteButton } from "./CompleteButton";
 export type { CompleteButtonProps } from "./CompleteButton";
+export { IconButton } from "./IconButton";
+export type { IconButtonProps, IconButtonTone } from "./IconButton";
 export { Input } from "./Input";
 export type { InputProps } from "./Input";
 export { ProgressBar } from "./ProgressBar";
@@ -28,3 +32,5 @@ export { Tab, TabList } from "./Tabs";
 export type { TabListProps, TabProps } from "./Tabs";
 export { cn } from "./cn";
 export type { ClassValue } from "./cn";
+export { ChevronDownIcon, TrashIcon } from "./icons";
+export type { IconProps } from "./icons";

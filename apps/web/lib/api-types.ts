@@ -1178,7 +1178,7 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 같은 exercise_id 는 한 세션에 한 번만 넣을 수 있다. */
+        /** @description 상태 충돌. **다른 날짜의** 종료된 세션은 편집할 수 없고(당일 세션은 종료 후에도 편집 가능 — F6-1), 같은 exercise_id 는 한 세션에 한 번만 넣을 수 있다. */
         409: {
           headers: {
             [name: string]: unknown;
@@ -1239,7 +1239,7 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 이미 수행 기록이 있는 운동은 뺄 수 없다. */
+        /** @description 상태 충돌. **다른 날짜의** 종료된 세션은 편집할 수 없고(당일 세션은 종료 후에도 편집 가능 — F6-1), 이미 수행 기록이 있는 운동은 뺄 수 없다. */
         409: {
           headers: {
             [name: string]: unknown;
@@ -1313,7 +1313,85 @@ export interface paths {
             "application/json": components["schemas"]["Error"];
           };
         };
-        /** @description 상태 충돌. 이미 완료된 세션은 편집할 수 없고, 이미 수행 기록이 있는 운동은 교체할 수 없으며, 이미 이 세션에 있는 종목으로는 교체할 수 없다(중복 금지). */
+        /** @description 상태 충돌. **다른 날짜의** 종료된 세션은 편집할 수 없고(당일 세션은 종료 후에도 편집 가능 — F6-1), 이미 수행 기록이 있는 운동은 교체할 수 없으며, 이미 이 세션에 있는 종목으로는 교체할 수 없다(중복 금지). */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/sessions/ad-hoc": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * 즉석 세션 생성(휴식일에도 운동하기 — 부위 선택)
+     * @description FEATURES_UX F8-1. 현재 프로그램에 **오늘 날짜(UTC)** 세션을 만들고 선택한 부위의 루틴을 배정한다. 운동 선택·목표 반복·세트 수는 프로그램 생성과 같은 규칙이고, 프로그램 생성 때 적용한 통증 부위 제외(SAFETY_PAIN_MAPPING.md)도 그대로 적용된다. 이미 오늘 세션이 있으면 만들지 않고 409 — 클라이언트는 GET /dashboard 의 `today.session_id` 로 그 세션에 들어간다.
+     */
+    post: {
+      parameters: {
+        query?: never;
+        header: {
+          /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
+          "X-CSRF-Token": components["parameters"]["CsrfHeader"];
+        };
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          /**
+           * @example {
+           *       "body_part": "chest"
+           *     }
+           */
+          "application/json": components["schemas"]["CreateAdHocSessionRequest"];
+        };
+      };
+      responses: {
+        /** @description 생성된 즉석 세션(계획세트 포함) */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Session"];
+          };
+        };
+        /** @description 잘못된 입력(body_part 누락 또는 enum 밖의 값). */
+        400: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 프로그램이 없다(먼저 POST /programs/generate). */
+        404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 오늘 이미 세션이 있다. 즉석 생성 대신 그 세션으로 이동한다 (세션 id 는 GET /dashboard 의 today.session_id). */
         409: {
           headers: {
             [name: string]: unknown;
@@ -1617,6 +1695,13 @@ export interface components {
       exercise_id: string;
       sets?: number | null;
       position?: number | null;
+    };
+    CreateAdHocSessionRequest: {
+      /**
+       * @example chest
+       * @enum {string}
+       */
+      body_part: "chest" | "back" | "shoulders" | "arms" | "legs" | "core";
     };
     DashboardSummary: {
       /** Format: date */

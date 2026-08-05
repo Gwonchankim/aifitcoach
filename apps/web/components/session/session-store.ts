@@ -43,8 +43,19 @@ type SessionLogState = {
   reportPain: (plannedSetIds: string[], score: number | null) => void;
 };
 
+/**
+ * `/sync` 멱등 키(openapi `client_id: format: uuid`).
+ *
+ * `crypto.randomUUID` 는 **secure context 전용**이라 폰에서 `http://192.168.x.x:3000` 으로 열면
+ * 아예 없다 → 완료 체크가 통째로 죽는다. 반면 `crypto.getRandomValues` 는 http 에서도 있다.
+ * 분기를 두면 실기기에서만 도는 경로가 생겨 테스트가 못 잡으므로, **항상** 같은 경로를 쓴다.
+ */
 function newClientId(): string {
-  return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export const useSessionLog = create<SessionLogState>((set) => {

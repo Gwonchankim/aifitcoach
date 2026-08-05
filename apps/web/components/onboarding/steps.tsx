@@ -188,9 +188,11 @@ export function EquipmentStep({ draft, onChange }: StepProps) {
           </Chip>
         ))}
       </ChipGroup>
+      {/* 최소 1개를 강제하지 않는다 — 전부 해제해도 진행할 수 있고 빈 배열은 "전체 허용"이다. */}
       {draft.equipment.length === 0 ? (
-        <p className="text-sm text-fg-muted">
-          아무것도 고르지 않으면 모든 장비를 쓸 수 있다고 보고 계획을 짜요.
+        <p role="status" className="text-sm text-fg-muted">
+          아무것도 고르지 않으면 모든 장비를 쓸 수 있다고 보고 계획을 짜요. 집에서만 운동한다면
+          &lsquo;맨몸&rsquo;만 골라 주세요.
         </p>
       ) : null}
     </div>

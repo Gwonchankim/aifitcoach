@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import type { Exercise, Recommendation } from "../../lib/api";
-import { Badge, Card, Stat, buttonBase, cn } from "../ui";
+import { Badge, Button, Card, Stat, buttonBase, cn } from "../ui";
 import { formatKg } from "./set-rules";
 
 export type SessionSummaryProps = {
@@ -14,6 +14,8 @@ export type SessionSummaryProps = {
   totalVolume: number;
   nextRecommendations: (Recommendation & { exercise_id: string })[];
   catalogById: Map<string, Exercise>;
+  /** F6-1: 당일이면 루틴 화면으로 돌아가 기록을 더하거나 고칠 수 있다. 다른 날이면 넘기지 않는다. */
+  onResume?: () => void;
 };
 
 export function SessionSummary({
@@ -21,6 +23,7 @@ export function SessionSummary({
   totalVolume,
   nextRecommendations,
   catalogById,
+  onResume,
 }: SessionSummaryProps) {
   return (
     <div className="flex flex-col gap-4">
@@ -71,6 +74,12 @@ export function SessionSummary({
           </ul>
         </section>
       )}
+
+      {onResume ? (
+        <Button variant="secondary" size="md" fullWidth onClick={onResume}>
+          기록 더하거나 고치기
+        </Button>
+      ) : null}
 
       <Link href="/" className={cn(buttonBase, "min-h-tap-lg bg-primary px-6 text-primary-fg")}>
         대시보드로

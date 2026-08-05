@@ -126,7 +126,11 @@ test.describe("409", () => {
     await shot(page, "34-conflict-409-duplicate");
   });
 
-  test("다른 곳에서 세션이 종료된 뒤 편집하면 409 안내가 뜬다", async ({ page, request }) => {
+  /**
+   * F6-1 이후 **당일** 세션은 종료돼도 편집이 열려 있다(서버도 200 을 준다).
+   * 예전에는 이 상황을 409 로 막았다 — 그 문구가 다시 나오면 회귀다.
+   */
+  test("다른 곳에서 오늘 세션이 종료돼도 계속 편집할 수 있다(F6-1)", async ({ page, request }) => {
     const sessionId = await todaySession(request);
     await openSession(page, sessionId);
 
@@ -142,11 +146,44 @@ test.describe("409", () => {
     await picker.getByRole("tab", { name: "코어" }).click();
     await picker.getByRole("button", { name: /플랭크/ }).click();
 
-    // E-10: 원인이 "완료된 세션"이므로 중복 종목 문구(E-11)가 나오면 안 된다.
-    await expect(picker.getByText("이미 종료한 운동이라 루틴을 바꿀 수 없어요.")).toBeVisible();
-    await expect(picker.getByText("이미 오늘 루틴에 있는 운동이에요.")).toHaveCount(0);
+    await expect(picker).toBeHidden();
+    await expect(page.getByRole("heading", { name: "플랭크" })).toBeVisible();
+    await expect(page.getByText("지난 운동 기록은 바꿀 수 없어요.", { exact: false })).toHaveCount(
+      0,
+    );
+    // 종료한 운동을 고치는 중이라는 맥락이 화면에 남는다.
+    await expect(
+      page.getByText("이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요."),
+    ).toBeVisible();
     await assertNoRawServerText(page);
-    await shot(page, "35-conflict-409-completed-session");
+    await shot(page, "35-same-day-edit-after-remote-complete");
+  });
+
+  /**
+   * 반대쪽: **다른 날짜**의 종료된 세션은 읽기 전용이다(서버가 409 로 막는 구간).
+   * 지난 세션 id 를 얻을 계약 경로가 없어(대시보드는 오늘만 준다) 응답을 대역으로 세운다.
+   */
+  test("다른 날짜의 종료된 세션은 읽기 전용이다(F6-1)", async ({ page, request }) => {
+    const sessionId = await todaySession(request);
+    const session = await (await request.get(`${API_V1}/sessions/${sessionId}`)).json();
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
+    await page.route(`**/v1/sessions/${sessionId}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ...session, status: "completed", scheduled_date: yesterday }),
+      }),
+    );
+
+    await page.goto(`/session/${sessionId}`);
+    await expect(page.getByText("이미 종료한 운동이에요.")).toBeVisible();
+    await expect(page.getByText("오늘 안에는 기록을 더하거나 고칠 수 있어요.")).toHaveCount(0);
+    // 편집·기록 UI 는 DOM 에 없다(AC-S4-3).
+    await expect(page.getByRole("button", { name: "운동 추가" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /완료 처리$/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /운동 종료|수정 마치기/ })).toHaveCount(0);
+    await shot(page, "35b-past-session-read-only");
   });
 });
 

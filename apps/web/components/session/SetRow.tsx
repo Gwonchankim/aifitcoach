@@ -1,13 +1,23 @@
 /**
- * 세트 1행(F1): 이전 기록 · 무게 · 횟수 · RIR(선택) · 완료 체크.
+ * 세트 1행(F1 / F1-0): **최대 2줄**이다.
+ *   주(1줄)  = 무게 · 횟수 · RIR · 완료 체크
+ *   보조(2줄) = 목표 · 목표 RIR · 직전 기록 (작게, 한 줄로 줄여서)
+ *
  * 입력 문자열은 행 로컬 상태로 두고, **완료 체크 시점에** 기록값으로 확정해 스토어에 넣는다
  * (F7: 완료 체크된 세트만 기록한다).
+ *
+ * 밀도 규칙(F1-0):
+ *  - "무게 미정"·"자체중량" 배지는 **세트마다 반복하지 않는다** — 운동 카드 상단에 한 번만 둔다.
+ *  - 직전 기록은 전용 줄을 만들지 않고 보조 줄에 얹는다.
+ *  - 완료한 세트는 **한 줄로 축약**하고(§2.4.3), 그 줄 자체가 디스클로저 버튼이다 —
+ *    탭하면 **완료를 유지한 채** 펼쳐져 값을 고친다. 값만 고칠 때는 휴식 타이머를 열지 않는다.
  */
 "use client";
 
-import { useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { PlannedSet } from "../../lib/api";
-import { Badge, CompleteButton, Input, ScaleGroup, ScaleOption, cn } from "../ui";
+import { Badge, CompleteButton, Input, cn } from "../ui";
+import { RirField } from "./RirField";
 import {
   asksRir,
   formatKg,
@@ -16,19 +26,22 @@ import {
   resolveValues,
   setPrefill,
   targetLabel,
-  weightBadge,
   type SetKind,
   type SetValues,
 } from "./set-rules";
 import type { SetDraft } from "./session-store";
-
-const RIR_OPTIONS = [0, 1, 2, 3, 4, 5, 6];
 
 const MISSING_HINT: Record<"weight" | "reps" | "time", string> = {
   weight: "무게를 입력해 주세요.",
   reps: "횟수를 입력해 주세요.",
   time: "유지 시간을 입력해 주세요.",
 };
+
+/**
+ * 완료 행의 되돌리기 버튼은 `size="md"`(48px)다 — 72px 이 들어가면 한 줄(≤64px)이 도로 88px 이 된다.
+ * 되돌리기는 "완료 체크"(72px, §8 엄지 반경)와 달리 자주 누르는 동작이 아니고,
+ * 48px 은 §7.6 의 완료 체크 하한을 그대로 지킨다.
+ */
 
 /** 세트 행에서 먼저 채워야 하는 입력칸의 id(포커스 이동에 쓴다). */
 export function primaryInputId(set: PlannedSet, kind: SetKind): string {
@@ -55,7 +68,29 @@ function recordLabel(draft: SetDraft): string | null {
   if (draft.actual_time_sec != null) return `${draft.actual_time_sec}초`;
   if (draft.actual_reps == null) return null;
   const weight = draft.actual_weight != null ? `${formatKg(draft.actual_weight)} × ` : "";
-  return `${weight}${draft.actual_reps}회`;
+  const rir = draft.actual_rir != null ? ` · RIR ${draft.actual_rir}` : "";
+  return `${weight}${draft.actual_reps}회${rir}`;
+}
+
+/**
+ * 축약 행의 접근 이름(AC-SET-6). 스크린리더는 화면 글자가 아니라 이 문장을 읽으므로
+ * **기록값 전부**(무게·횟수 또는 시간·RIR·완료)가 들어가야 한다. `kg` 는 "킬로그램"으로 편다.
+ */
+function collapsedLabel(setLabel: string, draft: SetDraft | undefined): string {
+  const spoken = draft ? spokenRecord(draft) : null;
+  const record = spoken ? `기록, ${spoken},` : "기록 없음,";
+  return `${setLabel} ${record} 완료. 수정하려면 누르세요`;
+}
+
+function spokenRecord(draft: SetDraft): string | null {
+  if (draft.actual_time_sec != null) return `${draft.actual_time_sec}초`;
+  if (draft.actual_reps == null) return null;
+  const weight =
+    draft.actual_weight != null
+      ? `${formatKg(draft.actual_weight).replace("kg", "킬로그램")} `
+      : "";
+  const rir = draft.actual_rir != null ? `, RIR ${draft.actual_rir}` : "";
+  return `${weight}${draft.actual_reps}회${rir}`;
 }
 
 export type SetRowProps = {
@@ -69,7 +104,12 @@ export type SetRowProps = {
   /** 같은 운동의 직전 완료 세트. */
   previous: SetDraft | null;
   readOnly: boolean;
+  /** 완료 행이 펼쳐져 있는지(F6-1 값 수정). 한 번에 하나만 펼친다 — 상태는 부모가 갖는다(AC-SET-8). */
+  expanded: boolean;
+  onToggleExpand: () => void;
   onComplete: (values: SetValues) => void;
+  /** 펼친 완료 행에서 값을 고칠 때. 완료 상태·휴식 타이머를 건드리지 않는다(§2.4.3). */
+  onEdit: (values: SetValues) => void;
   onUncomplete: () => void;
 };
 
@@ -81,7 +121,10 @@ export function SetRow({
   fallbackWeight,
   previous,
   readOnly,
+  expanded,
+  onToggleExpand,
   onComplete,
+  onEdit,
   onUncomplete,
 }: SetRowProps) {
   const [weightText, setWeightText] = useState(() =>
@@ -109,8 +152,18 @@ export function SetRow({
   const [missing, setMissing] = useState<"weight" | "reps" | "time" | null>(null);
 
   const completed = draft?.completed === true;
-  const badge = weightBadge(kind);
+  /** 완료 상태를 유지한 채 값을 고치는 중(F6-1 / AC-SET-7). */
+  const editing = completed && expanded;
   const setLabel = `${exerciseName} ${set.set_no}세트`;
+  const errorId = `set-${set.id}-error`;
+  const rirTargetId = `set-${set.id}-rir-target`;
+
+  // 펼치면 바로 고칠 수 있게 첫 입력칸으로 포커스를 옮긴다(탭한 이유가 수정이다).
+  const primaryId = primaryInputId(set, kind);
+  useEffect(() => {
+    if (!editing) return;
+    document.getElementById(primaryId)?.focus();
+  }, [editing, primaryId]);
 
   // 무게 미정 세트는 프리필이 없다. 대신 같은 운동의 앞 세트 값을 이어 쓴다(§5.2).
   const shownWeight =
@@ -118,11 +171,23 @@ export function SetRow({
       ? weightText
       : String(fallbackWeight);
 
-  const values: SetValues = {
-    weight: hasWeightInput(kind) ? parseNumber(shownWeight) : null,
-    reps: kind === "time" ? null : parseNumber(repsText),
-    rir: asksRir(kind) ? rir : null,
-    timeSec: kind === "time" ? parseNumber(timeText) : null,
+  const valuesFrom = (
+    weight: string,
+    reps: string,
+    time: string,
+    rirValue: number | null,
+  ): SetValues => ({
+    weight: hasWeightInput(kind) ? parseNumber(weight) : null,
+    reps: kind === "time" ? null : parseNumber(reps),
+    rir: asksRir(kind) ? rirValue : null,
+    timeSec: kind === "time" ? parseNumber(time) : null,
+  });
+
+  const values = valuesFrom(shownWeight, repsText, timeText, rir);
+
+  /** 펼친 완료 행에서는 입력이 바뀔 때마다 기록이 즉시 갱신된다(다시 체크할 필요가 없다). */
+  const commit = (next: SetValues) => {
+    if (editing) onEdit(next);
   };
 
   const handleToggle = () => {
@@ -145,31 +210,29 @@ export function SetRow({
     onComplete(resolved);
   };
 
-  const target = targetLabel(kind, set);
-  /*
-    배지는 2줄로 내린다. 1줄에 같이 두면 390px 에서 입력칸이 50px 아래로 눌린다
-    (314 − 체크 72 − 세트번호 40 − 배지 72 = 두 칸에 남는 폭 100px).
-  */
-  const badges = (
-    <>
-      {completed ? (
-        <Badge tone="success" className="shrink-0">
-          ✓ 완료
-        </Badge>
-      ) : null}
-      {badge ? (
-        <Badge aria-label={badge.label} className="shrink-0">
-          {badge.text}
-        </Badge>
-      ) : null}
-    </>
+  const setNo = (
+    <span className="shrink-0 text-sm font-semibold text-fg tabular-nums">
+      {set.set_no}
+      <span className="sr-only">세트</span>
+    </span>
   );
 
   /*
-    직전 기록은 "이번 세션에서 완료한 세트"만 대상이다(지난 세션 기록은 STEP 6 에서 로컬 미러가 붙은 뒤).
-    목표·직전 기록은 **전용 줄을 만들지 않고** RIR 줄에 인라인으로 얹는다(세트 15개면 줄 하나가 480px 다).
+    보조 줄. 목표·목표 RIR·직전 기록을 **한 줄**에 모으고 넘치면 줄인다(truncate).
+    줄바꿈(flex-wrap)을 쓰지 않는다 — 390px 에서 한 요소만 넘쳐도 줄이 하나 더 생기고,
+    15세트면 그것만으로 300px 가 늘어난다.
+
+    "RIR 목표 n" 만 span 으로 따로 감싼다 — 입력칸 오른쪽에 나란히 둘 폭이 없어(§2.4.1 폭 예산)
+    여기 두는 대신 `aria-describedby` 로 RIR 칸에 연결하기 때문이다(AC-RIR-4).
   */
-  const meta = [target, previous ? previousLabel(previous) : null].filter(Boolean).join(" · ");
+  const showRirTarget = asksRir(kind) && set.target_rir != null;
+  const meta: ReactNode[] = [
+    targetLabel(kind, set),
+    showRirTarget ? (
+      <span key="rir-target" id={rirTargetId}>{`RIR 목표 ${set.target_rir}`}</span>
+    ) : null,
+    previous ? previousLabel(previous) : null,
+  ].filter(Boolean);
 
   /*
     완료된 세션(AC-S4-3): 입력·체크 UI 를 **DOM 에 두지 않는다**(disabled 로 남기면
@@ -183,7 +246,11 @@ export function SetRow({
         <span className="shrink-0 text-sm font-semibold text-fg tabular-nums">
           {set.set_no}세트
         </span>
-        {badges}
+        {completed ? (
+          <Badge tone="success" density="compact" className="shrink-0">
+            ✓ 완료
+          </Badge>
+        ) : null}
         <span className="min-w-0 text-sm text-fg-muted">
           {recorded ? `기록 ${recorded}` : "종료한 운동이라 입력할 수 없어요."}
         </span>
@@ -192,109 +259,180 @@ export function SetRow({
   }
 
   /*
+    완료 행(F1-0 "완료된 세트는 축약"): 한 줄이다.
+    입력칸을 disabled 로 남기지 않고 **텍스트로** 보여준다 — 비활성 입력칸은 대비가 떨어져
+    "기록"을 읽기 나쁘다. 흐리게(opacity) 하지 않고 완료 배경(bg-done)으로 구분한다.
+    요약 텍스트 전체가 디스클로저 버튼이라 탭 한 번으로 펼쳐 고칠 수 있고(F6-1),
+    오른쪽 완료 체크는 그대로 되돌리기(완료 취소)다.
+  */
+  if (completed && !expanded) {
+    return (
+      <li
+        className={cn(
+          // p-1.5: 48px 버튼 + 여백 12 + 테두리 2 = 62px → 완료 행 한 줄(≤64px) 기준을 지킨다.
+          "flex items-center gap-2 rounded-control border p-1.5",
+          "border-done-border bg-done",
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={false}
+          aria-label={collapsedLabel(setLabel, draft)}
+          onClick={onToggleExpand}
+          className={cn(
+            "flex min-h-tap min-w-0 flex-1 items-center gap-2 rounded-control px-1 text-left",
+            "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          )}
+        >
+          {setNo}
+          <Badge tone="success" density="compact" className="shrink-0">
+            ✓ 완료
+          </Badge>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg tabular-nums">
+            {(draft ? recordLabel(draft) : null) ?? "기록 없음"}
+          </span>
+        </button>
+        <CompleteButton
+          completed
+          size="md"
+          data-set-check={set.id}
+          aria-label={`${setLabel} 완료 취소`}
+          onClick={handleToggle}
+        />
+      </li>
+    );
+  }
+
+  /*
     2줄 고정 그리드.
-      1줄 = 세트번호 · 배지 · 입력칸,  2줄 = RIR · 목표/직전 기록,  오른쪽 = 완료 체크(두 줄 span).
+      1줄 = 세트번호 · 무게 · 횟수 · RIR,  2줄 = 목표/직전(또는 오류 문구),
+      오른쪽 = 완료 체크(두 줄 span).
     DOM 순서는 무게 → 횟수 → RIR → 완료 체크 그대로 두고(§7.1 탭 순서·AC-A-1),
     완료 체크만 그리드 배치로 오른쪽에 세운다(§8 엄지 반경).
   */
   return (
     <li
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5",
-        "rounded-control border border-border bg-bg p-2.5",
-        completed && "opacity-70",
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1",
+        "rounded-control border border-border bg-bg p-2",
       )}
     >
-      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-sm font-semibold text-fg tabular-nums">
-          {set.set_no}세트
-        </span>
-        <div className="flex min-w-0 flex-1 items-end gap-2">
-          {kind === "time" ? (
-            <Input
-              id={`set-${set.id}-time`}
-              label={`${setLabel} 유지 시간, 초`}
-              hideLabel
-              density="compact"
-              unit="초"
-              inputMode="numeric"
-              placeholder="시간"
-              value={timeText}
-              disabled={readOnly || completed}
-              invalid={missing === "time"}
-              hint={missing === "time" ? MISSING_HINT.time : undefined}
-              onChange={(event) => setTimeText(event.target.value)}
-            />
-          ) : (
-            <>
-              {hasWeightInput(kind) ? (
+      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1.5">
+        {/* 펼친 완료 행에서는 세트 번호 자리가 접기 버튼이 된다(펼친 행은 한 번에 하나뿐이다). */}
+        {editing ? (
+          <button
+            type="button"
+            aria-expanded
+            aria-label={`${setLabel} 기록 접기`}
+            onClick={onToggleExpand}
+            className={cn(
+              "flex min-h-tap w-6 shrink-0 items-center justify-center rounded-control",
+              "text-sm font-semibold text-fg tabular-nums",
+              "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
+              "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+            )}
+          >
+            {set.set_no}
+          </button>
+        ) : (
+          setNo
+        )}
+        {kind === "time" ? (
+          <Input
+            id={`set-${set.id}-time`}
+            label={`${setLabel} 유지 시간, 초`}
+            hideLabel
+            density="compact"
+            unit="초"
+            inputMode="numeric"
+            placeholder="시간"
+            value={timeText}
+            invalid={missing === "time"}
+            aria-describedby={missing === "time" ? errorId : undefined}
+            onChange={(event) => {
+              setTimeText(event.target.value);
+              commit(valuesFrom(shownWeight, repsText, event.target.value, rir));
+            }}
+          />
+        ) : (
+          <>
+            {/*
+              폭 배분(390px 실측): 무게 76 · 횟수 48 · RIR 80.
+              무게는 "137.5" 처럼 다섯 자리가 오므로 남는 폭을 전부 받고(flex-1),
+              횟수는 두 자리면 충분해 고정한다. RIR 은 `<input list>` 의 브라우저 목록 아이콘이
+              칸 안쪽을 ~22px 먹어서 그만큼 넓다.
+              맨몸이면 무게 칸이 없으므로 그만큼 횟수 칸을 넓힌다(§5.3 "빈 칸을 남기지 않는다").
+            */}
+            {hasWeightInput(kind) ? (
+              <div className="min-w-0 flex-1">
                 <Input
                   id={`set-${set.id}-weight`}
                   label={`${setLabel} 무게, 킬로그램`}
                   hideLabel
                   density="compact"
-                  unit="kg"
                   inputMode="decimal"
                   placeholder="무게"
                   value={shownWeight}
-                  disabled={readOnly || completed}
                   invalid={missing === "weight"}
-                  hint={missing === "weight" ? MISSING_HINT.weight : undefined}
-                  onChange={(event) => setWeightText(event.target.value)}
+                  aria-describedby={missing === "weight" ? errorId : undefined}
+                  onChange={(event) => {
+                    setWeightText(event.target.value);
+                    commit(valuesFrom(event.target.value, repsText, timeText, rir));
+                  }}
                 />
-              ) : null}
+              </div>
+            ) : null}
+            <div className={hasWeightInput(kind) ? "w-12 shrink-0" : "min-w-0 flex-1"}>
               <Input
                 id={`set-${set.id}-reps`}
                 label={`${setLabel} 횟수, 회`}
                 hideLabel
                 density="compact"
-                unit="회"
                 inputMode="numeric"
                 placeholder="횟수"
                 value={repsText}
-                disabled={readOnly || completed}
                 invalid={missing === "reps"}
-                hint={missing === "reps" ? MISSING_HINT.reps : undefined}
-                onChange={(event) => setRepsText(event.target.value)}
+                aria-describedby={missing === "reps" ? errorId : undefined}
+                onChange={(event) => {
+                  setRepsText(event.target.value);
+                  commit(valuesFrom(shownWeight, event.target.value, timeText, rir));
+                }}
               />
-            </>
-          )}
-        </div>
+            </div>
+            {asksRir(kind) ? (
+              <RirField
+                id={`set-${set.id}-rir`}
+                setLabel={setLabel}
+                value={rir}
+                targetRir={set.target_rir}
+                // 오류 문구가 보조 줄을 차지하는 동안에는 목표 문구가 DOM 에 없다(빈 id 참조 금지).
+                describedById={showRirTarget && !missing ? rirTargetId : undefined}
+                onChange={(next) => {
+                  setRir(next);
+                  commit(valuesFrom(shownWeight, repsText, timeText, next));
+                }}
+              />
+            ) : null}
+          </>
+        )}
       </div>
 
-      {/*
-        2줄: RIR 눈금(한 줄 고정 + 가로 스크롤)과 목표·직전 기록을 같은 줄에 둔다.
-        `relative` 는 장식이 아니다 — 눈금의 sr-only 라디오(position:absolute)가 여기를 컨테이닝 블록으로
-        삼아야 가로 스크롤 영역 안에서 잘린다. 없으면 화면 밖으로 삐져나가 **문서에 가로 스크롤**이 생긴다.
-      */}
-      <div className="relative col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 overflow-x-clip">
-        {badges}
-        {asksRir(kind) ? (
-          <ScaleGroup
-            label={`${setLabel} 남은 반복 수(RIR), 선택 입력`}
-            prefix="RIR"
-            disabled={completed}
-            /* 조작하는 눈금이 읽기용 문구보다 우선이다 — 최소 폭을 먼저 확보하고 문구를 줄인다. */
-            className="min-w-[8.5rem] flex-1"
-          >
-            {RIR_OPTIONS.map((option) => (
-              <ScaleOption
-                key={option}
-                name={`rir-${set.id}`}
-                label={`RIR ${option}`}
-                checked={rir === option}
-                onChange={() => setRir(option)}
-              >
-                {option}
-              </ScaleOption>
+      {/* 보조 줄. 오류가 나면 그 자리에 사유를 넣는다(입력칸 아래에 붙이면 행이 3줄이 된다). */}
+      <div className="col-start-1 row-start-2 min-w-0">
+        {missing ? (
+          <p id={errorId} className="truncate text-xs text-danger">
+            {MISSING_HINT[missing]}
+          </p>
+        ) : meta.length > 0 ? (
+          <p className="truncate text-xs text-fg-muted">
+            {meta.map((part, index) => (
+              <Fragment key={index}>
+                {index > 0 ? " · " : null}
+                {part}
+              </Fragment>
             ))}
-          </ScaleGroup>
-        ) : null}
-        {meta ? (
-          /* 6rem 아래로는 줄이지 않는다 → 자리가 없으면 사라지지 않고 아랫줄로 접힌다. */
-          <span className="min-w-[6rem] flex-1 truncate text-right text-xs text-fg-muted">
-            {meta}
-          </span>
+          </p>
         ) : null}
       </div>
 
@@ -302,7 +440,7 @@ export function SetRow({
         <CompleteButton
           completed={completed}
           data-set-check={set.id}
-          aria-label={completed ? `${setLabel} 완료 취소` : `${setLabel} 완료 처리`}
+          aria-label={`${setLabel} 완료 ${completed ? "취소" : "처리"}`}
           onClick={handleToggle}
         />
       </div>

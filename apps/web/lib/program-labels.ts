@@ -22,14 +22,23 @@ const SPLIT_LABELS: Record<string, string> = {
   push_pull_legs: "밀기·당기기·하체 분할",
 };
 
-/** 서버 `Focus` 6종(programs/program-rules.ts). */
+/**
+ * 서버 `Focus`(programs/program-rules.ts).
+ * 뒤쪽 6개는 즉석 세션(F8-1)이 만드는 부위 focus 다 — 계약 enum
+ * `CreateAdHocSessionRequest.body_part` 와 1:1이다. 빠지면 대시보드 요약에 영문이 그대로 노출된다.
+ */
 const FOCUS_LABELS: Record<string, string> = {
   full_body: "전신",
   upper: "상체",
   lower: "하체",
   push: "밀기",
   pull: "당기기",
+  chest: "가슴",
+  back: "등",
+  shoulders: "어깨",
+  arms: "팔",
   legs: "하체",
+  core: "코어",
 };
 
 const DAY_LABELS: Record<string, string> = {

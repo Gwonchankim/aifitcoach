@@ -14,9 +14,16 @@ test.beforeAll(async ({ request }) => {
 
 /** 세트 행(<li>) 하나를 완료 체크 버튼의 접근 이름으로 잡는다. */
 function setRow(page: Page, exerciseName: string, setNo: number) {
-  return page
-    .locator("li")
-    .filter({ has: page.getByRole("button", { name: `${exerciseName} ${setNo}세트 완료 처리` }) });
+  return page.locator("li").filter({
+    has: page.getByRole("button", {
+      name: new RegExp(`^${exerciseName} ${setNo}세트 완료 (처리|취소)$`),
+    }),
+  });
+}
+
+/** 운동 카드. 제목(h2)의 부모가 카드다(F1-0 이후 제목이 카드 직계 자식이다). */
+function card(page: Page, exerciseName: string) {
+  return page.getByRole("heading", { name: exerciseName, exact: true }).locator("xpath=..");
 }
 
 test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세트 완료 → 종료 → 요약", async ({
@@ -48,29 +55,33 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(page.getByText("무게 미정").first()).toBeVisible();
   await expect(page.getByText("첫 세션이라 추천 무게가 아직 없어요.").first()).toBeVisible();
 
-  // (b) 맨몸(풀업) — "자체중량" 배지, 무게 입력칸 없음(AC-E-3)
+  // (b) 맨몸(풀업) — "자체중량" 배지는 **카드에 1번**(F1-0), 무게 입력칸 없음(AC-E-3)
   const pullup = setRow(page, "풀업", 1);
-  await expect(pullup.getByText("자체중량")).toBeVisible();
+  await expect(card(page, "풀업").getByText("자체중량")).toHaveCount(1);
+  expect(await pullup.getByText("자체중량").count()).toBe(0);
   expect(await pullup.getByLabel(/풀업 1세트 무게/).count()).toBe(0);
   await expect(pullup.getByLabel("풀업 1세트 횟수, 회")).toBeVisible();
-  await expect(pullup.getByLabel("RIR 2")).toBeVisible();
+  // RIR 은 **한 칸**이다(F1-1 2차 개정) — 입력칸 + 드롭다운으로 나누지 않는다.
+  await expect(pullup.getByLabel(/풀업 1세트 남은 반복 수\(RIR\), 0~6/)).toBeVisible();
+  expect(await pullup.locator("select").count()).toBe(0);
 
   // (c) 시간(플랭크) — 시간 입력 1칸, 무게·횟수·RIR 없음(AC-E-4)
   const plank = setRow(page, "플랭크", 1);
   await expect(plank.getByLabel("플랭크 1세트 유지 시간, 초")).toBeVisible();
   expect(await plank.getByLabel(/플랭크 1세트 무게/).count()).toBe(0);
   expect(await plank.getByLabel(/플랭크 1세트 횟수/).count()).toBe(0);
-  expect(await plank.getByLabel(/^RIR /).count()).toBe(0);
+  expect(await plank.getByLabel(/남은 반복 수\(RIR\)/).count()).toBe(0);
   await expect(plank.getByText("목표 20~60초")).toBeVisible();
 
-  // (a') 일반/무게 미정 세트에도 배지가 실제로 붙어 있다
+  // (a') "무게 미정" 배지는 카드에 1번만 붙는다(세트마다 반복하지 않는다, AC-SET-2)
   const firstCheckLabel =
     (await page
       .getByRole("button", { name: /1세트 완료 처리$/ })
       .first()
       .getAttribute("aria-label")) ?? "";
   const firstExercise = firstCheckLabel.replace(/ 1세트 완료 처리$/, "");
-  await expect(setRow(page, firstExercise, 1).getByText("무게 미정")).toBeVisible();
+  await expect(card(page, firstExercise).getByText("무게 미정")).toHaveCount(1);
+  expect(await setRow(page, firstExercise, 1).getByText("무게 미정").count()).toBe(0);
   await expect(setRow(page, firstExercise, 1).getByLabel(/1세트 무게, 킬로그램/)).toHaveValue("");
 
   await assertNoZeroKg(page);
@@ -83,23 +94,13 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await setRow(page, firstExercise, 1).screenshot({
     path: "e2e/screenshots/11c-set-unknown-weight.png",
   });
-  // 카드 전체(제목 + 근거 배지). h2 → 제목블록 → 헤더행 → 카드.
-  const plankCard = page
-    .getByRole("heading", { name: "플랭크", exact: true })
-    .locator("xpath=../../..");
-  await plankCard.screenshot({ path: "e2e/screenshots/11d-plank-card.png" });
-  await page
-    .getByRole("heading", { name: "풀업", exact: true })
-    .locator("xpath=../../..")
-    .screenshot({ path: "e2e/screenshots/11e-pullup-card.png" });
+  // 카드 전체(제목 + 근거 배지). 제목(h2)의 부모가 카드다.
+  await card(page, "플랭크").screenshot({ path: "e2e/screenshots/11d-plank-card.png" });
+  await card(page, "풀업").screenshot({ path: "e2e/screenshots/11e-pullup-card.png" });
 
-  // ---- F5 교체 ----
+  // ---- F5 교체([교체] = 바로 교체 팝업, 중간 메뉴 없음) ----
   const before = await page.getByRole("heading", { level: 2 }).allInnerTexts();
-  await page.getByRole("button", { name: "플랭크 루틴 편집" }).click();
-  const menu = page.getByRole("dialog", { name: /플랭크 편집/ });
-  await expect(menu).toBeVisible();
-  await shot(page, "12-exercise-menu");
-  await menu.getByRole("button", { name: "다른 운동으로 교체" }).click();
+  await page.getByRole("button", { name: "플랭크 교체" }).click();
 
   const swapSheet = page.getByRole("dialog", { name: /플랭크 교체/ });
   await expect(swapSheet).toBeVisible();
@@ -108,12 +109,12 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(page.getByRole("heading", { name: "케이블 크런치" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "플랭크" })).toHaveCount(0);
 
-  // ---- F5 삭제 ----
-  await page.getByRole("button", { name: "케이블 크런치 루틴 편집" }).click();
-  await page
-    .getByRole("dialog", { name: /케이블 크런치 편집/ })
-    .getByRole("button", { name: "루틴에서 빼기" })
-    .click();
+  // ---- F5 삭제(휴지통 → 확인 시트, AC-H-3) ----
+  await page.getByRole("button", { name: "케이블 크런치 삭제" }).click();
+  const removeSheet = page.getByRole("dialog", { name: /케이블 크런치 빼기/ });
+  await expect(removeSheet).toBeVisible();
+  await shot(page, "12-exercise-remove-sheet");
+  await removeSheet.getByRole("button", { name: "루틴에서 빼기" }).click();
   await expect(page.getByRole("heading", { name: "케이블 크런치" })).toHaveCount(0);
   const after = await page.getByRole("heading", { level: 2 }).allInnerTexts();
   expect(after.length).toBe(before.length - 1);
@@ -131,9 +132,9 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
 
   await page.getByLabel(`${exerciseName} 1세트 무게, 킬로그램`).fill("40");
   await page.getByLabel(`${exerciseName} 1세트 횟수, 회`).fill("10");
-  // RIR 은 sr-only 라디오 + 보이는 label 이 탭 타깃이다 → 사용자처럼 label 을 누른다.
-  await setRow(page, exerciseName, 1).locator('label:has(input[aria-label="RIR 2"])').click();
-  await expect(page.getByLabel("RIR 2").first()).toBeChecked();
+  // RIR 은 한 칸에 직접 입력한다(F1-1 2차 개정 — 같은 칸의 목록에서 고를 수도 있다).
+  await page.getByLabel(`${exerciseName} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`).fill("2");
+  await expect(page.getByLabel(/1세트 남은 반복 수\(RIR\), 0~6/).first()).toHaveValue("2");
   await firstCheck.click();
 
   // F2: 완료 체크 → 휴식 타이머 팝업 자동 오픈
@@ -144,14 +145,29 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
 
   await expect(page.getByText("✓ 완료").first()).toBeVisible();
   await expect(page.getByText(/1세트 완료 · 계획 \d+세트/)).toBeVisible();
+  // 완료 행은 한 줄로 축약된다 — 기록값이 텍스트로 남고 입력칸은 사라진다(F1-0)
+  await expect(setRow(page, exerciseName, 1).getByText("40kg × 10회 · RIR 2")).toBeVisible();
+  expect(await setRow(page, exerciseName, 1).locator("input").count()).toBe(0);
 
   // 기록이 있는 운동은 편집이 막힌다(AC-S4-4)
-  await expect(page.getByRole("button", { name: `${exerciseName} 루틴 편집` })).toBeDisabled();
+  await expect(page.getByRole("button", { name: `${exerciseName} 교체` })).toBeDisabled();
+  // 휴지통은 disabled 가 아니라 aria-disabled 다 — 사유를 알려야 하기 때문이다(AC-DEL-3)
+  const trash = page.getByRole("button", { name: new RegExp(`^${exerciseName} 삭제`) });
+  await expect(trash).toHaveAttribute("aria-disabled", "true");
+  await expect(trash).toHaveAccessibleName(`${exerciseName} 삭제, 기록이 있어 뺄 수 없어요`);
   await expect(page.getByText(/기록이 있는 운동이라 빼거나 바꿀 수 없어요/)).toBeVisible();
+  /*
+    눌러도 확인 시트가 열리지 않는다(AC-DEL-4).
+    force: true 인 이유 — Playwright 는 aria-disabled 를 "not enabled" 로 보고 클릭을 거부한다.
+    실제 사용자는 포인터 이벤트가 살아 있어 누를 수 있으므로(그래야 사유를 알려줄 수 있다)
+    그 상황을 그대로 재현한다.
+  */
+  await trash.click({ force: true });
+  await expect(page.getByRole("dialog", { name: /빼기/ })).toHaveCount(0);
 
   // 되돌리기 → 재체크(AC-S4-1)
   await page.getByRole("button", { name: `${exerciseName} 1세트 완료 취소` }).click();
-  await expect(page.getByRole("button", { name: `${exerciseName} 루틴 편집` })).toBeEnabled();
+  await expect(page.getByRole("button", { name: `${exerciseName} 교체` })).toBeEnabled();
   await page.getByRole("button", { name: `${exerciseName} 1세트 완료 처리` }).click();
   await page
     .getByRole("dialog", { name: /후 휴식/ })
@@ -230,7 +246,11 @@ test("카탈로그 도착 전에는 임시 이름 대신 스켈레톤을 보여�
   await expect(page.getByRole("heading", { name: /^운동 \d+$/ })).toHaveCount(0);
 });
 
-test("완료된 세션 재진입은 읽기 전용이다(AC-S4-3)", async ({ page, request }) => {
+/**
+ * F6-1 이후 **당일** 종료 세션은 잠기지 않는다(재개/편집 모드).
+ * 읽기 전용은 다른 날짜의 종료 세션에만 적용된다(AC-S4-3 → e2e/04-errors.spec.ts).
+ */
+test("종료한 당일 세션에 다시 들어가면 편집 모드다(F6-1)", async ({ page, request }) => {
   // 이 테스트 전용으로 세션을 만들어 종료한다.
   // (앞 테스트가 프로그램을 다시 만들면 beforeAll 의 세션은 사라질 수 있다.)
   await seedProgram(request);
@@ -242,9 +262,13 @@ test("완료된 세션 재진입은 읽기 전용이다(AC-S4-3)", async ({ page
   expect(done.status()).toBe(200);
 
   await page.goto(`/session/${target}`);
-  await expect(page.getByText("이미 종료한 운동이에요.")).toBeVisible();
-  expect(await page.getByRole("button", { name: /완료 처리$/ }).count()).toBe(0);
+  await expect(
+    page.getByText("이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요."),
+  ).toBeVisible();
+  expect(await page.getByRole("button", { name: /완료 처리$/ }).count()).toBeGreaterThan(0);
+  expect(await page.getByRole("button", { name: "운동 추가" }).count()).toBe(1);
+  // 종료 버튼은 "수정 마치기"로 바뀐다(첫 종료가 아니라는 맥락).
   expect(await page.getByRole("button", { name: "운동 종료" }).count()).toBe(0);
-  expect(await page.getByRole("button", { name: "운동 추가" }).count()).toBe(0);
-  await shot(page, "19-session-readonly");
+  expect(await page.getByRole("button", { name: "수정 마치기" }).count()).toBe(1);
+  await shot(page, "19-session-resume-mode");
 });

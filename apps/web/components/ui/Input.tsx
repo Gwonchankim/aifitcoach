@@ -1,8 +1,12 @@
 /**
  * 사용법: <Input id="set-3-weight" label="무게 (kg)" unit="kg" defaultValue={62.5} />
  * 단위는 label 안에도 적어라(unit prop은 시각 표시 전용, 스크린리더에서 숨김).
+ *
+ * 칸 안쪽 우측에 조작 요소를 두려면 `trailing` 을 넘겨라(테두리 하나로 묶여 **필드 1개**로 보인다).
+ *   <Input id="set-3-rir" label="3세트 RIR, 0~6, 선택 입력" hideLabel density="compact"
+ *          inputMode="numeric" maxLength={1} trailing={<button …>셰브론</button>} … />
  */
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
 
 export type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> & {
@@ -21,6 +25,11 @@ export type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> & {
    * 화면당 1~2개뿐인 입력은 기본값(56px)을 그대로 둬라.
    */
   density?: "default" | "compact";
+  /**
+   * 입력칸 **안쪽 우측**에 놓을 조작 요소(F1-1 RIR 의 "고르기" 셰브론).
+   * 같은 테두리 안에 들어가 시각적으로 필드가 하나로 보인다. `unit` 과 함께 쓰지 않는다.
+   */
+  trailing?: ReactNode;
   className?: string;
 };
 
@@ -32,6 +41,7 @@ export function Input({
   invalid = false,
   hideLabel = false,
   density = "default",
+  trailing,
   inputMode = "decimal",
   className,
   ...props
@@ -66,9 +76,11 @@ export function Input({
             "disabled:bg-disabled disabled:text-disabled-fg",
             invalid ? "border-danger" : "border-border-strong",
             unit && "pr-10",
+            trailing ? "pr-9" : null,
           )}
           {...props}
         />
+        {trailing ? <div className="absolute right-1 flex items-center">{trailing}</div> : null}
         {unit ? (
           <span
             aria-hidden="true"

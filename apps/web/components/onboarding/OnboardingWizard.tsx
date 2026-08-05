@@ -12,6 +12,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card } from "../ui";
+// index.ts 에 아직 없어 직접 경로로 가져온다(design 에 export 추가를 요청해 뒀다).
+import { ActionBar } from "../ui/ActionBar";
 import {
   DaysStep,
   EquipmentStep,
@@ -174,8 +176,16 @@ export function OnboardingWizard() {
   const StepComponent = STEPS[step];
   const isLast = step === STEP_COUNT - 1;
 
+  /*
+    F0-0 "짧으면 따라 올라오고, 길면 고정".
+    컨테이너는 **콘텐츠 높이만큼만** 자란다 — `min-h-dvh flex-col` + 콘텐츠 `flex-1` 로 두면
+    짧은 스텝(주당일수·시간)에서도 버튼이 화면 맨 아래로 밀려 가운데가 통째로 빈다.
+    대신 콘텐츠 영역에 최소 높이를 줘서, 짧은 스텝에서도 버튼 블록이 엄지 범위(하단 1/3)에
+    들어오게 한다(AC-S1-6). 길어지면 ActionBar 의 sticky 가 알아서 하단에 고정한다.
+    조상에 overflow-hidden/auto 를 두면 sticky 가 죽는다 — 넣지 마라.
+  */
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col p-4 pb-safe-bottom">
+    <div className="mx-auto w-full max-w-md p-4">
       <p className="text-sm font-medium text-fg-muted" aria-hidden="true">
         {step + 1}/{STEP_COUNT}
       </p>
@@ -190,7 +200,7 @@ export function OnboardingWizard() {
         {STEP_TITLES[step]}
       </h1>
 
-      <div className="mt-6 flex-1">
+      <div className="mt-6 min-h-[52dvh]">
         <StepComponent draft={draft} onChange={patch} />
       </div>
 
@@ -200,7 +210,7 @@ export function OnboardingWizard() {
         </Card>
       ) : null}
 
-      <div className="sticky bottom-0 mt-6 flex gap-2 bg-bg pt-3 pb-safe-bottom">
+      <ActionBar className="mt-6">
         {/* [다음]이 전폭이라 shrink-0 이 없으면 [이전]이 "이/전" 으로 줄바꿈된다(390px). */}
         {step > 0 ? (
           <Button variant="secondary" size="lg" className="shrink-0" onClick={goBack}>
@@ -216,7 +226,7 @@ export function OnboardingWizard() {
             다음
           </Button>
         )}
-      </div>
+      </ActionBar>
 
       {mutation.isPending ? (
         <div

@@ -10,7 +10,7 @@
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
-| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | ✅ 완료 (2026-08-05) | 69.5 → fix 8건 반영 후 재검증 |
+| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** (2026-08-06) | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
@@ -346,6 +346,54 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
+## ▶ 다음 세션은 여기부터 읽어라 — STEP 5 현재 상태 (2026-08-06 종료 시점)
+
+> **STEP 0~4는 완료**(0: 82 / 1: 88 / 2: 84 / 3: 78→뮤턴트 14/14 사살 / 4: 77→81). STEP 5만 진행 중이다.
+> **게이트는 전부 green**이다: typecheck / lint / format:check / build / test(**shared 79 · web 205 · api 226**) + Playwright E2E 53 + axe 18화면 0위반.
+> STEP 5를 닫으려면 **코드 작업이 아니라 제품 오너의 실기기 워크스루**가 남았다(아래 "사람이 해야 하는 것").
+
+### 끝난 것
+- **F0~F8 전 화면 구현**: 온보딩 7스텝(통증 칩·운동 경력 포함) / 프로그램 확인(제외 운동·사유) / 대시보드 / 데일리 루틴(세트 로깅·휴식 타이머·루틴 편집·통증 기록·운동 종료·요약).
+- **백엔드**: `GET /exercises`, `GET /dashboard`, `POST /sessions/ad-hoc`(즉석 세션), 당일 수정 허용, CORS(`WEB_ORIGIN`), dotenv 로드.
+- **UI 재설계(오늘)**: 온보딩 하단 버튼 배치(ADR-42), 세트 행 4줄 → **2줄**(15세트 3,178 → **2,698px**), RIR 통합, 운동 카드 휴지통(ADR-40), 완료 행 대비 위반 해소(ADR-41).
+- **blocker 수정(오늘)**: `crypto.randomUUID`가 실기기(비보안 출처)에서 없어 **세트 완료가 전부 실패**하던 문제(ADR-35). 실기기 조건을 `addInitScript`로 재현하는 회귀 테스트 추가.
+- **검증 인프라**: Playwright E2E 50개, axe 17화면 위반 0, Lighthouse(프로덕션 빌드) 성능 98~100 / 접근성 100 / BP 100.
+
+### 오늘 마지막에 처리한 5건 (전부 완료, 커밋됨)
+| # | 결함 | 조치 |
+|---|---|---|
+| D-4 | RIR 목록 선택이 **iOS에서 불가능**(스펙이 탈락시킨 `datalist` 채택) | 입력칸 + 칸 안쪽 셰브론 → **바텀 시트**(모름/0~6). 셰브론은 `tabindex="-1"`(Tab 정거장 불변), `↑/↓` ±1, `Alt+↓` 시트. **webkit-ios에서 실제 tap 경로를 E2E로 고정**(ADR-39) |
+| D-5 | 완료 행 디스클로저 미구현(AC-SET-6/7/8) | 요약 텍스트가 디스클로저 버튼(접근 이름에 무게·횟수·RIR·"완료" 포함), 탭하면 펼쳐 수정하되 **완료 유지 + 휴식 타이머 미오픈**, 동시 펼침 1개 |
+| D-3 | 요약 "980kg" ↔ 대시보드 "기록한 세트는 없어요" | 서버 0 + 로컬 기록 있음일 때만 "이 기기에만 있는 기록이라 연결되면 요약에 반영돼요". STEP 6에서 조건이 자연히 죽는다 |
+| D-1 | 즉석 세션 방치가 스트릭을 4→2로 파괴 | `workout_sessions.origin: planned\|ad_hoc` 추가. 스트릭의 "계획된 날"은 `planned`만, `weekly_completion_rate`는 **계획 준수율**로 정의 고정(즉석 세션을 분모·분자 양쪽에서 제외) |
+| D-2 | `wrist` 사용자의 즉석 세션에서 머신/케이블 배려 소실 | `excluded_exercises`에 **제외 0건 부위도 마커 항목을 저장**(응답에서는 필터링 → 계약 변경 0, 기존 테스트 무변경) |
+
+### 남은 것 (우선순위 순 — 다음 세션의 작업 목록)
+1. **D-6 스펙-구현 divergence 기록**(미완, 내가 하려다 못 함): [편집] 시트 제거, 통증 버튼 위치(카드 최하단 → 헤더), RIR 방식 변경, 무게·횟수 입력의 단위 접미사 제거 — `docs/UX_STATES.md` §2.4.2/§2.4.4/§7.1/§7.2 M-3/AC-DEL-6이 아직 옛 전제다. **코드에 맞춰 문서를 고칠 것**(구현이 더 낫다고 판단된 변경들이다).
+2. **문서 드리프트 2건**: `docs/DATA_MODEL.md`에 `workout_sessions.origin`이 없다. `excluded_exercises`의 마커 항목(저장 전용, 응답 제외) 규약도 미기재.
+3. **AC-RIR-4 미충족**: "목표 2"를 입력 **오른쪽**에 두라는 스펙을 폭 예산상 못 지켜 2줄차에 두고 `aria-describedby`로만 연결했다. 배치를 살리려면 무게 칸 축소나 완료 체크 56px 하향이 필요 — 스펙 소유자 판단.
+4. **D-7 온보딩 죽은 공간**: AC는 통과하지만(위 399px + 아래 201px = 화면 71%) 실사용 문제는 남았다. `min-h-[52dvh]`가 원인.
+5. **테스트 격리(중요)**: api 테스트·E2E가 **같은 `afc_test` DB + 같은 고정 `DEV_USER_ID`** 를 써서 동시 실행 시 서로의 데이터를 지운다(간헐 실패 실제 관측). 워커별 DB 또는 워커별 user_id 격리가 필요하다. CI 병렬화 전 필수.
+6. **D-8~D-10 minor**: 완료 행 가드를 문자열 매칭 → 실제 대비 측정, 360px 뷰포트 회귀 테스트, `ActionBar` sticky 분기 미실행, 카드 크롬 196px/장(같은 안내 3중 표기), before/after 스크린샷 생성 스크립트 미커밋, RIR 시트가 배경 `inert` 미적용(포털 도입 시 해소).
+7. **`weekly_completion_rate` 정의 확정**: "계획 준수율"로 못 박았다. "이번 주에 한 운동량"을 원하면 별도 지표·계약이 필요 — 제품 판단.
+
+### 사람(제품 오너)이 해야 STEP 5를 닫을 수 있는 것
+**실기기 워크스루로 아래 4가지를 직접 확인해야 한다.** 자동 검증으로는 대체되지 않는다(오늘 blocker가 정확히 그런 사례였다).
+1. **RIR 바텀 시트** — 셰브론을 탭해 목록이 실제로 열리고 값이 선택되는가(특히 iOS).
+2. **세트 행 가독성** — 2줄로 줄인 뒤 운동 중에 한눈에 들어오는가.
+3. **휴지통** — 편집 진입 없이 삭제되는가, 기록 있는 운동에서 사유가 보이는가.
+4. **온보딩 버튼 위치** — 7스텝 내내 엄지로 편한가(특히 3/7·4/7).
+
+---
+
+## 백로그 (지금 구현하지 않음)
+- **근력 운동 전/후 유산소 루틴 추가** — 기록만(2026-08-05, 제품 오너 지시). 착수 조건: **테스트 우선 목표(STEP 6 오프라인) 완료 후 판단**.
+  필요한 선행 작업:
+  1. **운동 DB에 유산소 종목 필요** — 현재 시드 30종이 전부 웨이트다.
+  2. **데이터 모델에 시간·거리·심박 지표 필요** — 현재 `performed_sets`는 무게/반복/시간(초)까지만 있다.
+  3. **추천 엔진은 유산소를 오토레귤레이션 대상에서 제외**한다(별도 규칙). 더블 프로그레션·RIR 축이 성립하지 않는다.
+  4. **세션에 워밍업/쿨다운 슬롯 개념 필요** — 현재 `planned_sets`는 본 운동만 전제한다.
+
 ## 사람 결정(확정 — 2026-08-05, 2차)
 1. `/sync` `client_id`는 **uuid 유지**, openapi 예시를 UUID 형식으로 정정 → 반영 완료.
 2. openapi `Exercise`에 `metric`·`default_time_low_sec/high_sec` 추가 → 반영 완료(`metric`은 DB가 non-null이라 non-nullable required, 시간 범위만 nullable).
@@ -361,18 +409,37 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - 아직 골든이 고정하지 못한 진행 상수: `CONFIDENCE.full`(절대값), `BODYWEIGHT_REPS_CAP` 하향 방향, `TIME_DOWN_RATIO` 상향 방향. **안전 관련 상수는 전부 고정 완료**.
 - SECURITY_PIPA가 요구하는 **건강데이터 접근 감사 로깅 테이블**이 DATA_MODEL에 없다(스펙 공백).
 
-## 화면 확인 방법 (개발자 직접 확인)
+## 실행 방법 (재현 가능 — 이대로만 하면 뜬다)
 ```
-pnpm db:up                                   # postgres/redis (Docker Desktop 필요)
-pnpm --filter api start:dev                  # 실서버 :3001 (/v1 prefix)
-pnpm --filter web dev                        # :3000  ← API CORS 허용 origin이 localhost:3000 이다
+pnpm db:up                     # postgres:16 / redis:7 (Docker Desktop 실행 필요)
+pnpm --filter api start:dev    # :3001, /v1 prefix. 루트 .env를 자동 로드한다(ADR-36)
+pnpm --filter web dev          # :3000  ← 반드시 3000. API CORS 허용 origin 기본값이다(ADR-34)
 ```
-`.env`에 `DATABASE_URL`·`FIELD_ENCRYPTION_KEY`(`openssl rand -base64 32`)가 필요하다. 목서버로 보려면 `pnpm mock`(:4010) 후 `NEXT_PUBLIC_API_BASE_URL=http://localhost:4010`(브라우저에서 `document.cookie="sid=dev"` 1회 필요).
+- **`.env` 필수 항목**(루트 1개 파일): `DATABASE_URL`, `FIELD_ENCRYPTION_KEY`(= `openssl rand -base64 32`), `DEV_USER_ID`(UUID), `WEB_ORIGIN`(기본 `http://localhost:3000`). `.env.example` 복사 후 키만 채우면 된다.
+- **포트 3000 고정**: 다른 포트로 띄우면 CORS에서 막힌다(`WEB_ORIGIN`을 함께 바꾸면 가능).
+- 목서버로 보려면 `pnpm mock`(:4010) + `NEXT_PUBLIC_API_BASE_URL=http://localhost:4010`, 브라우저에서 `document.cookie="sid=dev"` 1회.
+- **E2E**: `cd apps/web && npx playwright test` — **반드시 단독 실행**(동시 실행 시 서로의 오늘 세션을 갈아치운다).
+- **Windows 주의**: API가 떠 있으면 `pnpm install`·`prisma generate`가 EPERM(파일 락)으로 실패한다. 포트 3000/3001/3100/4010 프로세스를 정리하고 재시도.
+
+### 실기기(폰) 확인
+**`next dev --experimental-https`로 한다(터널 금지, ADR-43).** `http://사설IP`로 접속하면 secure context가 아니라
+서비스워커가 등록되지 않고 `crypto.*` 일부가 없다 — 오늘 blocker가 정확히 그 사례였다. 폰에 인증서 신뢰 설치가 필요하다.
 
 **확인 순서**: `/onboarding`(7스텝, 통증 칩 8종+"해당 없음") → 계획 만들기 → `/program`(왜 이 루틴 + 제외된 운동·사유) → `/`(대시보드, [운동 시작]) → `/session/{id}`(세트 입력 → 완료 체크 → **휴식 타이머 팝업**에서 +30초 연타·휴식 종료 → [편집]으로 추가/교체/삭제 → 운동 종료) → 요약.
 확인 포인트: 플랭크는 시간 1칸·RIR 없음, 풀업은 "자체중량"(무게칸 없음), 첫 세션은 "무게 미정"(0kg 아님), 운동 카드 [통증 기록]에서 4 이상 선택 시 안전 안내.
 
 ## 다음 액션
-- **STEP 6**: IndexedDB(Dexie) 미러 + outbox + Service Worker(Workbox/serwist) + `POST /v1/sync`(client_id 멱등·LWW·since 커서). E2E로 '오프라인 로깅 → 복귀 → sync → 서버 추천 반영'과 **중복 0·유실 0**을 단언.
-- 선행 조건: Docker Desktop 실행 후 `pnpm db:up`, 루트 `.env`.
-- `/goal until 5` 지시로 **STEP 5에서 정지**했다. 이어서 하려면 `/goal until 6`(테스트 목표 범위) 또는 `/goal step 6`.
+
+### 다음 세션 첫 명령
+```
+/goal step 5
+```
+STEP 5의 남은 항목(위 "남은 것" 1~3번)을 마저 끝내는 것이 먼저다. 그 뒤 제품 오너의 실기기 워크스루로 STEP 5를 닫고 STEP 6으로 간다.
+남은 항목까지 끝났다고 판단되면 `/goal until 6`으로 STEP 6(오프라인 동기화)까지 진행한다.
+
+### STEP 6 착수 전 이미 결정된 사항
+- **실기기 검증은 `next dev --experimental-https`**(터널 금지) — 서비스워커는 **secure context 필수**다(ADR-43).
+- **E2E 테스트 격리가 필요하다** — 지금은 여러 실행이 같은 DB를 써서 `GET /dashboard`가 보는 "최신 프로그램"을 서로 갈아치운다. 사용자별 분리 또는 실행별 DB가 필요하다.
+- Dexie 배선 지점은 이미 준비돼 있다: `session-store.ts`의 **`write()` 단일 관문** + `PerformedSet`과 1:1인 드래프트(9키, `pain_score` 포함). 완료 후 **"세트 3개 체크 → reload → 유지"** E2E로 고정할 것.
+- `@serwist/next`는 설치만 돼 있고 미배선이다. 회귀 감지용 `test.fail()` 마커가 `04-errors.spec.ts`에 있어, 배선되면 "예상치 못한 통과"로 뒤집힌다.
+- `/sync`의 `Mutation.entity`는 `performed_set|session|profile`뿐이라 **루틴 편집을 오프라인 큐에 태우려면 계약 확장이 필요**하다(제안만 하고 임의 생성 금지).

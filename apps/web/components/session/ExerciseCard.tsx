@@ -1,11 +1,16 @@
 /**
  * 운동 카드(세트 행 묶음 + 편집 진입). F1·F5·F7.
+ *
+ * 액션 역할 분리(F5, 확정 2026-08-05):
+ *   [교체] = 다른 운동으로 바꾸기(추가는 목록 하단의 [운동 추가]),
+ *   [휴지통] = 이 운동을 루틴에서 빼기.
+ * 무게 축 배지("무게 미정"·"자체중량")는 **운동 단위 성질**이라 카드 상단에 한 번만 둔다(F1-0).
  */
 "use client";
 
 import type { Exercise, PlannedSet } from "../../lib/api";
-import { Badge, Button, Card } from "../ui";
-import { reasonLabel, setKind, type SetValues } from "./set-rules";
+import { Badge, Button, Card, IconButton, TrashIcon } from "../ui";
+import { reasonLabel, setKind, weightBadge, type SetValues } from "./set-rules";
 import { SetRow } from "./SetRow";
 import type { SetDraft } from "./session-store";
 
@@ -22,7 +27,15 @@ export type ExerciseCardProps = {
   lockedReason: string | null;
   /** 이 운동에 기록된 통증 점수(없으면 null). */
   painScore: number | null;
-  onEdit: () => void;
+  /** 지금 펼쳐 둔 완료 세트(화면 전체에서 하나뿐이다, AC-SET-8). */
+  expandedSetId: string | null;
+  onToggleExpand: (plannedSetId: string) => void;
+  /** 펼친 완료 세트의 값 수정(휴식 타이머를 열지 않는다). */
+  onEdit: (set: PlannedSet, values: SetValues) => void;
+  onSwap: () => void;
+  onRemove: () => void;
+  /** 기록이 있어 뺄 수 없을 때(휴지통은 aria-disabled 라 클릭이 그대로 온다). */
+  onRemoveBlocked: () => void;
   onReportPain: () => void;
   onComplete: (set: PlannedSet, values: SetValues) => void;
   onUncomplete: (set: PlannedSet) => void;
@@ -36,33 +49,45 @@ export function ExerciseCard({
   readOnly,
   lockedReason,
   painScore,
+  expandedSetId,
+  onToggleExpand,
   onEdit,
+  onSwap,
+  onRemove,
+  onRemoveBlocked,
   onReportPain,
   onComplete,
   onUncomplete,
 }: ExerciseCardProps) {
   const completedCount = sets.filter((set) => drafts[set.id]?.completed).length;
   const kinds = sets.map((set) => setKind(set, exercise?.metric));
-  // 근거 배지는 카드 단위다 → 이 종목의 축(시간/자체중량/무게)에 맞는 문구만 남긴다.
+  // 근거·무게 배지는 카드 단위다 → 이 종목의 축(시간/자체중량/무게)에 맞는 문구만 남긴다.
   const reason = reasonLabel(sets[0]?.reason_code ?? "", kinds[0]);
+  const badge = weightBadge(kinds[0] ?? "weighted");
   const showBaselineNote = kinds.some((kind) => kind === "unknown_weight");
+  const locked = lockedReason != null;
 
   return (
     <Card density="tight" className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="min-w-0 text-lg font-bold text-fg">{name}</h2>
+      {/* 제목은 한 줄을 통째로 쓴다 — 액션과 나란히 두면 390px 에서 운동 이름이 잘린다. */}
+      <h2 className="min-w-0 text-lg font-bold text-fg">{name}</h2>
+
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-sm text-fg-muted">
+          {completedCount}/{sets.length} 세트 완료
+        </span>
 
         {readOnly ? null : (
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {/* 보이는 글자는 짧게, 접근 이름은 운동 이름까지 붙여 준다(WCAG 2.5.3: 보이는 글자 ⊂ 접근 이름). */}
             <Button
               variant="secondary"
               size="sm"
-              onClick={onEdit}
-              disabled={lockedReason != null}
-              aria-label={`${name} 루틴 편집`}
+              onClick={onSwap}
+              disabled={locked}
+              aria-label={`${name} 교체`}
             >
-              편집
+              교체
             </Button>
             {/* 통증 보고는 세트 입력 흐름을 막지 않는 보조 액션이다(기본 접힘 → 시트). */}
             <Button
@@ -71,24 +96,41 @@ export function ExerciseCard({
               onClick={onReportPain}
               aria-label={`${name} 통증 기록`}
             >
-              통증 기록
+              통증
             </Button>
+            {/*
+              기록이 있으면 뺄 수 없다(409 예방). disabled 로 막으면 포커스도 클릭도 사라져
+              **왜 못 빼는지 알려줄 수 없다** → aria-disabled + 사유로 둔다(AC-DEL-3/4).
+            */}
+            <IconButton
+              label={`${name} 삭제`}
+              reason={locked ? "기록이 있어 뺄 수 없어요" : undefined}
+              tone="danger"
+              aria-disabled={locked || undefined}
+              onClick={locked ? onRemoveBlocked : onRemove}
+            >
+              <TrashIcon />
+            </IconButton>
           </div>
         )}
       </div>
 
-      {/* 진행 표기와 배지는 한 줄에 모은다(카드 5개 × 한 줄 = 120px). */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-fg-muted">
-          {completedCount}/{sets.length} 세트 완료
-        </span>
-        {reason ? <Badge>{reason}</Badge> : null}
-        {painScore != null ? (
-          <Badge tone="warn" aria-label={`기록한 통증 ${painScore}점`}>
-            통증 {painScore}점
-          </Badge>
-        ) : null}
-      </div>
+      {reason || badge || painScore != null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {badge ? (
+            <Badge aria-label={badge.label} density="compact">
+              {badge.text}
+            </Badge>
+          ) : null}
+          {reason ? <Badge>{reason}</Badge> : null}
+          {painScore != null ? (
+            <Badge tone="warn" aria-label={`기록한 통증 ${painScore}점`}>
+              통증 {painScore}점
+            </Badge>
+          ) : null}
+        </div>
+      ) : null}
+
       {lockedReason ? <p className="text-sm text-fg-muted">{lockedReason}</p> : null}
       {showBaselineNote ? <p className="text-sm text-fg-muted">{BASELINE_NOTE}</p> : null}
 
@@ -117,7 +159,10 @@ export function ExerciseCard({
               fallbackWeight={fallbackWeight}
               previous={previous}
               readOnly={readOnly}
+              expanded={expandedSetId === set.id}
+              onToggleExpand={() => onToggleExpand(set.id)}
               onComplete={(values) => onComplete(set, values)}
+              onEdit={(values) => onEdit(set, values)}
               onUncomplete={() => onUncomplete(set)}
             />
           );

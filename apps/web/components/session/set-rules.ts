@@ -97,7 +97,10 @@ export function formatKg(value: number): string {
   return `${Number(value.toFixed(1))}kg`;
 }
 
-/** 목표 표기. null 인 축은 아예 렌더하지 않는다(`-`·`0` 출력 금지). */
+/**
+ * 목표 표기. null 인 축은 아예 렌더하지 않는다(`-`·`0` 출력 금지).
+ * 목표 RIR 은 여기 넣지 않는다 — F1-1 이후 RIR 입력칸 옆에 붙어 있어서 두 번 나오면 안 된다.
+ */
 export function targetLabel(kind: SetKind, set: PlannedSet): string {
   const parts: string[] = [];
 
@@ -116,7 +119,6 @@ export function targetLabel(kind: SetKind, set: PlannedSet): string {
   else if (low != null) parts.push(`목표 ${low}회`);
   else if (high != null) parts.push(`목표 ${high}회`);
 
-  if (set.target_rir != null) parts.push(`RIR ${set.target_rir}`);
   if (kind === "weighted" && set.recommended_weight != null) {
     parts.push(`추천 ${formatKg(set.recommended_weight)}`);
   }

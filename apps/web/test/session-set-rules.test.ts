@@ -188,14 +188,18 @@ describe("값 미입력 → 프리필 확정 (§2.4)", () => {
 });
 
 describe("targetLabel (null 축은 렌더하지 않는다)", () => {
-  it("반복 범위·RIR·추천 무게를 조합한다", () => {
-    expect(targetLabel("weighted", plannedSet())).toBe("목표 8~10회 · RIR 2 · 추천 62.5kg");
+  it("반복 범위·추천 무게를 조합한다", () => {
+    expect(targetLabel("weighted", plannedSet())).toBe("목표 8~10회 · 추천 62.5kg");
+  });
+
+  it("목표 RIR 은 넣지 않는다(F1-1: RIR 입력칸 옆에 따로 붙어 두 번 나오면 안 된다)", () => {
+    expect(targetLabel("weighted", plannedSet({ target_rir: 2 }))).not.toContain("RIR");
   });
 
   it("무게 미정 세트의 목표에는 무게가 없다", () => {
     const set = plannedSet({ recommended_weight: 0, reason_code: "BASELINE" });
     const label = targetLabel("unknown_weight", set);
-    expect(label).toBe("목표 8~10회 · RIR 2");
+    expect(label).toBe("목표 8~10회");
     expect(label).not.toContain("0kg");
   });
 

@@ -12,31 +12,43 @@
           "label": "세트 완료 체크",
           "width": 72,
           "height": 72,
-          "y": 259
+          "y": 272
         },
         {
           "label": "무게 입력",
-          "width": 87,
+          "width": 76,
           "height": 44,
-          "y": 238
+          "y": 274
         },
         {
-          "label": "RIR 칩",
-          "width": 44,
+          "label": "횟수 입력",
+          "width": 48,
           "height": 44,
-          "y": 288
+          "y": 274
         },
         {
-          "label": "루틴 편집",
+          "label": "RIR 입력",
+          "width": 80,
+          "height": 44,
+          "y": 274
+        },
+        {
+          "label": "교체",
           "width": 62,
           "height": 44,
-          "y": 93
+          "y": 129
+        },
+        {
+          "label": "삭제(휴지통)",
+          "width": 44,
+          "height": 44,
+          "y": 129
         },
         {
           "label": "운동 추가",
           "width": 358,
           "height": 56,
-          "y": 3040
+          "y": 2530
         },
         {
           "label": "운동 종료(하단 고정)",
@@ -49,6 +61,34 @@
         "scrollWidth": 390,
         "clientWidth": 390
       }
+    },
+    {
+      "screen": "S4-rir-sheet",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "targets": [
+        {
+          "label": "RIR 고르기 셰브론",
+          "width": 28,
+          "height": 36,
+          "y": 278
+        },
+        {
+          "label": "RIR 칩",
+          "width": 114,
+          "height": 44,
+          "y": 644
+        }
+      ]
+    },
+    {
+      "screen": "S4-routine-scroll",
+      "setCount": 15,
+      "scrollHeight": 2698,
+      "rowHeight": 90,
+      "doneRowHeight": 62
     },
     {
       "screen": "S4-rest-timer",
@@ -92,6 +132,64 @@
         "scrollWidth": 390,
         "clientWidth": 390
       }
+    },
+    {
+      "screen": "S1-onboarding-actions",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "steps": [
+        {
+          "step": 1,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 71,
+          "gapBelow": 201
+        },
+        {
+          "step": 2,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 243,
+          "gapBelow": 201
+        },
+        {
+          "step": 3,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 347,
+          "gapBelow": 201
+        },
+        {
+          "step": 4,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 399,
+          "gapBelow": 201
+        },
+        {
+          "step": 5,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 211,
+          "gapBelow": 201
+        },
+        {
+          "step": 6,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 347,
+          "gapBelow": 201
+        },
+        {
+          "step": 7,
+          "scrolls": false,
+          "buttonTop": 571,
+          "gapAbove": 145,
+          "gapBelow": 201
+        }
+      ]
     },
     {
       "screen": "dashboard",

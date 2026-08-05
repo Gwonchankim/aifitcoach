@@ -6,12 +6,16 @@
  * 계획이 없으면(`GET /programs/current` 404) 온보딩 카드만 보여준다(§2.3 빈①).
  * 요약이 실패해도 화면 전체를 에러로 덮지 않는다(AC-S3-2) — 오늘 카드 자리에만 배너를 둔다.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge, Button, Card, cn } from "../ui";
-import { api } from "../../lib/api";
+import { ApiError, api, type BodyPart } from "../../lib/api";
 import { DASHBOARD_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 import { formatClock, useOnline } from "../../lib/use-online";
+import { summarize, useSessionLog } from "../session/session-store";
+import { BodyPartSheet } from "./BodyPartSheet";
 import { E1RM_EMPTY_NOTE, type MetricCard, buildDashboardView } from "./dashboard-view";
 
 function LinkAction({
@@ -68,8 +72,18 @@ function Screen({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** F8-1 즉석 세션 만들기에서만 쓰는 문구(§3 원칙: 서버 메시지를 그대로 쓰지 않는다). */
+const AD_HOC_ERRORS: Record<number, string> = {
+  400: "이 부위로는 지금 루틴을 만들 수 없어요. 다른 부위를 골라 주세요.",
+  500: "지금은 루틴을 만들지 못했어요. 잠시 뒤 다시 눌러 주세요.",
+};
+
 export function DashboardScreen() {
   const online = useOnline();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [partSheetOpen, setPartSheetOpen] = useState(false);
+  const [adHocError, setAdHocError] = useState<string | null>(null);
 
   const program = useQuery({
     queryKey: ["program", "current"],
@@ -81,6 +95,52 @@ export function DashboardScreen() {
     queryKey: ["dashboard"],
     queryFn: api.dashboard,
     retry: false,
+  });
+
+  /*
+    오늘 세션의 완료 세트는 아직 서버로 가지 않는다(세트 저장 경로는 STEP 6 `/sync`).
+    그래서 요약 화면이 "오늘 2세트"를 보여주는 순간에도 `done_summary.sets_completed` 는 0 이다
+    → 그 0 을 "기록이 없다"로 **단정하지 않도록** 이 기기의 기록 수를 함께 넘긴다.
+    STEP 6 이 붙으면 서버 요약이 채워져 이 분기는 자연히 사라진다.
+  */
+  const todaySessionId = dashboard.data?.today.session_id ?? null;
+  const localSetsCompleted = useSessionLog((state) =>
+    state.sessionId != null && state.sessionId === todaySessionId
+      ? summarize(state.drafts).completedCount
+      : 0,
+  );
+
+  /**
+   * F8-1. 세 갈래로 갈린다.
+   *  - 201: 만든 세션으로 이동한다.
+   *  - 409: 오늘 이미 세션이 있다는 뜻이다 → **에러를 보여주지 않고** 요약을 다시 받아 그 세션으로 간다.
+   *  - 404: 프로그램이 없다 → 온보딩으로 보낸다.
+   */
+  const adHoc = useMutation({
+    mutationFn: (bodyPart: BodyPart) => api.createAdHocSession({ body_part: bodyPart }),
+    onSuccess: (session) => {
+      setPartSheetOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      router.push(`/session/${session.id}`);
+    },
+    onError: async (error) => {
+      if (error instanceof ApiError && error.status === 409) {
+        const latest = await queryClient
+          .fetchQuery({ queryKey: ["dashboard"], queryFn: api.dashboard })
+          .catch(() => null);
+        if (latest?.today.session_id) {
+          setPartSheetOpen(false);
+          router.push(`/session/${latest.today.session_id}`);
+          return;
+        }
+      }
+      if (error instanceof ApiError && error.status === 404) {
+        setPartSheetOpen(false);
+        router.push("/onboarding");
+        return;
+      }
+      setAdHocError(toUiError(error, AD_HOC_ERRORS).message);
+    },
   });
 
   // 선행 조건: 계획이 없으면 요약도 의미가 없다(§2.3 빈①).
@@ -101,7 +161,8 @@ export function DashboardScreen() {
    * 온보딩 카드로 바뀐다 → 프로그램 조회가 끝날 때까지는 스켈레톤을 유지한다.
    */
   const loading = (program.isPending || dashboard.isPending) && !dashboard.data;
-  const view = !loading && dashboard.data ? buildDashboardView(dashboard.data) : null;
+  const view =
+    !loading && dashboard.data ? buildDashboardView(dashboard.data, localSetsCompleted) : null;
 
   return (
     <Screen>
@@ -127,6 +188,20 @@ export function DashboardScreen() {
             ))}
             {view.today.primary ? (
               <LinkAction href={view.today.primary.href}>{view.today.primary.label}</LinkAction>
+            ) : null}
+            {/* F8-1: 휴식일이라고 막지 않는다. 쉬는 날의 톤을 유지하려고 보조 액션으로 둔다. */}
+            {view.today.status === "rest" ? (
+              <Button
+                variant="secondary"
+                size="lg"
+                fullWidth
+                onClick={() => {
+                  setAdHocError(null);
+                  setPartSheetOpen(true);
+                }}
+              >
+                그래도 운동하기
+              </Button>
             ) : null}
             {view.today.secondary ? (
               <LinkAction href={view.today.secondary.href} variant="secondary">
@@ -176,6 +251,18 @@ export function DashboardScreen() {
       >
         내 운동 계획 보기
       </Link>
+
+      <BodyPartSheet
+        open={partSheetOpen}
+        streakDays={dashboard.data?.streak_days ?? 0}
+        pending={adHoc.isPending}
+        errorText={adHocError}
+        onSelect={(bodyPart) => {
+          setAdHocError(null);
+          adHoc.mutate(bodyPart);
+        }}
+        onClose={() => setPartSheetOpen(false)}
+      />
     </Screen>
   );
 }
