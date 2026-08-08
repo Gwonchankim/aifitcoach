@@ -11,6 +11,10 @@ programs(id PK, user_id FK, goal, days_per_week int, minutes_per_day int, split_
       rules_version, template jsonb, excluded_exercises jsonb, created_at, updated_at)
       -- template = 생성 시점의 주간 템플릿(openapi Program.sessions). 세션 편집(F5)은 세션 스코프라 여기 반영되지 않는다.
       -- excluded_exercises = pain_areas 로 뺀 운동과 사유(openapi Program.excluded_exercises, SAFETY_PAIN_MAPPING.md 규칙 3)
+      --   추가로 **제외가 0건인 부위도 마커 항목으로 저장**한다(exercise_id·movement_pattern 을 빈 문자열로).
+      --   이유: 통증 부위를 따로 저장하지 않으므로(PIPA) 즉석 세션이 이 필드에서 부위를 역산하는데,
+      --   wrist 처럼 제외 패턴이 0건인 부위는 흔적이 안 남아 "머신/케이블 우선" 배려가 사라졌다.
+      --   마커는 **저장 전용**이고 toResponse()에서 걸러낸다(계약상 excluded_exercises 는 "제외된 운동 목록"이다).
 exercises(id PK, name_ko, name_en, movement_pattern, mechanic, region,
       primary_muscles text[], secondary_muscles text[], equipment, difficulty,
       metric, default_reps_low int NULL, default_reps_high int NULL,
@@ -18,8 +22,11 @@ exercises(id PK, name_ko, name_en, movement_pattern, mechanic, region,
       unilateral bool, substitutions text[], cues text[], media jsonb)   -- 시드: specs/exercises_seed.json
       -- metric=reps 는 default_reps_*, metric=time(e_plank)은 default_time_*_sec 를 채운다(배타적)
       -- default_step_kg NULL = 맨몸(자체중량). 0 이 아니다 — 0 은 엔진에서 INVALID_INPUT 이다.
-workout_sessions(id PK, program_id FK, scheduled_date date, status, focus text, completed_at,
+workout_sessions(id PK, program_id FK, scheduled_date date, status, focus text, origin, completed_at,
       session_feedback jsonb, updated_at)   -- focus: openapi Program.sessions[].focus / DashboardSummary
+      -- origin: planned | ad_hoc (기본 planned). ad_hoc = 휴식일 즉석 세션(F8-1, POST /sessions/ad-hoc).
+      --   스트릭의 "계획된 날"과 weekly_completion_rate(계획 준수율)는 planned 만 센다 —
+      --   계획에 없던 운동을 시도한 것이 지표를 깎으면 안 된다. API 응답에는 노출하지 않는다.
 planned_sets(id PK, session_id FK, exercise_id FK, set_no int, order_index int,
       target_reps_low int NULL, target_reps_high int NULL, target_rir int NULL, rest_sec int,
       target_time_low_sec int NULL, target_time_high_sec int NULL,

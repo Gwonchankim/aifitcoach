@@ -29,15 +29,40 @@ scripts/        # 시드 적재 등 유틸
 ```
 > `packages/shared`에 추천 엔진 순수 함수(`recommendNextSet`)를 두어 백엔드(권위)와 프론트(오프라인 미러)가 **같은 코드**를 쓰게 한다.
 
-## 개발/실행 명령 (스캐폴딩 후 최신화)
+## 개발/실행 명령
+
+### 앱 띄우기 (이 순서 그대로)
 ```
 pnpm install
-pnpm --filter web dev          # 프론트
-pnpm --filter api start:dev    # 백엔드
-docker compose up -d           # postgres, redis (scripts/로 제공 예정)
-pnpm test                      # 전체 테스트 (골든 테스트 포함)
-pnpm typecheck && pnpm lint
+pnpm db:up                     # postgres:16 / redis:7 (Docker Desktop 실행 필요). 내리기: pnpm db:down
+pnpm --filter api start:dev    # :3001, 전역 prefix /v1. 루트 .env 를 자동 로드한다(ADR-36)
+pnpm --filter web dev          # :3000  ← 반드시 3000. API CORS 허용 origin 기본값이다(ADR-34)
 ```
+**포트 3000 고정**: 다른 포트로 띄우면 CORS에 막혀 화면이 아무것도 못 부른다(`WEB_ORIGIN`을 같이 바꾸면 가능).
+
+### `.env` (루트 1개 파일. `.env.example` 복사 후 값 채우기, 커밋 금지)
+| 키 | 값 |
+|---|---|
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/afc` |
+| `FIELD_ENCRYPTION_KEY` | 32바이트 base64 — `openssl rand -base64 32` (없으면 부팅 실패) |
+| `DEV_USER_ID` | UUID. 기본 `00000000-0000-4000-8000-000000000001` (UUID가 아니면 부팅 실패) |
+| `WEB_ORIGIN` | `http://localhost:3000` (`*`·빈 값이면 부팅 거부) |
+
+### 게이트 (CI와 같은 순서)
+```
+pnpm install --frozen-lockfile
+pnpm codegen                   # openapi.yaml → apps/web/lib/api-types.ts (생성물 커밋. CI가 diff로 드리프트 차단)
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test
+```
+
+### 그 밖
+```
+pnpm mock                                  # prism 목서버 :4010 (/v1 없이 루트. 브라우저에서 document.cookie="sid=dev" 1회)
+cd apps/web && npx playwright test         # E2E. 반드시 단독 실행 — 동시 실행 시 서로의 "오늘 세션"을 갈아치운다
+```
+- **실기기(폰) 검증은 `next dev --experimental-https`** 로 한다(**터널 금지**, ADR-43). `http://사설IP`는 secure context가
+  아니라 서비스워커가 등록되지 않고 `crypto.randomUUID` 등이 없다 — 실제로 세트 완료가 전부 실패한 적이 있다(아래 함정 1).
+- **Windows**: API가 떠 있으면 `pnpm install`·`prisma generate`가 EPERM(파일 락)으로 실패한다. 포트 3000/3001/3100/4010 정리 후 재시도.
 
 ## 작업 방식(중요)
 1. **한 번에 티켓 1개**만. "전체 앱"을 한 번에 만들지 않는다. 백로그의 US/TK 단위로.
