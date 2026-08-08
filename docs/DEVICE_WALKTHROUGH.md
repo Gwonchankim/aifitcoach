@@ -14,20 +14,30 @@
 
 폰과 PC 가 **같은 네트워크**에 있어야 한다. 게스트 Wi-Fi·AP 격리(클라이언트 간 통신 차단)면 안 된다.
 
-PC 의 LAN IP 확인:
+PC 의 LAN IP 확인 — **`ipconfig` 만 보면 안 된다.** 끊긴 어댑터에 주소가 그대로 남아 있어서,
+안 닿는 IP 를 "현재 IP" 로 착각한다(실측: Wi-Fi 가 Disconnected 인데 `192.168.0.143` 이 계속 보였다).
+**어댑터 상태를 같이 본다:**
 
 ```powershell
-ipconfig | Select-String "IPv4"
+Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name, InterfaceIndex
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' } |
+  Select-Object InterfaceAlias, IPAddress
 ```
+
+**`Status = Up` 인 어댑터의 IP 만 쓴다.** `vEthernet (WSL …)`·`vEthernet (Default Switch)` 의
+`172.x` 는 가상 스위치라 폰에서 안 닿는다 — 고르지 마라.
 
 이 PC 기준 (2026-08-08 실측):
 
-| 어댑터 | IP | 비고 |
+| 어댑터 | IP | 상태 |
 | --- | --- | --- |
-| Wi-Fi | `192.168.0.143` | **폰이 붙을 주소는 보통 이쪽** |
-| 이더넷 | `192.168.0.174` | PC 가 유선일 때 |
+| 이더넷 | `192.168.0.174` | **Up — 현재 이 주소를 쓴다** |
+| Wi-Fi | `192.168.0.143` | Disconnected (주소만 잔존, 안 닿음) |
 
-> IP 는 DHCP 로 바뀔 수 있다. 바뀌었으면 **2단계 인증서를 다시 만들어야 한다**(SAN 에 IP 가 박혀 있다).
+> PC 가 유선이어도 상관없다. 폰이 **같은 공유기의 Wi-Fi** 에 붙어 있고 같은 대역(`192.168.0.x`)이면 통한다.
+
+> **IP 가 바뀌면 인증서를 다시 만들어야 한다**(SAN 에 IP 가 박혀 있다) → [§2.1 IP 변경 시 재발급](#21-ip-가-바뀌었을-때-재발급)
 
 방화벽에서 3000 포트를 열어둔다(최초 1회, 관리자 PowerShell):
 
@@ -60,8 +70,10 @@ CA 루트도 같은 폴더에 있다(`rootCA.pem` / `rootCA-key.pem`).
 $mk    = "$env:LOCALAPPDATA\mkcert\mkcert-v1.4.4-windows-amd64.exe"
 $env:CAROOT = "$env:LOCALAPPDATA\mkcert"
 cd C:\Users\amole\Desktop\aifitcoach\apps\web\certificates
-& $mk -key-file lan-key.pem -cert-file lan.pem localhost 127.0.0.1 ::1 192.168.0.143 192.168.0.174
+& $mk -key-file lan-key.pem -cert-file lan.pem localhost 127.0.0.1 ::1 192.168.0.174 192.168.0.143
 ```
+
+**IP 는 여러 개 넣어도 된다.** 유선/무선을 오가면 둘 다 넣어두면 그때마다 재발급하지 않아도 된다.
 
 확인 — SAN 에 폰이 쓸 IP 가 들어갔는지:
 
@@ -69,9 +81,63 @@ cd C:\Users\amole\Desktop\aifitcoach\apps\web\certificates
 openssl x509 -in lan.pem -noout -text | Select-String -Context 0,1 "Subject Alternative Name"
 ```
 
-기대 출력에 `IP Address:192.168.0.143` 이 있어야 한다.
+기대 출력에 지금 쓰는 IP(`IP Address:192.168.0.174`)가 있어야 한다.
 
 > `apps/web/certificates/` 는 **gitignore 되어 있다. 개인 키라 절대 커밋하지 않는다.**
+
+---
+
+## 2.1 IP 가 바뀌었을 때 재발급
+
+DHCP 로 주소가 바뀌거나 유선↔무선을 갈아타면 **SAN 에 그 IP 가 없어서** 폰에서
+"이 연결은 비공개가 아닙니다" 가 뜬다. CA 를 이미 신뢰시켜 놨어도 뜬다 — 호스트명 검증에서 걸리는 것이라
+CA 신뢰와는 별개다. 아래 4단계면 끝난다.
+
+**폰에 CA 를 다시 설치할 필요는 없다.** 같은 CA 로 재서명하는 것이라 3단계는 건너뛴다.
+
+```powershell
+# ① 지금 실제로 닿는 IP 확인 (Status 가 Up 인 어댑터만)
+Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object Name
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' } |
+  Select-Object InterfaceAlias, IPAddress
+
+# ② 서버를 내린다 (인증서는 기동할 때 읽으므로 살아 있는 서버는 옛 인증서를 계속 내민다)
+Get-NetTCPConnection -LocalPort 3000 -State Listen |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+
+# ③ 재발급 — <새IP> 를 ①에서 확인한 값으로 바꾼다
+$mk    = "$env:LOCALAPPDATA\mkcert\mkcert-v1.4.4-windows-amd64.exe"
+$env:CAROOT = "$env:LOCALAPPDATA\mkcert"
+cd C:\Users\amole\Desktop\aifitcoach\apps\web\certificates
+& $mk -key-file lan-key.pem -cert-file lan.pem localhost 127.0.0.1 ::1 <새IP>
+
+# ④ 다시 띄운다
+cd C:\Users\amole\Desktop\aifitcoach
+pnpm --filter web dev:lan
+```
+
+**검증 — 여기까지 통과해야 폰으로 넘어간다** (`<새IP>` 를 그대로 치환):
+
+```powershell
+# 서버가 실제로 내미는 인증서가 새 IP 를 담고 있고, 체인·호스트명 검증이 통과하는가
+openssl s_client -connect <새IP>:3000 -CAfile "$env:LOCALAPPDATA\mkcert\rootCA.pem" -verify_ip <새IP> -brief
+```
+
+`Verification: OK` 가 나와야 한다.
+
+> **`-verify_hostname` 을 쓰지 마라.** 그건 DNS 이름만 대조해서 IP SAN 에는 `hostname mismatch` 가 난다.
+> IP 는 **`-verify_ip`** 다. (실측으로 헤맨 지점이다.)
+
+> `curl --cacert … https://<새IP>:3000` 은 이 검증에 쓰지 마라. Windows schannel 이 사설 CA 의
+> **폐기 상태(CRL/OCSP)를 확인할 수 없어** 체인이 멀쩡해도 `curl: (60)` 로 실패한다. 브라우저 문제가 아니다.
+> 도달 여부만 볼 거면 `curl.exe -k` 로 충분하다.
+
+마지막으로 프록시까지:
+
+```powershell
+curl.exe -k -o NUL -w "api %{http_code}`n" https://<새IP>:3000/api/v1/dashboard
+```
 
 ---
 
@@ -129,7 +195,7 @@ pnpm --filter web dev:lan
 
 ### CORS / origin 은 어떻게 되나 — **손댈 게 없다**
 
-`dev:lan` 에서는 브라우저가 `https://192.168.0.143:3000/api/v1/*` 만 부르고,
+`dev:lan` 에서는 브라우저가 `https://192.168.0.174:3000/api/v1/*` 만 부르고,
 Next 개발 서버가 서버사이드에서 `http://localhost:3001/v1/*` 로 넘긴다.
 **브라우저 관점에선 same-origin 이라 preflight 도 `Origin` 헤더 검사도 발생하지 않는다.**
 → API 의 `WEB_ORIGIN` 을 폰 IP 로 바꿀 필요 없고, 바꾸면 안 된다(로컬 E2E 의 CORS 회귀 스펙이 깨진다).
@@ -140,11 +206,17 @@ Next 개발 서버가 서버사이드에서 `http://localhost:3001/v1/*` 로 넘
 ### PC 에서 먼저 자가진단
 
 ```powershell
-curl.exe -k -o NUL -w "page %{http_code}`n"  https://192.168.0.143:3000/
-curl.exe -k -o NUL -w "api  %{http_code}`n"  https://192.168.0.143:3000/api/v1/dashboard
+curl.exe -sk -o NUL -w "page %{http_code}`n"  https://192.168.0.174:3000/
+curl.exe -sk -o NUL -w "api  %{http_code}`n"  https://192.168.0.174:3000/api/v1/dashboard
 ```
 
-둘 다 `200` 이어야 폰으로 넘어간다. 아니면 방화벽/IP/서버 기동을 먼저 본다.
+둘 다 `200` 이어야 폰으로 넘어간다.
+
+| 결과 | 원인 |
+| --- | --- |
+| `page 000` | :3000 이 안 떠 있거나 방화벽/IP 가 틀렸다 |
+| `page 200`, **`api 500`** | **:3001 API 가 안 떠 있다.** 프록시가 상류에 못 붙으면 500 을 돌려준다(실측). 터미널 1 을 확인해라 |
+| `api 500` 인데 API 는 떠 있음 | `pnpm db:up` (Docker Desktop) 확인 |
 
 ---
 
@@ -153,7 +225,7 @@ curl.exe -k -o NUL -w "api  %{http_code}`n"  https://192.168.0.143:3000/api/v1/d
 Chrome(Android) / Safari(iOS) 주소창에 직접 입력:
 
 ```
-https://192.168.0.143:3000
+https://192.168.0.174:3000
 ```
 
 - 자물쇠가 뜨고 경고가 없어야 한다. 경고가 뜨면 → 3단계 CA 신뢰(특히 **iOS 2번**)를 다시 본다.
@@ -244,7 +316,7 @@ C:\Users\amole\Desktop\AFC-화면확인\실기기-2026-08-08\
 
 ### ④ 온보딩 버튼 위치
 
-**이동 경로**: 온보딩을 처음부터 다시 보려면 **시크릿 창**으로 `https://192.168.0.143:3000` 접속
+**이동 경로**: 온보딩을 처음부터 다시 보려면 **시크릿 창**으로 `https://192.168.0.174:3000` 접속
 (로컬 상태가 남아 바로 대시보드로 갈 수 있다).
 
 **볼 것** — 7스텝 전부 넘기면서

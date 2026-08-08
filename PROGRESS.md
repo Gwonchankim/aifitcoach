@@ -397,10 +397,12 @@ pnpm db:up                     # Docker Desktop 실행 후
 pnpm --filter api start        # 터미널 1
 pnpm --filter web dev:lan      # 터미널 2 — HTTPS + 0.0.0.0 + /api/v1 프록시
 ```
-폰에서 `https://192.168.0.143:3000` (Wi-Fi 기준). 최초 1회 `%LOCALAPPDATA%\mkcert\rootCA.pem` 을 폰에 신뢰 설치
+폰에서 `https://192.168.0.174:3000` (2026-08-08 기준 이더넷. **`Status = Up` 인 어댑터의 IP** 를 쓴다 —
+끊긴 어댑터에 주소가 남아 있어 `ipconfig` 만 보면 안 닿는 IP 를 고르게 된다. 실제로 그렇게 헤맸다).
+최초 1회 `%LOCALAPPDATA%\mkcert\rootCA.pem` 을 폰에 신뢰 설치
 — **iOS 는 프로파일 설치 + "인증서 신뢰 설정" 스위치 2단계**, Android 는 Chrome 에서만 유효.
 스크린샷은 `C:\Users\amole\Desktop\AFC-화면확인\실기기-2026-08-08\` (상위 폴더의 데스크톱 스크린샷과 번호 충돌 방지).
-IP 가 바뀌면 인증서를 다시 만들어야 한다(SAN 에 IP 가 박혀 있다).
+**IP 가 바뀌면 인증서를 다시 만들어야 한다**(SAN 에 IP 가 박혀 있다) → `DEVICE_WALKTHROUGH.md` §2.1 재발급 4단계.
 
 ---
 
