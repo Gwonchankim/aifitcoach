@@ -11,6 +11,10 @@ apps/web/e2e/.report/
 apps/web/e2e/lighthouse/
 apps/web/test-results/
 
+# 실기기 HTTPS 검증용 자체 서명 인증서(ADR-43). **개인 키라 절대 커밋하지 않는다.**
+# next dev --experimental-https 가 여기에 생성한다.
+apps/web/certificates/
+
 *.tsbuildinfo
 *.log
 .DS_Store

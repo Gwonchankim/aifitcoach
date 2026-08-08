@@ -59,9 +59,13 @@ pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test
 ```
 pnpm mock                                  # prism 목서버 :4010 (/v1 없이 루트. 브라우저에서 document.cookie="sid=dev" 1회)
 cd apps/web && npx playwright test         # E2E. 반드시 단독 실행 — 동시 실행 시 서로의 "오늘 세션"을 갈아치운다
+pnpm --filter web dev:lan                  # 실기기(폰) 검증용 HTTPS :3000 — 절차는 docs/DEVICE_WALKTHROUGH.md
 ```
-- **실기기(폰) 검증은 `next dev --experimental-https`** 로 한다(**터널 금지**, ADR-43). `http://사설IP`는 secure context가
+- **E2E는 월·수·금에만 전부 통과한다.** 헬퍼의 `DEFAULT_PROGRAM`이 `days_per_week: 3`(MON/WED/FRI)이라 다른 요일에는
+  `오늘(rest)에 세션이 없다`로 대량 실패한다(실측 토요일: 17 failed / 22 미실행). **회귀로 오진하지 마라** — PROGRESS.md "남은 것" 3번.
+- **실기기(폰) 검증은 `pnpm --filter web dev:lan`** (**터널 금지**, ADR-43~46). `http://사설IP`는 secure context가
   아니라 서비스워커가 등록되지 않고 `crypto.randomUUID` 등이 없다 — 실제로 세트 완료가 전부 실패한 적이 있다(아래 함정 1).
+  CORS·`WEB_ORIGIN`은 **건드리지 않는다** — same-origin 프록시라 불필요하고, 바꾸면 `00-api-cors` 회귀 스펙이 깨진다.
 - **Windows**: API가 떠 있으면 `pnpm install`·`prisma generate`가 EPERM(파일 락)으로 실패한다. 포트 3000/3001/3100/4010 정리 후 재시도.
 
 ## 작업 방식(중요)
@@ -115,6 +119,14 @@ cd apps/web && npx playwright test         # E2E. 반드시 단독 실행 — �
    **뮤테이션(고의 주입 → 실패 확인 → 원복)** 으로 실효성을 증명한다.
 6. **E2E는 직렬로 돌린다.** 여러 프로세스가 같은 API·DB를 쓰면 `GET /dashboard`가 최신 프로그램 1개만 보므로
    서로의 "오늘 세션"을 갈아치운다(실측: 15초에 프로그램 6개 → 대량 실패).
+7. **환경 세팅 절차는 글로 쓰지 말고 실행해서 확인해라.** 실기기 HTTPS 절차를 쓰면서, 글로만 봤으면 전부 맞아 보이는데
+   실제로 돌려보니 **폰에서 확실히 막힐 문제가 3개** 나왔다: ① `--experimental-https`가 만드는 인증서 SAN에 LAN IP가 없고
+   **기동할 때마다 덮어쓴다** ② HTTPS 페이지의 `http://:3001` 직통은 혼합 콘텐츠로 차단된다 ③ Git Bash가
+   `NEXT_PUBLIC_API_BASE_URL=/api/v1`을 `C:/Program Files/Git/api/v1`로 **경로 변환**한다. 셋 다 실행 전엔 안 보였다.
+8. **"셸에서 이 환경변수를 주세요"는 절차서에 쓰지 마라.** 셸마다 값이 다르게 망가진다(위 ③). 스크립트 안에서 세팅해라.
+   next.config에서 `process.argv`로 CLI 플래그를 보는 우회도 **Next 15는 설정을 자식 프로세스에서 로드해 실패**한다(실측).
+9. **테스트 대량 실패를 내 변경 탓으로 단정하지도, 남의 탓으로 넘기지도 마라.** `git stash` 후 같은 테스트를 돌려
+   **전/후를 실제로 비교**한다. 한 번은 그렇게 해서 "요일 의존"이라는 진짜 원인(주 3일만 통과하는 스위트)을 찾았다.
 
 ## 절대 규칙(하면 안 되는 것)
 - **테스트를 우회·삭제·약화**시켜 통과시키지 않는다. 로직을 고쳐 통과시킨다.
