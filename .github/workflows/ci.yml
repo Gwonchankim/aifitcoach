@@ -36,4 +36,24 @@ jobs:
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/afc_test
+
+      # E2E 는 **실렌더로만 잡히는 것**을 지킨다: axe 19화면, AC-S1-6(버튼이 엄지 범위에 오는가),
+      # 밀도 예산, "파랑 = 상태 / ink = 액션"의 실제 화면 결과.
+      # 여기 없으면 이 가드들은 사람이 로컬에서 돌릴 때만 발화한다 — 그건 게이트가 아니다.
+      # Playwright 가 API(:3101, `<db>_e2e`)와 웹(:3000)을 스스로 띄운다. DB 는 migrate deploy 가 만든다.
+      - run: npx playwright install --with-deps chromium webkit
+        working-directory: apps/web
+      - run: pnpm --filter web test:e2e
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/afc_test
+          # API 부팅에 필요하다(없으면 죽는다). 테스트 전용 값이라 매 실행 새로 만든다.
+          FIELD_ENCRYPTION_KEY: ${{ secrets.CI_FIELD_ENCRYPTION_KEY || 'BxvRepGN3RN2cR05uPLNgQdNbgE3SrpFmf3kHiHD7tU=' }}
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            apps/web/e2e/.artifacts
+            apps/web/e2e/.report
+          retention-days: 7
     # NOTE: recommendation-engine golden tests MUST run here and block merge on failure.

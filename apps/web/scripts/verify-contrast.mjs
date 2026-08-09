@@ -155,7 +155,19 @@ const COMBOS = [
   { fg: "done-fg", bg: "done", use: "완료 행 보조 글자", src: "ADR-41 (5.23 명시)" },
 
   // --- 상태 면 위의 글자 ---
-  { fg: "primary-fg", bg: "primary", use: "기본 버튼", src: "components/ui/Button.tsx" },
+  // 주 CTA·선택된 분절 칩/탭은 ink 반전이다(ADR-52). 파랑 면 위 흰 글자는 라디오 점·체크·게이지에만 남는다.
+  {
+    fg: "action-fg",
+    bg: "action",
+    use: "주 CTA·선택된 칩/탭",
+    src: "ADR-52 / components/ui/Button.tsx",
+  },
+  {
+    fg: "primary-fg",
+    bg: "primary",
+    use: "라디오 점·체크·게이지 채움",
+    src: "ui/Checkbox·ScaleGroup",
+  },
   {
     fg: "success-fg",
     bg: "success",
@@ -168,7 +180,12 @@ const COMBOS = [
   // --- 연한 상태 배경 위의 글자 (§2.2 본색/배경 역할 쌍) ---
   { fg: "success", bg: "success-bg", use: "완료 강조", src: "§3.1.1 / ADR-51 (4.54 — 여유 0.04)" },
   { fg: "warn-ink", bg: "warn-bg", use: "소프트 통증 배지", src: "§3.1.1 (b) (5.14)" },
-  { fg: "primary", bg: "primary-bg", use: "소프트 강조 배지", src: "§2.2 primary 역할 쌍" },
+  {
+    fg: "primary",
+    bg: "primary-bg",
+    use: "소프트 상태 배지·라디오 카드 선택",
+    src: "ADR-52 / ui/Badge.tsx · onboarding/steps.tsx",
+  },
   // Sprint 3 이 세션 화면에서 실제로 만든 조합(안내 카드 본문이 muted 다). 5.26 / 5.10 으로 통과하지만
   // 표에 없으면 나중에 배경을 조정할 때 조용히 깨진다 — 화면에 존재하는 조합은 전부 표에 있어야 한다.
   {

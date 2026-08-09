@@ -47,7 +47,7 @@ export function Tab({ selected, id, panelId, className, ...props }: TabProps) {
         "transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "disabled:pointer-events-none disabled:bg-disabled disabled:text-disabled-fg",
-        selected ? "bg-primary text-primary-fg" : "text-fg-muted hover:bg-surface hover:text-fg",
+        selected ? "bg-action text-action-fg" : "text-fg-muted hover:bg-surface hover:text-fg",
         className,
       )}
       {...props}

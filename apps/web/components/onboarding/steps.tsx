@@ -23,16 +23,16 @@ export type StepProps = {
 };
 
 /**
- * 온보딩의 선택 상태 = **소프트**다: 면 `primary-bg` + 테두리 `primary` + 글자 `fg`
- * (DESIGN_TOKENS §2.2 — `primary-bg` 의 용례가 "선택·라디오 on"이다).
- * 테두리는 Chip 이 선택 시 이미 `border-primary` 로 바꿔 주므로 여기서 다시 주지 않는다.
+ * **라디오 카드(목표·경력)만** 소프트다: 면 `primary-bg` + 테두리 `primary` + 글자 `fg`.
+ * 프로토타입 `radio(on)` 이 정확히 그렇다 — `border:1px solid #1B4FC4; background:#EFF3FC`.
  *
- * 왜 `!` 인가: 공용 `Chip` 의 기본 선택색은 솔리드(`bg-primary` + `text-primary-fg`)이고
- * `cn` 은 tailwind-merge 가 아니라 **단순 연결**이라 우선순위가 컴파일된 CSS 순서로 갈린다.
- * 실측(빌드 산출물): `.text-fg` 가 `.text-primary-fg` 보다 **앞**이라 그냥 덧붙이면 흰 글자가 이긴다.
- * `Chip` 은 공용이라 이 Sprint 에서 건드릴 수 없어 호출부에서 확실히 이기게 한다.
- * 글자를 `primary` 가 아니라 `fg` 로 두는 이유: 한 화면에 칩이 6~8개 선택되면 파란 글씨가 화면을 덮고,
- * 라벨 대비도 15.73:1 로 여유가 크다(`primary` on `primary-bg` 는 6.38:1 — 이쪽도 AA 는 넘는다).
+ * 분절 칩(성별·주당일수·회당시간·장비·통증부위)은 **여기 해당하지 않는다** — 프로토타입 `chipStyle(on)` 이
+ * `background:#151A21; color:#fff` 즉 **ink 반전**이라, 이제 `Chip` 기본 선택색이 그 값이다(ADR-52).
+ * 그래서 그쪽 오버라이드는 전부 제거했다.
+ *
+ * 왜 `!` 인가: `cn` 이 tailwind-merge 가 아니라 **단순 연결**이라 우선순위가 컴파일된 CSS 순서로 갈린다.
+ * 실측(빌드 산출물): `.text-fg` 가 `.text-action-fg` 보다 **앞**이라 그냥 덧붙이면 흰 글자가 이긴다.
+ * 근본 해결은 `T-UI-1`(cn → tailwind-merge)다.
  */
 const SELECTED_SOFT = "bg-primary-bg! text-fg!";
 
@@ -65,7 +65,6 @@ export function ProfileStep({ draft, onChange }: StepProps) {
             key={option.value}
             selected={draft.sex === option.value}
             onClick={() => onChange({ sex: option.value })}
-            className={cn(draft.sex === option.value && SELECTED_SOFT)}
           >
             {option.label}
           </Chip>
@@ -139,7 +138,7 @@ export function DaysStep({ draft, onChange }: StepProps) {
             key={days}
             selected={draft.days_per_week === days}
             onClick={() => onChange({ days_per_week: days })}
-            className={cn("min-w-tap-lg", draft.days_per_week === days && SELECTED_SOFT)}
+            className="min-w-tap-lg"
             aria-label={`주 ${days}일`}
           >
             {/* 숫자만 모노 + tabular-nums 로 뽑는다(§4). 한글("주"·"일")은 본문 폰트 그대로 —
@@ -163,7 +162,7 @@ export function MinutesStep({ draft, onChange }: StepProps) {
             key={minutes}
             selected={draft.minutes_per_day === minutes}
             onClick={() => onChange({ minutes_per_day: minutes })}
-            className={cn("min-w-tap-lg", draft.minutes_per_day === minutes && SELECTED_SOFT)}
+            className="min-w-tap-lg"
             aria-label={`${minutes}분`}
           >
             <span className="font-mono">{minutes}</span>분
@@ -213,7 +212,6 @@ export function EquipmentStep({ draft, onChange }: StepProps) {
             key={option.value}
             selected={draft.equipment.includes(option.value)}
             onClick={() => onChange({ equipment: toggleEquipment(draft.equipment, option.value) })}
-            className={cn(draft.equipment.includes(option.value) && SELECTED_SOFT)}
           >
             {option.label}
           </Chip>
@@ -251,7 +249,6 @@ export function PainStep({ draft, onChange }: StepProps) {
             selected={pain.areas.includes(area.value as PainArea)}
             aria-label={area.srLabel}
             onClick={() => onChange({ pain: togglePainArea(pain, area.value as PainArea) })}
-            className={cn(pain.areas.includes(area.value as PainArea) && SELECTED_SOFT)}
           >
             {area.label}
           </Chip>
@@ -261,7 +258,7 @@ export function PainStep({ draft, onChange }: StepProps) {
       <Chip
         selected={pain.none}
         aria-label="해당 없음, 불편한 곳 없음"
-        className={cn("self-start", pain.none && SELECTED_SOFT)}
+        className="self-start"
         onClick={() => onChange({ pain: toggleNone(pain) })}
       >
         해당 없음

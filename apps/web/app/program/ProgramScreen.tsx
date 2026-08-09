@@ -30,7 +30,7 @@ function LinkAction({ href, children }: { href: string; children: React.ReactNod
       className={cn(
         buttonBase,
         "min-h-tap-lg w-full px-6 text-base",
-        "bg-primary text-primary-fg hover:bg-primary/90 active:bg-primary/80",
+        "bg-action text-action-fg hover:bg-action/90 active:bg-action/80",
       )}
     >
       {children}

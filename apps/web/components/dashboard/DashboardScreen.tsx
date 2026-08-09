@@ -35,7 +35,7 @@ function LinkAction({
         buttonBase,
         "min-h-tap-lg w-full px-6 text-base",
         variant === "primary"
-          ? "bg-primary text-primary-fg hover:bg-primary/90 active:bg-primary/80"
+          ? "bg-action text-action-fg hover:bg-action/90 active:bg-action/80"
           : "border border-border-strong bg-surface text-fg hover:bg-raised active:bg-raised",
       )}
     >

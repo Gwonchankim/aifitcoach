@@ -81,7 +81,7 @@ export function SessionSummary({
         </Button>
       ) : null}
 
-      <Link href="/" className={cn(buttonBase, "min-h-tap-lg bg-primary px-6 text-primary-fg")}>
+      <Link href="/" className={cn(buttonBase, "min-h-tap-lg bg-action px-6 text-action-fg")}>
         대시보드로
       </Link>
     </div>

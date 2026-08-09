@@ -39,6 +39,9 @@
   /* --- 색: 브랜드/상태 (accent + 그 위에 올라가는 글자색 + 배지용 배경/테두리) ---
      warn 만 역할이 갈린다: **면**(배지 배경·바 채움)은 `warn`, **글자**는 `warn-ink`.
      `warn` 위에 흰 글자를 얹으면 2.87:1 로 AA 미달이다(DESIGN_TOKENS §3.1). */
+  /* 액션 면(ADR-52). 주 CTA·선택된 분절 칩/탭은 **ink 반전**이다 — 파랑이 아니다. */
+  --color-action: var(--afc-action);
+  --color-action-fg: var(--afc-action-fg);
   --color-primary: var(--afc-primary);
   --color-primary-fg: var(--afc-primary-fg);
   --color-primary-hover: var(--afc-primary-hover);
@@ -180,6 +183,14 @@
   --afc-fg: #151a21;
   --afc-ink-2: #333b47;
   --afc-fg-muted: #5d6875;
+
+  /**
+   * 액션 면 = ink(ADR-52). `fg` 와 같은 값이지만 **역할이 다르다** —
+   * `fg` 는 글자색이고 `action` 은 "누를 수 있는 것의 면"이다. 이름이 갈려 있어야
+   * "파랑 = 상태/정보, ink = 액션" 규칙을 코드에서 읽을 수 있고 대비 표에도 그 역할로 올린다.
+   */
+  --afc-action: #151a21;
+  --afc-action-fg: #ffffff;
 
   --afc-primary: #1b4fc4;
   --afc-primary-fg: #ffffff;

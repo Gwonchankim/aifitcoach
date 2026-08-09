@@ -27,7 +27,7 @@ export const buttonBase = cn(
 const inactiveClass = "border border-transparent bg-disabled text-disabled-fg shadow-none";
 
 const variantClass: Record<ButtonVariant, string> = {
-  primary: "bg-primary text-primary-fg hover:bg-primary/90 active:bg-primary/80",
+  primary: "bg-action text-action-fg hover:bg-action/90 active:bg-action/80",
   secondary: "border border-border-strong bg-surface text-fg hover:bg-raised active:bg-raised",
   danger: "bg-danger text-danger-fg hover:bg-danger/90 active:bg-danger/80",
   ghost: "bg-transparent text-fg hover:bg-surface active:bg-raised",
