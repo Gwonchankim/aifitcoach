@@ -10,7 +10,8 @@
  * secure context 가 아니라서 `crypto.randomUUID` 가 없다. localhost 는 항상 secure context 라
  * 브라우저 테스트조차 그 환경을 만나지 못한다 → 초기 스크립트로 그 조건을 만들어 고정한다.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { addExercise, openSession, seedProgram, shot, todaySession } from "./helpers";
 
 const PULLUP = "e_pullup"; // 맨몸(reps)

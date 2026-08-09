@@ -4,7 +4,8 @@
  * - 주 액션이 하단 엄지 반경(세로 65~100%)에 있는지
  * - 가로 스크롤 발생 여부
  */
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { type Locator, type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import fs from "node:fs";
 import path from "node:path";
 import { openSession, seedProgram, shot, todaySession } from "./helpers";

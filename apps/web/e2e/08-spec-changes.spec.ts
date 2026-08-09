@@ -4,7 +4,8 @@
  *   F8-1 휴식일에도 운동하기(부위 선택 → 즉석 세션)
  *   F6-1 종료 후 당일 기록 추가·수정(재개/편집 모드)
  */
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { API_V1, openSession, seedProgram, shot, todaySession } from "./helpers";
 
 /** 주당 일수별 운동 요일(apps/api programs/program-rules.ts 와 같은 표). */

@@ -35,6 +35,7 @@ scripts/        # 시드 적재 등 유틸
 ```
 pnpm install
 pnpm db:up                     # postgres:16 / redis:7 (Docker Desktop 실행 필요). 내리기: pnpm db:down
+                               # 개발 DB를 비우려면 pnpm db:reset (볼륨 삭제 → migrate → seed)
 pnpm --filter api start:dev    # :3001, 전역 prefix /v1. 루트 .env 를 자동 로드한다(ADR-36)
 pnpm --filter web dev          # :3000  ← 반드시 3000. API CORS 허용 origin 기본값이다(ADR-34)
 ```
@@ -58,11 +59,18 @@ pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test
 ### 그 밖
 ```
 pnpm mock                                  # prism 목서버 :4010 (/v1 없이 루트. 브라우저에서 document.cookie="sid=dev" 1회)
-cd apps/web && npx playwright test         # E2E. 반드시 단독 실행 — 동시 실행 시 서로의 "오늘 세션"을 갈아치운다
+pnpm --filter web test:e2e                 # E2E. API(:3101)·웹(:3000)을 **스스로 띄운다** — 미리 띄워둘 필요 없다
+pnpm db:reset                              # 개발 DB 초기화(down -v → up → migrate → seed). 빈 상태 화면 확인용
 pnpm --filter web dev:lan                  # 실기기(폰) 검증용 HTTPS :3000 — 절차는 docs/DEVICE_WALKTHROUGH.md
 ```
-- **E2E는 월·수·금에만 전부 통과한다.** 헬퍼의 `DEFAULT_PROGRAM`이 `days_per_week: 3`(MON/WED/FRI)이라 다른 요일에는
-  `오늘(rest)에 세션이 없다`로 대량 실패한다(실측 토요일: 17 failed / 22 미실행). **회귀로 오진하지 마라** — PROGRESS.md "남은 것" 3번.
+- **E2E는 자기 것만 쓴다**: 전용 DB `afc_e2e` + 전용 API `:3101`(ADR-50 날짜 고정). **개발 DB `afc` 를 건드리지 않는다**
+  (실측: 실행 전후 행 수 동일). 그래서 실기기 워크스루 중에 돌려도 서로 안 깨진다. 개발 서버(:3001)를 띄워둘 필요도 없다.
+- **E2E는 요일과 무관하다**: "오늘"을 `2026-08-14`(금)로 고정한다 — 서버는 `AFC_TEST_TODAY`, 브라우저는
+  `e2e/fixtures.ts` 의 `clock.install`+`resume`. 값은 `e2e/test-today.ts` **한 곳**에서만 정한다(둘이 어긋나면 F6-1 판정이 뒤집힌다).
+  고정 전에는 일요일에 53개 중 17 failed / 22 미실행이었다.
+- **테스트용 "오늘" 오버라이드를 앱 코드에 넣지 마라.** `NEXT_PUBLIC_*` 시드를 넣었더니 값을 안 줘도
+  프로덕션 청크에 `…env.NEXT_PUBLIC_AFC_TEST_TODAY` 조회가 남았다(실측). CI 가 `verify:no-test-seed` 로 막는다.
+- **아직 동시 실행은 안 된다**: api 테스트 2개를 동시에 돌리면 고정 `DEV_USER_ID` 를 서로 지운다(실측 33·29건 실패). T-3 대상.
 - **실기기(폰) 검증은 `pnpm --filter web dev:lan`** (**터널 금지**, ADR-43~46). `http://사설IP`는 secure context가
   아니라 서비스워커가 등록되지 않고 `crypto.randomUUID` 등이 없다 — 실제로 세트 완료가 전부 실패한 적이 있다(아래 함정 1).
   CORS·`WEB_ORIGIN`은 **건드리지 않는다** — same-origin 프록시라 불필요하고, 바꾸면 `00-api-cors` 회귀 스펙이 깨진다.

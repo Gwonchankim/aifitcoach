@@ -454,14 +454,14 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 #### 티켓 (순서대로)
 
-**T-1 요일 고정** — 먼저 해야 나머지 실패가 요일 탓인지 격리 탓인지 갈린다
+**T-1 요일 고정** ✅ **완료(2026-08-09, 6ef05d3)** — 먼저 해야 나머지 실패가 요일 탓인지 격리 탓인지 갈린다
 - `utcToday()` **한 곳**에 오버라이드를 넣는다. "오늘" 계산은 이미 여기 하나로 모여 있다(실측: api 전체에서 `new Date()` 3곳뿐, 그중 "오늘"은 이 함수 하나).
 - `programs.service.ts:117` 의 `mondayOfWeek(new Date())` → `mondayOfWeek(utcToday())`.
 - 주입: jest `globalSetup`, playwright `webServer.env`. 브라우저 쪽 `apps/web/lib/utc-day.ts` 는 Playwright `context.clock.setFixedTime()` 으로 같은 날짜를 보게 한다(ADR-38 당일 판정이 서버·클라 양쪽에 있다).
 - `sessions.service.ts:102` 의 `completedAt: new Date()` 는 "오늘"이 아니라 타임스탬프라 **건드리지 않는다**(대시보드는 `scheduled_date` 로 판정).
 - **verify(G4)**: 고정 날짜를 7요일로 바꿔 7회 실행 → 전량 통과.
 
-**T-2 E2E 자체 기동 + 개발 DB 분리** (T-3 보다 먼저 — 자체 API 가 있어야 거기에 run-scoped 신원을 주입할 수 있다)
+**T-2 E2E 자체 기동 + 개발 DB 분리** ✅ **완료(2026-08-09)** (T-3 보다 먼저 — 자체 API 가 있어야 거기에 run-scoped 신원을 주입할 수 있다)
 - playwright `webServer` 를 **배열**로: `[api(:3101), web(:3000)]`. `helpers.API` 기본값을 3101 로.
 - E2E 전용 DB `afc_e2e` + migrate/seed 1회.
 - **`WEB_ORIGIN` 은 건드리지 않는다** — 웹 포트가 3000 그대로라 `00-api-cors` 회귀 스펙이 살아 있다(스펙의 3001 은 주석뿐, 코드는 `E2E_API_TARGET` 을 읽는다).

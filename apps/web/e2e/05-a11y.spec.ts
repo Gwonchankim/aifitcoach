@@ -3,7 +3,8 @@
  * 위반이 있으면 규칙 id·요소·심각도를 그대로 출력하고 실패시킨다(약화 금지).
  */
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import fs from "node:fs";
 import path from "node:path";
 import { openSession, seedProgram, shot, todaySession } from "./helpers";

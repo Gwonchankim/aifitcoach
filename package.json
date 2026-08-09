@@ -14,6 +14,7 @@
     "mock": "prism mock docs/specs/openapi.yaml --port 4010",
     "db:up": "docker compose -f scripts/docker-compose.yml up -d",
     "db:down": "docker compose -f scripts/docker-compose.yml down",
+    "db:reset": "docker compose -f scripts/docker-compose.yml down -v && docker compose -f scripts/docker-compose.yml up -d --wait && pnpm --filter api db:migrate && pnpm --filter api db:seed",
     "dev": "echo 'Run apps/web (next dev) and apps/api (nest start) — see README.md'"
   },
   "engines": {

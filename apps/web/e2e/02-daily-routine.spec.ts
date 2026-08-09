@@ -2,7 +2,8 @@
  * 항목 1(뒷부분) + 3: 데일리 루틴 · 세트 완료 · 루틴 편집(추가/교체/삭제) · 운동 종료 · 요약.
  * 종목 타입별 렌더(시간/맨몸/일반)도 여기서 같은 화면에서 확인한다.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { API_V1, assertNoZeroKg, openSession, seedProgram, shot, todaySession } from "./helpers";
 
 let sessionId: string;

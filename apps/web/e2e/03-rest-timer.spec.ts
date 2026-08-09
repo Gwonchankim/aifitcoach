@@ -4,7 +4,8 @@
  * - 진행 바 폭 감소: 계산값이 아니라 채움 요소의 실제 렌더 폭(px)을 잰다
  * - +30초 연타 누적 / 상한 / 즉시 종료
  */
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openSession, seedProgram, shot, todaySession } from "./helpers";
 
 let sessionId: string;

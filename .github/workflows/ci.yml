@@ -27,6 +27,9 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build
+      # 빌드 산출물·앱 소스에 테스트 시드(AFC_TEST_TODAY 등)가 없는지 확인한다.
+      # "값을 안 주면 분기가 안 남는다"는 설계 주장이 실제로 틀렸던 적이 있다 — 사람이 믿는 대신 산출물을 본다.
+      - run: pnpm --filter web verify:no-test-seed
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/afc_test

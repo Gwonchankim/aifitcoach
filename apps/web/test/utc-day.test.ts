@@ -27,15 +27,4 @@ describe("isUtcToday", () => {
     expect(isUtcToday("2026-08-05", now)).toBe(true);
     expect(isUtcToday("2026-08-06", now)).toBe(false);
   });
-
-  /**
-   * 테스트 고정값(NEXT_PUBLIC_AFC_TEST_TODAY)이 없는 빌드에서는 실제 오늘을 쓴다.
-   * 이 값은 빌드 시점에 인라인되므로 여기서는 "설정되지 않은 기본 빌드"의 동작만 고정한다 —
-   * 고정값이 켜져 있는데 이 테스트가 통과하면 프로덕션 빌드에 테스트 시드가 섞여 들어간 것이다.
-   */
-  it("고정값이 없으면 실제 오늘을 쓴다(기본 빌드)", () => {
-    expect(process.env.NEXT_PUBLIC_AFC_TEST_TODAY).toBeUndefined();
-    expect(isUtcToday(utcDateString())).toBe(true);
-    expect(isUtcToday("1999-01-01")).toBe(false);
-  });
 });

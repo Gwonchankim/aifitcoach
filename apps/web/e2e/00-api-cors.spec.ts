@@ -4,7 +4,7 @@
  *
  * 이 스펙은 **나머지 E2E 의 전제조건**이다. 여기가 깨지면 화면 검증은 의미가 없다.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { API_V1, WEB_ORIGIN } from "./helpers";
 
 test("허용된 origin 에는 Access-Control-Allow-Origin 을 준다", async ({ request }) => {

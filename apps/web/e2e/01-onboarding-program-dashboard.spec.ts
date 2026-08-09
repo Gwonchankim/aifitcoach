@@ -2,7 +2,7 @@
  * 항목 1(앞부분): 온보딩(pain_areas 칩 포함) → 프로그램 확인 → 대시보드.
  * 전부 실제 클릭이다. 실서버(:3001, CORS 프록시 경유)로 검증한다.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { API_V1, shot } from "./helpers";
 
 test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {

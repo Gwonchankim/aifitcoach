@@ -2,7 +2,8 @@
  * 항목 4: 에러 경로에서 **사용자에게 실제로 뜨는 화면**을 확인한다.
  * 에러코드(`CONFLICT` 등)·영문 원문·서버 해라체 메시지가 노출되면 결함이다.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { API_V1, openSession, seedProgram, shot, todaySession } from "./helpers";
 
 /** 화면 어디에도 개발자용 원문이 없어야 한다. */

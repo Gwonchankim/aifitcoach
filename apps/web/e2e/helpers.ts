@@ -6,8 +6,12 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-/** 실서버(apps/api). 테스트 프로세스에서 준비 작업용으로 직접 친다. */
-export const API = process.env.E2E_API_TARGET ?? "http://localhost:3001";
+/**
+ * 실서버(apps/api). 테스트 프로세스에서 준비 작업용으로 직접 친다.
+ * **Playwright 가 띄운 E2E 전용 인스턴스(:3101, `<db>_e2e`)** 다 — 개발 서버(:3001, `afc`)가 아니다.
+ */
+export const API =
+  process.env.E2E_API_TARGET ?? `http://localhost:${process.env.E2E_API_PORT ?? 3101}`;
 export const API_V1 = `${API}/v1`;
 
 /** 앱이 브라우저에서 쓰는 출처. api 의 CORS 허용목록과 일치해야 한다. */
