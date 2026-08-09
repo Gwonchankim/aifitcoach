@@ -23,7 +23,9 @@ export function Chip({ selected = false, className, ...props }: ChipProps) {
         "disabled:text-disabled-fg",
         selected
           ? "border-primary bg-primary text-primary-fg"
-          : "border-border-strong bg-surface text-fg hover:bg-raised",
+          : // 컨트롤 경계는 `border-control` 1px 이다(DESIGN_TOKENS §5). 먹색 1.5px 은 강조 카드·보조 버튼 전용이라
+            // 칩 한 줄에 6개가 놓이면 화면이 먹선으로 덮인다.
+            "border-border-control bg-surface text-fg hover:bg-raised",
         className,
       )}
       {...props}

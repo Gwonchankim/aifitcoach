@@ -70,11 +70,16 @@ export function Input({
             // → 좌우 여백과 단위 자리를 줄여 placeholder 가 잘리지 않게 한다.
             "w-full rounded-control border bg-surface px-3 font-semibold",
             compact ? "min-h-tap text-lg" : "min-h-tap-lg text-xl",
-            "text-fg tabular-nums placeholder:font-normal placeholder:text-fg-muted",
+            // 무게·횟수·RIR·시간이 들어오는 칸이다 → 모노 + tabular-nums(DESIGN_TOKENS §4).
+            // placeholder 는 한글("무게"·"횟수"·"시간")이라 sans 로 되돌린다 — JetBrains Mono 에
+            // 한글 글리프가 없어 그대로 두면 폴백 고정폭 글꼴로 튄다.
+            "font-mono text-fg tabular-nums",
+            "placeholder:font-sans placeholder:font-normal placeholder:text-fg-muted",
             "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
             "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
             "disabled:bg-disabled disabled:text-disabled-fg",
-            invalid ? "border-danger" : "border-border-strong",
+            // 입력칸은 컨트롤이다 → 경계는 `border-control` 1px(DESIGN_TOKENS §5). 먹색은 강조 카드·보조 버튼 전용.
+            invalid ? "border-danger" : "border-border-control",
             unit && "pr-10",
             trailing ? "pr-9" : null,
           )}

@@ -33,7 +33,8 @@ export function Sheet({ open, id, title, children, footer, onScrimClick, classNa
         aria-labelledby={`${id}-title`}
         className={cn(
           "relative flex max-h-[85dvh] w-full max-w-md flex-col overflow-y-auto",
-          "rounded-t-sheet border-t border-border bg-raised px-4 pt-3 shadow-sheet",
+          // 그림자 없음(DESIGN_TOKENS §5). 시트가 떠 있다는 신호는 스크림 + 상단 1px 실선이 낸다.
+          "rounded-t-sheet border-t border-border bg-raised px-4 pt-3",
           "pb-[calc(1rem_+_env(safe-area-inset-bottom))]",
           className,
         )}

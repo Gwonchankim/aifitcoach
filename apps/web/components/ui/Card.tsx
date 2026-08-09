@@ -15,7 +15,8 @@ export function Card({ tone = "surface", density = "default", className, ...prop
   return (
     <div
       className={cn(
-        "rounded-card border border-border shadow-card",
+        // 그림자 없음(DESIGN_TOKENS §5) — 면의 구분은 1px 실선 테두리가 전부다.
+        "rounded-card border border-border",
         density === "tight" ? "p-3" : "p-4",
         tone === "raised" ? "bg-raised" : "bg-surface",
         className,

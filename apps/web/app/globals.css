@@ -208,6 +208,11 @@
   --afc-danger-bg: #fbf2f1;
   --afc-danger-border: #e7bdb8;
 
+  /* @theme 이 참조하는데 값이 없어 `bg-today-row`/`bg-range-band` 가 무효였다(Sprint 6 이 발견).
+     아직 쓰는 화면은 없지만(주간 프로그램·볼륨 바 = M-4′) 참조와 정의는 짝이 맞아야 한다. */
+  --afc-today-row: #f5f9ff; /* §2.2 주간 목록의 오늘 행 */
+  --afc-range-band: #dde3ec; /* §2.2 볼륨 권장 10–20 구간 밴드 */
+
   --afc-disabled: #f5f7fa; /* §2.1 bg = 비활성 입력칸 */
   --afc-disabled-fg: #5d6875;
   --afc-focus: #1b4fc4; /* §5 포커스: outline 2px solid + offset 2px */

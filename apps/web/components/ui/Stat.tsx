@@ -17,7 +17,9 @@ export function Stat({ label, value, note, className }: StatProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <p className="text-sm text-fg-muted">{label}</p>
-      <p className="text-metric font-bold tabular-nums text-fg">{value}</p>
+      {/* 지표 수치는 모노 + tabular-nums(DESIGN_TOKENS §4). 1,250 → 980 처럼 자릿수가 바뀌어도
+          2열 그리드의 두 값이 같은 자리에서 시작해야 한다. */}
+      <p className="font-mono text-metric font-bold tabular-nums text-fg">{value}</p>
       {note ? <p className="text-sm text-fg-muted">{note}</p> : null}
     </div>
   );

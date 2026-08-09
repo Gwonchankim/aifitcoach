@@ -7,12 +7,22 @@ import { cn } from "./cn";
 
 export type BadgeTone = "neutral" | "primary" | "success" | "warn" | "danger";
 
+/**
+ * 상태 배지는 **소프트**다(D-4 (b) 안): 면 `*-bg` + 글자 `*`/`*-ink` + 1px `*-border`.
+ * `*-bg` 는 흰 카드 위에서 1.08:1 이라 거의 안 보인다 — **배지 모양을 만드는 건 테두리**다. 빼면 글자만 남는다.
+ * 대비(계산은 `scripts/verify-contrast.mjs` 가 토큰 값에서 다시 잰다):
+ *   success on `success-bg` **4.54:1** (ADR-51 — 여유가 0.04뿐이라 `success-bg` 는 변경 금지)
+ *   `warn-ink` on `warn-bg` **5.14:1** / danger on `danger-bg` **5.61:1** / `fg` on `raised` **14.76:1**
+ * `primary` 만 아직 솔리드다 — 쓰는 곳이 없어 이번 Sprint 범위에서 뺐다.
+ * neutral 테두리는 `border-strong`(먹색)에서 `border`로 내렸다. 비인터랙티브 라벨이라
+ * 강조 카드/현재 항목용 먹색 경계를 쓸 자리가 아니다(DESIGN_TOKENS §5).
+ */
 const toneClass: Record<BadgeTone, string> = {
-  neutral: "bg-raised text-fg border border-border-strong",
+  neutral: "bg-raised text-fg border border-border",
   primary: "bg-primary text-primary-fg",
-  success: "bg-success text-success-fg",
-  warn: "bg-warn text-warn-fg",
-  danger: "bg-danger text-danger-fg",
+  success: "bg-success-bg text-success border border-success-border",
+  warn: "bg-warn-bg text-warn-ink border border-warn-border",
+  danger: "bg-danger-bg text-danger border border-danger-border",
 };
 
 export type BadgeProps = HTMLAttributes<HTMLSpanElement> & {

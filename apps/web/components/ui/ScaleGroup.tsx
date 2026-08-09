@@ -17,6 +17,7 @@
  */
 import type { InputHTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
+import { Kicker } from "./Kicker";
 
 export type ScaleGroupProps = {
   /** 그룹 이름(스크린리더 전용). 예: "3세트 남은 반복 수(RIR), 선택 입력" */
@@ -34,9 +35,10 @@ export function ScaleGroup({ label, prefix, disabled, children, className }: Sca
       <legend className="sr-only">{label}</legend>
 
       {prefix ? (
-        <span aria-hidden="true" className="shrink-0 text-sm text-fg-muted">
+        // 눈금 옆의 짧은 라틴 라벨("RIR")이다 = 키커. 한글 라벨을 넣지 마라(Kicker 주석 참조).
+        <Kicker aria-hidden="true" className="shrink-0">
           {prefix}
-        </span>
+        </Kicker>
       ) : null}
 
       {/* py/-my 는 포커스 링(3px + offset 2px)이 스크롤 컨테이너에 잘리지 않게 하는 여유다.
@@ -71,7 +73,9 @@ export function ScaleOption({ label, children, className, ...props }: ScaleOptio
     <label
       className={cn(
         "inline-flex size-tap shrink-0 cursor-pointer touch-manipulation items-center justify-center",
-        "rounded-full border border-border-strong bg-surface text-base font-semibold text-fg",
+        // 0~10 눈금이라 값은 모노 + tabular-nums 다(§4). "9" 와 "10" 이 같은 폭 원 안에서 흔들리면 안 된다.
+        // 테두리는 먹색 유지 — §5 가 "1.6px 체크·라디오·상태 마크"로 분류한 자리다(라디오).
+        "rounded-full border border-border-strong bg-surface font-mono text-base font-semibold tabular-nums text-fg",
         "has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:text-primary-fg",
         "has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-focus",
         "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-bg",

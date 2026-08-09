@@ -20,6 +20,8 @@ export { IconButton } from "./IconButton";
 export type { IconButtonProps, IconButtonTone } from "./IconButton";
 export { Input } from "./Input";
 export type { InputProps } from "./Input";
+export { Kicker } from "./Kicker";
+export type { KickerProps } from "./Kicker";
 export { ProgressBar } from "./ProgressBar";
 export type { ProgressBarProps } from "./ProgressBar";
 export { ScaleGroup, ScaleOption } from "./ScaleGroup";
