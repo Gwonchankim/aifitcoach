@@ -12,43 +12,43 @@
           "label": "세트 완료 체크",
           "width": 72,
           "height": 72,
-          "y": 271.984375
+          "y": 265.921875
         },
         {
           "label": "무게 입력",
           "width": 81,
           "height": 44,
-          "y": 273.984375
+          "y": 267.9375
         },
         {
           "label": "횟수 입력",
           "width": 48,
           "height": 44,
-          "y": 273.984375
+          "y": 267.9375
         },
         {
           "label": "RIR 입력",
           "width": 80,
           "height": 44,
-          "y": 273.984375
+          "y": 267.9375
         },
         {
           "label": "교체",
-          "width": 62,
+          "width": 56,
           "height": 44,
-          "y": 129
+          "y": 121.921875
         },
         {
           "label": "삭제(휴지통)",
           "width": 44,
           "height": 44,
-          "y": 129
+          "y": 121.921875
         },
         {
           "label": "운동 추가",
           "width": 361,
           "height": 56,
-          "y": 2529.921875
+          "y": 2505.484375
         },
         {
           "label": "운동 종료(하단 고정)",
@@ -73,7 +73,7 @@
           "label": "RIR 고르기 셰브론",
           "width": 28,
           "height": 36,
-          "y": 277.984375
+          "y": 271.9375
         },
         {
           "label": "RIR 칩",
@@ -86,7 +86,7 @@
     {
       "screen": "S4-routine-scroll",
       "setCount": 15,
-      "scrollHeight": 2698,
+      "scrollHeight": 2673,
       "rowHeight": 90,
       "doneRowHeight": 62
     },
@@ -143,51 +143,51 @@
         {
           "step": 1,
           "scrolls": false,
-          "buttonTop": 536,
+          "buttonTop": 534,
           "gapAbove": 36,
-          "gapBelow": 52
+          "gapBelow": 54
         },
         {
           "step": 2,
           "scrolls": false,
-          "buttonTop": 475,
-          "gapAbove": 147,
-          "gapBelow": 113
+          "buttonTop": 470,
+          "gapAbove": 154,
+          "gapBelow": 118
         },
         {
           "step": 3,
           "scrolls": false,
-          "buttonTop": 475,
+          "buttonTop": 470,
           "gapAbove": 251,
-          "gapBelow": 113
+          "gapBelow": 118
         },
         {
           "step": 4,
           "scrolls": false,
-          "buttonTop": 475,
+          "buttonTop": 470,
           "gapAbove": 303,
-          "gapBelow": 113
+          "gapBelow": 118
         },
         {
           "step": 5,
           "scrolls": false,
-          "buttonTop": 475,
-          "gapAbove": 115,
-          "gapBelow": 113
+          "buttonTop": 470,
+          "gapAbove": 122,
+          "gapBelow": 118
         },
         {
           "step": 6,
           "scrolls": false,
-          "buttonTop": 475,
+          "buttonTop": 470,
           "gapAbove": 251,
-          "gapBelow": 113
+          "gapBelow": 118
         },
         {
           "step": 7,
           "scrolls": false,
-          "buttonTop": 475,
-          "gapAbove": 49,
-          "gapBelow": 113
+          "buttonTop": 470,
+          "gapAbove": 47,
+          "gapBelow": 118
         }
       ]
     },

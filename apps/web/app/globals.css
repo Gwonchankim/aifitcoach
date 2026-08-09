@@ -4,11 +4,12 @@
    AFC 디자인 토큰 (Tailwind v4 CSS-first)
 
    원칙
-   - 로깅 화면이 기준이므로 **다크가 기본값**이다(`:root`). 라이트가 필요한 화면만
-     상위 엘리먼트에 `class="theme-light"` 를 붙인다. layout.tsx 수정 불필요.
+   - **라이트 전용**이다(`:root`). 확정 프로토타입 7종에 다크 정의가 없다 — ADR-30(다크 기본)은 폐기됐고
+     아래 다크 블록은 기록으로만 남긴다. `docs/DESIGN_TOKENS.md` 가 값의 진실의 원천이다.
    - 컴포넌트는 **의미 토큰만** 쓴다(`bg-surface`, `text-fg-muted` …). hex·gray-800 직접 사용 금지.
-   - 모든 전경/배경 조합은 WCAG AA(본문 4.5:1, UI 경계 3:1)로 계산 검증했다.
+   - 모든 전경/배경 조합은 WCAG AA(본문 4.5:1, UI 경계 3:1)로 계산 검증했다(DESIGN_TOKENS §3.1.1).
    - 상태색(success/warn/danger)은 **색 단독으로 의미를 전달하지 않는다**. 항상 아이콘+텍스트를 함께 둔다.
+   - 방향은 "계기판": 값은 모노로 정렬해 읽고, 경계는 얇은 실선으로 나누고, 색은 상태에만 쓴다.
    ========================================================================== */
 
 @theme inline {
@@ -16,52 +17,73 @@
   --color-bg: var(--afc-bg);
   --color-surface: var(--afc-surface);
   --color-raised: var(--afc-raised);
+  --color-canvas: var(--afc-canvas);
   --color-overlay: var(--afc-overlay);
 
   /* --- 색: 경계 ---
-     border        = 장식용 구분선(비상호작용, 대비 기준 없음)
-     border-strong = 입력/컨트롤 테두리(대비 3:1 충족) */
+     border         = 장식용 구분선(비상호작용, 대비 기준 없음)
+     border-weak    = 리스트 내부 구분선
+     border-strong  = 강조 카드 1.5px 테두리(ink)
+     border-control = 인터랙티브 컨트롤(입력·칩·체크) 경계. 값은 **D-7 미결**이라
+                      DESIGN_TOKENS §3.2 의 보수적 선택지(`border` 유지)로 두었다. */
   --color-border: var(--afc-border);
+  --color-border-weak: var(--afc-border-weak);
   --color-border-strong: var(--afc-border-strong);
+  --color-border-control: var(--afc-border-control);
 
   /* --- 색: 글자 --- */
   --color-fg: var(--afc-fg);
+  --color-ink-2: var(--afc-ink-2);
   --color-fg-muted: var(--afc-fg-muted);
 
-  /* --- 색: 브랜드/상태 (accent + 그 위에 올라가는 글자색 쌍) --- */
+  /* --- 색: 브랜드/상태 (accent + 그 위에 올라가는 글자색 + 배지용 배경/테두리) ---
+     warn 만 역할이 갈린다: **면**(배지 배경·바 채움)은 `warn`, **글자**는 `warn-ink`.
+     `warn` 위에 흰 글자를 얹으면 2.87:1 로 AA 미달이다(DESIGN_TOKENS §3.1). */
   --color-primary: var(--afc-primary);
   --color-primary-fg: var(--afc-primary-fg);
+  --color-primary-hover: var(--afc-primary-hover);
+  --color-primary-bg: var(--afc-primary-bg);
+  --color-primary-border: var(--afc-primary-border);
+
   --color-success: var(--afc-success);
   --color-success-fg: var(--afc-success-fg);
+  --color-success-bg: var(--afc-success-bg);
+  --color-success-border: var(--afc-success-border);
+
   --color-warn: var(--afc-warn);
   --color-warn-fg: var(--afc-warn-fg);
+  --color-warn-ink: var(--afc-warn-ink);
+  --color-warn-bg: var(--afc-warn-bg);
+  --color-warn-border: var(--afc-warn-border);
+
   --color-danger: var(--afc-danger);
   --color-danger-fg: var(--afc-danger-fg);
+  --color-danger-bg: var(--afc-danger-bg);
+  --color-danger-border: var(--afc-danger-border);
 
   /* --- 색: 상태(비활성/포커스) --- */
   --color-disabled: var(--afc-disabled);
   --color-disabled-fg: var(--afc-disabled-fg);
   --color-focus: var(--afc-focus);
 
+  /* --- 색: 화면 고유 면 --- */
+  --color-today-row: var(--afc-today-row); /* 주간 목록의 오늘 행 */
+  --color-range-band: var(--afc-range-band); /* 볼륨 권장 10–20 구간 밴드 */
+
   /* --- 색: 완료(기록이 확정된 세트 행) ---
      `opacity` 로 흐리지 마라. opacity 는 글자와 배경을 **함께** 섞어서 대비를 깎는다
      (실측: 완료 행 `opacity-70` → 단위 라벨 4.01:1, 비활성 입력값 2.93:1 = AA 위반).
-     완료 표시는 이 토큰으로 **색을 갈아 끼워서** 한다 — 값은 done 배경 위에서 4.5:1 이상이다.
-       done        = 완료 행 배경,  done-fg = 완료 행의 보조 글자(6.6:1),
+     완료 표시는 이 토큰으로 **색을 갈아 끼워서** 한다 — 값은 done 배경 위에서 4.5:1 이상이다(ADR-41).
+       done        = 완료 행 배경(= success-bg),  done-fg = 완료 행의 보조 글자(5.23:1),
        done-border = 완료 행 테두리(장식용, 대비 기준 없음).
-     완료 행의 **기록값 본문은 `text-fg`** 를 그대로 쓴다(13.9:1) — 기록은 흐려질 대상이 아니다. */
+     완료 행의 **기록값 본문은 `text-fg`** 를 그대로 쓴다(15.5:1) — 기록은 흐려질 대상이 아니다. */
   --color-done: var(--afc-done);
   --color-done-fg: var(--afc-done-fg);
   --color-done-border: var(--afc-done-border);
 
-  /* --- 타이포: 기본 스케일은 Tailwind 기본값을 그대로 쓴다.
-         화면 건너 읽어야 하는 숫자 2종만 토큰으로 추가한다. --- */
-  --text-metric: 2rem; /* 무게/횟수 등 큰 수치 */
-  --text-metric--line-height: 1.1;
-  --text-timer: 3.75rem; /* 휴식 타이머 카운트다운 */
-  --text-timer--line-height: 1;
-
-  /* --- 스페이싱: 탭 타겟 (땀 묻은 손가락·한 손 조작) --- */
+  /* --- 스페이싱: 탭 타겟 (땀 묻은 손가락·한 손 조작) ---
+     DESIGN_TOKENS §6 은 72px 소멸(완료 체크 48×44)을 요구하지만 **치수는 M-UIb 범위**다.
+     E2E 06-mobile 이 픽셀을 직접 재므로 이 Sprint 에서는 값을 건드리지 않는다. */
   --spacing-tap: 2.75rem; /* 44px — 모든 탭 가능 요소의 최소 높이 */
   --spacing-tap-lg: 3.5rem; /* 56px — 기본 액션 버튼 */
   --spacing-tap-xl: 4.5rem; /* 72px — 세트 완료 체크·휴식 종료 */
@@ -72,91 +94,176 @@
      노치가 없는 기기에서 safe-area 가 0이라 하한이 없으면 버튼이 화면 맨 끝에 붙는다. */
   --spacing-action-bottom: max(env(safe-area-inset-bottom), 1.5rem);
 
-  /* --- 라운드 --- */
-  --radius-control: 0.75rem; /* 버튼·입력·칩 */
-  --radius-card: 1rem; /* 카드 */
-  --radius-sheet: 1.5rem; /* 바텀시트 상단 */
+  /* --- 라운드 (DESIGN_TOKENS §5: 1px 실선 + 거의 각진 모서리) --- */
+  --radius-control: 2px; /* 버튼·입력·칩 */
+  --radius-card: 3px; /* 카드 */
+  --radius-sheet: 3px; /* 바텀시트 상단 */
 
   /* --- 그림자 (테마별로 값이 다르므로 var 경유) --- */
   --shadow-card: var(--afc-shadow-card);
   --shadow-sheet: var(--afc-shadow-sheet);
 }
 
-/* --- 다크(기본, 로깅 화면) --- */
-:root {
-  color-scheme: dark;
+/* ==========================================================================
+   타이포 (DESIGN_TOKENS §4)
 
-  --afc-bg: #0b0f14;
-  --afc-surface: #1b232d;
-  --afc-raised: #2a3542;
-  --afc-overlay: rgb(0 0 0 / 0.72);
+   본문은 Pretendard, 숫자는 JetBrains Mono + `tabular-nums`. 둘 다 셀프호스팅한다
+   (`app/fonts/`). CDN 을 쓰면 헬스장 네트워크에서 숫자가 폴백 폰트로 흔들린다.
 
-  --afc-border: #303b49;
-  --afc-border-strong: #74839a;
+   Tailwind 기본 텍스트 스케일을 **여기서 재정의**한다 — 컴포넌트의 `text-sm`(64회)·
+   `text-base`(21)·`text-lg`(13) 를 한 줄도 안 고치고 새 타이포가 먹게 하기 위해서다.
+   `inline` 을 쓰지 않는다: `--font-sans` 가 실제 CSS 변수로 `:root` 에 나와야
+   Tailwind 의 기본 본문 폰트(`--default-font-family`)가 이걸 집는다.
+   ========================================================================== */
+@theme {
+  --font-sans:
+    var(--font-pretendard), -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans KR, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --afc-fg: #f3f6f9;
-  --afc-fg-muted: #a7b4c4;
+  /* 키커: uppercase 모노 라벨 전용. **한글 본문에 쓰지 마라**(§4). */
+  --text-kicker: 0.59375rem; /* 9.5px */
+  --text-kicker--line-height: 1.2;
+  --text-kicker--letter-spacing: 0.14em;
+  --text-kicker-lg: 0.65625rem; /* 10.5px — 섹션 상단 키커 */
+  --text-kicker-lg--line-height: 1.2;
+  --text-kicker-lg--letter-spacing: 0.18em;
 
-  --afc-primary: #38bdf8;
-  --afc-primary-fg: #06121b;
-  --afc-success: #34d399;
-  --afc-success-fg: #04160f;
-  --afc-warn: #fbbf24;
-  --afc-warn-fg: #1a1204;
-  --afc-danger: #f87171;
-  --afc-danger-fg: #1b0606;
+  --text-xs: 0.6875rem; /* 11px — 캡션·메타 */
+  --text-xs--line-height: 1.45;
 
-  --afc-disabled: #262f3a;
-  --afc-disabled-fg: #8794a6;
-  --afc-focus: #7dd3fc;
+  --text-sm: 0.8125rem; /* 13px — 본문 */
+  --text-sm--line-height: 1.58;
 
-  --afc-done: #152a23;
-  --afc-done-fg: #93b3a5;
-  --afc-done-border: #35604f;
+  --text-base: 0.90625rem; /* 14.5px — 강조 본문·버튼 */
+  --text-base--line-height: 1.5;
+  --text-base--letter-spacing: -0.01em;
 
-  --afc-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
-  --afc-shadow-sheet: 0 -12px 32px rgb(0 0 0 / 0.6);
+  --text-lg: 1rem; /* 16px — 소제목 */
+  --text-lg--line-height: 1.4;
+  --text-lg--letter-spacing: -0.02em;
+
+  --text-xl: 1.25rem; /* 20px — 소제목(큰 쪽) */
+  --text-xl--line-height: 1.3;
+  --text-xl--letter-spacing: -0.02em;
+
+  --text-2xl: 1.375rem; /* 22px — 지표 수치(작은 쪽) */
+  --text-2xl--line-height: 1.2;
+  --text-2xl--letter-spacing: -0.03em;
+
+  --text-metric: 2rem; /* 32px — 무게/횟수 등 큰 수치 */
+  --text-metric--line-height: 1.1;
+  --text-metric--letter-spacing: -0.03em;
+
+  /* 휴식 타이머는 프로토타입에 대응 값이 없다(DESIGN_TOKENS §8-2 미해결). 현재 값 유지. */
+  --text-timer: 3.75rem;
+  --text-timer--line-height: 1;
+  --text-timer--letter-spacing: -0.03em;
 }
 
-/* --- 라이트(로깅 외 화면에서 선택적으로 사용) --- */
+/* --- 라이트(확정 팔레트, DESIGN_TOKENS §2 / §7) ---
+   `.theme-light` 는 ADR-30 시절의 opt-in 클래스다. 이제 기본값과 같으므로 별칭으로만 남긴다. */
+:root,
 .theme-light {
   color-scheme: light;
 
-  --afc-bg: #f2f5f8;
+  --afc-bg: #f5f7fa;
   --afc-surface: #ffffff;
-  --afc-raised: #ffffff;
-  --afc-overlay: rgb(16 24 32 / 0.5);
+  --afc-raised: #e9ecf1;
+  --afc-canvas: #e9ecf1;
+  --afc-overlay: rgb(21 26 33 / 0.5);
 
-  --afc-border: #e2e7ee;
-  --afc-border-strong: #6e7885;
+  --afc-border: #c9d0da;
+  --afc-border-weak: #e4e9f0;
+  --afc-border-strong: #151a21;
+  --afc-border-control: #c9d0da; /* D-7 미결 — 결정되면 #5d6875 로 바뀔 수 있다 */
 
-  --afc-fg: #101820;
-  --afc-fg-muted: #5a6675;
+  --afc-fg: #151a21;
+  --afc-ink-2: #333b47;
+  --afc-fg-muted: #5d6875;
 
-  --afc-primary: #0369a1;
+  --afc-primary: #1b4fc4;
   --afc-primary-fg: #ffffff;
-  --afc-success: #046c4e;
+  --afc-primary-hover: #153c96;
+  --afc-primary-bg: #eff3fc;
+  --afc-primary-border: #bfd0f0;
+
+  /* #1b8a4b 는 흰 위 4.39:1 로 AA 미달이라 #198146 으로 보정했다(DESIGN_TOKENS §3.1). */
+  --afc-success: #198146;
   --afc-success-fg: #ffffff;
-  --afc-warn: #9a5b00;
-  --afc-warn-fg: #ffffff;
-  --afc-danger: #b42318;
+  /* ADR-51: **변경 금지**. success 와의 대비가 4.54:1 로 여유가 0.04 뿐이다. */
+  --afc-success-bg: #eff8f2;
+  --afc-success-border: #b6dfc6;
+
+  /* D-4 확정: 통증 배지는 **면 warn-bg + 글자 warn-ink**(5.14:1) 로 간다. warn 면 위에 흰 글자를 얹지 않는다.
+     `warn-fg` 는 그때까지의 안전망이다 — `Badge.tsx` 가 아직 `bg-warn text-warn-fg` 라
+     흰색으로 두면 2.87:1 로 남지만, ink 로 두면 같은 조합이 6.09:1 이 된다. */
+  --afc-warn: #d08a00; /* 면 전용 */
+  --afc-warn-fg: #151a21;
+  --afc-warn-ink: #8a6100; /* 흰·warn-bg 위 글자 */
+  --afc-warn-bg: #fcf6e7;
+  --afc-warn-border: #ebd59a;
+
+  --afc-danger: #b33227;
   --afc-danger-fg: #ffffff;
+  --afc-danger-bg: #fbf2f1;
+  --afc-danger-border: #e7bdb8;
 
-  --afc-disabled: #e4e9ef;
-  --afc-disabled-fg: #6b7684;
-  --afc-focus: #0369a1;
+  --afc-disabled: #f5f7fa; /* §2.1 bg = 비활성 입력칸 */
+  --afc-disabled-fg: #5d6875;
+  --afc-focus: #1b4fc4; /* §5 포커스: outline 2px solid + offset 2px */
 
-  --afc-done: #e4f2ea;
-  --afc-done-fg: #3c5a4e;
-  --afc-done-border: #8fc2af;
+  --afc-done: var(--afc-success-bg);
+  --afc-done-fg: #5d6875;
+  --afc-done-border: var(--afc-success-border);
 
   --afc-shadow-card: 0 1px 2px rgb(16 24 32 / 0.08);
   --afc-shadow-sheet: 0 -12px 32px rgb(16 24 32 / 0.16);
 }
 
+/* --- 다크(폐기, ADR-30) -------------------------------------------------
+   확정 프로토타입 7종에 다크 정의가 없어 **라이트 전용**으로 간다(DESIGN_TOKENS §1).
+   되살릴 때를 대비해 값만 기록으로 남긴다 — 살리려면 대비를 전 조합 재계산해야 한다.
+
+   :root {
+     color-scheme: dark;
+
+     --afc-bg: #0b0f14;
+     --afc-surface: #1b232d;
+     --afc-raised: #2a3542;
+     --afc-overlay: rgb(0 0 0 / 0.72);
+
+     --afc-border: #303b49;
+     --afc-border-strong: #74839a;
+
+     --afc-fg: #f3f6f9;
+     --afc-fg-muted: #a7b4c4;
+
+     --afc-primary: #38bdf8;
+     --afc-primary-fg: #06121b;
+     --afc-success: #34d399;
+     --afc-success-fg: #04160f;
+     --afc-warn: #fbbf24;
+     --afc-warn-fg: #1a1204;
+     --afc-danger: #f87171;
+     --afc-danger-fg: #1b0606;
+
+     --afc-disabled: #262f3a;
+     --afc-disabled-fg: #8794a6;
+     --afc-focus: #7dd3fc;
+
+     --afc-done: #152a23;
+     --afc-done-fg: #93b3a5;
+     --afc-done-border: #35604f;
+
+     --afc-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5);
+     --afc-shadow-sheet: 0 -12px 32px rgb(0 0 0 / 0.6);
+   }
+   ----------------------------------------------------------------------- */
+
 @layer base {
   html {
     background-color: var(--color-bg);
+    font-family: var(--font-sans);
   }
 
   body {
@@ -169,6 +276,12 @@
   .theme-light {
     background-color: var(--color-bg);
     color: var(--color-fg);
+  }
+
+  /* 모노는 값을 세로로 정렬해 읽는 용도다. `tabular-nums` 는 선택이 아니라 필수라
+     유틸리티를 따로 붙이지 않아도 항상 켜지게 한다(DESIGN_TOKENS §4). */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
 
   @media (prefers-reduced-motion: reduce) {
