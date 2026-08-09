@@ -346,7 +346,30 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## ▶ 다음 세션은 여기부터 읽어라 — STEP 5 현재 상태 (2026-08-08 종료 시점)
+## ▶ 다음 세션은 여기부터 읽어라 (2026-08-09 종료 시점)
+
+> **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-09.md` 에 있다. 그걸 먼저 읽어라.**
+> HEAD `9f457eb` · master · 워킹트리 clean.
+> 게이트: shared 79 · web 224 · api 237 · **E2E 55/55** · axe 19화면 0 · verify:contrast 30조합.
+
+### 로드맵 현재 위치
+
+```
+[테스트 격리 + E2E 요일] ✅  →  M-UIa ✅  →  [T-UI-1 · T-UI-2 선행]  ← 지금 여기
+   →  M-UIb  →  STEP 6(오프라인 동기화)  →  M-4′(기록·프로그램 탭)  →  M-7′(페이월·구독)
+```
+
+### 🔴 M-UIb 착수 전 선행 3건
+
+| # | 티켓 | 상태 |
+| --- | --- | --- |
+| **T-UI-1** | `cn` → tailwind-merge (지금 `!` 4곳 우회. 횡단 변경이라 UIb 와 섞으면 회귀 원인을 못 가린다) | 착수 대기 |
+| **T-UI-2** | 폰트 페이로드 — **성능 100 → 92 실측 회귀**. Pretendard 4웨이트 1,051KB. 해법 ①동적 서브셋(정공법) ②웨이트 축소(충실도 상충) | 착수 대기 · 해법 선택 시 오너 확인 필요 |
+| **F14** | 한글 키커 대체 어법 — 프로토타입 키커 139회 vs 구현 3곳. 9.5px 모노를 한글에 못 쓴다 | **🟠 오너 결정 대기** (design 협업) |
+
+---
+
+## STEP 5 현재 상태 (2026-08-08 종료 시점 기록)
 
 > **STEP 0~4는 완료**(0: 82 / 1: 88 / 2: 84 / 3: 78→뮤턴트 14/14 사살 / 4: 77→81). STEP 5만 진행 중이다.
 > 게이트: typecheck / lint / format:check / build / test(**shared 79 · web 205 · api 226**) green.
@@ -409,7 +432,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 **검증 명령의 함정 2개도 문서에 박았다**: IP SAN 에는 `-verify_hostname` 이 아니라 **`-verify_ip`**(전자는 DNS 이름만 대조해 mismatch),
 `curl --cacert` 는 Windows schannel 이 사설 CA 의 폐기 상태를 확인 못 해 체인이 멀쩡해도 `curl: (60)` 이 난다.
 
-### 🟡 M-UIa — 개발 완료, **Step 4 평가 71/100 CONDITIONAL PASS** (2026-08-09)
+### ✅ M-UIa — **완료** (2026-08-09) · evaluator 71/100 CONDITIONAL PASS → fix-now 7건 처리 후 종료
 
 커밋: `d3b16ff`(Sprint1 토큰·폰트) · `48390c1`(Phase B 공용UI+대비CI) · `c347b06`(Phase C 화면3종+빈 상태) · `<fix>`(Step 4 fix-now).
 
