@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Exercise, Program } from "@prisma/client";
+import { utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 import { GenerateProgramDto } from "./dto/generate-program.dto";
 import { PlannedSetFactory, PlannedSetRow } from "./planned-set.factory";
@@ -114,7 +115,9 @@ export class ProgramsService {
       rowsByFocus.set(focus, rows);
     }
 
-    const weekStart = mondayOfWeek(new Date());
+    // "오늘"은 utcToday() 한 곳에서만 온다 — 여기서 new Date() 를 쓰면 테스트의 날짜 고정(ADR-50)이
+    // 프로그램 생성에만 안 먹어서 대시보드와 scheduled_date 가 어긋난다.
+    const weekStart = mondayOfWeek(utcToday());
     // 프로그램·세션·계획세트는 한 덩어리다. 중간에 실패해 절반만 커밋되면 요일이 비거나 계획세트가 없는
     // 프로그램이 남고, current() 는 그 최신 프로그램을 그대로 돌려준다. 여기 쓰기 앞의 조회(카탈로그·
     // 추천 입력)는 이미 끝났으므로 트랜잭션은 쓰기만 감싼다.

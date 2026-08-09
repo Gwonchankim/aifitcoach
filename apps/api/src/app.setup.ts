@@ -1,5 +1,6 @@
-import type { INestApplication } from "@nestjs/common";
+import { Logger, type INestApplication } from "@nestjs/common";
 import { assertDevUserAuthAllowed, devUserMiddleware } from "./auth/dev-user";
+import { TEST_TODAY_ENV, isoDate, testTodayOverride } from "./common/date/utc-day";
 import { corsOptions } from "./common/http/cors";
 
 /**
@@ -12,8 +13,21 @@ import { corsOptions } from "./common/http/cors";
  */
 export const API_PREFIX = "v1";
 
+/**
+ * 테스트 오버라이드가 켜졌으면 부팅 때 크게 남긴다 — 운영에서 실수로 켜지면 즉시 보여야 한다
+ * (사람 결정 2026-08-09). 형식이 틀렸으면 여기서 던져 조용히 무시되지 않게 한다.
+ */
+function warnOnTestOverrides(): void {
+  const today = testTodayOverride();
+  if (!today) return;
+  new Logger("TestOverrides").warn(
+    `${TEST_TODAY_ENV}=${isoDate(today)} — "오늘"이 고정돼 있다. 테스트 전용이며 프로덕션에서는 무시된다.`,
+  );
+}
+
 export function configureApp(app: INestApplication): INestApplication {
   assertDevUserAuthAllowed();
+  warnOnTestOverrides();
   app.enableCors(corsOptions());
   app.setGlobalPrefix(API_PREFIX);
   app.use(devUserMiddleware);

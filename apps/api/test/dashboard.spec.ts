@@ -9,6 +9,7 @@ import type { INestApplication } from "@nestjs/common";
 import type { SessionOrigin, SessionStatus } from "@prisma/client";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
+import { utcToday } from "../src/common/date/utc-day";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
@@ -19,12 +20,13 @@ const OTHER_USER_ID = "00000000-0000-4000-8000-000000000003";
 
 const DAY_MS = 86_400_000;
 
-/** 서비스와 같은 기준(UTC)의 날짜. offset=0 이 오늘이다. */
+/**
+ * 서비스와 같은 기준(UTC)의 날짜. offset=0 이 오늘이다.
+ * **`new Date()` 를 쓰지 않는다** — 서버는 utcToday()(고정 가능, ADR-50)를 보는데 테스트가 실제 시계를
+ * 보면 기대값이 하루씩 어긋난다. 같은 시계를 봐야 요일 고정이 의미를 갖는다.
+ */
 function utcDay(offset: number): Date {
-  const now = new Date();
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offset * DAY_MS,
-  );
+  return new Date(utcToday().getTime() + offset * DAY_MS);
 }
 
 function isoDate(date: Date): string {

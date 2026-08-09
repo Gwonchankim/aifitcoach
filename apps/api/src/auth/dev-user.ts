@@ -30,6 +30,19 @@ export function assertDevUserAuthAllowed(): void {
   }
 }
 
+/**
+ * 테스트 전용 오버라이드(현재는 "오늘" 고정 — ADR-50)가 허용되는가.
+ *
+ * **프로덕션에서는 환경변수·opt-in 과 무관하게 무조건 false 다**(사람 결정 2026-08-09).
+ * `ALLOW_DEV_USER_AUTH=true` 로 dev-user 를 프로덕션에서 켰더라도 오버라이드는 켜지지 않는다 —
+ * 시간을 바꾸는 것은 신원을 바꾸는 것보다 조용히 망가진다(스트릭·주간 볼륨·당일 수정 판정이 전부 틀어진다).
+ *
+ * dev-user 이음새 안에 두는 이유: 실제 인증이 붙어 이 파일이 사라질 때 오버라이드도 **함께 사라져야** 한다.
+ */
+export function testOverridesAllowed(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
 export function devUserId(): string {
   const id = process.env.DEV_USER_ID ?? DEFAULT_DEV_USER_ID;
   if (!UUID_PATTERN.test(id)) {

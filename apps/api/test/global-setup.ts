@@ -7,7 +7,8 @@
 import { execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { DEFAULT_DEV_USER_ID } from "../src/auth/dev-user";
-import { REPO_ROOT, testDatabaseUrl } from "./support/database-url";
+import { TEST_TODAY_ENV } from "../src/common/date/utc-day";
+import { DEFAULT_TEST_TODAY, REPO_ROOT, testDatabaseUrl } from "./support/database-url";
 
 function run(script: string, env: NodeJS.ProcessEnv): void {
   try {
@@ -25,6 +26,10 @@ export default function globalSetup(): void {
   // 테스트용 키는 실행할 때마다 새로 만든다(리포에 시크릿을 두지 않는다 — SECURITY_PIPA.md).
   process.env.FIELD_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
   process.env.DEV_USER_ID ??= DEFAULT_DEV_USER_ID;
+  // "오늘"을 고정한다(ADR-50). 안 하면 스위트가 요일에 따라 통과/실패한다 —
+  // 요일 배정에 구조적 공백이 있어(SUN 운동일 불가 / MON 휴식일 불가) 분할을 바꿔서는 못 덮는다.
+  // 기본값이 수요일인 이유: 수요일만 운동일(days 3·5·6)과 휴식일(days 2·4)을 한 날짜로 둘 다 만든다.
+  process.env[TEST_TODAY_ENV] ??= DEFAULT_TEST_TODAY;
 
   run("db:migrate", process.env);
   run("db:seed", process.env);
