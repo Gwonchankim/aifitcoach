@@ -5,10 +5,10 @@
  * 여기서 정한 process.env 는 fork 되는 jest worker 들이 그대로 물려받는다.
  */
 import { execSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { DEFAULT_DEV_USER_ID } from "../src/auth/dev-user";
+import { randomBytes, randomUUID } from "node:crypto";
 import { TEST_TODAY_ENV } from "../src/common/date/utc-day";
 import { DEFAULT_TEST_TODAY, REPO_ROOT, testDatabaseUrl } from "./support/database-url";
+import { RUN_ID_ENV, testUserId } from "./support/users";
 
 function run(script: string, env: NodeJS.ProcessEnv): void {
   try {
@@ -25,7 +25,10 @@ export default function globalSetup(): void {
   process.env.DATABASE_URL = testDatabaseUrl();
   // 테스트용 키는 실행할 때마다 새로 만든다(리포에 시크릿을 두지 않는다 — SECURITY_PIPA.md).
   process.env.FIELD_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
-  process.env.DEV_USER_ID ??= DEFAULT_DEV_USER_ID;
+  // 실행 단위 신원. **`??=` 로 두면 안 된다** — 바로 위 testDatabaseUrl() 이 루트 .env 를 로드해
+  // DEV_USER_ID(고정값)가 이미 채워져 있다. 그 값을 쓰면 동시 실행이 서로를 지운다.
+  process.env[RUN_ID_ENV] ??= randomUUID();
+  process.env.DEV_USER_ID = testUserId("dev");
   // "오늘"을 고정한다(ADR-50). 안 하면 스위트가 요일에 따라 통과/실패한다 —
   // 요일 배정에 구조적 공백이 있어(SUN 운동일 불가 / MON 휴식일 불가) 분할을 바꿔서는 못 덮는다.
   // 기본값이 수요일인 이유: 수요일만 운동일(days 3·5·6)과 휴식일(days 2·4)을 한 날짜로 둘 다 만든다.

@@ -12,10 +12,11 @@ import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { testUserId } from "./support/users";
 
 const USER_ID = devUserId();
 /** dev-user(...0001) 와 다른 고정 UUID. 이 spec 밖으로 새어 나가지 않게 afterAll 에서 지운다. */
-const OTHER_USER_ID = "00000000-0000-4000-8000-000000000002";
+const OTHER_USER_ID = testUserId("tenancy");
 
 const PROGRAM = {
   goal: "hypertrophy",

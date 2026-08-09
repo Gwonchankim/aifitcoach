@@ -97,9 +97,16 @@ describe("programs", () => {
     // day 표기와 실제 scheduled_date 의 요일이 일치한다(MON=1 … SUN=0)
     expect(sessions.map((s) => s.scheduledDate.getUTCDay())).toEqual([1, 2, 4, 5, 1, 2, 4, 5]);
 
-    // 다른 사용자 소유 데이터는 만들어지지 않는다
-    const foreign = await prisma.program.count({ where: { userId: { not: USER_ID } } });
-    expect(foreign).toBe(0);
+    // 다른 사용자 소유 데이터는 만들어지지 않는다.
+    // **DB 전체를 세지 않는다** — 그러면 같은 스위트를 동시에 돌리는 다른 실행의 데이터까지 세어
+    // 원리적으로 통과할 수 없다(실측: 동시 실행에서 이 단언만 실패했다).
+    // 검증 대상은 "이 요청이 만든 것"이므로 방금 만든 프로그램의 소유자와 그 자식들만 본다.
+    // 사용자 간 격리 자체는 tenancy.spec.ts 가 두 사용자를 세워 따로 검증한다.
+    expect(programs[0].userId).toBe(USER_ID);
+    const foreignChildren = await prisma.plannedSet.count({
+      where: { session: { program: { id: programs[0].id, userId: { not: USER_ID } } } },
+    });
+    expect(foreignChildren).toBe(0);
   });
 
   it("기록이 없으면 계획세트의 추천은 엔진의 BASELINE(weight 0) 을 그대로 저장한다", async () => {

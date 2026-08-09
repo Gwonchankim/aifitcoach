@@ -9,10 +9,30 @@
  * 2)가 이 파일의 존재 이유다. 시간이 조용히 고정되면 스트릭·주간 볼륨·당일 수정 판정이 전부 틀어지는데
  * 화면은 멀쩡해 보인다 — 운영에서 가장 늦게 발견되는 종류의 사고다.
  */
-import { testOverridesAllowed } from "../src/auth/dev-user";
+import { DEFAULT_DEV_USER_ID, testOverridesAllowed } from "../src/auth/dev-user";
 import { TEST_TODAY_ENV, isoDate, testTodayOverride, utcToday } from "../src/common/date/utc-day";
+import { DEFAULT_TEST_TODAY } from "./support/database-url";
+import { testUserId } from "./support/users";
 
 const FIXED = "2026-08-12"; // 수요일
+
+/**
+ * 스위트가 **실제로 고정된 날짜로 돌고 있는지** 확인한다.
+ * globalSetup 에서 핀이 빠지면 위 경계 테스트는 그대로 통과하지만 스위트는 요일에 흔들리게 된다 —
+ * 그 조용한 퇴행을 여기서 잡는다.
+ */
+describe("스위트의 고정 날짜", () => {
+  it("globalSetup 이 오늘을 DEFAULT_TEST_TODAY 로 고정한다", () => {
+    expect(process.env[TEST_TODAY_ENV]).toBe(DEFAULT_TEST_TODAY);
+    expect(isoDate(utcToday())).toBe(DEFAULT_TEST_TODAY);
+  });
+
+  it("실행 단위 사용자를 쓴다(고정 dev-user 가 아니다)", () => {
+    // 고정 id 를 쓰면 같은 스위트를 동시에 돌릴 때 서로의 데이터를 지운다(실측 33·29건 실패).
+    expect(process.env.DEV_USER_ID).toBe(testUserId("dev"));
+    expect(process.env.DEV_USER_ID).not.toBe(DEFAULT_DEV_USER_ID);
+  });
+});
 
 describe("테스트 오버라이드 경계", () => {
   const original = { node: process.env.NODE_ENV, today: process.env[TEST_TODAY_ENV] };

@@ -60,6 +60,7 @@
         }
       ]
     },
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "globalTeardown": "<rootDir>/test/global-teardown.ts"
   }
 }

@@ -8,8 +8,23 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// Playwright 는 설정을 CJS 로 변환해 로드한다 → `import.meta` 를 쓸 수 없다(실측: SyntaxError).
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+/**
+ * 레포 루트를 위로 올라가며 찾는다.
+ * `__dirname`(Playwright 는 설정을 CJS 로 변환한다)도 `import.meta`(vitest 는 ESM)도 쓰지 않는다 —
+ * 이 파일을 두 러너가 함께 읽기 때문이다. `import.meta` 는 CJS 변환 시 **파싱 단계에서** 터진다(실측).
+ */
+function findRepoRoot(): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i += 1) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return process.cwd();
+}
+
+const REPO_ROOT = findRepoRoot();
 
 /** 루트 `.env` 에서 키 하나만 읽는다(apps/web 에 dotenv 를 새로 넣지 않으려고 최소 구현). */
 function fromRootEnv(key: string): string | undefined {

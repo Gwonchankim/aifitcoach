@@ -12,11 +12,12 @@ import { devUserId } from "../src/auth/dev-user";
 import { utcToday } from "../src/common/date/utc-day";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { testUserId } from "./support/users";
 import { expectMatchesContract } from "./support/openapi-response";
 
 const USER_ID = devUserId();
 /** dev-user(...0001)·tenancy.spec(...0002) 와 겹치지 않는 고정 UUID. afterAll 에서 지운다. */
-const OTHER_USER_ID = "00000000-0000-4000-8000-000000000003";
+const OTHER_USER_ID = testUserId("dashboard");
 
 const DAY_MS = 86_400_000;
 

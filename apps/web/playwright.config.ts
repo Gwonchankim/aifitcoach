@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 import { e2eDatabaseUrl } from "./e2e/db-url";
 import { TEST_TODAY } from "./e2e/test-today";
@@ -73,6 +74,18 @@ export default defineConfig({
         DATABASE_URL: e2eDatabaseUrl(),
         // 브라우저 시계(e2e/fixtures.ts)와 **같은 날짜**여야 한다(ADR-50).
         AFC_TEST_TODAY: TEST_TODAY,
+        /**
+         * 실행 단위 신원. 고정 id 를 쓰면 다른 실행(포트를 바꿔 띄운 두 번째 스위트, 또는 같은
+         * `afc_e2e` 를 보는 사람)이 서로의 데이터를 지운다. API 가 부팅 시 이 사용자를 만들어 준다
+         * (DevUserService.onModuleInit).
+         */
+        DEV_USER_ID: process.env.E2E_DEV_USER_ID ?? randomUUID(),
+        /**
+         * 이 실행의 웹 출처를 허용목록에 넣는다. 루트 `.env` 의 고정값(`http://localhost:3000`)에 기대면
+         * 포트를 바꿔 띄운 실행에서 브라우저 fetch 가 통째로 막힌다(실측: `E2E_WEB_PORT=3200` 에서 37건 실패).
+         * `00-api-cors` 회귀 스펙은 helpers 의 `WEB_ORIGIN`(같은 포트에서 파생)을 쓰므로 그대로 산다.
+         */
+        WEB_ORIGIN,
       },
     },
     {

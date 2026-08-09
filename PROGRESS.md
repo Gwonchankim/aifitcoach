@@ -467,16 +467,25 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`WEB_ORIGIN` 은 건드리지 않는다** — 웹 포트가 3000 그대로라 `00-api-cors` 회귀 스펙이 살아 있다(스펙의 3001 은 주석뿐, 코드는 `E2E_API_TARGET` 을 읽는다).
 - **verify(G2·G3)**: 포트 전부 정리 → 단독 실행 성공 + `afc` 행 수 불변.
 
-**T-3 실행 단위 격리(run-scoped user)**
+**T-3 실행 단위 격리(run-scoped user)** ✅ **완료(2026-08-09)**
 - api: `globalSetup` 이 실행마다 UUID 를 만들어 `DEV_USER_ID` 로 쓰고, `globalTeardown` 이 그 사용자 데이터+행을 지운다.
 - E2E: 자체 기동 API 에 run-scoped `DEV_USER_ID` 주입.
 - **verify(G1)**: 동시 2회 실행 → 둘 다 통과.
 
-**T-4 회귀 고정 + 뮤테이션**
+**T-4 회귀 고정 + 뮤테이션** ✅ **완료(2026-08-09, 뮤턴트 6종 전부 사살)**
 - 뮤턴트 ①: `utcToday()` 오버라이드 무시 → 요일 가드가 실패해야 한다
 - 뮤턴트 ②: run-scoped user 대신 고정 user → 동시 실행 가드가 실패해야 한다
 - 뮤턴트 ③: E2E `DATABASE_URL` 을 `afc` 로 → 개발 DB 무오염 가드가 실패해야 한다
 - 셋 다 실패 확인 후 원복(sha256 으로 원복 증명).
+
+#### 알려진 경계 (2026-08-09 실측)
+
+- **동시 E2E 는 여전히 안 된다** — 데이터는 격리됐지만(전용 DB + 실행 단위 사용자) 두 실행이
+  `apps/api/dist` 를 함께 쓴다. 동시에 `nest start` 가 돌면 `Cannot find module './programs.service'` 로 죽는다.
+  기본 포트에서는 **포트 충돌로 시끄럽게 실패**하므로 조용한 데이터 오염은 아니다.
+  풀려면 러너별 outDir 분리가 필요하다(tsc outDir 은 env 로 못 바꾼다) — 별도 티켓.
+- **비기본 포트 단독 실행은 된다**(`E2E_WEB_PORT=3200 E2E_API_PORT=3201` → 53/53). CORS 는 실행마다
+  `WEB_ORIGIN` 을 API 에 넘겨 해결했다 — 안 넘기면 브라우저 fetch 가 통째로 막힌다(실측 37건 실패).
 
 #### 리스크 — 사람 리뷰가 필요한 지점
 
