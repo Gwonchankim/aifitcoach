@@ -60,7 +60,12 @@ export function RirSheet({ open, sheetId, value, targetRir, onSelect, onClose }:
                 className="w-full"
                 onClick={() => onSelect(choice)}
               >
-                {choice == null ? RIR_UNKNOWN_LABEL : String(choice)}
+                {/* 값은 모노 + tabular-nums(§4). `모름`·`목표`는 한글이라 모노를 씌우지 않는다. */}
+                {choice == null ? (
+                  RIR_UNKNOWN_LABEL
+                ) : (
+                  <span className="font-mono tabular-nums">{choice}</span>
+                )}
                 {/* 보이는 글자와 접근 이름이 같도록 aria-label 대신 텍스트로 표시한다. */}
                 {choice != null && choice === targetRir ? (
                   <span className="text-xs font-normal">목표</span>

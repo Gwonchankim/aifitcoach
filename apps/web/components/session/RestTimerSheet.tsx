@@ -121,7 +121,9 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
           role="timer"
           aria-atomic="true"
           aria-live="off"
-          className="text-timer text-center font-bold tabular-nums text-fg"
+          // 매초 바뀌는 큰 수치다 → 모노 + tabular-nums(§4). 비례폭이면 "1:09" → "1:10" 에서
+          // 글자가 좌우로 흔들린다.
+          className="text-timer text-center font-mono font-bold tabular-nums text-fg"
         >
           {formatCountdown(remaining)}
         </p>

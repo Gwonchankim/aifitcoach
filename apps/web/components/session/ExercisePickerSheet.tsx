@@ -81,7 +81,11 @@ export function ExercisePickerSheet({
     >
       <div className="flex flex-col gap-3">
         {errorText ? (
-          <p role="alert" className="rounded-control bg-danger px-3 py-2 text-sm text-danger-fg">
+          /* 배지와 같은 소프트 어법(면 `*-bg` + 글자 `*` + 1px `*-border`, Badge.tsx). danger 5.61:1. */
+          <p
+            role="alert"
+            className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          >
             {errorText}
           </p>
         ) : null}

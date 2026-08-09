@@ -10,7 +10,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, cn } from "../ui";
+import { Badge, Button, Card, Kicker, buttonBase, cn } from "../ui";
 import { ApiError, api, type BodyPart } from "../../lib/api";
 import { DASHBOARD_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 import { formatClock, useOnline } from "../../lib/use-online";
@@ -27,17 +27,16 @@ function LinkAction({
   variant?: "primary" | "secondary";
   children: React.ReactNode;
 }) {
+  // 형태·포커스는 Button 과 같아야 한다 — 두 벌로 두지 않고 buttonBase 를 그대로 쓴다.
   return (
     <Link
       href={href}
       className={cn(
-        "flex min-h-tap-lg w-full items-center justify-center rounded-control px-6",
-        "text-lg font-semibold",
+        buttonBase,
+        "min-h-tap-lg w-full px-6 text-base",
         variant === "primary"
-          ? "bg-primary text-primary-fg"
-          : "border border-border-strong bg-surface text-fg",
-        "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+          ? "bg-primary text-primary-fg hover:bg-primary/90 active:bg-primary/80"
+          : "border border-border-strong bg-surface text-fg hover:bg-raised active:bg-raised",
       )}
     >
       {children}
@@ -54,11 +53,12 @@ function Skeleton({ className }: { className: string }) {
 function Metric({ card }: { card: MetricCard }) {
   return (
     <Card className="flex flex-1 flex-col gap-1">
-      <p className="text-sm text-fg-muted">{card.label}</p>
+      <p className="text-xs text-fg-muted">{card.label}</p>
+      {/* 지표 수치는 모노 + tabular-nums(DESIGN_TOKENS §4) — 2열의 두 값이 같은 자리에서 시작한다. */}
       {card.value ? (
-        <p className="text-metric font-bold text-fg tabular-nums">{card.value}</p>
+        <p className="font-mono text-metric font-bold tabular-nums text-fg">{card.value}</p>
       ) : null}
-      {card.note ? <p className="text-sm text-fg-muted">{card.note}</p> : null}
+      {card.note ? <p className="text-xs text-fg-muted">{card.note}</p> : null}
     </Card>
   );
 }
@@ -71,6 +71,19 @@ function Screen({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+/**
+ * 프로그램 없음(§2.3 빈①) 카드의 "만들고 나면" 3단 안내. D-5 승인(PROGRESS §M-UIa 4)으로 UIa 범위다.
+ *
+ * ②는 **세 세션**이다 — 세 세트가 아니다(ADR-47: 종목별 완료 세션 3회, REDESIGN_IMPACT §5 D-1).
+ * 이 안내는 **잠금이 아니다** — 자물쇠·업그레이드 유도를 쓰지 않고
+ * "아직 없음 + 언제 생기는지 + 지금 할 수 있는 것" 3요소만 말한다.
+ */
+const AFTER_PROGRAM_STEPS = [
+  "요일마다 할 종목과 세트가 이 자리에 뜹니다.",
+  "세 세션이 쌓이면 무게 추천과 추정 1RM이 나타납니다.",
+  "주간 리듬과 근육군별 볼륨이 여기 아래로 붙습니다.",
+];
 
 /** F8-1 즉석 세션 만들기에서만 쓰는 문구(§3 원칙: 서버 메시지를 그대로 쓰지 않는다). */
 const AD_HOC_ERRORS: Record<number, string> = {
@@ -147,9 +160,34 @@ export function DashboardScreen() {
   if (!program.data && isNotFound(program.error)) {
     return (
       <Screen>
-        <Card className="flex flex-col gap-3">
-          <p className="text-fg">운동 계획을 먼저 만들어 주세요.</p>
+        <Card className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            {/* 키커 자리지만 한글이라 모노 9.5px 를 쓰지 않는다(DESIGN_TOKENS §4). */}
+            <p className="text-xs font-semibold text-fg-muted">프로그램 없음</p>
+            <h2 className="text-xl font-bold text-fg">아직 운동 계획이 없어요</h2>
+            <p className="text-sm text-ink-2">
+              목표와 운동할 수 있는 요일만 고르면 요일별 계획이 만들어져요.
+            </p>
+          </div>
           <LinkAction href="/onboarding">계획 만들기</LinkAction>
+        </Card>
+
+        <Card className="flex flex-col gap-3">
+          <h3 className="text-lg font-semibold text-fg">만들고 나면</h3>
+          <ol className="flex flex-col">
+            {AFTER_PROGRAM_STEPS.map((step, index) => (
+              <li
+                key={step}
+                className="flex gap-3 border-t border-border-weak py-3 first:border-t-0 first:pt-0 last:pb-0"
+              >
+                {/* 순번은 <ol> 이 이미 전달한다 — 화면용 표식이라 낭독에서 뺀다. */}
+                <Kicker aria-hidden="true" className="pt-1">
+                  {`0${index + 1}`}
+                </Kicker>
+                <p className="flex-1 text-sm text-ink-2">{step}</p>
+              </li>
+            ))}
+          </ol>
         </Card>
       </Screen>
     );
@@ -167,8 +205,8 @@ export function DashboardScreen() {
   return (
     <Screen>
       {!online && dashboard.data ? (
-        <p role="status" className="text-sm text-fg-muted">
-          오프라인 · {formatClock(dashboard.dataUpdatedAt)} 기준
+        <p role="status" className="text-xs text-fg-muted">
+          오프라인 · <span className="font-mono">{formatClock(dashboard.dataUpdatedAt)}</span> 기준
         </p>
       ) : null}
 
@@ -180,9 +218,9 @@ export function DashboardScreen() {
               {view.today.status === "done" ? <Badge tone="success">완료</Badge> : null}
               {view.today.status === "rest" ? <Badge tone="neutral">휴식</Badge> : null}
             </div>
-            <p className="text-fg">{view.today.message}</p>
+            <p className="text-sm text-ink-2">{view.today.message}</p>
             {view.today.notes.map((note) => (
-              <p key={note} className="text-sm text-fg-muted">
+              <p key={note} className="text-xs text-fg-muted">
                 {note}
               </p>
             ))}
@@ -212,7 +250,7 @@ export function DashboardScreen() {
 
           <Card className="flex flex-col gap-1">
             <h2 className="text-lg font-semibold text-fg">{view.tomorrow.heading}</h2>
-            <p className="text-fg-muted">{view.tomorrow.message}</p>
+            <p className="text-sm text-ink-2">{view.tomorrow.message}</p>
           </Card>
 
           <div className="flex gap-3">
@@ -228,7 +266,7 @@ export function DashboardScreen() {
         </>
       ) : (
         <Card role="alert" className="flex flex-col gap-3 border-danger">
-          <p className="text-fg">
+          <p className="text-sm text-ink-2">
             {!online
               ? "인터넷이 연결되면 요약을 보여드릴게요."
               : toUiError(dashboard.error, DASHBOARD_ERRORS).message}
@@ -242,12 +280,12 @@ export function DashboardScreen() {
       {/* 요약이 실패해도 이 카드는 그대로 렌더된다(AC-S3-2). */}
       <Card className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold text-fg">주요 리프트 추세</h2>
-        <p className="text-sm text-fg-muted">{E1RM_EMPTY_NOTE}</p>
+        <p className="text-xs text-fg-muted">{E1RM_EMPTY_NOTE}</p>
       </Card>
 
       <Link
         href="/program"
-        className="min-h-tap self-start px-1 py-2 text-base font-medium text-primary underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="min-h-tap self-start px-1 py-2 text-base font-medium text-primary underline hover:text-primary-hover focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         내 운동 계획 보기
       </Link>

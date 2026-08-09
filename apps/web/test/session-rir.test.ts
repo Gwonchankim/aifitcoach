@@ -196,21 +196,37 @@ describe("RirSheet (M-7 RIR 고르기)", () => {
       }),
     );
 
-  it("칩 8개(모름 + 0~6)를 낸다 — 7 은 고를 수 없다", () => {
-    const markup = html();
-    const chips = [...markup.matchAll(/aria-pressed="(?:true|false)"[^>]*>([^<]*)</g)].map(
-      (match) => match[1],
+  /**
+   * 칩 하나의 **보이는 글자**. 태그를 벗겨서 본다.
+   * 예전에는 `>([^<]*)<` 로 여는 태그 바로 뒤 텍스트만 봤는데, 그건 마크업 **모양**에 묶인 단언이라
+   * 숫자를 `<span class="font-mono tabular-nums">` 로 감싸자(§4 모노 숫자) 값이 전부 빈 문자열이 됐다.
+   * 사용자에게 보이는 글자는 그대로였다 — 그래서 의도(라벨·선택 상태·목표 표시)는 유지하고
+   * 래핑 방식에만 덜 묶이게 바꿨다. 약화가 아니라는 것은 뮤테이션으로 확인했다.
+   */
+  const chipTexts = (markup: string): string[] =>
+    [...markup.matchAll(/<button[^>]*aria-pressed="(?:true|false)"[\s\S]*?<\/button>/g)].map((m) =>
+      m[0].replace(/<[^>]*>/g, "").trim(),
     );
-    expect(chips).toEqual(["모름", "0", "1", "2", "3", "4", "5", "6"]);
+
+  const selectedChipText = (markup: string): string | undefined =>
+    markup
+      .match(/<button[^>]*aria-pressed="true"[\s\S]*?<\/button>/)?.[0]
+      .replace(/<[^>]*>/g, "")
+      .trim();
+
+  it("칩 8개(모름 + 0~6)를 낸다 — 7 은 고를 수 없다", () => {
+    // targetRir 기본값이 2 라 그 칩에는 '목표' 배지가 붙어 있다.
+    expect(chipTexts(html())).toEqual(["모름", "0", "1", "2목표", "3", "4", "5", "6"]);
   });
 
   it("현재 값 칩이 선택 상태다(미입력이면 '모름')", () => {
-    expect(html({ value: null })).toMatch(/aria-pressed="true"[^>]*>모름</);
-    expect(html({ value: 3 })).toMatch(/aria-pressed="true"[^>]*>3</);
+    expect(selectedChipText(html({ value: null }))).toBe("모름");
+    expect(selectedChipText(html({ value: 3 }))).toBe("3");
   });
 
   it("목표에 해당하는 칩에 '목표' 표시를 둔다", () => {
-    expect(html({ targetRir: 2 })).toMatch(/aria-pressed="[^"]*"[^>]*>2<span[^>]*>목표<\/span>/);
+    expect(chipTexts(html({ targetRir: 2 }))).toContain("2목표");
+    expect(chipTexts(html({ targetRir: 4 }))).toContain("4목표");
     expect(html({ targetRir: null })).not.toContain("목표");
   });
 

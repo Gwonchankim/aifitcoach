@@ -6,7 +6,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Badge, Button, Card, cn } from "../../components/ui";
+import { Badge, Button, Card, buttonBase, cn } from "../../components/ui";
 import { api } from "../../lib/api";
 import { CURRENT_PROGRAM_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 import { dayLabel, focusLabel } from "../../lib/program-labels";
@@ -28,10 +28,9 @@ function LinkAction({ href, children }: { href: string; children: React.ReactNod
     <Link
       href={href}
       className={cn(
-        "flex min-h-tap-lg w-full items-center justify-center rounded-control px-6",
-        "bg-primary text-lg font-semibold text-primary-fg",
-        "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
-        "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
+        buttonBase,
+        "min-h-tap-lg w-full px-6 text-base",
+        "bg-primary text-primary-fg hover:bg-primary/90 active:bg-primary/80",
       )}
     >
       {children}
@@ -88,7 +87,7 @@ export function ProgramScreen() {
     return (
       <Screen>
         <Card className="flex flex-col gap-3">
-          <p className="text-fg">아직 운동 계획이 없어요.</p>
+          <p className="text-sm text-ink-2">아직 운동 계획이 없어요.</p>
           <LinkAction href="/onboarding">계획 만들기</LinkAction>
         </Card>
       </Screen>
@@ -100,7 +99,7 @@ export function ProgramScreen() {
     return (
       <Screen>
         <Card role="alert" className="flex flex-col gap-3 border-danger">
-          <p className="text-fg">
+          <p className="text-sm text-ink-2">
             {uiError.kind === "offline"
               ? "인터넷이 연결되면 계획을 보여드릴게요."
               : uiError.message}
@@ -118,9 +117,9 @@ export function ProgramScreen() {
   return (
     <Screen>
       {!online ? (
-        <p role="status" className="text-sm text-fg-muted">
+        <p role="status" className="text-xs text-fg-muted">
           오프라인이에요. 마지막으로 받아온 계획을 보고 있어요 ·{" "}
-          {formatClock(program.dataUpdatedAt)} 기준
+          <span className="font-mono">{formatClock(program.dataUpdatedAt)}</span> 기준
         </p>
       ) : null}
 
@@ -128,7 +127,7 @@ export function ProgramScreen() {
         <Card className="flex flex-col gap-2">
           <h2 className="text-lg font-semibold text-fg">왜 이 루틴인가요</h2>
           {reasons.map((line) => (
-            <p key={line} className="text-fg-muted">
+            <p key={line} className="text-sm text-ink-2">
               {line}
             </p>
           ))}
@@ -150,11 +149,14 @@ export function ProgramScreen() {
                 {focus ? <Badge tone="neutral">{focus}</Badge> : null}
               </div>
               {session.exercises.length > 0 ? (
-                <p className="text-fg-muted">운동 {session.exercises.length}개</p>
+                /* 개수는 모노 + tabular-nums(DESIGN_TOKENS §4) — 카드가 세로로 쌓여 자릿수가 흔들린다. */
+                <p className="text-sm text-ink-2">
+                  운동 <span className="font-mono">{session.exercises.length}</span>개
+                </p>
               ) : (
                 <div className="flex flex-col gap-2">
-                  <p className="text-fg">{EMPTY_DAY_NOTE}</p>
-                  <p className="text-sm text-fg-muted">{MEDICAL_DISCLAIMER}</p>
+                  <p className="text-sm text-ink-2">{EMPTY_DAY_NOTE}</p>
+                  <p className="text-xs text-fg-muted">{MEDICAL_DISCLAIMER}</p>
                 </div>
               )}
             </Card>
@@ -169,8 +171,8 @@ export function ProgramScreen() {
 
         {excluded.length === 0 ? (
           <Card className="flex flex-col gap-2">
-            <p className="text-fg">{NO_EXCLUSION_NOTE}</p>
-            <p className="text-sm text-fg-muted">{MEDICAL_DISCLAIMER}</p>
+            <p className="text-sm text-ink-2">{NO_EXCLUSION_NOTE}</p>
+            <p className="text-xs text-fg-muted">{MEDICAL_DISCLAIMER}</p>
           </Card>
         ) : (
           <Card className="flex flex-col gap-3">
@@ -182,15 +184,17 @@ export function ProgramScreen() {
                 return (
                   <li key={item.exercise_id} className="flex flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      {name ? <span className="font-semibold text-fg">{name}</span> : null}
+                      {name ? (
+                        <span className="text-base font-semibold text-fg">{name}</span>
+                      ) : null}
                       {areaLabel ? <Badge tone="warn">{areaLabel} 통증</Badge> : null}
                     </div>
-                    {reason ? <p className="text-sm text-fg-muted">{reason}</p> : null}
+                    {reason ? <p className="text-sm text-ink-2">{reason}</p> : null}
                   </li>
                 );
               })}
             </ul>
-            <p className="text-sm text-fg-muted">{MEDICAL_DISCLAIMER}</p>
+            <p className="text-xs text-fg-muted">{MEDICAL_DISCLAIMER}</p>
           </Card>
         )}
       </section>

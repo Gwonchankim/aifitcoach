@@ -73,8 +73,13 @@ export function ExerciseCard({
       <h2 className="min-w-0 text-lg font-bold text-fg">{name}</h2>
 
       <div className="flex items-center gap-2">
+        {/* 카드가 세로로 쌓이면 이 카운터도 같은 자리에 서는 열이다 → 숫자만 모노 + tabular-nums.
+            "세트 완료"는 한글이라 모노를 씌우지 않는다(§4). */}
         <span className="shrink-0 text-sm text-fg-muted">
-          {completedCount}/{sets.length} 세트 완료
+          <span className="font-mono tabular-nums">
+            {completedCount}/{sets.length}
+          </span>{" "}
+          세트 완료
         </span>
 
         {readOnly ? null : (

@@ -82,7 +82,11 @@ export function FinishSheet({
         <p className="text-base text-fg">{question}</p>
 
         {errorText ? (
-          <p role="alert" className="rounded-control bg-danger px-3 py-2 text-sm text-danger-fg">
+          /* 배지와 같은 소프트 어법(면 `*-bg` + 글자 `*` + 1px `*-border`, Badge.tsx). danger 5.61:1. */
+          <p
+            role="alert"
+            className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          >
             {errorText}
           </p>
         ) : null}
@@ -97,7 +101,8 @@ export function FinishSheet({
                 key={score}
                 selected={pain === score}
                 aria-label={`통증 ${score}점`}
-                className="min-w-tap"
+                // 0~10 눈금이라 값은 모노 + tabular-nums 다(§4) — "9"와 "10"이 같은 폭 안에서 흔들리면 안 된다.
+                className="min-w-tap font-mono tabular-nums"
                 onClick={() => setPain(pain === score ? null : score)}
               >
                 {score}
@@ -107,7 +112,9 @@ export function FinishSheet({
         </fieldset>
 
         {pain != null && pain >= PAIN_ALERT_THRESHOLD ? (
-          <div className="flex flex-col gap-2 rounded-control border border-warn bg-surface p-3">
+          // 통증 안내는 warn 소프트 면이다(Badge warn 과 같은 어법). `bg-surface` + 진한 warn 테두리는
+          // 흰 카드 위에서 상태가 아니라 "강조 박스"로 읽힌다. 대비: fg 16.4:1 / fg-muted 5.18:1.
+          <div className="flex flex-col gap-2 rounded-control border border-warn-border bg-warn-bg p-3">
             <p className="text-base font-semibold text-fg">⚠ 통증이 느껴지면 무리하지 마세요</p>
             <p className="text-sm text-fg-muted">
               이 운동을 다른 운동으로 바꾸거나 무게를 줄여 보는 걸 권해요. 다음 추천에도 반영할게요.

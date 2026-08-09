@@ -16,7 +16,7 @@
         },
         {
           "label": "무게 입력",
-          "width": 81,
+          "width": 79,
           "height": 44,
           "y": 267.9375
         },
@@ -143,51 +143,51 @@
         {
           "step": 1,
           "scrolls": false,
-          "buttonTop": 534,
+          "buttonTop": 526,
           "gapAbove": 36,
-          "gapBelow": 54
+          "gapBelow": 62
         },
         {
           "step": 2,
           "scrolls": false,
-          "buttonTop": 470,
+          "buttonTop": 462,
           "gapAbove": 154,
-          "gapBelow": 118
+          "gapBelow": 126
         },
         {
           "step": 3,
           "scrolls": false,
-          "buttonTop": 470,
+          "buttonTop": 462,
           "gapAbove": 251,
-          "gapBelow": 118
+          "gapBelow": 126
         },
         {
           "step": 4,
           "scrolls": false,
-          "buttonTop": 470,
-          "gapAbove": 303,
-          "gapBelow": 118
+          "buttonTop": 462,
+          "gapAbove": 251,
+          "gapBelow": 126
         },
         {
           "step": 5,
           "scrolls": false,
-          "buttonTop": 470,
+          "buttonTop": 462,
           "gapAbove": 122,
-          "gapBelow": 118
+          "gapBelow": 126
         },
         {
           "step": 6,
           "scrolls": false,
-          "buttonTop": 470,
+          "buttonTop": 462,
           "gapAbove": 251,
-          "gapBelow": 118
+          "gapBelow": 126
         },
         {
           "step": 7,
           "scrolls": false,
-          "buttonTop": 470,
+          "buttonTop": 462,
           "gapAbove": 47,
-          "gapBelow": 118
+          "gapBelow": 126
         }
       ]
     },

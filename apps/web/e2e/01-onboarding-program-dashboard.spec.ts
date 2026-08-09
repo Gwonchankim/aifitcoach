@@ -105,7 +105,7 @@ test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {
       }),
     );
     await page.goto("/");
-    await expect(page.getByText("운동 계획을 먼저 만들어 주세요.")).toBeVisible();
+    await expect(page.getByText("아직 운동 계획이 없어요")).toBeVisible();
     await expect(page.getByRole("link", { name: "계획 만들기" })).toBeVisible();
     await shot(page, "04-dashboard-empty-no-program");
   });

@@ -305,7 +305,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
           {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
           {finishedToday ? (
-            <div className="flex flex-col gap-1 rounded-control bg-raised px-3 py-2">
+            /* "지금 편집 모드"를 알리는 면이라 primary 소프트로 둔다(§2.3 파랑 = 지금·계획과 다름).
+               `bg-raised` 단독은 페이지 `bg` 와 1.05:1 이라 상자가 사실상 안 보였다 —
+               면을 만드는 건 1px 테두리다(Badge.tsx). 대비: fg 15:1 / fg-muted 5.03:1. */
+            <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
               <p className="text-sm text-fg">
                 이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
               </p>
@@ -329,7 +332,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         ) : null}
 
         {editError ? (
-          <p role="alert" className="rounded-control bg-danger px-3 py-2 text-sm text-danger-fg">
+          /* 배지와 같은 소프트 어법(면 `*-bg` + 글자 `*` + 1px `*-border`, Badge.tsx). danger 5.61:1. */
+          <p
+            role="alert"
+            className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          >
             {editError}
           </p>
         ) : null}

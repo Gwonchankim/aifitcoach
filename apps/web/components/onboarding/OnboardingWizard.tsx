@@ -11,7 +11,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Card } from "../ui";
+import { Button, Card, Kicker } from "../ui";
 // index.ts 에 아직 없어 직접 경로로 가져온다(design 에 export 추가를 요청해 뒀다).
 import { ActionBar } from "../ui/ActionBar";
 import {
@@ -139,10 +139,11 @@ export function OnboardingWizard() {
     return (
       <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-4 p-4">
         <h1 className="text-2xl font-bold text-fg">이어서 진행할게요.</h1>
-        <p className="text-fg-muted">지난번에 입력하신 내용을 그대로 두었어요.</p>
+        {/* 설명 문단은 `ink-2`(DESIGN_TOKENS §2.1) — `muted` 는 캡션·라벨 자리다. */}
+        <p className="text-sm text-ink-2">지난번에 입력하신 내용을 그대로 두었어요.</p>
         {/* 통증 부위는 저장하지 않으므로(민감정보) 마지막 스텝으로 돌아오면 다시 골라야 한다. */}
         {resumeFrom === STEP_COUNT - 1 ? (
-          <p className="text-fg-muted">통증 부위는 저장하지 않아서 다시 골라 주세요.</p>
+          <p className="text-sm text-ink-2">통증 부위는 저장하지 않아서 다시 골라 주세요.</p>
         ) : null}
         <div className="flex flex-col gap-2">
           <Button
@@ -186,9 +187,12 @@ export function OnboardingWizard() {
   */
   return (
     <div className="mx-auto w-full max-w-md p-4">
-      <p className="text-sm font-medium text-fg-muted" aria-hidden="true">
+      {/* 화면 상단의 진행 표시 = 숫자만 있는 섹션 키커다(DESIGN_TOKENS §4, 10.5px·.18em).
+          한글이 아니라 모노 글리프가 다 있고, `.font-mono` 가 tabular-nums 를 함께 켠다.
+          스크린리더에는 h1 의 sr-only 문구("N단계 중 M단계")가 이미 있어 여기는 계속 숨긴다. */}
+      <Kicker as="p" className="text-kicker-lg" aria-hidden="true">
         {step + 1}/{STEP_COUNT}
-      </p>
+      </Kicker>
       <h1
         ref={headingRef}
         tabIndex={-1}
@@ -204,8 +208,12 @@ export function OnboardingWizard() {
         <StepComponent draft={draft} onChange={patch} />
       </div>
 
+      {/* 상태 면은 Phase B 배지와 같은 소프트 어법이다 — 면 `danger-bg` + 1px `danger` 테두리.
+          `cn` 이 단순 연결이라 우선순위는 컴파일된 CSS 순서로 갈린다(`.bg-danger-bg` 가 `.bg-surface`
+          보다 앞이라 그냥 쓰면 진다) → 호출부가 확실히 이기도록 `!` 를 붙인다.
+          본문 글자는 문장이라 `fg` 를 유지한다(danger-bg 위 15.87:1). */}
       {submitError ? (
-        <Card role="alert" tone="raised" className="mt-4 border-danger">
+        <Card role="alert" className="mt-4 border-danger bg-danger-bg!">
           <p className="text-sm text-fg">{submitError}</p>
         </Card>
       ) : null}
@@ -235,7 +243,7 @@ export function OnboardingWizard() {
           className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-bg px-6 text-center"
         >
           <p className="text-xl font-bold text-fg">운동 계획을 만들고 있어요.</p>
-          <p className="text-fg-muted">잠시만요.</p>
+          <p className="text-sm text-ink-2">잠시만요.</p>
         </div>
       ) : null}
     </div>

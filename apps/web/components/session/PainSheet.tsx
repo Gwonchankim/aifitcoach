@@ -88,7 +88,9 @@ export function PainSheet({
         </div>
 
         {needsGuidance ? (
-          <div className="flex flex-col gap-3 rounded-control border border-warn bg-surface p-3">
+          // 통증 안내는 warn 소프트 면이다(Badge warn 과 같은 어법). `bg-surface` + 진한 warn 테두리는
+          // 흰 카드 위에서 상태가 아니라 "강조 박스"로 읽힌다. 대비: fg 16.4:1 / fg-muted 5.18:1.
+          <div className="flex flex-col gap-3 rounded-control border border-warn-border bg-warn-bg p-3">
             <p className="text-base font-semibold text-fg">⚠ 통증이 느껴지면 무리하지 마세요</p>
             <p className="text-sm text-fg-muted">
               이 운동을 다른 운동으로 바꾸거나 무게를 줄여 보는 걸 권해요.

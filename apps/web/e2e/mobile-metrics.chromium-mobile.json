@@ -143,51 +143,51 @@
         {
           "step": 1,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 68,
-          "gapBelow": 206
+          "gapBelow": 214
         },
         {
           "step": 2,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 250,
-          "gapBelow": 206
+          "gapBelow": 214
         },
         {
           "step": 3,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 346,
-          "gapBelow": 206
+          "gapBelow": 214
         },
         {
           "step": 4,
           "scrolls": false,
-          "buttonTop": 566,
-          "gapAbove": 398,
-          "gapBelow": 206
+          "buttonTop": 558,
+          "gapAbove": 346,
+          "gapBelow": 214
         },
         {
           "step": 5,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 217,
-          "gapBelow": 206
+          "gapBelow": 214
         },
         {
           "step": 6,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 346,
-          "gapBelow": 206
+          "gapBelow": 214
         },
         {
           "step": 7,
           "scrolls": false,
-          "buttonTop": 566,
+          "buttonTop": 558,
           "gapAbove": 142,
-          "gapBelow": 206
+          "gapBelow": 214
         }
       ]
     },

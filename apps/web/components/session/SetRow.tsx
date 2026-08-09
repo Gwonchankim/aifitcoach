@@ -210,8 +210,13 @@ export function SetRow({
     onComplete(resolved);
   };
 
-  const setNo = (
-    <span className="shrink-0 text-sm font-semibold text-fg tabular-nums">
+  /*
+    세트 번호는 행마다 같은 자리에 서는 **열**이라 모노 + tabular-nums 다(DESIGN_TOKENS §4) —
+    9 → 10 으로 자릿수가 늘어도 오른쪽 입력칸이 밀리지 않는다.
+    완료 행에서는 색을 `done-fg`(보조 글자)로 낮춘다 — 최강조로 남길 것은 기록값뿐이다(ADR-41).
+  */
+  const setNo = (tone: string) => (
+    <span className={cn("shrink-0 font-mono text-sm font-semibold tabular-nums", tone)}>
       {set.set_no}
       <span className="sr-only">세트</span>
     </span>
@@ -242,16 +247,24 @@ export function SetRow({
   if (readOnly) {
     const recorded = draft ? recordLabel(draft) : null;
     return (
-      <li className="flex flex-wrap items-center gap-2 rounded-control border border-border bg-bg p-3">
-        <span className="shrink-0 text-sm font-semibold text-fg tabular-nums">
-          {set.set_no}세트
+      <li
+        className={cn(
+          "flex flex-wrap items-center gap-2 rounded-control border p-3",
+          // 읽기 전용 화면에서도 완료 구분은 완료 전용 토큰으로 한다(ADR-41: opacity 금지).
+          completed ? "border-done-border bg-done" : "border-border bg-bg",
+        )}
+      >
+        <span className="shrink-0 text-sm font-semibold text-fg">
+          {/* "세트"는 한글이라 모노를 씌우지 않는다(JetBrains Mono 에 한글 글리프가 없다, §4). */}
+          <span className="font-mono tabular-nums">{set.set_no}</span>세트
         </span>
         {completed ? (
           <Badge tone="success" density="compact" className="shrink-0">
             ✓ 완료
           </Badge>
         ) : null}
-        <span className="min-w-0 text-sm text-fg-muted">
+        {/* 기록값 본문은 흐리지 않는다(ADR-41). 기록이 없을 때의 안내 문구만 보조색이다. */}
+        <span className={cn("min-w-0 text-sm", recorded ? "text-fg" : "text-fg-muted")}>
           {recorded ? `기록 ${recorded}` : "종료한 운동이라 입력할 수 없어요."}
         </span>
       </li>
@@ -285,7 +298,7 @@ export function SetRow({
             "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
           )}
         >
-          {setNo}
+          {setNo("text-done-fg")}
           <Badge tone="success" density="compact" className="shrink-0">
             ✓ 완료
           </Badge>
@@ -328,7 +341,7 @@ export function SetRow({
             onClick={onToggleExpand}
             className={cn(
               "flex min-h-tap w-6 shrink-0 items-center justify-center rounded-control",
-              "text-sm font-semibold text-fg tabular-nums",
+              "font-mono text-sm font-semibold tabular-nums text-fg",
               "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
               "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
             )}
@@ -336,7 +349,7 @@ export function SetRow({
             {set.set_no}
           </button>
         ) : (
-          setNo
+          setNo("text-fg")
         )}
         {kind === "time" ? (
           <Input

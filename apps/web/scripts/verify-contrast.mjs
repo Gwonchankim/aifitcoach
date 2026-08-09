@@ -164,6 +164,20 @@ const COMBOS = [
   { fg: "success", bg: "success-bg", use: "완료 강조", src: "§3.1.1 / ADR-51 (4.54 — 여유 0.04)" },
   { fg: "warn-ink", bg: "warn-bg", use: "소프트 통증 배지", src: "§3.1.1 (b) (5.14)" },
   { fg: "primary", bg: "primary-bg", use: "소프트 강조 배지", src: "§2.2 primary 역할 쌍" },
+  // Sprint 3 이 세션 화면에서 실제로 만든 조합(안내 카드 본문이 muted 다). 5.26 / 5.10 으로 통과하지만
+  // 표에 없으면 나중에 배경을 조정할 때 조용히 깨진다 — 화면에 존재하는 조합은 전부 표에 있어야 한다.
+  {
+    fg: "fg-muted",
+    bg: "warn-bg",
+    use: "통증·종료 안내 카드 본문",
+    src: "session/PainSheet·FinishSheet",
+  },
+  {
+    fg: "fg-muted",
+    bg: "primary-bg",
+    use: "편집 모드 안내 카드 본문",
+    src: "session/SessionScreen",
+  },
   { fg: "danger", bg: "danger-bg", use: "소프트 위험 배지", src: "§2.2 danger 역할 쌍" },
 ];
 
