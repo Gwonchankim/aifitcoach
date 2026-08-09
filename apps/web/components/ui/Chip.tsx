@@ -16,7 +16,7 @@ export function Chip({ selected = false, className, ...props }: ChipProps) {
       aria-pressed={selected}
       className={cn(
         "inline-flex min-h-tap touch-manipulation items-center justify-center gap-1.5",
-        "rounded-full border px-4 text-sm font-medium transition-colors",
+        "rounded-control border px-4 text-sm font-medium transition-colors",
         "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "disabled:pointer-events-none disabled:border-transparent disabled:bg-disabled",

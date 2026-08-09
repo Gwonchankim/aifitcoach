@@ -44,7 +44,7 @@ export function Badge({ tone = "neutral", density = "default", className, ...pro
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full text-xs font-semibold",
+        "inline-flex items-center gap-1 rounded-control text-xs font-semibold",
         densityClass[density],
         toneClass[tone],
         className,

@@ -42,10 +42,14 @@ function luminance([r, g, b]) {
   return 0.2126 * R + 0.7152 * G + 0.0722 * B;
 }
 
-/** 소수 2자리로 반올림해서 돌려준다 — 출력값과 판정이 어긋나지 않게 같은 수를 쓴다. */
+/**
+ * **반올림하지 않는다.** 판정은 원값으로 한다 — 소수 2자리로 반올림하면 4.495~4.4999 가 4.50 으로 보여
+ * 통과한다(실측: `success-bg #EEF7F1` → 4.4993 이 통과했다). 기준선 바로 아래를 놓치면 가드가 아니다.
+ * 출력만 `toFixed(2)` 로 줄인다.
+ */
 function contrast(fgHex, bgHex) {
   const [l1, l2] = [luminance(fgHex), luminance(bgHex)].sort((a, b) => b - a);
-  return Math.round(((l1 + 0.05) / (l2 + 0.05)) * 100) / 100;
+  return (l1 + 0.05) / (l2 + 0.05);
 }
 
 /* ==========================================================================
@@ -59,7 +63,8 @@ const SELF_TESTS = [
 ];
 
 for (const { fg, bg, expect, note } of SELF_TESTS) {
-  const got = contrast(parseHex(fg), parseHex(bg));
+  // 판정은 원값으로 하므로(위 contrast 주석) 자가검증은 소수 2자리로 맞춰 비교한다.
+  const got = Math.round(contrast(parseHex(fg), parseHex(bg)) * 100) / 100;
   if (got !== expect) {
     console.error(
       `계산기 자가검증 실패: ${fg} on ${bg} = ${got.toFixed(2)} (기대 ${expect.toFixed(2)}) — ${note}\n` +
@@ -216,10 +221,13 @@ if (failures.length) {
     `대비 미달 ${failures.length}건 (텍스트 기준 ${TEXT_AA.toFixed(1)}:1) — app/globals.css\n`,
   );
   for (const { combo, ratio, fgHex, bgHex } of failures) {
-    const short = ratio.toFixed(2);
+    // 기준선 바로 아래(4.49x)는 2자리로 찍으면 "4.50 — 0.00 모자란다" 가 돼 읽는 사람이 혼란스럽다.
+    // 부족분이 0.01 미만이면 자릿수를 늘려 실제로 모자란다는 걸 보인다.
+    const gap = TEXT_AA - ratio;
+    const digits = gap < 0.01 ? 4 : 2;
     console.error(`  text-${combo.fg} (${fgHex})  on  bg-${combo.bg} (${bgHex})`);
     console.error(
-      `      ${short}:1 — ${(TEXT_AA - ratio).toFixed(2)} 모자란다 (필요: ${TEXT_AA.toFixed(2)}:1 이상)`,
+      `      ${ratio.toFixed(digits)}:1 — ${gap.toFixed(digits)} 모자란다 (필요: ${TEXT_AA.toFixed(2)}:1 이상)`,
     );
     console.error(`      용례: ${combo.use}   근거: ${combo.src}`);
   }

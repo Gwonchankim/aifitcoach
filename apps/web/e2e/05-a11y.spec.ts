@@ -74,6 +74,24 @@ test("S3 대시보드", async ({ page }) => {
   await scan(page, "S3-dashboard");
 });
 
+/**
+ * **빈 상태도 스캔한다.** 위 S3 은 beforeAll 이 프로그램을 시드해 둔 뒤라 **채워진** 대시보드만 본다 —
+ * M-UIa 가 새로 만든 빈 상태는 지금까지 axe 대상 밖이었다.
+ * 완료 세트가 0개인 상태만 스캔하다 완료 행 대비 위반(4.01:1)을 놓친 적이 있다(CLAUDE.md 함정 5).
+ */
+test("S3 대시보드 · 프로그램 없음(빈 상태)", async ({ page }) => {
+  await page.route("**/v1/programs/current", (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "NOT_FOUND", message: "생성된 프로그램이 없다." } }),
+    }),
+  );
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "만들고 나면" })).toBeVisible();
+  await scan(page, "S3-dashboard-empty");
+});
+
 test("S4 루틴 · 타이머 팝업 · 편집 팝업(열린 상태)", async ({ page }) => {
   await openSession(page, sessionId);
   await scan(page, "S4-routine");

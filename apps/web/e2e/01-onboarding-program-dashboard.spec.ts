@@ -95,7 +95,14 @@ test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {
     await shot(page, "03-dashboard-workout");
   });
 
-  test("계획이 없으면 온보딩 카드만 보인다(빈 상태)", async ({ page }) => {
+  /**
+   * 빈 상태는 M-UIa 가 **새로 만든 유일한 화면**인데, 처음에는 제목 한 줄만 단언하고 있었다.
+   * "만들고 나면" 3단·`세 세션`·자물쇠 부재를 아무도 지키지 않으면 조용히 사라진다
+   * (함정 5: 완료 세트 0개 상태만 스캔하던 axe 와 같은 유형).
+   */
+  test("계획이 없으면 빈 상태가 '아직 없음 + 언제 생기는지 + 지금 할 수 있는 것'을 말한다", async ({
+    page,
+  }) => {
     // 실서버에는 프로그램이 있으므로 404 응답만 갈아끼워 빈 상태를 재현한다.
     await page.route("**/v1/programs/current", (route) =>
       route.fulfill({
@@ -105,8 +112,32 @@ test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {
       }),
     );
     await page.goto("/");
+
+    // ① 아직 없음
     await expect(page.getByText("아직 운동 계획이 없어요")).toBeVisible();
+    // ③ 지금 할 수 있는 것
     await expect(page.getByRole("link", { name: "계획 만들기" })).toBeVisible();
+
+    // ② 언제 생기는지 — 3단 안내
+    await expect(page.getByRole("heading", { name: "만들고 나면" })).toBeVisible();
+    const body = (await page.locator("body").innerText()).replace(/\s+/g, " ");
+    for (const line of [
+      "요일마다 할 종목과 세트가 이 자리에 뜹니다.",
+      "세 세션이 쌓이면 무게 추천과 추정 1RM이 나타납니다.",
+      "주간 리듬과 근육군별 볼륨이 여기 아래로 붙습니다.",
+    ]) {
+      expect(body, `빈 상태 3단 안내: ${line}`).toContain(line);
+    }
+    // 단위는 **세션**이다(ADR-47). "세 세트"로 새면 게이트 정책 자체가 어긋난다.
+    expect(body, "게이트 단위는 세션이다 — '세 세트'가 아니다").not.toContain("세 세트");
+
+    // 게이트는 잠금이 아니다 — 자물쇠·업그레이드 유도를 쓰지 않는다(REDESIGN_IMPACT §5 D-1).
+    for (const forbidden of ["잠금", "잠겨", "🔒", "업그레이드", "Pro로", "구독"]) {
+      expect(body, `빈 상태에 ${forbidden} 유도가 있으면 안 된다`).not.toContain(forbidden);
+    }
+    // 백엔드 선행이 필요한 진입로는 넣지 않는다(D-1: 아예 뺀다).
+    expect(body, "'한 종목만 기록' 진입로는 UIa 범위가 아니다").not.toContain("한 종목만");
+
     await shot(page, "04-dashboard-empty-no-program");
   });
 

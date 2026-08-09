@@ -39,9 +39,29 @@ if (command === "snapshot") {
     fs.copyFileSync(file, path.join(STORE, key));
     console.log(`저장  ${sha(file).slice(0, 12)}  ${key}`);
   }
+} else if (command === "clear") {
+  if (fs.existsSync(STORE)) fs.rmSync(STORE, { recursive: true, force: true });
+  console.log("스냅샷을 비웠다.");
 } else if (command === "restore" || command === "verify") {
   if (!fs.existsSync(STORE)) throw new Error(`스냅샷이 없다: ${STORE}`);
-  const keys = files.length ? files.map(keyFor) : fs.readdirSync(STORE);
+  /**
+   * **인자 없는 `restore` 는 막는다.** 스냅샷은 오래 남는데 파일은 그 사이에 정상적으로 바뀐다 —
+   * 실제로 Phase C 이후 `verify-contrast.mjs` 의 옛 스냅샷(27조합)이 남아 있었고, 그걸 전량 원복하면
+   * 대비 표가 29→27 로 **조용히 롤백**됐다(게이트 무언 약화). 되돌릴 파일을 항상 명시하게 한다.
+   * 정말 전부 되돌리려면 `--all` 을 붙인다.
+   */
+  const all = files.includes("--all");
+  const targets = files.filter((f) => f !== "--all");
+  if (command === "restore" && !targets.length && !all) {
+    console.error(
+      "되돌릴 파일을 지정해라. 스냅샷에 오래된 항목이 섞여 있으면 전량 원복이 정상 변경을 되돌린다.\n" +
+        `  현재 스냅샷: ${fs.readdirSync(STORE).join(", ") || "(비어 있음)"}\n` +
+        "  전부 되돌리려면: node scripts/mutate.mjs restore --all\n" +
+        "  다 쓴 스냅샷을 비우려면: node scripts/mutate.mjs clear",
+    );
+    process.exit(1);
+  }
+  const keys = targets.length ? targets.map(keyFor) : fs.readdirSync(STORE);
   let mismatched = 0;
   for (const key of keys) {
     const saved = path.join(STORE, key);
@@ -61,6 +81,9 @@ if (command === "snapshot") {
     process.exit(1);
   }
 } else {
-  console.error("사용법: node scripts/mutate.mjs <snapshot|restore|verify> [file...]");
+  console.error(
+    "사용법: node scripts/mutate.mjs <snapshot|restore|verify|clear> [file...]\n" +
+      "  restore 는 파일을 명시해야 한다(전부 되돌리려면 --all).",
+  );
   process.exit(1);
 }
