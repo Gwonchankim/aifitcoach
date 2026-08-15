@@ -348,13 +348,13 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 ## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 STEP 6 완료 시점)
 
-> **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-09.md` 에 있다. 그걸 먼저 읽어라.**
-> master `c7bbe33` 기반 작업 · STEP 6 Sprint 0~5 완료, D-31 routine correlation mapping으로 C-4 해소.
+> **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-10.md` 에 있다. 그걸 먼저 읽어라.**
+> STEP 6 기술 커밋 `b3148e5` 완료·`origin/master` 동기화·[CI 31896676785](https://github.com/Gwonchankim/aifitcoach/actions/runs/31896676785) green. D-31 routine correlation mapping으로 C-4 해소.
 > 최신 통합 게이트: shared 81 · web 270 · api 256 · **E2E 64/64** · `06-mobile` 14/14 · axe 20화면 0 · S1 soak 20/20 · verify:contrast 30조합.
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → **M-4′ (다음)** → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → **실기기 워크스루 재실행(내일 최우선) 또는 M-4′** → M-7′
 
 ### M-UIb 진입 조건
 
@@ -594,6 +594,14 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 | **합계** | **100** | **98** | **PASS — STEP 6 완료, 프로젝트 총점 70 상한 해제** |
 
 핵심 루프 `기록 → 서버 performed_set → 세션 완료 추천 재계산`은 더 이상 fixture 직접 seed에 의존하지 않는다. 완료 판정의 유일한 비차단 잔여는 실제 iOS HTTPS 설치 PWA의 OS 수준 강제종료 walkthrough이며, 자동화된 WebKit 행렬을 통과 대신 대체 증거로 과장하지 않는다.
+
+### ✅ 세션 종료 체크포인트 (2026-08-16 01:59 KST)
+
+- STEP 6 기술 커밋 `b3148e5`를 `origin/master`로 push했고 [GitHub Actions CI 31896676785](https://github.com/Gwonchankim/aifitcoach/actions/runs/31896676785)가 pnpm 설치부터 Chromium/WebKit 전체 E2E까지 **SUCCESS**로 끝났다.
+- 커밋 직전 최종 재실행은 contract **31/31**, shared **81**, web **270**, api **256**, E2E **64/64**, `06-mobile` Chromium **7/7** + WebKit **7/7**, axe **20/0**, S1 soak **20/20**으로 위 완료 수치와 일치했다.
+- Docker PostgreSQL 16(healthy)·Redis 7(running), `afc`·`afc_test`·`afc_e2e` 모두 9개 migration 적용 완료를 확인했다.
+- 상세 인계와 내일 순서형 체크리스트는 `docs/SESSION_CHECKPOINT_2026-08-10.md`에 기록했다. 내일 최우선 권고는 **실기기 설치 PWA의 기록→강제종료→오프라인 재개→재동기화→추천 종단 워크스루 재실행**이다.
+- 세션 종료 시점 roadmap: `[STEP 6 ✅] → 실기기 워크스루 또는 M-4′ → M-7′`.
 
 ---
 
