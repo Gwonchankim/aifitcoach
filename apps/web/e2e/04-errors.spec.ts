@@ -213,9 +213,68 @@ test.describe("500 / 오프라인", () => {
     await shot(page, "37-offline-dashboard");
   });
 
+  test("방문한 Pretendard 슬라이스는 서비스워커에서 오프라인 로드된다", async ({
+    page,
+    context,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise<void>((resolve) =>
+          navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
+            once: true,
+          }),
+        );
+      }
+    });
+
+    // 첫 요청은 SW 설치보다 빠를 수 있다. 제어권을 얻은 뒤 한 번 더 렌더해 runtime cache를 채운다.
+    await page.reload();
+    await page.evaluate(() => document.fonts.ready);
+
+    const cachedPretendardUrl = await page.evaluate(async () => {
+      const variableUrls = new Set<string>();
+      for (const sheet of document.styleSheets) {
+        for (const rule of Array.from(sheet.cssRules)) {
+          if (!(rule instanceof CSSFontFaceRule)) continue;
+          if (!rule.style.getPropertyValue("font-family").includes("Pretendard Variable")) continue;
+          const url = rule.cssText.match(/url\(["']?([^"')]+\.woff2)/)?.[1];
+          if (url) variableUrls.add(new URL(url, location.href).href);
+        }
+      }
+      const cache = await caches.open("afc-fonts-v1");
+      const cached = (await cache.keys()).map((request) => request.url);
+      return cached.find((url) => variableUrls.has(url)) ?? null;
+    });
+    expect(cachedPretendardUrl, "Pretendard 슬라이스가 SW cache에 있어야 한다").not.toBeNull();
+
+    // HTTP 캐시를 지워도 CacheStorage가 남는 조건에서 실제 FontFace 로더가 SW 응답을 받는지 확인한다.
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Network.enable");
+    await cdp.send("Network.clearBrowserCache");
+    await context.setOffline(true);
+    try {
+      const probeUrl = `${cachedPretendardUrl}?offline-font-probe=1`;
+      const responsePromise = page.waitForResponse((response) => response.url() === probeUrl);
+      const status = await page.evaluate(async (url) => {
+        const face = new FontFace("Offline Pretendard Probe", `url("${url}") format("woff2")`);
+        document.fonts.add(face);
+        await face.load();
+        return face.status;
+      }, probeUrl);
+      const response = await responsePromise;
+      expect(status).toBe("loaded");
+      expect(response.ok()).toBe(true);
+      expect(response.fromServiceWorker()).toBe(true);
+    } finally {
+      await context.setOffline(false);
+    }
+  });
+
   /**
-   * 결함 D-2 재현: 서비스 워커가 등록되지 않아(next.config.mjs 에 @serwist/next 미연결,
-   * public/manifest 없음) 오프라인 상태에서 새로고침하면 앱 셸조차 뜨지 않는다.
+   * 결함 D-2 재현: T-UI-2의 서비스 워커는 폰트 runtime cache만 소유한다.
+   * 앱 셸 precache는 STEP 6 범위이므로 오프라인 새로고침에서는 아직 앱이 뜨지 않는다.
    * UX_STATES §2.3 "오프라인 · 캐시 있음" 상태로 갈 수 없다.
    * PWA 가 붙으면 이 테스트는 "예상치 못한 통과"로 뒤집혀 갱신을 강제한다.
    */
@@ -223,7 +282,7 @@ test.describe("500 / 오프라인", () => {
     page,
     context,
   }) => {
-    test.fail(true, "결함 D-2: 서비스 워커 미등록");
+    test.fail(true, "결함 D-2: 앱 셸 precache 미구현");
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
     await context.setOffline(true);

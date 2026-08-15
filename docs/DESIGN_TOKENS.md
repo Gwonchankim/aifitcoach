@@ -213,7 +213,8 @@ D-1 승인 보정(`success #198146`, warn 텍스트는 `warn-ink #8A6100`)을 �
 
 **폰트 조달**: 프로토타입은 `fonts.googleapis.com` 을 참조한다. 이 앱은 **PWA·오프라인이 전제**라
 외부 CDN 의존은 헬스장 네트워크에서 숫자가 폴백 폰트로 흔들린다는 뜻이다. **셀프호스팅(woff2 subset)** 이 맞다.
-Pretendard 도 동일. → M-UI 작업 항목.
+Pretendard는 **1.3.9 공식 Variable Dynamic Subset 92 WOFF2**를 셀프호스팅하고 폰트 전용 서비스워커
+runtime cache로 오프라인 로딩한다(ADR-54). 앱 셸·API 캐시는 STEP 6에서 다룬다.
 
 ---
 

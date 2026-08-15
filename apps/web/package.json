@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify:no-test-seed": "node scripts/verify-no-test-seed.mjs",
-    "verify:contrast": "node scripts/verify-contrast.mjs"
+    "verify:contrast": "node scripts/verify-contrast.mjs",
+    "verify:font-payload": "node scripts/verify-font-payload.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",

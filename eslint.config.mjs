@@ -20,6 +20,9 @@ export default tseslint.config(
       "apps/web/e2e/.artifacts/**",
       "apps/web/e2e/.report/**",
       "apps/web/e2e/lighthouse/**",
+      // Serwist가 app/sw.ts에서 생성하는 배포 산출물. 소스만 lint한다.
+      "apps/web/public/sw.js",
+      "apps/web/public/sw.js.map",
     ],
   },
   js.configs.recommended,

@@ -10,7 +10,7 @@
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
-| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** — **M-UIa 개발·평가 완료**(71/100, fix-now 7건 처리). UIb 전 T-UI-1 완료, T-UI-2 결정 대기 | 69.5 → 70.0 · M-UIa **71** | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
+| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** — **M-UIa 개발·평가 완료**(71/100, fix-now 7건 처리). UIb 선행 T-UI-1·T-UI-2 완료 | 69.5 → 70.0 · M-UIa **71** | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
@@ -355,8 +355,8 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 ### 로드맵 현재 위치
 
 ```
-[테스트 격리 + E2E 요일] ✅  →  M-UIa ✅  →  [T-UI-1 · T-UI-2 선행]  ← 지금 여기
-   →  M-UIb  →  STEP 6(오프라인 동기화)  →  M-4′(기록·프로그램 탭)  →  M-7′(페이월·구독)
+[테스트 격리 + E2E 요일] ✅  →  M-UIa ✅  →  T-UI-1 ✅  →  T-UI-2 ✅
+   →  [M-UIb]  ← 다음  →  STEP 6(오프라인 동기화)  →  M-4′(기록·프로그램 탭)  →  M-7′(페이월·구독)
 ```
 
 ### 🔴 M-UIb 착수 전 선행 3건
@@ -364,7 +364,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 | # | 티켓 | 상태 |
 | --- | --- | --- |
 | **T-UI-1** | `cn` → tailwind-merge (횡단 변경이라 UIb 와 단독 커밋으로 분리) | **✅ 완료 (2026-08-15)** |
-| **T-UI-2** | 폰트 페이로드 — **성능 100 → 92 실측 회귀**. Pretendard 4웨이트 1,051KB. 해법 ①동적 서브셋(정공법) ②웨이트 축소(충실도 상충) | 착수 대기 · 해법 선택 시 오너 확인 필요 |
+| **T-UI-2** | 폰트 페이로드 — **성능 100 → 92 실측 회귀**. Pretendard 4웨이트 1,051KB → 공식 Variable Dynamic Subset | **✅ 완료 (2026-08-15, ①-V 오너 결정)** |
 | **F14** | 한글 키커 대체 어법 — 프로토타입 키커 139회 vs 구현 3곳. 9.5px 모노를 한글에 못 쓴다 | **🟠 오너 결정 대기** (design 협업) |
 
 ---
@@ -378,6 +378,19 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - 런타임 병합 비용으로 Next 빌드의 페이지별 First Load JS가 약 **8~9kB 증가**했다(`/` 127→135kB, onboarding 117→125kB, program 122→131kB, session 139→148kB). T-UI-2 Lighthouse 재측정은 이 커밋 이후 기준선으로 한다.
 - 게이트: typecheck·lint·format:check·build·test green(shared 79 / web 225 / api 237), `verify:no-test-seed`, `verify:contrast` 30/30, E2E **55/55**, `06-mobile` Chromium+WebKit 12/12, axe 19화면 위반 0.
 - 기준선 재현 중 테스트 하네스의 기존 시계 의존을 발견했다: `04-errors.spec.ts` 한 곳이 고정 브라우저 시계 대신 호스트 `Date.now() - 1일`을 써서 호스트 날짜 2026-08-15에 기본 `TEST_TODAY=2026-08-14`와 충돌했다. T-UI-1과 섞지 않고 `AFC_TEST_TODAY=2026-08-21`로 동일 금요일 계약을 재검증했다.
+
+---
+
+### ✅ T-UI-2 — Pretendard Variable Dynamic Subset (2026-08-15)
+
+- 오너 결정 **①-V**에 따라 Pretendard **1.3.9 공식 Variable Dynamic Subset 92 WOFF2**를 셀프호스팅했다(공급 압축본 SHA-512 검증). 기존 정적 4웨이트 1,074,956B는 제거했고, 92개 전체 자산은 2,957,724B지만 `unicode-range`에 따라 대시보드가 실제 받는 Pretendard는 **11요청·303,896B 전송(300,596B 리소스)**이다. CDN 요청은 0이다.
+- `next/font/local` 대신 공급자의 `@font-face` CSS를 직접 사용하고, Next가 종전에 생성하던 폴백 보정을 동일 수치로 수동 고정했다: Arial local fallback, `ascent-override: 93.76%`, `descent-override: 23.75%`, `line-gap-override: 0%`, `size-adjust: 101.55%`(ADR-54).
+- 폰트 응답만 소유하는 Serwist `CacheFirst` runtime cache(`afc-fonts-v1`)를 연결했다. 앱 셸·API·동기화 캐시는 앞당기지 않아 STEP 6의 D-2 expected-fail 계약은 유지한다. HTTP cache를 비운 뒤 네트워크를 끊고 `FontFace.load()`가 실제 `response.fromServiceWorker() === true`인 것을 E2E로 고정했다.
+- 브라우저 실측: Chromium·WebKit에서 400/500/600/700 가변 웨이트를 모두 로드·렌더했다. 폰트 로딩을 500ms 지연한 전/후 캡처는 글리프 픽셀은 바뀌되 h1/h2 폭·높이와 main 높이 차이 **0**, 관측 CLS **0**이었다.
+- Lighthouse **13.4.1**, 동일 empty-dashboard fixture, 프로덕션 빌드, cold cache, desktop 3회: 성능 **100 / 100 / 99**, 중앙값 **100**(92→100 회복). 중앙값 FCP **496.5ms**, LCP **795.1ms**, TBT **0ms**, CLS **0**, 전체 전송 **512,983B**. 3회 폰트 전송량은 모두 동일했고 3회차 99는 LCP 833.1ms의 단발 변동이다.
+- 재측정 절차: 동일 run-scoped empty-dashboard 사용자를 준비해 `/v1/dashboard` 200을 확인하고, `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/v1`로 production build/start한다. 매 회 새 Chrome profile(HTTP·CacheStorage가 비어 있는 cold cache)로 `pnpm --filter web exec lighthouse http://localhost:3000 --preset=desktop --only-categories=performance --output=json`을 **3번 별도 실행**한 뒤 중앙값을 취한다. JSON의 FCP/LCP/TBT/CLS, `network-requests`의 Font 수·transfer/resource bytes, 전체 bytes와 dashboard 200 응답을 함께 기록한다.
+- 회귀 게이트 `verify:font-payload`: 정확히 92 faces/URLs와 자산 합계 **2,957,724B**, CSS ≤60,000B, 로컬 URL·가변축·`font-display: swap`·unicode-range·수동 폴백 수치·구 정적 4파일 부재를 CI에서 검사한다.
+- 게이트: typecheck·lint·format:check·build·test green(shared 79 / web 225 / api 237), `verify:no-test-seed`, `verify:contrast` 30/30, `verify:font-payload`, E2E **58/58**, axe 19화면 위반 0.
 
 ---
 

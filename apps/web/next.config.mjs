@@ -1,3 +1,7 @@
+import withSerwistInit from "@serwist/next";
+
+/* global process */
+
 /**
  * 실기기(HTTPS) 검증용 API 프록시 — ADR-43.
  *
@@ -19,4 +23,16 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const withSerwist = withSerwistInit({
+  swSrc: "app/sw.ts",
+  swDest: "public/sw.js",
+  disable: process.env.NODE_ENV !== "production",
+  register: true,
+  cacheOnNavigation: false,
+  reloadOnOnline: false,
+  // STEP 6의 앱 셸 precache를 앞당기지 않는다. 이 티켓은 해시된 폰트 runtime cache만 소유한다.
+  globPublicPatterns: [],
+  exclude: [/.*/],
+});
+
+export default withSerwist(nextConfig);

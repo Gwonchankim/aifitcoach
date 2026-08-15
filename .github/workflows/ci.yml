@@ -33,6 +33,8 @@ jobs:
       # 토큰 값에서 실사용 전경/배경 조합을 전부 계산해 AA(4.5:1)를 판정한다.
       # 완료 행 4.01:1(ADR-41)은 axe 스캔 대상이 아니라 사후에야 발견됐다. 계산은 그걸 놓치지 않는다.
       - run: pnpm --filter web verify:contrast
+      # Pretendard가 다시 단일 대용량 4웨이트나 외부 CDN으로 회귀하지 않게 자산 수·용량·CSS 계약을 고정한다.
+      - run: pnpm --filter web verify:font-payload
       - run: pnpm test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/afc_test

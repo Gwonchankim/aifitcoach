@@ -274,3 +274,37 @@ test("온보딩·대시보드·프로그램에 가로 스크롤이 없다", asyn
     expect(scroll.scrollWidth, `${name} 가로 스크롤`).toBeLessThanOrEqual(scroll.clientWidth);
   }
 });
+
+test("Pretendard Variable이 400·500·600·700을 브라우저별로 렌더한다", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(async () => {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;left:-10000px;top:0;font-family:var(--font-pretendard);font-size:16px";
+    probe.innerHTML = [400, 500, 600, 700]
+      .map((weight) => `<span style="font-weight:${weight}">한글ABC123</span>`)
+      .join("");
+    document.body.append(probe);
+    await document.fonts.ready;
+    const rows = Array.from(probe.children, (node) => {
+      const style = getComputedStyle(node);
+      return {
+        family: style.fontFamily,
+        weight: style.fontWeight,
+        width: node.getBoundingClientRect().width,
+      };
+    });
+    const loaded = [400, 500, 600, 700].map((weight) =>
+      document.fonts.check(`${weight} 16px "Pretendard Variable"`, "한글ABC123"),
+    );
+    probe.remove();
+    return { rows, loaded };
+  });
+
+  expect(result.loaded).toEqual([true, true, true, true]);
+  expect(result.rows.map((row) => row.weight)).toEqual(["400", "500", "600", "700"]);
+  for (const row of result.rows) {
+    expect(row.family).toContain("Pretendard Variable");
+    expect(row.width).toBeGreaterThan(0);
+  }
+});

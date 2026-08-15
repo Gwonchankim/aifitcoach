@@ -13,6 +13,9 @@ apps/web/e2e/lighthouse/
 apps/web/e2e/axe-results.jsonl
 apps/web/e2e/mobile-metrics.*.json
 
+# Pretendard 1.3.9 공식 unicode-range CSS는 공급자 원문 형식을 유지한다.
+apps/web/app/fonts/pretendard-variable.css
+
 # 진실의 원천(docs/specs)과 지침 문서는 포맷터가 재작성하지 않는다.
 docs/
 *.md
