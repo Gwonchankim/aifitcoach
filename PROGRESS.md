@@ -10,7 +10,7 @@
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
-| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** — **M-UIa 개발·평가 완료**(71/100, fix-now 7건 처리). UIb 선행 T-UI-1·T-UI-2 완료 | 69.5 → 70.0 · M-UIa **71** | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
+| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | ✅ **M-UIa·M-UIb 완료** — M-UIb Sprint 0~4 직렬 종료, fix-now 반영·defer 1건 분리 | M-UIa **71** · M-UIb **95** |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
@@ -346,26 +346,32 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## ▶ 다음 세션은 여기부터 읽어라 (2026-08-09 종료 시점)
+## ▶ 다음 세션은 여기부터 읽어라 (2026-08-15 M-UIb 종료 시점)
 
 > **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-09.md` 에 있다. 그걸 먼저 읽어라.**
-> HEAD `9f457eb` · master · 워킹트리 clean.
-> 게이트: shared 79 · web 224 · api 237 · **E2E 55/55** · axe 19화면 0 · verify:contrast 30조합.
+> master · M-UIb Sprint 0~4 완료 커밋.
+> 최종 통합 게이트: shared 79 · web 237 · api 237 · **E2E 58/58** · `06-mobile` 14/14 · axe 20화면 0 · verify:contrast 30조합.
 
 ### 로드맵 현재 위치
 
-```
-[테스트 격리 + E2E 요일] ✅  →  M-UIa ✅  →  T-UI-1 ✅  →  T-UI-2 ✅
-   →  [M-UIb]  ← 다음  →  STEP 6(오프라인 동기화)  →  M-4′(기록·프로그램 탭)  →  M-7′(페이월·구독)
-```
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → **STEP 6(오프라인 동기화, 다음)** → M-4′ → M-7′
 
-### 🔴 M-UIb 착수 전 선행 3건
+### M-UIb 진입 조건
 
 | # | 티켓 | 상태 |
 | --- | --- | --- |
 | **T-UI-1** | `cn` → tailwind-merge (횡단 변경이라 UIb 와 단독 커밋으로 분리) | **✅ 완료 (2026-08-15)** |
 | **T-UI-2** | 폰트 페이로드 — **성능 100 → 92 실측 회귀**. Pretendard 4웨이트 1,051KB → 공식 Variable Dynamic Subset | **✅ 완료 (2026-08-15, ①-V 오너 결정)** |
-| **F14** | 한글 키커 대체 어법 — 프로토타입 키커 139회 vs 구현 3곳. 9.5px 모노를 한글에 못 쓴다 | **🟠 오너 결정 대기** (design 협업) |
+| **F14** | 한글 키커 대체 어법 — 프로토타입 키커 139회 vs 구현 3곳. 9.5px 모노를 한글에 못 쓴다 | **⏭ 비차단 별도 티켓** (D-18, design 협업). **M-UIb 선행 조건 아님** |
+
+### ✅ Sprint 0 계약 잠금 — D-13~D-18 (2026-08-15)
+
+- RIR: **0~6/`null` 직접 입력 + 셰브론 바텀시트 유지**. 0~5/default 2·길게 누르기·화면 RIR ± 스테퍼·undo 제외(기존 키보드 ↑/↓ 유지).
+- 운동 카드: 카드 앵커 `role="menu"`, **교체/통증 기록/삭제 3항목만**. 방향키·Esc·외부 클릭·트리거 포커스 복귀. 건너뛰기 제외.
+- 포커스 충돌 AC: 메뉴가 열린 채 완료 체크/타이머 진입 불가. 메뉴 닫힘은 트리거, 타이머 닫힘은 다음 세트 입력으로 복귀하며 두 복귀가 서로 덮지 않는다.
+- 완료행 1줄, 완료 체크 48×48px, 온보딩 하단 24px.
+- 기록이 있으면 교체·삭제는 포커스 가능한 `aria-disabled`, 통증 기록은 활성. 잠긴 액션은 요청 0회 + 사유 낭독.
+- ADR-30·31·40은 폐기 유지, ADR-39는 폐기 취소·재확정, 대체 계약은 ADR-55.
 
 ---
 
@@ -391,6 +397,68 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - 재측정 절차: 동일 run-scoped empty-dashboard 사용자를 준비해 `/v1/dashboard` 200을 확인하고, `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/v1`로 production build/start한다. 매 회 새 Chrome profile(HTTP·CacheStorage가 비어 있는 cold cache)로 `pnpm --filter web exec lighthouse http://localhost:3000 --preset=desktop --only-categories=performance --output=json`을 **3번 별도 실행**한 뒤 중앙값을 취한다. JSON의 FCP/LCP/TBT/CLS, `network-requests`의 Font 수·transfer/resource bytes, 전체 bytes와 dashboard 200 응답을 함께 기록한다.
 - 회귀 게이트 `verify:font-payload`: 정확히 92 faces/URLs와 자산 합계 **2,957,724B**, CSS ≤60,000B, 로컬 URL·가변축·`font-display: swap`·unicode-range·수동 폴백 수치·구 정적 4파일 부재를 CI에서 검사한다.
 - 게이트: typecheck·lint·format:check·build·test green(shared 79 / web 225 / api 237), `verify:no-test-seed`, `verify:contrast` 30/30, `verify:font-payload`, E2E **58/58**, axe 19화면 위반 0.
+
+---
+
+### ✅ M-UIb — **완료** (2026-08-15) · Sprint 0→1→2→3→4 직렬 · evaluator 95/100 PASS
+
+#### Sprint 산출물
+
+| Sprint | 산출물 | 검증 |
+| --- | --- | --- |
+| **0 계약 잠금** | D-13~D-18, ADR-39 재확정, ADR-30·31·40 폐기 유지, 대체 ADR-55. 메뉴-타이머 포커스 소유권과 F14 비차단 분리 | 문서 상호 대조 + typecheck/lint/test |
+| **1 세트 행·RIR** | 미완료·펼친 완료 5열 grid(`16px minmax(0,1fr) minmax(0,1fr) 46px 48px`, gap 6), 맨몸·시간 span, 48×48 체크, RIR 0~6/`null`, 숫자 조각만 mono | shared 79 / web 230 / api 237 |
+| **2 운동 메뉴** | 48×48 `⋯`, 정확히 교체/통증 기록/삭제 3항목 `role="menu"`, 키보드·외부 닫기·잠금 요청 0·D-14 포커스 인계 | shared 79 / web 237 / api 237 |
+| **3 QA 계약** | 기존 E2E 블록 안에 메뉴·잠금·D-14·실측 단언을 접고 metrics/axe/세션 raster 갱신, 테스트 총수 58 유지, 뮤턴트 3종 사살 | 전체 E2E 58/58, `06-mobile` 14/14, axe 20/0 |
+| **4 통합 평가** | `git diff 97765a4` 전수 감사, 구 폭 예산·파생 문서 드리프트 fix-now, 펼친 행 접기 타깃 충돌을 별도 defer로 격리 | 금지 범위·D-1·D-2 유입 0, diff/hygiene 재검증 |
+
+#### evaluator 스코어카드 (기준 HEAD `97765a4`, 독립 diff 감사)
+
+| 축 | 배점 | 획득 | 근거 |
+| --- | --- | --- | --- |
+| 게이트·회귀 방어 | 25 | **25** | 최종 unit 553건, E2E 58/58, `06-mobile` 14/14, axe 20/0. 계약 뮤턴트 3종 모두 의도한 red→원복 green |
+| 범위·직렬 순서 | 12 | **12** | Sprint 0→4 직렬, security/payment/privacy/API/shared·package/lock 변경 0, staging/commit 0 |
+| 디자인 충실도 | 18 | **17** | grid/간격/48px 체크·메뉴·완료행 밀도와 Chromium/WebKit metrics 일치. 펼친 접기 타깃 1건은 별도 defer |
+| UI 구현 품질 | 12 | **11** | 기존 callbacks·도메인 동작 유지, weighted/bodyweight/time 명시 배치, 한글 혼합 숫자만 mono. 첫 열/접기 타깃의 구조 충돌 감점 |
+| UX·접근성 | 14 | **11** | 정확한 menu/menuitem, roving focus, Esc·외부닫힘·focus return, 잠금 사유 낭독·요청 0, D-14 배타성. 16×44 접기 타깃 감점 |
+| 문서·프로세스 | 9 | **9** | D-13~D-18·ADR-55, 최종 metrics·baseline 편차·뮤턴트 SHA·fix-now/defer·raster 범위를 추적 가능하게 기록 |
+| 성능·자산 | 10 | **10** | 신규 패키지·폰트·비트맵 자산 0, 세트 행 90→82px·15세트 스크롤 2673→2563px |
+| **합계** | **100** | **95** | **PASS** — M-UIb 완료, STEP 6이 다음 |
+
+#### fix-now / defer 판정
+
+| 판정 | 항목 | 근거와 조치 |
+| --- | --- | --- |
+| **fix-now 완료** | `UX_STATES §2.4.1` 구 20/76/48/80·행 90px·구 390px 문구 | 실제 5열 계약과 최종 metrics로 교체: Chromium 332×82, 열 16/90/90/46/48; WebKit 335×82, 반올림 열 16/92/92/46/48; gap 6 |
+| **fix-now 완료** | AC-RIR-4의 구 76+48+80+72 예산 및 “입력 오른쪽 목표” 잔재 | 46px RIR 열 + 2줄차 `RIR 목표 n` + `aria-describedby`로 정정 |
+| **fix-now 완료** | `DESIGN_TOKENS`의 “완료 체크 44px” 잔재 | D-16의 별도 48×48px 계약으로 정정 |
+| **fix-now 완료** | `REDESIGN_IMPACT`의 ADR-30 “폐기 후보”·M-UIa 4탭 셸 잔재 | ADR-30 폐기 유지, 4탭은 D-2에 따라 M-4′ 직전 별도 티켓으로 정정 |
+| **defer (비차단)** | 펼친 완료행 세트번호/접기 버튼 **16×44px** | 실제 DOM `w-4 min-h-tap`과 캡처에서 확인. §7.6의 44×44와 충돌하지만 첫 열을 44px로 바꾸면 승인된 5열 계약과 입력 폭이 바뀌고, 숨은 hit-area는 인접 입력을 침범한다. **세트 행 그리드를 다시 만지는 다음 작업**(디자인 접근성 티켓 또는 grid 계약 개정) 착수 시 최우선 처리한다. M-4′가 그리드를 건드리지 않으면 defer를 유지한 채 넘어가도 된다 |
+| **defer 유지 (D-18)** | F14 한글 키커 대체 어법 | M-UIb 비차단 별도 design 티켓. 이번 구현에 섞지 않음 |
+
+#### Sprint 3 기준선·뮤턴트·최종 게이트 증거
+
+- **초기 `06-mobile` 기준선**: 승인 예측은 “2 source blocks, 4/14 project executions 실패”였으나 실제는 구 직접 액션 selector가 있는 **1 source block만 Chromium/WebKit에서 실패해 2/14 실패(12/14 통과)**했다. 두 번째 예상 실패는 재현되지 않았고 **unexpected 실패 0**이었다. QA 계약 갱신 후 **14/14 통과**.
+- **axe 19→20 화면**은 회귀가 아니라 `S4-exercise-menu-open`을 새로 스캔한 의도적 커버리지 증가다. 최종 **20화면 / violation 0**.
+
+| 뮤턴트 | 원본 SHA-256 | 변이 SHA-256 | 의도한 실패 | 원복 증거 |
+| --- | --- | --- | --- | --- |
+| SetRow grid/48px | `334FAD8BBADD4014899AB6A5DFDE9E46BA399BE09E92A62B11757BCB7415BEFB` | `A4D533F4A156E725D94F2D3C6A636FED97BA5529C3056E2510AF330EA545FF4F` | 2/23 실패 | restore+verify 후 원 SHA 일치, 23/23 통과, clear |
+| RirField `aria-describedby` | `576795E885F8DCA7224132BCA0CFBC0FC3498B3DBC0511269A5F6619D650A565` | `C1BA47BCDA7C9AE0BB50A6E3991CAC65F543FCFEB674E15AFF9D12B587B6BC6C` | 2/30 실패 | restore+verify 후 원 SHA 일치, 30/30 통과, clear |
+| ExerciseMenu locked guard | `96F80E337C7EED20616AF2F02C394FB6D4B70F8207BC9985F5252431EFEABB43` | `0A33E5E4DE233B02B61C0A81820536E50ED7F163E31BFB78148C7897C163938F` | 1/7 실패 | restore+verify 후 원 SHA 일치, 7/7 통과, clear |
+
+- **최종 전체 실행(Sprint 3)**: typecheck·lint·format:check·build green, `verify:no-test-seed` 130파일, `verify:contrast` 30/30, `verify:font-payload` 92 faces / 2,957,724B, test **shared 79 / web 237 / api 237**, E2E **58/58**, `06-mobile` **14/14**, axe **20/0**.
+- **Sprint 4 문서 fix-now 후 재검증**: 제품·테스트 소스는 바꾸지 않았으므로 full E2E/빌드는 위 최종 실행을 유지했고, typecheck·lint·format:check와 test **shared 79 / web 237 / api 237**를 다시 통과했다.
+- **커밋 전 최종 재실행(2026-08-15)**: typecheck·lint·format:check·build green, `verify:no-test-seed` 130파일, `verify:contrast` 30/30, `verify:font-payload` 92 faces / 2,957,724B, test **shared 79 / web 237 / api 237**, E2E **58/58**, `06-mobile` **14/14**, axe **20/0**로 직전 보고와 일치했다.
+- **raster 경로 전수 감사**: 변경 36개는 모두 세션 grid/menu가 보이는 `apps/web/e2e/screenshots/10-*`~`16-*`, `19-*`~`25-*`, `33-*`~`35-*`, `50-*`~`52-*`, `70-*`, `70a-*`, `71-*`, `73-*`, `73a-*`, `80-*`, `81-*`, `84-*`, `86-*`, `88-*`다. `01-onboarding-pain-step.png`를 포함한 온보딩·대시보드·프로그램·요약 raster 변경은 **0개**다.
+- **범위 역검사**: `git diff 97765a4`에 D-1 “프로그램 없이 한 종목 기록” 진입 라우트/CTA와 D-2 하단 4탭 네비 구현은 **0건**이다. 문서의 과거 분석 언급만 남고 제품·E2E에 유입되지 않았다.
+- **워크트리 위생**: `.mutation-snapshot/` 부재, 최종 게이트 전 index/staging 비어 있음, `git diff --check 97765a4` 통과. 승인된 M-UIb 경로만 명시적으로 stage해 단일 커밋한다.
+
+#### 이번 마일스톤의 교훈
+
+- 계획 단계에서 58개 E2E를 스펙 단위로 훑고 치수·셀렉터·문구의 예상 파손을 분리한 덕분에, 개발 중 실패를 제품 회귀와 테스트 계약 갱신으로 즉시 분류할 수 있었다.
+- `06-mobile`의 보수적 예상은 2개 source block·4/14 실패였지만 실제는 1개 block·2/14 실패였고 unexpected 실패는 0이었다. **정밀한 사전 산출이 범위를 넓힌 것이 아니라, 실제 결과가 예측보다 낫다는 사실을 증거로 확인하게 한 사례**다.
+- 계약 잠금→구현→QA 계약→독립 평가를 직렬화하고 뮤턴트 SHA를 전후 대조해, 공유 렌더 트리·기준 이미지에서 원인 혼합과 stash 사고 없이 마일스톤을 닫았다.
 
 ---
 
@@ -572,13 +640,13 @@ evaluator 지적대로 AC-S1-6·axe·실렌더 대비는 **CI 에 없어서 사�
 | 티켓 | 배치 | 근거 |
 | --- | --- | --- |
 | `cn` → tailwind-merge (지금 `!` 4곳 우회) | **별도 `T-UI-1`, UIb 착수 직전 선행** | 앱 전체 className 해소 순서를 바꾸는 **횡단 변경**. UIb 와 섞으면 시각 회귀 원인을 못 가린다(a/b 분리 논리와 동일). 동시에 UIb 의 새 variant 가 같은 충돌을 다시 밟으므로 **선행**이기도 하다 |
-| 한글 혼합 문자열 모노화(순수 함수 → ReactNode) | **UIb** | 세트 행·요약 행 DOM 을 바꾸는데 UIb 가 R-14 로 그 행을 어차피 3열로 다시 쓴다. 지금 하면 두 번 쓴다. **이 티켓에서 "숫자는 모노" 단언을 신설**해 F7 빈틈까지 닫는다 |
+| 한글 혼합 문자열 모노화(순수 함수 → ReactNode) | **UIb** | D-15의 완료행 1줄 축약을 반영하며 세트 행·요약 행 DOM을 함께 다룬다. **이 티켓에서 "숫자는 모노" 단언을 신설**해 F7 빈틈까지 닫는다 |
 | Chip 소프트 어법 통일 | **UIa 잔여(small)** | F2 와 같은 파일·같은 결함 계열. 지금 안 고치면 UIb 의 새 칩이 잘못된 base 를 상속한다. 소프트 선택은 **새 조합을 만드니 `verify-contrast` 표에 추가 필수** |
 
 #### defer (UIb 또는 별도)
 F7 모노 보호 테스트 0건(위 티켓 2와 함께) · F8 E2E 산출물 churn(별도 위생) · F9 "만들고 나면" 위계 ·
 F10 폐루프 가치 문장 소실 · F11 톤 전환(오너 판단) · **F12 CI 에 E2E/axe 없음(별도 CI 티켓, UIb 선행 권장)** ·
-**T-UI-2 폰트 페이로드(UIb 착수 전 필수)** · F14 **한글 키커 대체 어법 미설계** — 프로토타입의 지배적 모티프(139회)를 구현은 3곳만 쓴다. UIb 착수 전 design+오너.
+**T-UI-2 폰트 페이로드(UIb 착수 전 필수, 완료)** · F14 **한글 키커 대체 어법 미설계** — 프로토타입의 지배적 모티프(139회)를 구현은 3곳만 쓴다. **D-18에 따라 UIb를 막지 않는 별도 디자인 티켓**으로 처리한다.
 
 **골든/보안·PIPA/데이터 손실 defer: 0건.**
 
@@ -593,7 +661,7 @@ UIa 에 넣으면 그 전제가 깨집니다.** `06-mobile.spec.ts` 가 픽셀�
 
 | 스펙 | 단언 | 확정안 값 | 결과 |
 | --- | --- | --- | --- |
-| `06-mobile:69` | 완료 체크 `min(w,h) ≥ 48px` | 프로토타입은 **48×44** → min=44 | **깨진다** |
+| `06-mobile:69` | 완료 체크 `min(w,h) ≥ 48px` | **48×48px**(D-16) | **유지** |
 | `06-mobile:166` | 세트당 평균 높이 `< 190px` | 타이포가 작아져 값이 내려감 | 통과 예상(값은 바뀜) |
 | `06-mobile:169-170` | 미완료 행 `≤96` / 완료 행 `≤64` | 행 구조는 UIb | UIa 에선 불변 |
 | `06-mobile:256` | 버튼 아래 여백 `≥24px`(AC-S1-8) | 프로토타입 패딩 **18px** | **따라가면 깨진다** |
@@ -606,11 +674,11 @@ UIa 에 넣으면 그 전제가 깨집니다.** `06-mobile.spec.ts` 가 픽셀�
 | 항목 | 배치 | 근거 |
 | --- | --- | --- |
 | 토큰 교체(색·타이포·radius·테두리) + 기존 4화면 리스킨 | **UIa** | 의미 토큰이라 이름은 유지되고 값만 바뀐다. 역할·문구·DOM 구조 불변 → E2E 무손상 |
-| **치수**(터치 타깃 72→48/44, 밀도 예산) | **UIb** | 위 표. 픽셀 단언 2건을 직접 깬다. 행 구조 개편과 함께 한 번에 재측정하는 게 맞다 |
+| **치수**(완료 체크 72→48×48, 밀도 예산) | **UIb** | D-16으로 계약 잠금. 행 구조 반영과 함께 재측정한다 |
 | 빈 상태 **신설**(홈 "만들고 나면" 3단, "세 세션이 쌓이면", 기록 "시작하는 법") | **UIa(홈만) / M-4′(기록)** | 홈 빈 상태는 **새 카피지만 신규 인터랙션·API 가 없다**. 기록 탭은 탭 자체가 M-4′ 라 그때 같이. 단 `01-...:108`("운동 계획을 먼저 만들어 주세요.") 단언 1건은 갱신해야 한다 |
 | **4탭 하단 네비**(오늘/기록/프로그램/내 정보) | **별도 티켓 `UIa-nav` 또는 M-4′** | 리스킨이 아니라 **신규 네비게이션**이다: 라우트 2개 신설·활성 상태·랜드마크·전 화면 하단 높이 변화 → 밀도 예산과 AC-S1-6/8 을 전부 다시 재야 한다. 게다가 지금 붙이면 **탭 2개가 빈 화면으로 열린다** — 없는 것보다 나쁘다 |
 | **"프로그램 없이 오늘 한 종목만 기록" 진입로** | **UIa 아님** | R-04. `workout_sessions.program_id` 가 NOT NULL FK 라 **백엔드 변경이 선행**된다. 표시 방식은 **D-1** |
-| 세트 행 그리드 · ⋯ 메뉴 · RIR 입력 개편 | **UIb** | 인터랙션 변경 → 세션 E2E 대량 재작성 |
+| 완료행 1줄 · 3항목 `⋯` 앵커 메뉴 · 기존 RIR 입력 유지 | **UIb** | D-13~D-17 계약에 따라 세션 E2E와 접근성 AC를 갱신 |
 | 프로토타입 화면의 엔진 수치 표기(−15%/−10% 등) | **UIa 에서 제거하거나 "예시" 표기** | ADR-49(M-ENGINE′ 보류) 이행 |
 
 #### 2) E2E 영향 사전 산출 (54개 기준)

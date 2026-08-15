@@ -105,17 +105,23 @@ test("S4 루틴 · 타이머 팝업 · 편집 팝업(열린 상태)", async ({ p
     .getByRole("button", { name: "닫기" })
     .click();
 
-  // 교체 팝업 열린 상태(F5: [교체] 는 중간 메뉴 없이 바로 연다)
-  const swapButton = page.getByRole("button", { name: /교체$/ }).first();
-  const swapLabel = (await swapButton.getAttribute("aria-label")) ?? "";
-  await swapButton.click();
+  // M-UIb 앵커 메뉴와 그 메뉴에서 연 교체 시트
+  const menuTrigger = page.getByRole("button", { name: / 메뉴$/ }).first();
+  const exerciseName = ((await menuTrigger.getAttribute("aria-label")) ?? "").replace(/ 메뉴$/, "");
+  await menuTrigger.click();
+  const exerciseMenu = page.getByRole("menu");
+  await expect(exerciseMenu).toBeVisible();
+  await scan(page, "S4-exercise-menu-open");
+  const swapLabel = `${exerciseName} 교체`;
+  await exerciseMenu.getByRole("menuitem", { name: swapLabel }).click();
   await expect(page.getByRole("dialog", { name: swapLabel })).toBeVisible();
   await scan(page, "S4-picker-swap-open");
   await page.keyboard.press("Escape");
 
-  // 삭제 확인 시트 열린 상태(F5 휴지통)
-  const trashLabel = swapLabel.replace(/ 교체$/, " 삭제");
-  await page.getByRole("button", { name: trashLabel }).click();
+  // 삭제 확인 시트 열린 상태(M-UIb 메뉴)
+  const trashLabel = `${exerciseName} 삭제`;
+  await menuTrigger.click();
+  await page.getByRole("menu").getByRole("menuitem", { name: trashLabel }).click();
   await expect(page.getByRole("dialog", { name: /빼기/ })).toBeVisible();
   await scan(page, "S4-exercise-remove-open");
   await page.keyboard.press("Escape");

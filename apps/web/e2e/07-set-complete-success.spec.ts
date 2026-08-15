@@ -29,9 +29,9 @@ function setRow(page: Page, exerciseName: string, setNo: number) {
   });
 }
 
-/** 운동 카드(제목 h2 의 부모가 카드다). */
+/** 운동 카드(M-UIb 헤더 행을 감싼 제목 h2 의 조부모가 카드다). */
 function card(page: Page, exerciseName: string) {
-  return page.getByRole("heading", { name: exerciseName, exact: true }).locator("xpath=..");
+  return page.getByRole("heading", { name: exerciseName, exact: true }).locator("xpath=../..");
 }
 
 /** 화면 상단 진행 카운터의 "N세트 완료". */

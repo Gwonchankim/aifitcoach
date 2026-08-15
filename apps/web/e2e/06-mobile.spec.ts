@@ -1,6 +1,6 @@
 /**
  * 항목 7: 모바일 뷰포트(390x844) 실측.
- * - 탭 타깃 실제 렌더 크기(44px / 완료 체크·휴식 종료 72px 기준 확인)
+ * - 탭 타깃 실제 렌더 크기(메뉴·완료 체크 48px, 휴식 종료 72px 기준 확인)
  * - 주 액션이 하단 엄지 반경(세로 65~100%)에 있는지
  * - 가로 스크롤 발생 여부
  */
@@ -45,28 +45,61 @@ test("루틴 화면: 탭 타깃 실측 + 가로 스크롤 없음", async ({ page
 
   const check = page.getByRole("button", { name: /1세트 완료 처리$/ }).first();
   const name = ((await check.getAttribute("aria-label")) ?? "").replace(/ 1세트 완료 처리$/, "");
+  const row = check.locator("xpath=ancestor::li[1]");
+  const rowGrid = await row.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      columns: style.gridTemplateColumns
+        .split(" ")
+        .map((column) => Math.round(Number.parseFloat(column))),
+      columnGap: Math.round(Number.parseFloat(style.columnGap)),
+    };
+  });
 
   const measured = [
     await box(check, "세트 완료 체크"),
     await box(page.getByLabel(`${name} 1세트 무게, 킬로그램`), "무게 입력"),
     await box(page.getByLabel(`${name} 1세트 횟수, 회`), "횟수 입력"),
     await box(page.getByLabel(`${name} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`), "RIR 입력"),
-    await box(page.getByRole("button", { name: `${name} 교체` }), "교체"),
-    await box(page.getByRole("button", { name: new RegExp(`^${name} 삭제`) }), "삭제(휴지통)"),
+    await box(page.getByRole("button", { name: `${name} 메뉴` }), "운동 메뉴"),
     await box(page.getByRole("button", { name: "운동 추가" }), "운동 추가"),
     await box(page.getByRole("button", { name: "운동 종료" }), "운동 종료(하단 고정)"),
   ];
   const scroll = await hasHorizontalScroll(page);
-  metrics.push({ screen: "S4-routine", viewport: page.viewportSize(), targets: measured, scroll });
+  metrics.push({
+    screen: "S4-routine",
+    viewport: page.viewportSize(),
+    targets: measured,
+    setRow: { ...(await box(row, "미완료 세트 행")), ...rowGrid },
+    scroll,
+  });
 
-  for (const target of measured) {
-    expect(
-      Math.min(target.width, target.height),
-      `${target.label} 탭 타깃 44px 이상 (실측 ${target.width}x${target.height})`,
-    ).toBeGreaterThanOrEqual(44);
-  }
   // 완료 체크는 한손 조작 대상 — 48px 이상(UX_STATES §7.6)
   expect(Math.min(measured[0].width, measured[0].height)).toBeGreaterThanOrEqual(48);
+  // 직접 입력 타깃도 기존 44px 하한을 유지한다(무게·횟수·RIR).
+  for (const target of measured.slice(1, 4)) {
+    expect(
+      Math.min(target.width, target.height),
+      `${target.label} 입력 타깃 44px 이상 (실측 ${target.width}x${target.height})`,
+    ).toBeGreaterThanOrEqual(44);
+  }
+  // 카드 액션은 48x48 단일 메뉴 트리거다(D-16).
+  expect({ width: measured[4].width, height: measured[4].height }).toEqual({
+    width: 48,
+    height: 48,
+  });
+  // 5열 고정 그리드: 16px · 유동 · 유동 · 46px · 48px, 열 간격 6px.
+  expect(rowGrid.columns).toHaveLength(5);
+  expect(rowGrid.columns[0]).toBe(16);
+  expect(rowGrid.columns[3]).toBe(46);
+  expect(rowGrid.columns[4]).toBe(48);
+  expect(rowGrid.columnGap).toBe(6);
+  for (const target of measured.slice(5)) {
+    expect(
+      Math.min(target.width, target.height),
+      `${target.label} 탭 타깃 44px 이상`,
+    ).toBeGreaterThanOrEqual(44);
+  }
   // [운동 종료] 는 하단 고정 바 → 엄지 반경(세로 65% 아래)
   expect(measured.at(-1)!.y, "[운동 종료] 는 하단 35% 안에 있어야 한다(AC-H-1)").toBeGreaterThan(
     844 * 0.65,
@@ -155,8 +188,20 @@ test("루틴 화면 세로 스크롤 총량(밀도 회귀 가드)", async ({ pag
         .boundingBox()
     )?.height ?? 0,
   );
+  const doneRow = rows.filter({
+    has: page.getByRole("button", { name: `${name} 1세트 완료 취소` }),
+  });
+  await doneRow.getByRole("button", { name: /수정하려면 누르세요/ }).click();
+  const expandedDoneRowHeight = Math.round((await doneRow.boundingBox())?.height ?? 0);
 
-  metrics.push({ screen: "S4-routine-scroll", setCount, scrollHeight, rowHeight, doneRowHeight });
+  metrics.push({
+    screen: "S4-routine-scroll",
+    setCount,
+    scrollHeight,
+    rowHeight,
+    doneRowHeight,
+    expandedDoneRowHeight,
+  });
 
   // 세트 수는 프로그램 생성 규칙에 달려 있다 — 세트당 평균 높이로 환산해 판정한다.
   const perSet = scrollHeight / setCount;
@@ -168,6 +213,7 @@ test("루틴 화면 세로 스크롤 총량(밀도 회귀 가드)", async ({ pag
   );
   expect(rowHeight, "미완료 세트 행은 2줄(AC-SET-1)").toBeLessThanOrEqual(96);
   expect(doneRowHeight, "완료 세트 행은 1줄(AC-SET-5)").toBeLessThanOrEqual(64);
+  expect(expandedDoneRowHeight, "펼친 완료 세트 행은 2줄(AC-SET-1)").toBeLessThanOrEqual(96);
 });
 
 test("타이머 시트: +시간 버튼·[휴식 종료] 크기와 위치", async ({ page }) => {

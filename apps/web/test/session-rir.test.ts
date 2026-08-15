@@ -169,6 +169,14 @@ describe("RirField 렌더 (F1-1 2차 개정: 단일 입력 + 셰브론)", () => 
     expect(markup).toContain('tabindex="-1"');
   });
 
+  it("46px 열에서 한 자리 값과 24px 이상 셰브론 타깃이 맞는 전용 여백을 쓴다", () => {
+    const markup = html();
+    expect(markup).toContain("[&amp;_input]:pl-1.5");
+    expect(markup).toContain("[&amp;_input]:pr-6");
+    expect(markup).toContain("min-w-6");
+    expect(markup).toContain("w-6");
+  });
+
   it("목표 RIR 문구를 aria-describedby 로 연결한다(AC-RIR-4)", () => {
     expect(html({ describedById: "set-ps_1-rir-target" })).toContain(
       'aria-describedby="set-ps_1-rir-target"',

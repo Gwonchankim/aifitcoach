@@ -10,45 +10,39 @@
       "targets": [
         {
           "label": "세트 완료 체크",
-          "width": 72,
-          "height": 72,
-          "y": 265.921875
+          "width": 48,
+          "height": 48,
+          "y": 276.03125
         },
         {
           "label": "무게 입력",
-          "width": 79,
+          "width": 92,
           "height": 44,
-          "y": 267.9375
+          "y": 268.0625
         },
         {
           "label": "횟수 입력",
-          "width": 48,
+          "width": 92,
           "height": 44,
-          "y": 267.9375
+          "y": 268.0625
         },
         {
           "label": "RIR 입력",
-          "width": 80,
+          "width": 46,
           "height": 44,
-          "y": 267.9375
+          "y": 268.0625
         },
         {
-          "label": "교체",
-          "width": 56,
-          "height": 44,
-          "y": 121.921875
-        },
-        {
-          "label": "삭제(휴지통)",
-          "width": 44,
-          "height": 44,
-          "y": 121.921875
+          "label": "운동 메뉴",
+          "width": 48,
+          "height": 48,
+          "y": 91.53125
         },
         {
           "label": "운동 추가",
           "width": 361,
           "height": 56,
-          "y": 2505.484375
+          "y": 2395.25
         },
         {
           "label": "운동 종료(하단 고정)",
@@ -57,6 +51,20 @@
           "y": 576
         }
       ],
+      "setRow": {
+        "label": "미완료 세트 행",
+        "width": 335,
+        "height": 82,
+        "y": 259.0625,
+        "columns": [
+          16,
+          92,
+          92,
+          46,
+          48
+        ],
+        "columnGap": 6
+      },
       "scroll": {
         "scrollWidth": 393,
         "clientWidth": 393
@@ -71,9 +79,9 @@
       "targets": [
         {
           "label": "RIR 고르기 셰브론",
-          "width": 28,
+          "width": 24,
           "height": 36,
-          "y": 271.9375
+          "y": 272.0625
         },
         {
           "label": "RIR 칩",
@@ -86,9 +94,10 @@
     {
       "screen": "S4-routine-scroll",
       "setCount": 15,
-      "scrollHeight": 2673,
-      "rowHeight": 90,
-      "doneRowHeight": 62
+      "scrollHeight": 2563,
+      "rowHeight": 82,
+      "doneRowHeight": 62,
+      "expandedDoneRowHeight": 82
     },
     {
       "screen": "S4-rest-timer",

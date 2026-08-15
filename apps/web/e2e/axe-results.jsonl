@@ -10,6 +10,7 @@
 {"screen":"S3-dashboard-empty","violationCount":0,"violations":[]}
 {"screen":"S4-routine","violationCount":0,"violations":[]}
 {"screen":"S4-picker-add-open","violationCount":0,"violations":[]}
+{"screen":"S4-exercise-menu-open","violationCount":0,"violations":[]}
 {"screen":"S4-picker-swap-open","violationCount":0,"violations":[]}
 {"screen":"S4-exercise-remove-open","violationCount":0,"violations":[]}
 {"screen":"S4-rir-sheet-open","violationCount":0,"violations":[]}

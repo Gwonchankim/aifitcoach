@@ -65,8 +65,18 @@ function row(props: Partial<Parameters<typeof SetRow>[0]> = {}) {
 }
 
 const inputCount = (html: string) => (html.match(/<input/g) ?? []).length;
+const visibleText = (html: string) => html.replace(/<[^>]*>/g, "");
 
 describe("미완료 세트 행 (주 1줄 + 보조 1줄)", () => {
+  it("16px·가변 입력 2칸·46px RIR·48px 체크의 5열 그리드를 쓴다", () => {
+    const html = row();
+    expect(html).toContain("grid-cols-[16px_minmax(0,1fr)_minmax(0,1fr)_46px_48px]");
+    expect(html).toContain("gap-x-1.5");
+    expect(html).toContain('data-set-check="ps_1"');
+    expect(html).toContain("size-12");
+    expect(html).not.toContain("size-tap-xl");
+  });
+
   it("무게·횟수·RIR 이 모두 주 줄에 있다", () => {
     const html = row();
     expect(inputCount(html)).toBe(3);
@@ -75,14 +85,26 @@ describe("미완료 세트 행 (주 1줄 + 보조 1줄)", () => {
     expect(html).toContain("벤치프레스 1세트 남은 반복 수(RIR), 0~6, 선택 입력");
   });
 
+  it("접근 이름과 탭 순서는 무게 → 횟수 → RIR → 완료다", () => {
+    const html = row();
+    const controls = [
+      'id="set-ps_1-weight"',
+      'id="set-ps_1-reps"',
+      'id="set-ps_1-rir"',
+      'data-set-check="ps_1"',
+    ].map((needle) => html.indexOf(needle));
+    expect(controls.every((index) => index >= 0)).toBe(true);
+    expect(controls).toEqual([...controls].sort((left, right) => left - right));
+  });
+
   it("목표·직전 기록은 보조 줄 하나로 합친다(전용 줄을 만들지 않는다)", () => {
     const html = row({ previous: draft({ actual_weight: 60, actual_reps: 6 }) });
     expect(html).toContain("목표 8~10회");
-    expect(html).toContain("직전 60kg × 6회");
+    expect(visibleText(html)).toContain("직전 60kg × 6회");
     // 두 정보가 같은 문단 하나에 들어간다(목표 RIR 만 aria-describedby 용 span 을 쓴다).
     const paragraphs = html.match(/<p[^>]*>(?:(?!<\/p>).)*목표 8~10회(?:(?!<\/p>).)*<\/p>/g) ?? [];
     expect(paragraphs.length).toBe(1);
-    expect(paragraphs[0]).toContain("직전 60kg × 6회");
+    expect(visibleText(paragraphs[0] ?? "")).toContain("직전 60kg × 6회");
   });
 
   it("무게 축 배지를 세트마다 반복하지 않는다(카드 상단에 있다)", () => {
@@ -91,10 +113,13 @@ describe("미완료 세트 행 (주 1줄 + 보조 1줄)", () => {
   });
 
   it("맨몸은 무게 칸이 없고, 시간 종목은 RIR 칸이 없다", () => {
-    expect(row({ kind: "bodyweight" })).not.toContain("무게, 킬로그램");
+    const bodyweight = row({ kind: "bodyweight" });
+    expect(bodyweight).not.toContain("무게, 킬로그램");
+    expect(bodyweight).toContain("row-start-1 min-w-0 col-span-2 col-start-2");
     const time = row({ kind: "time" });
     expect(time).not.toContain("남은 반복 수(RIR)");
     expect(inputCount(time)).toBe(1);
+    expect(time).toContain("col-span-3 col-start-2 row-start-1");
   });
 });
 
@@ -102,8 +127,16 @@ describe("완료 세트 행 (한 줄 축약)", () => {
   it("입력칸 대신 기록값을 텍스트로 보여준다", () => {
     const html = row({ draft: draft() });
     expect(inputCount(html)).toBe(0);
-    expect(html).toContain("62.5kg × 9회 · RIR 2");
+    expect(visibleText(html)).toContain("62.5kg × 9회 · RIR 2");
     expect(html).toContain("✓ 완료");
+  });
+
+  it("한글 혼합 기록은 숫자 조각에만 모노 글꼴을 쓴다", () => {
+    const html = row({ draft: draft() });
+    expect(html).toContain(
+      '<span class="font-mono tabular-nums">62.5</span>kg × <span class="font-mono tabular-nums">9</span>회 · RIR <span class="font-mono tabular-nums">2</span>',
+    );
+    expect(html).not.toContain('class="font-mono tabular-nums">62.5kg');
   });
 
   it("흐리게(opacity) 처리하지 않는다 — 완료 배경으로 구분한다", () => {
@@ -116,6 +149,9 @@ describe("완료 세트 행 (한 줄 축약)", () => {
     const html = row({ draft: draft() });
     expect(html).toContain("벤치프레스 1세트 완료 취소");
     expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain("size-12");
+    expect(html).toContain("p-1.5");
+    expect(html).toContain('aria-expanded="false"');
   });
 
   it("목표·직전 같은 보조 정보는 완료 행에서 지운다", () => {
@@ -169,6 +205,13 @@ describe("완료 세트 행 (펼친 상태, AC-SET-7)", () => {
     expect(html).toContain('value="62.5"');
     expect(html).toContain('value="9"');
     expect(html).toContain('value="2"');
+  });
+
+  it("미완료 행과 같은 명시적 5열 그리드와 48px 체크를 쓴다", () => {
+    const html = row({ draft: draft(), expanded: true });
+    expect(html).toContain("grid-cols-[16px_minmax(0,1fr)_minmax(0,1fr)_46px_48px]");
+    expect(html).toContain("gap-x-1.5");
+    expect(html).toContain("size-12");
   });
 
   it("완료 상태가 풀리지 않는다(체크 버튼은 '완료 취소' 그대로다)", () => {
@@ -239,22 +282,25 @@ describe("운동 카드", () => {
     expect((card().match(/무게 미정/g) ?? []).length).toBe(1);
   });
 
-  it("[교체]와 휴지통을 각각 둔다(F5 역할 분리)", () => {
+  it("직접 액션 대신 48px 앵커 메뉴 트리거 하나만 둔다", () => {
     const html = card();
-    expect(html).toContain("벤치프레스 교체");
-    expect(html).toContain("벤치프레스 삭제");
+    expect(html).toContain('aria-label="벤치프레스 메뉴"');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("size-12");
+    expect(html).not.toContain("벤치프레스 교체");
+    expect(html).not.toContain("벤치프레스 삭제");
   });
 
-  it("기록이 있으면 휴지통은 aria-disabled + 사유다(disabled 가 아니다, AC-DEL-3)", () => {
+  it("기록 잠금 사유는 메뉴 항목이 설명할 수 있도록 id와 함께 남긴다", () => {
     const html = card({ lockedReason: "기록이 있는 운동이라 빼거나 바꿀 수 없어요." });
-    expect(html).toContain('aria-label="벤치프레스 삭제, 기록이 있어 뺄 수 없어요"');
-    expect(html).toContain('aria-disabled="true"');
-    expect(html).not.toMatch(/벤치프레스 삭제[^>]*disabled=""/);
+    expect(html).toContain('id="exercise-e_bench_press-menu-locked-reason"');
+    expect(html).toContain("기록이 있는 운동이라 빼거나 바꿀 수 없어요.");
   });
 
   it("읽기 전용(다른 날짜의 종료된 세션)에는 편집 액션이 DOM 에 없다", () => {
     const html = card({ readOnly: true });
-    expect(html).not.toContain("벤치프레스 교체");
-    expect(html).not.toContain("벤치프레스 삭제");
+    expect(html).not.toContain("벤치프레스 메뉴");
+    expect(html).not.toContain('role="menu"');
   });
 });

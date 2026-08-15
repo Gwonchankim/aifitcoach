@@ -57,10 +57,28 @@ function parseNumber(text: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-/** 같은 세션의 직전 완료 세트 표기. 기록이 없으면 null. */
-function previousLabel(draft: SetDraft): string | null {
-  const recorded = recordLabel(draft);
-  return recorded ? `직전 ${recorded}` : null;
+/** 한글·단위는 본문 글꼴로 두고 기록의 숫자 조각만 모노로 렌더한다. */
+function recordContent(draft: SetDraft): ReactNode | null {
+  const number = (value: string | number) => (
+    <span className="font-mono tabular-nums">{value}</span>
+  );
+
+  if (draft.actual_time_sec != null) return <>{number(draft.actual_time_sec)}초</>;
+  if (draft.actual_reps == null) return null;
+  return (
+    <>
+      {draft.actual_weight != null ? (
+        <>{number(formatKg(draft.actual_weight).replace("kg", ""))}kg × </>
+      ) : null}
+      {number(draft.actual_reps)}회
+      {draft.actual_rir != null ? <> · RIR {number(draft.actual_rir)}</> : null}
+    </>
+  );
+}
+
+function previousContent(draft: SetDraft): ReactNode | null {
+  const recorded = recordContent(draft);
+  return recorded ? <>직전 {recorded}</> : null;
 }
 
 /** 기록값 한 줄("62.5kg × 9회", "45초"). 기록이 없으면 null. */
@@ -236,7 +254,7 @@ export function SetRow({
     showRirTarget ? (
       <span key="rir-target" id={rirTargetId}>{`RIR 목표 ${set.target_rir}`}</span>
     ) : null,
-    previous ? previousLabel(previous) : null,
+    previous ? previousContent(previous) : null,
   ].filter(Boolean);
 
   /*
@@ -265,7 +283,11 @@ export function SetRow({
         ) : null}
         {/* 기록값 본문은 흐리지 않는다(ADR-41). 기록이 없을 때의 안내 문구만 보조색이다. */}
         <span className={cn("min-w-0 text-sm", recorded ? "text-fg" : "text-fg-muted")}>
-          {recorded ? `기록 ${recorded}` : "종료한 운동이라 입력할 수 없어요."}
+          {draft && recorded ? (
+            <>기록 {recordContent(draft)}</>
+          ) : (
+            "종료한 운동이라 입력할 수 없어요."
+          )}
         </span>
       </li>
     );
@@ -302,8 +324,8 @@ export function SetRow({
           <Badge tone="success" density="compact" className="shrink-0">
             ✓ 완료
           </Badge>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg tabular-nums">
-            {(draft ? recordLabel(draft) : null) ?? "기록 없음"}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+            {(draft ? recordContent(draft) : null) ?? "기록 없음"}
           </span>
         </button>
         <CompleteButton
@@ -318,20 +340,18 @@ export function SetRow({
   }
 
   /*
-    2줄 고정 그리드.
-      1줄 = 세트번호 · 무게 · 횟수 · RIR,  2줄 = 목표/직전(또는 오류 문구),
-      오른쪽 = 완료 체크(두 줄 span).
-    DOM 순서는 무게 → 횟수 → RIR → 완료 체크 그대로 두고(§7.1 탭 순서·AC-A-1),
-    완료 체크만 그리드 배치로 오른쪽에 세운다(§8 엄지 반경).
+    2줄·5열 고정 그리드: 세트(16) · 입력(1fr) · 입력(1fr) · RIR(46) · 완료(48).
+    맨몸은 횟수가 두 입력 열을, 시간 종목은 시간 입력이 세 입력 열을 차지한다.
+    DOM 순서는 무게 → 횟수 → RIR → 완료 체크 그대로 둔다(§7.1 탭 순서·AC-A-1).
   */
   return (
     <li
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1",
+        "grid grid-cols-[16px_minmax(0,1fr)_minmax(0,1fr)_46px_48px] items-center gap-x-1.5 gap-y-1",
         "rounded-control border border-border bg-bg p-2",
       )}
     >
-      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1.5">
+      <div className="col-start-1 row-start-1 flex min-w-0 items-center justify-center">
         {/* 펼친 완료 행에서는 세트 번호 자리가 접기 버튼이 된다(펼친 행은 한 번에 하나뿐이다). */}
         {editing ? (
           <button
@@ -340,7 +360,7 @@ export function SetRow({
             aria-label={`${setLabel} 기록 접기`}
             onClick={onToggleExpand}
             className={cn(
-              "flex min-h-tap w-6 shrink-0 items-center justify-center rounded-control",
+              "flex min-h-tap w-4 shrink-0 items-center justify-center rounded-control",
               "font-mono text-sm font-semibold tabular-nums text-fg",
               "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
               "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
@@ -351,7 +371,10 @@ export function SetRow({
         ) : (
           setNo("text-fg")
         )}
-        {kind === "time" ? (
+      </div>
+
+      {kind === "time" ? (
+        <div className="col-span-3 col-start-2 row-start-1 min-w-0">
           <Input
             id={`set-${set.id}-time`}
             label={`${setLabel} 유지 시간, 초`}
@@ -368,52 +391,52 @@ export function SetRow({
               commit(valuesFrom(shownWeight, repsText, event.target.value, rir));
             }}
           />
-        ) : (
-          <>
-            {/*
-              폭 배분(390px 실측): 무게 76 · 횟수 48 · RIR 80.
-              무게는 "137.5" 처럼 다섯 자리가 오므로 남는 폭을 전부 받고(flex-1),
-              횟수는 두 자리면 충분해 고정한다. RIR 은 `<input list>` 의 브라우저 목록 아이콘이
-              칸 안쪽을 ~22px 먹어서 그만큼 넓다.
-              맨몸이면 무게 칸이 없으므로 그만큼 횟수 칸을 넓힌다(§5.3 "빈 칸을 남기지 않는다").
-            */}
-            {hasWeightInput(kind) ? (
-              <div className="min-w-0 flex-1">
-                <Input
-                  id={`set-${set.id}-weight`}
-                  label={`${setLabel} 무게, 킬로그램`}
-                  hideLabel
-                  density="compact"
-                  inputMode="decimal"
-                  placeholder="무게"
-                  value={shownWeight}
-                  invalid={missing === "weight"}
-                  aria-describedby={missing === "weight" ? errorId : undefined}
-                  onChange={(event) => {
-                    setWeightText(event.target.value);
-                    commit(valuesFrom(event.target.value, repsText, timeText, rir));
-                  }}
-                />
-              </div>
-            ) : null}
-            <div className={hasWeightInput(kind) ? "w-12 shrink-0" : "min-w-0 flex-1"}>
+        </div>
+      ) : (
+        <>
+          {hasWeightInput(kind) ? (
+            <div className="col-start-2 row-start-1 min-w-0">
               <Input
-                id={`set-${set.id}-reps`}
-                label={`${setLabel} 횟수, 회`}
+                id={`set-${set.id}-weight`}
+                label={`${setLabel} 무게, 킬로그램`}
                 hideLabel
                 density="compact"
-                inputMode="numeric"
-                placeholder="횟수"
-                value={repsText}
-                invalid={missing === "reps"}
-                aria-describedby={missing === "reps" ? errorId : undefined}
+                inputMode="decimal"
+                placeholder="무게"
+                value={shownWeight}
+                invalid={missing === "weight"}
+                aria-describedby={missing === "weight" ? errorId : undefined}
                 onChange={(event) => {
-                  setRepsText(event.target.value);
-                  commit(valuesFrom(shownWeight, event.target.value, timeText, rir));
+                  setWeightText(event.target.value);
+                  commit(valuesFrom(event.target.value, repsText, timeText, rir));
                 }}
               />
             </div>
-            {asksRir(kind) ? (
+          ) : null}
+          <div
+            className={cn(
+              "row-start-1 min-w-0",
+              hasWeightInput(kind) ? "col-start-3" : "col-span-2 col-start-2",
+            )}
+          >
+            <Input
+              id={`set-${set.id}-reps`}
+              label={`${setLabel} 횟수, 회`}
+              hideLabel
+              density="compact"
+              inputMode="numeric"
+              placeholder="횟수"
+              value={repsText}
+              invalid={missing === "reps"}
+              aria-describedby={missing === "reps" ? errorId : undefined}
+              onChange={(event) => {
+                setRepsText(event.target.value);
+                commit(valuesFrom(shownWeight, event.target.value, timeText, rir));
+              }}
+            />
+          </div>
+          {asksRir(kind) ? (
+            <div className="col-start-4 row-start-1 min-w-0">
               <RirField
                 id={`set-${set.id}-rir`}
                 setLabel={setLabel}
@@ -426,13 +449,13 @@ export function SetRow({
                   commit(valuesFrom(shownWeight, repsText, timeText, next));
                 }}
               />
-            ) : null}
-          </>
-        )}
-      </div>
+            </div>
+          ) : null}
+        </>
+      )}
 
       {/* 보조 줄. 오류가 나면 그 자리에 사유를 넣는다(입력칸 아래에 붙이면 행이 3줄이 된다). */}
-      <div className="col-start-1 row-start-2 min-w-0">
+      <div className="col-span-3 col-start-2 row-start-2 min-w-0">
         {missing ? (
           <p id={errorId} className="truncate text-xs text-danger">
             {MISSING_HINT[missing]}
@@ -449,9 +472,10 @@ export function SetRow({
         ) : null}
       </div>
 
-      <div className="col-start-2 row-span-2 row-start-1">
+      <div className="col-start-5 row-span-2 row-start-1">
         <CompleteButton
           completed={completed}
+          size="md"
           data-set-check={set.id}
           aria-label={`${setLabel} 완료 ${completed ? "취소" : "처리"}`}
           onClick={handleToggle}

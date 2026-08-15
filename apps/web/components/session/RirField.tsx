@@ -60,12 +60,9 @@ export function RirField({
     if (next !== value) onChange(next);
   };
 
-  /*
-    폭은 바깥 상자로 잡는다 — Input 의 wrapper 는 `w-full` 이라 className 으로 폭을 덮어쓰면
-    두 유틸리티가 충돌해 칸이 옆 요소(완료 체크) 위로 넘친다.
-  */
+  /* 46px 그리드 열 안에서 숫자 한 자리와 24px 셰브론 타깃이 함께 맞도록 이 필드만 여백을 줄인다. */
   return (
-    <div className="w-20 shrink-0">
+    <div className="min-w-0 w-full">
       <Input
         id={id}
         label={`${setLabel} 남은 반복 수(RIR), 0~6, 선택 입력`}
@@ -77,10 +74,11 @@ export function RirField({
         // "지우고 다시 치기" 없이 바로 바꿀 수 있게 한다(한 손 조작).
         maxLength={1}
         autoComplete="off"
-        placeholder="RIR"
+        placeholder=""
         value={rirText(value)}
         disabled={disabled}
         aria-describedby={describedById}
+        className="min-w-0 [&_input]:pl-1.5 [&_input]:pr-6"
         onFocus={(event) => event.target.select()}
         onKeyDown={handleKeyDown}
         onChange={(event) => {
@@ -98,7 +96,7 @@ export function RirField({
             aria-expanded={open}
             aria-controls={open ? sheetId : undefined}
             disabled={disabled}
-            className="flex h-9 w-7 touch-manipulation items-center justify-center rounded-control text-fg-muted"
+            className="flex h-9 min-w-6 w-6 touch-manipulation items-center justify-center rounded-control text-fg-muted"
             onClick={() => setOpen(true)}
           >
             <ChevronDownIcon className="size-5" />

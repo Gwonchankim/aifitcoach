@@ -22,9 +22,17 @@ function setRow(page: Page, exerciseName: string, setNo: number) {
   });
 }
 
-/** 운동 카드. 제목(h2)의 부모가 카드다(F1-0 이후 제목이 카드 직계 자식이다). */
+/** 운동 카드. M-UIb부터 제목은 헤더 행 안에 있으므로 조부모가 카드다. */
 function card(page: Page, exerciseName: string) {
-  return page.getByRole("heading", { name: exerciseName, exact: true }).locator("xpath=..");
+  return page.getByRole("heading", { name: exerciseName, exact: true }).locator("xpath=../..");
+}
+
+async function openExerciseMenu(page: Page, exerciseName: string) {
+  const trigger = page.getByRole("button", { name: `${exerciseName} 메뉴` });
+  await trigger.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  return { trigger, menu };
 }
 
 test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세트 완료 → 종료 → 요약", async ({
@@ -99,9 +107,34 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await card(page, "플랭크").screenshot({ path: "e2e/screenshots/11d-plank-card.png" });
   await card(page, "풀업").screenshot({ path: "e2e/screenshots/11e-pullup-card.png" });
 
-  // ---- F5 교체([교체] = 바로 교체 팝업, 중간 메뉴 없음) ----
+  // ---- M-UIb: 앵커 메뉴는 정확히 3항목이며 키보드·외부 클릭 후 트리거로 복귀한다. ----
+  let opened = await openExerciseMenu(page, "플랭크");
+  const menuItems = opened.menu.getByRole("menuitem");
+  await expect(menuItems).toHaveCount(3);
+  await expect(menuItems).toHaveText(["교체", "통증 기록", "삭제"]);
+  await expect(opened.menu.getByRole("menuitem", { name: /건너뛰기|추가/ })).toHaveCount(0);
+  await expect(menuItems.nth(0)).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menuItems.nth(1)).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(menuItems.nth(0)).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(menuItems.nth(2)).toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(menuItems.nth(0)).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(opened.menu).toBeHidden();
+  await expect(opened.trigger).toBeFocused();
+
+  opened = await openExerciseMenu(page, "플랭크");
+  await page.getByRole("heading", { name: "플랭크", exact: true }).click();
+  await expect(opened.menu).toBeHidden();
+  await expect(opened.trigger).toBeFocused();
+
+  // ---- F5 교체(메뉴 선택 → 교체 시트) ----
   const before = await page.getByRole("heading", { level: 2 }).allInnerTexts();
-  await page.getByRole("button", { name: "플랭크 교체" }).click();
+  opened = await openExerciseMenu(page, "플랭크");
+  await opened.menu.getByRole("menuitem", { name: "플랭크 교체" }).click();
 
   const swapSheet = page.getByRole("dialog", { name: /플랭크 교체/ });
   await expect(swapSheet).toBeVisible();
@@ -110,8 +143,9 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(page.getByRole("heading", { name: "케이블 크런치" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "플랭크" })).toHaveCount(0);
 
-  // ---- F5 삭제(휴지통 → 확인 시트, AC-H-3) ----
-  await page.getByRole("button", { name: "케이블 크런치 삭제" }).click();
+  // ---- F5 삭제(메뉴 선택 → 확인 시트, AC-H-3) ----
+  opened = await openExerciseMenu(page, "케이블 크런치");
+  await opened.menu.getByRole("menuitem", { name: "케이블 크런치 삭제" }).click();
   const removeSheet = page.getByRole("dialog", { name: /케이블 크런치 빼기/ });
   await expect(removeSheet).toBeVisible();
   await shot(page, "12-exercise-remove-sheet");
@@ -136,13 +170,27 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   // RIR 은 한 칸에 직접 입력한다(F1-1 2차 개정 — 같은 칸의 목록에서 고를 수도 있다).
   await page.getByLabel(`${exerciseName} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`).fill("2");
   await expect(page.getByLabel(/1세트 남은 반복 수\(RIR\), 0~6/).first()).toHaveValue("2");
+
+  // D-14: 메뉴가 열린 채 완료 경로가 시작되지 않는다. 첫 클릭은 메뉴 닫기로만 소비한다.
+  opened = await openExerciseMenu(page, exerciseName);
+  await firstCheck.click();
+  await expect(opened.menu).toBeHidden();
+  await expect(firstCheck).toHaveAccessibleName(`${exerciseName} 1세트 완료 처리`);
+  await expect(page.getByRole("dialog", { name: /후 휴식/ })).toHaveCount(0);
+  await expect(opened.trigger).toBeFocused();
   await firstCheck.click();
 
   // F2: 완료 체크 → 휴식 타이머 팝업 자동 오픈
   const timer = page.getByRole("dialog", { name: new RegExp(`${exerciseName} 1세트 후 휴식`) });
   await expect(timer).toBeVisible();
-  await timer.getByRole("button", { name: "휴식 종료" }).click();
+  const finishRest = timer.getByRole("button", { name: "휴식 종료" });
+  await expect(finishRest).toBeFocused();
+  // 메뉴의 지연 포커스 복귀가 타이머의 초기 포커스를 덮지 않는지 한 이벤트 루프 뒤에도 확인한다.
+  await page.waitForTimeout(50);
+  await expect(finishRest).toBeFocused();
+  await finishRest.click();
   await expect(timer).toBeHidden();
+  await expect(page.getByLabel(`${exerciseName} 2세트 무게, 킬로그램`)).toBeFocused();
 
   await expect(page.getByText("✓ 완료").first()).toBeVisible();
   await expect(page.getByText(/1세트 완료 · 계획 \d+세트/)).toBeVisible();
@@ -150,25 +198,55 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(setRow(page, exerciseName, 1).getByText("40kg × 10회 · RIR 2")).toBeVisible();
   expect(await setRow(page, exerciseName, 1).locator("input").count()).toBe(0);
 
-  // 기록이 있는 운동은 편집이 막힌다(AC-S4-4)
-  await expect(page.getByRole("button", { name: `${exerciseName} 교체` })).toBeDisabled();
-  // 휴지통은 disabled 가 아니라 aria-disabled 다 — 사유를 알려야 하기 때문이다(AC-DEL-3)
-  const trash = page.getByRole("button", { name: new RegExp(`^${exerciseName} 삭제`) });
-  await expect(trash).toHaveAttribute("aria-disabled", "true");
-  await expect(trash).toHaveAccessibleName(`${exerciseName} 삭제, 기록이 있어 뺄 수 없어요`);
-  await expect(page.getByText(/기록이 있는 운동이라 빼거나 바꿀 수 없어요/)).toBeVisible();
-  /*
-    눌러도 확인 시트가 열리지 않는다(AC-DEL-4).
-    force: true 인 이유 — Playwright 는 aria-disabled 를 "not enabled" 로 보고 클릭을 거부한다.
-    실제 사용자는 포인터 이벤트가 살아 있어 누를 수 있으므로(그래야 사유를 알려줄 수 있다)
-    그 상황을 그대로 재현한다.
-  */
-  await trash.click({ force: true });
+  // 기록이 있는 운동의 교체·삭제는 포커스 가능 aria-disabled, 통증은 계속 활성이다(AC-S4-4).
+  const blockedExerciseRequests: string[] = [];
+  const captureExerciseMutation = (request: { method(): string; url(): string }) => {
+    if (request.method() !== "GET" && /\/sessions\/[^/]+\/exercises(?:\/|$)/.test(request.url())) {
+      blockedExerciseRequests.push(`${request.method()} ${request.url()}`);
+    }
+  };
+  page.on("request", captureExerciseMutation);
+  opened = await openExerciseMenu(page, exerciseName);
+  const lockedSwap = opened.menu.getByRole("menuitem", { name: `${exerciseName} 교체` });
+  const lockedPain = opened.menu.getByRole("menuitem", { name: `${exerciseName} 통증 기록` });
+  const lockedDelete = opened.menu.getByRole("menuitem", { name: `${exerciseName} 삭제` });
+  await expect(lockedSwap).toHaveAttribute("aria-disabled", "true");
+  await expect(lockedDelete).toHaveAttribute("aria-disabled", "true");
+  await expect(lockedPain).not.toHaveAttribute("aria-disabled", "true");
+  await lockedSwap.focus();
+  await expect(lockedSwap).toBeFocused();
+  await lockedSwap.click({ force: true });
+  await expect(page.getByRole("status")).toHaveText(
+    "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.",
+  );
+  await expect(page.locator('[id$="-locked-reason"]')).toHaveText(
+    "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.",
+  );
+  await expect(page.getByRole("dialog", { name: /교체/ })).toHaveCount(0);
+  await lockedDelete.focus();
+  await expect(lockedDelete).toBeFocused();
+  await lockedDelete.click({ force: true });
   await expect(page.getByRole("dialog", { name: /빼기/ })).toHaveCount(0);
+  await page.waitForTimeout(100);
+  expect(blockedExerciseRequests, "잠긴 교체·삭제는 도메인 mutation 요청을 보내지 않는다").toEqual(
+    [],
+  );
+
+  await lockedPain.click();
+  const painSheet = page.getByRole("dialog", { name: `${exerciseName} 통증 기록` });
+  await expect(painSheet).toBeVisible();
+  await expect(painSheet.getByRole("button", { name: "닫기" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(painSheet).toBeHidden();
+  page.off("request", captureExerciseMutation);
 
   // 되돌리기 → 재체크(AC-S4-1)
   await page.getByRole("button", { name: `${exerciseName} 1세트 완료 취소` }).click();
-  await expect(page.getByRole("button", { name: `${exerciseName} 교체` })).toBeEnabled();
+  opened = await openExerciseMenu(page, exerciseName);
+  await expect(
+    opened.menu.getByRole("menuitem", { name: `${exerciseName} 교체` }),
+  ).not.toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: `${exerciseName} 1세트 완료 처리` }).click();
   await page
     .getByRole("dialog", { name: /후 휴식/ })

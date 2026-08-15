@@ -62,6 +62,7 @@ function render(props: { readOnly: boolean; draft?: SetDraft }) {
 const buttonCount = (html: string) => (html.match(/<button/g) ?? []).length;
 
 const inputCount = (html: string) => (html.match(/<input/g) ?? []).length;
+const visibleText = (html: string) => html.replace(/<[^>]*>/g, "");
 
 describe("완료된 세션(읽기 전용) 세트 행", () => {
   it("입력칸을 렌더하지 않는다(disabled 로 남기지 않는다)", () => {
@@ -73,7 +74,9 @@ describe("완료된 세션(읽기 전용) 세트 행", () => {
   });
 
   it("기록이 있으면 마지막 기록값을 요약행으로 보여준다", () => {
-    expect(render({ readOnly: true, draft: draft() })).toContain("기록 62.5kg × 9회");
+    const html = render({ readOnly: true, draft: draft() });
+    expect(visibleText(html)).toContain("기록 62.5kg × 9회");
+    expect(html).toContain('<span class="font-mono tabular-nums">62.5</span>kg');
   });
 
   it("기록이 없으면 종료 상태를 문구로 알린다(미시작 운동처럼 보이지 않게)", () => {
