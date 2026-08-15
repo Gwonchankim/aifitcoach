@@ -1,12 +1,15 @@
-import { Body, Controller, Post } from "@nestjs/common";
-import { notImplemented } from "../common/http/not-implemented";
+import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { CurrentUser } from "../auth/current-user.decorator";
 import { SyncRequestDto } from "./dto/sync-request.dto";
+import { SyncService } from "./sync.service";
 
 @Controller("sync")
 export class SyncController {
-  /** POST /sync — 오프라인 변경 배치 push + 변경 pull (client_id 멱등, updated_at LWW) */
+  constructor(private readonly syncService: SyncService) {}
+
   @Post()
-  sync(@Body() _body: SyncRequestDto): never {
-    return notImplemented();
+  @HttpCode(200)
+  sync(@CurrentUser() userId: string, @Body() body: SyncRequestDto) {
+    return this.syncService.sync(userId, body);
   }
 }

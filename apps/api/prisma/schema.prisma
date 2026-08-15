@@ -133,6 +133,8 @@ enum SubscriptionStatus {
 enum SyncEntityType {
   performed_set
   session
+  session_routine
+  // ADR-33: legacy DB 값만 유지한다. STEP 6 공개 DTO/OpenAPI에서는 허용하지 않는다.
   profile
 
   @@map("sync_entity_type")
@@ -281,6 +283,9 @@ model WorkoutSession {
 
 model PlannedSet {
   id                String   @id @default(uuid()) @db.Uuid
+  // D-31: offline routine에서 클라이언트가 만든 임시 세트와 서버 권위 ID의 안정적 상관키.
+  // nullable이라 기존 계획세트는 영향 없고, 같은 correlation 재전송은 같은 행으로 해석한다.
+  clientCorrelationId String? @unique(map: "ux_planned_correlation") @map("client_correlation_id") @db.Uuid
   sessionId         String   @map("session_id") @db.Uuid
   exerciseId        String   @map("exercise_id")
   // 세션 안에서 운동이 놓이는 순서. openapi AddExerciseRequest.position 을 구현하려면
@@ -331,7 +336,8 @@ model PerformedSet {
   plannedSet PlannedSet @relation(fields: [plannedSetId], references: [id])
 
   @@unique([clientId], map: "ux_performed_client")
-  @@index([plannedSetId], map: "ix_performed_planned")
+  // 완료 세트의 논리 ID는 planned_set_id다. 다른 mutation id 재전송/다중 탭도 최종 행은 하나다.
+  @@unique([plannedSetId], map: "ux_performed_planned")
   @@map("performed_sets")
 }
 
@@ -383,6 +389,7 @@ model Subscription {
 
 model SyncMutation {
   id              String         @id @default(uuid()) @db.Uuid
+  serverSeq       BigInt         @unique @default(autoincrement()) @map("server_seq")
   userId          String         @map("user_id") @db.Uuid
   entityType      SyncEntityType @map("entity_type")
   entityId        String         @map("entity_id")
@@ -394,6 +401,7 @@ model SyncMutation {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId, serverSeq], map: "ix_sync_user_seq")
   @@map("sync_mutations")
 }
 

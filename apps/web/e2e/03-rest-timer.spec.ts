@@ -10,7 +10,9 @@ import { openSession, seedProgram, shot, todaySession } from "./helpers";
 
 let sessionId: string;
 
-test.beforeAll(async ({ request }) => {
+// /sync now persists a completed set on the server. Give every timer case a fresh session so
+// one case cannot pull the previous case's first-set completion into its new browser context.
+test.beforeEach(async ({ request }) => {
   await seedProgram(request);
   sessionId = await todaySession(request);
 });

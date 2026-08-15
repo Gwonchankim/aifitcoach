@@ -160,7 +160,10 @@ describe("운동 카탈로그 API", () => {
         primary_muscles: ["abs"],
         equipment: "bodyweight",
         difficulty: "beginner",
+        mechanic: "isolation",
+        region: "core",
         metric: "time",
+        step_kg: null,
         default_time_low_sec: 20,
         default_time_high_sec: 60,
         substitutions: ["e_cable_crunch"],
@@ -180,7 +183,10 @@ describe("운동 카탈로그 API", () => {
         primary_muscles: ["chest", "triceps"],
         equipment: "bodyweight",
         difficulty: "intermediate",
+        mechanic: "compound",
+        region: "upper",
         metric: "reps",
+        step_kg: null,
         rep_range_low: 6,
         rep_range_high: 15,
         default_time_low_sec: null,
@@ -188,7 +194,7 @@ describe("운동 카탈로그 API", () => {
         substitutions: ["e_chest_press_machine", "e_triceps_pushdown"],
         media_url: null,
       });
-      // DB 의 default_step_kg 는 계약에 없다 → 응답에 없어야 한다(맨몸은 null 이기도 하다).
+      // DB 컬럼명은 노출하지 않고 D-31 계약의 step_kg(null)로 정규화한다.
       expect(response.body).not.toHaveProperty("default_step_kg");
     });
   });

@@ -30,9 +30,9 @@ const withSerwist = withSerwistInit({
   register: true,
   cacheOnNavigation: false,
   reloadOnOnline: false,
-  // STEP 6의 앱 셸 precache를 앞당기지 않는다. 이 티켓은 해시된 폰트 runtime cache만 소유한다.
+  // Next 해시 자산은 앱 셸 precache에 넣되 폰트는 기존 afc-fonts-v1 CacheFirst가 계속 소유한다.
   globPublicPatterns: [],
-  exclude: [/.*/],
+  exclude: [/\.woff2?$/i],
 });
 
 export default withSerwist(nextConfig);

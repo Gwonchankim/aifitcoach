@@ -11,7 +11,7 @@
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
 | 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | ✅ **M-UIa·M-UIb 완료** — M-UIb Sprint 0~4 직렬 종료, fix-now 반영·defer 1건 분리 | M-UIa **71** · M-UIb **95** |
-| 6 | 오프라인 동기화 | ⬜ 예정 | |
+| 6 | 오프라인 동기화 | ✅ **완료 (2026-08-16)** — D-19~D-31, Sprint 0~5 종료 · 핵심 루프 복구 | **98 PASS** |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
 | — | 최종 다각도 평가 (≥99/100) | ⬜ 예정 | |
@@ -346,15 +346,15 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## ▶ 다음 세션은 여기부터 읽어라 (2026-08-15 M-UIb 종료 시점)
+## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 STEP 6 완료 시점)
 
 > **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-09.md` 에 있다. 그걸 먼저 읽어라.**
-> master · M-UIb Sprint 0~4 완료 커밋.
-> 최종 통합 게이트: shared 79 · web 237 · api 237 · **E2E 58/58** · `06-mobile` 14/14 · axe 20화면 0 · verify:contrast 30조합.
+> master `c7bbe33` 기반 작업 · STEP 6 Sprint 0~5 완료, D-31 routine correlation mapping으로 C-4 해소.
+> 최신 통합 게이트: shared 81 · web 270 · api 256 · **E2E 64/64** · `06-mobile` 14/14 · axe 20화면 0 · S1 soak 20/20 · verify:contrast 30조합.
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → **STEP 6(오프라인 동기화, 다음)** → M-4′ → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → **M-4′ (다음)** → M-7′
 
 ### M-UIb 진입 조건
 
@@ -459,6 +459,141 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - 계획 단계에서 58개 E2E를 스펙 단위로 훑고 치수·셀렉터·문구의 예상 파손을 분리한 덕분에, 개발 중 실패를 제품 회귀와 테스트 계약 갱신으로 즉시 분류할 수 있었다.
 - `06-mobile`의 보수적 예상은 2개 source block·4/14 실패였지만 실제는 1개 block·2/14 실패였고 unexpected 실패는 0이었다. **정밀한 사전 산출이 범위를 넓힌 것이 아니라, 실제 결과가 예측보다 낫다는 사실을 증거로 확인하게 한 사례**다.
 - 계약 잠금→구현→QA 계약→독립 평가를 직렬화하고 뮤턴트 SHA를 전후 대조해, 공유 렌더 트리·기준 이미지에서 원인 혼합과 stash 사고 없이 마일스톤을 닫았다.
+
+---
+
+## STEP 6 오프라인 동기화 — Sprint 0 착수 실측 (2026-08-15)
+
+### 🔴 핵심 루프 공백: `/sync`는 계획과 달리 실제 미구현
+
+- M3 D-5 승인 당시 `/sync`는 **`performed_set` upsert + `client_id` 멱등만 먼저 구현**하는 것으로 계획됐다. 그러나 STEP 6 착수 시 실제 트리를 다시 측정한 결과, `apps/api/src/sync/`에는 DTO·module과 **항상 501을 반환하는 controller stub만 있고 `sync.service.ts` 자체가 없다**. `performed_set` upsert, 멱등 적용, LWW, pull은 모두 미구현이다.
+- 현재 UI의 세트 완료는 `session-store.ts`의 Zustand 메모리만 갱신한다. 이 기록을 `performed_sets` 또는 `/sync`로 서버에 보내는 경로가 없으므로, `POST /sessions/{id}/complete`가 추천을 재계산할 때 사용자의 실제 세트 기록은 입력에 포함되지 않는다.
+- 기존 E2E·API 테스트가 추천 재계산을 통과한 것은 테스트 setup/fixture가 `performed_sets`를 DB에 직접 심었기 때문이다. 따라서 **제품의 핵심 루프(기록 → 추천)는 실사용 경로에서 끊겨 있었다.** STEP 6은 이 공백을 테스트 우선으로 닫는다.
+- 이 발견은 M3·M-UIa·M-UIb 완료 판정을 번복하지 않는다. 각 완료 판정은 당시 승인된 마일스톤 범위 안에서는 유효하지만, 세 판정 모두 이 `/sync` 공백을 포함한 상태에서 내려졌다는 사실을 명시적으로 남긴다.
+
+### 계약·스키마 불일치 3건
+
+1. `performed_sets.planned_set_id`는 인덱스만 있고 UNIQUE가 아니어서, 서로 다른 `client_id`로 같은 계획 세트가 중복 생성될 수 있다.
+2. DB `sync_mutations`는 `entity_id`·`client_updated_at`을 최상위 컬럼으로 요구하지만 OpenAPI `Mutation`은 두 필드를 정의하지 않고 자유 형식 `payload`에 숨긴다.
+3. OpenAPI `/sync`는 `Idempotency-Key` 헤더를 노출하지만 API CORS 허용 헤더는 `Content-Type`·`X-CSRF-Token`뿐이라 브라우저 교차 출처 요청에서 사용할 수 없다.
+
+### 승인된 Sprint 0 원칙
+
+- D-19~D-30 권장안을 전부 승인했다. 유실·중복·LWW·cursor 단언을 구현보다 먼저 red로 고정하고, 각 테스트가 같은 stub 501이 아니라 **서로 다른 계약 위반 이유로 실패**하는지 확인한 뒤 구현 Sprint로 넘긴다.
+- `planned_set_id` UNIQUE는 빈 스키마에서만 확인하지 않는다. 중복 행이 존재하는 데이터 DB의 실패와 명시적 정리 절차를 재현한 뒤 migration 성공·재적용 안전성을 검증한다.
+- Sprint 1A(server)와 1B(PWA shell)만 병렬 허용한다. 로컬 mirror/outbox와 서버 sync는 같은 논리 상태를 변경하므로 직렬화한다.
+
+### ✅ Sprint 0 — 계약 잠금·red proof 완료
+
+| 계약 | 구현 전 red가 실제로 관찰한 값 | Sprint 0 종료 상태 |
+| --- | --- | --- |
+| 유실 0 | `/sync` push 뒤 `performed_sets` 조회가 `null` — HTTP 501 상태를 단언하지 않고 DB 행을 직접 관찰 | `it.failing`으로 보존. Sprint 1A가 저장하면 failing test가 역으로 red가 되므로 일반 `it` 전환 필수 |
+| 중복 0 | migration 전 같은 `planned_set_id` 두 번째 INSERT가 성공해 `Received promise resolved instead of rejected` | `ux_performed_planned` UNIQUE 후 PostgreSQL/P2002 거절, count 1 green |
+| LWW | 기존 50kg에 더 최신 60kg mutation을 보내도 최종값 **50** | 기대 60 단언을 `it.failing`으로 보존 |
+| cursor | applied change를 시드해도 pull 응답에 `changes` 배열이 없음 | change + `server_seq` 단언을 `it.failing`으로 보존 |
+
+- red modifier 원본 SHA-256 `7BF474B71458068F4B9A72D5C1267C1B8A9956F632536A06FF10065B546F2337`. modifier 제거 시 유실 `24495AF9...`, LWW `DBF73595...`, cursor `B7F82E51...`로 각각 변했고, 각 고유 red 확인 뒤 `scripts/mutate.mjs` 원복·verify로 원 SHA 일치, snapshot clear를 확인했다.
+- 중복 데이터 scratch DB에는 의도적으로 두 duplicate group(4행)을 만들었다. migration은 `P0001`과 runbook 힌트로 먼저 중단했고 자동 삭제는 0건이었다. runbook transaction이 최신 2행을 남기고 2행을 제거한 뒤 migration 재실행 성공, UNIQUE·`server_seq bigint`·`ix_sync_user_seq`를 확인했다.
+- 기존 데이터 DB `afc`·`afc_test`·`afc_e2e`는 migration 전 중복 group 0을 확인하고 적용했다. 세 DB 모두 완료 migration 1건, `ux_performed_planned` 1개, `server_seq` 1컬럼을 확인했다. 일회성 scratch DB는 검증 후 삭제했다.
+- OpenAPI: mutation 최상위 `entity_id`·`updated_at`, `session_routine`, `(updated_at, client_id)` LWW 설명, string opaque cursor와 change `server_seq`, tombstone `op`를 고정했다. 중복 transport 키 `Idempotency-Key`는 제거했다. `pnpm codegen` 재생성과 `pnpm contract:check` 통과.
+- ADR-56~59에 D-19~D-30을 기록했다. C-8(uncomplete tombstone), C-12(batch 후 추천 재계산)를 해소하고 ADR-33 profile 로컬 전용을 유지했다. C-4는 Sprint 2 실측에서 재개방됐고 D-31/ADR-60에서 최종 해소됐다.
+
+#### Sprint 0 게이트
+
+- typecheck · lint · format:check · build green
+- `verify:no-test-seed` 130파일 · `verify:contrast` 30/30 · `verify:font-payload` 92 faces / 2,957,724B
+- test **shared 79 유지 / web 237→238 / api 237→244** — 기존 통과 수 감소 0
+- E2E 직렬 **58/58**, `06-mobile` Chromium+WebKit **14/14**, axe **20화면 / violation 0** — 기존 기준선 유지
+- 앱 셸 offline reload의 기존 expected-failure는 Sprint 1B 소유로 그대로 남겼다. 제품 UI·시각 기준선 변경은 0건이다.
+
+### ✅ Sprint 1A·1B — 서버 sync + PWA 앱 셸 완료
+
+- **Sprint 1A(server)**: `/v1/sync`를 실제 서비스에 연결하고 tenant/entity LWW, 전역 mutation `client_id` 멱등, `performed_set` upsert/delete tombstone, `session_routine` ordered snapshot, 세트→세션 완료 순서, 권위 추천 재계산, `server_seq` opaque cursor pull을 구현했다.
+- 1차 구현 검토에서 서로 다른 entity가 같은 `client_id`를 동시에 쓰면 `performed_sets.client_id` UNIQUE로 **500**이 나는 것을 PostgreSQL 통합 테스트로 red 재현했다. client-id와 tenant/entity advisory lock을 고정 순서로 함께 잡아 교착 없이 한 mutation만 적용하고 500이 없음을 8회 동시 반복으로 고정했다.
+- 한 mutation의 metric/domain 검증 실패가 배치 전체를 **400**으로 중단하는 것도 red 재현했다. 해당 mutation만 `validation_failed` conflict/audit로 남기고 무관 mutation은 계속 적용하도록 고쳤다. 동일 client-id 내용 불일치, 역순·동시 LWW, 손상/replay cursor, tombstone, routine snapshot, 세트 후 완료와 권위 추천까지 sync PostgreSQL 통합 테스트 **13/13** green이다.
+- **Sprint 1B(PWA shell)**: Next 해시 build 자산을 precache하고 same-origin GET navigation만 `afc-pages-v1` NetworkFirst로 캐시한다. `/v1/**`·`/api/v1/**`는 CacheStorage에서 제외하며, 최초 worker 활성화 때 generic `/` 문서를 warm해 첫 온라인 방문 뒤 오프라인 reload가 실제 브라우저에서 통과한다.
+- 첫 통합 E2E에서 `exclude: []`가 Pretendard를 precache가 선점해 기존 `afc-fonts-v1` 계약이 1건 깨지는 것을 발견했다(앱 셸 test는 통과). `.woff2`만 manifest에서 제외해 기존 폰트 CacheFirst 소유권을 복원했고, 폰트 오프라인+앱 셸 오프라인 focused **2/2**, 최종 전체 **58/58**을 통과했다.
+
+#### Sprint 1A·1B 통합 게이트
+
+- codegen · contract:check · typecheck · lint · format:check · build green
+- `verify:no-test-seed` 130파일 · `verify:contrast` 30/30 · `verify:font-payload` 92 faces / 2,957,724B
+- test **shared 79 유지 / web 239 / api 253** — Sprint 0 및 원 기준선 대비 통과 수 감소 0
+- E2E 직렬 **58/58**, `06-mobile` Chromium+WebKit **14/14**, axe **20화면 / violation 0**. 제품 UI 변경이 없으므로 실행 중 다시 쓰인 PNG 기준선은 HEAD 원본과 정확히 교체해 diff 0으로 정리했다.
+
+### ✅ Sprint 2 — Dexie 로컬 mirror + atomic outbox 완료
+
+- `dexie@4.4.5`를 런타임, `fake-indexeddb@6.2.5`를 테스트 전용으로 정확히 고정했다. `afc-session-v1` DB version 1에 user/session-scoped draft·session/routine mirror, outbox, opaque cursor meta, conflict audit, lease-ready store를 두고 CacheStorage/localStorage에는 건강 데이터를 넣지 않는다.
+- 세트 완료·수정은 새 UUID `performed_set upsert`, 완료 해제는 더 최신 `delete` tombstone이다. local draft와 outbox는 한 Dexie transaction으로 먼저 commit하고 성공 뒤에만 Zustand·완료 문구·휴식 타이머가 바뀐다. disk-full 강제 실패에서 draft/outbox/Zustand가 모두 0변경임을 관찰했다.
+- 운동 단위 통증 기록은 여러 세트를 **한 transaction**으로 묶었다. 미완료 세트 통증은 local draft에만 남아 후속 완료 upsert에 실리고, 이미 완료된 세트만 새 outbox upsert를 만든다. 중간 outbox 실패 시 모든 세트와 Zustand가 rollback되는 테스트를 추가했다.
+- reload hydrate, user/session 격리, 세션 전환 late-hydrate race, persistent-storage best effort, session mirror offline fallback을 고정했다. online fetch 성공 후 mirror 쓰기만 실패해도 성공 응답은 유지한다. routine snapshot과 session completion도 local entity+outbox 원자 primitive 및 관찰 테스트를 갖췄다.
+- 현재 브라우저에는 실제 인증 user id 계약이 없으므로 STEP 4의 고정 dev-user 범위를 명시적으로 사용한다. OAuth 전환 때 scope 주입으로 교체해야 하며 서로 다른 user/session row 격리는 이미 테스트한다.
+- **발견된 계약 공백**: offline add/swap으로 새 운동을 만들면 서버 `PlannedSetFactory`가 부여할 `planned_set.id`를 클라이언트가 알 수 없다. 승인된 `session_routine.exercise_ids` snapshot만으로는 그 운동을 즉시 세트 로깅한 local ID를 서버 ID로 무손실 매핑할 수 없으므로, 임의 ID/추정 매핑은 하지 않고 UI 배선을 Sprint 3 계약 판단 지점으로 남겼다. 기존 서버 planned-set의 기록·수정·해제는 영향 없다.
+
+#### Sprint 2 게이트
+
+- focused IndexedDB/store **28/28**, typecheck · lint · format:check · build green
+- `verify:no-test-seed` 133파일 · `verify:contrast` 30/30 · `verify:font-payload` 92 faces / 2,957,724B
+- test **shared 79 유지 / web 254 / api 253** — 기존 통과 수 감소 0
+- E2E 직렬 **58/58**, `06-mobile` Chromium+WebKit **14/14**, axe **20화면 / violation 0**. 실행이 다시 쓴 PNG는 UI 변경 범위가 아니므로 HEAD 원본으로 복원해 기준선 diff 0.
+
+### ✅ Sprint 3 — foreground sync coordinator + 로컬 우선 세션 완료
+
+- 앱 시작·`online`·focus·visibility 복귀와 outbox enqueue가 한 coordinator를 깨우며, burst trigger는 한 실행으로 합친다. user-scoped IndexedDB lease가 동시 탭의 전송을 직렬화하고 만료 takeover를 허용한다. 15초를 넘는 요청에는 heartbeat를 두고, 응답 commit transaction에서 owner·만료를 다시 확인하는 fencing으로 lease를 잃은 탭의 늦은 ack를 금지했다.
+- IndexedDB outbox의 `user_id`·`attempts`를 그대로 JSON 직렬화하던 감사 결함을 red로 잡았다. OpenAPI mutation 6개 필드만 명시적으로 투영해 `/sync` `additionalProperties: false`와 일치시켰다. 응답을 받기 전에는 outbox를 지우지 않고, applied/conflict 삭제·conflict 원본 보존·pull mirror·opaque cursor를 한 transaction으로 commit한다. transaction 실패와 응답 유실은 같은 mutation ID로 재시도한다.
+- 세트 완료/수정/해제·운동 단위 통증은 local commit 성공 뒤에만 화면 성공 상태를 바꾸고 coordinator를 호출한다. 운동 종료도 session mirror+outbox를 먼저 commit해 오프라인에서 즉시 로컬 요약을 보여주며, 온라인 응답의 서버 권위 추천으로 교체한다.
+- RIR 미입력이 wire에 `actual_rir:null`로 실려 “미입력”과 값 0을 혼동할 여지를 E2E가 발견했다. null 키 자체를 생략하고 실제 0만 전송하는 단위 단언을 추가했다.
+- 첫 전체 E2E는 **55/58**이었다. (1) 위 RIR 직렬화 1건은 제품 수정, (2) 대시보드의 “기기 전용 기록” 기대 1건은 이제 서버 권위 `980kg · 2세트` 계약으로 갱신, (3) 앞선 스펙의 실제 sync가 추천 이력을 만든 뒤 “무게 미정” 전제를 깨뜨린 1건은 단언을 지우지 않고 이력 축이 다른 명시적 하체 종목으로 격리했다. 재실행은 예상 밖 실패 0으로 **58/58**이다.
+- **계속 열린 계약 공백**: offline add/swap 직후 서버가 아직 만들지 않은 `planned_set.id`와 로컬 세트 기록을 매핑할 방법은 `exercise_ids` snapshot만으로는 없다. 임의 ID나 순서 추정은 유실 위험이므로 routine UI의 직접 서버 호출은 아직 바꾸지 않았다. Sprint 4 통합 전에 응답 매핑 계약을 확정해야 한다.
+
+#### Sprint 3 게이트
+
+- codegen · contract:check · typecheck · lint · format:check · build green
+- focused IndexedDB/coordinator/store **37/37**, 전체 test **shared 79 유지 / web 263 / api 253** — 기준선 감소 0
+- `verify:no-test-seed` 135파일 · `verify:contrast` 30/30 · `verify:font-payload` 92 faces / 2,957,724B
+- E2E 직렬 **58/58**, `06-mobile` Chromium+WebKit **14/14**, axe **20화면 / violation 0**. UI 변경 범위가 아니므로 실행이 쓴 PNG·mobile metrics는 HEAD 원본으로 복원해 기준선 diff 0.
+
+### ✅ Sprint 4 — 전체 무결성 통합 + D-31 routine ID mapping 완료
+
+- 실브라우저·실 API·실 IndexedDB로 Chromium fault matrix를 고정했다. (1) 오프라인 세트 3개 기록 → reload → 탭 종료/새 탭 → 복구 → 서버 권위 요약 **정확히 3세트/1,500kg**, (2) 서버 적용 뒤 응답 유실 → 같은 mutation ID 재전송 → **정확히 1세트/480kg**, (3) sync 중 재오프라인 → outbox 보존 → **정확히 1세트/495kg**, (4) 두 탭에서 같은 세트를 50→70kg으로 수정 → real-clock LWW → **정확히 1세트/700kg**, (5) 외부 upsert pull이 draft 없는 탭에 65kg×8회를 만들고 최신 tombstone이 완료를 해제한다. `performed_sets` 직접 seed 없이 공개 API와 최종 UI/dashboard를 관찰한다.
+- WebKit-iOS 프로젝트에서는 실제 context offline 상태에서 add/swap/즉시 기록까지 수행한다. 다만 Playwright WebKit이 offline navigation을 service worker로 넘기지 않고 내부 오류로 중단하므로, worker를 해제하고 페이지가 없는 동안 문서 transport만 복구한 뒤 API를 차단해 새 탭 IndexedDB/session/catalog 복구를 검증했다. 실제 iOS HTTPS PWA 종료/재실행 walkthrough는 TEST_SCOPE의 별도 실기기 게이트로 유지한다.
+- red proof가 추가로 드러낸 공백을 fix-now 처리했다. 운동 카탈로그는 network-only라 오프라인 새 탭에서 이름을 복구하지 못해 Dexie v2 user-scoped read-through mirror를 붙였다. 전송 실패는 owner만 lease를 즉시 해제하고, 탭 crash는 15초 만료 뒤 예약 재시도한다. 기본 transport는 10초 abort timeout을 가지며, 진행 중 요청이 끝나기 전에 들어온 더 최신 trigger는 첫 요청 실패 뒤 반드시 한 번 더 실행된다.
+- 전용 뮤턴트 3종을 `scripts/mutate.mjs`로 원본 SHA-256 `42603DBD…5679`에서 각각 변조했다. 응답 전 ack(`2D50E82F…`, **5/10 red**), 재시도마다 새 client_id(`0D60D66E…`, **3/10 red**), 유효 lease 무시(`4AEBD5C2…`, **1/10 red**)가 서로 다른 단언에 잡혔다. 매번 변조 SHA 확인 → 판정 → 원복 → 원본 SHA 일치 → coordinator **10/10** 재통과를 확인했고 `.mutation-snapshot`은 비웠다.
+- **D-31/C-4 해소**: provisional 세트별 correlation UUID를 routine snapshot에 넣고, DB `client_correlation_id` nullable UNIQUE와 `/sync.planned_set_mappings`로 authoritative ID를 돌려준다. 재전송은 저장된 correlation으로 같은 mapping을 반환한다. performed mutation은 mapping 전 처리되지 않고 서버의 고정 routine→performed→completion 순서에서 임시 ID를 권위 ID로 정규화한다.
+- shared `routine-plan`이 서버와 클라이언트의 3/5세트·목표·휴식·초기 추천을 한 규칙으로 만든다. 오프라인 화면은 이 provisional mirror를 즉시 쓰고, mapping의 전체 `PlannedSet`으로 교체한다.
+- mapping 응답 commit은 drafts·pending outbox·session mirror·routine mirror를 한 Dexie transaction에서 치환한 뒤 ack한다. transaction 중간 강제 실패는 네 테이블 모두 임시 ID 상태로 롤백한다. 오프라인 add→swap→mapping 전 즉시 기록→reload→탭 종료/새 탭→온라인 복귀가 서버에 **정확히 4세트/1,900kg**으로 반영되고 임시 ID 서버 유출은 0이다.
+- 전체 E2E 감사에서 outbox 전환 후 409 UI 전달 두 건을 발견해 온라인 conflict를 기존 편집 문구/권위 세션 재조회에 연결했다. 이어 pull 사각지대를 별도로 찾아, 로컬 draft가 없는 performed-set upsert 생성과 delete tombstone 해제까지 브라우저 E2E로 고정했다.
+- 최종 64개 재실행은 기존 Chromium 경로의 숨은 격리·경합을 추가로 red로 만들었다. 타이머·모바일·a11y 요약은 같은 세션을 공유하던 스펙이 앞 테스트의 서버 기록을 다음 테스트에서 pull한 **STEP 6 이후의 격리 결함**이라 각 케이스에 새 세션을 배정했다. 재개 세션은 완료 해제 ack와 다음 입력이 겹칠 때 최신 outbox는 지켰지만 UI만 낡은 draft로 되감던 경합이었다. 실제 IDB draft가 바뀐 pull에만 refresh event를 내고, 사용자가 포커스한 입력은 pull/ack로 덮지 않도록 고정했다.
+
+#### Sprint 4 최종 게이트
+
+- codegen · contract:check **31/31** · typecheck · lint · format:check · build green
+- `verify:no-test-seed` 135파일 · `verify:contrast` 30/30 · `verify:font-payload` 92 faces / 2,957,724B
+- 전체 test **shared 81 / web 270 / api 256** — 기존 기준선 대비 감소 0
+- E2E 직렬 **64/64**: Chromium loss/duplicate/LWW/pull/multitab/kill/reoffline + WebKit 종료 복구를 포함한다. `06-mobile` **14/14**, axe **20화면 / violation 0**, 예상 밖 실패 0. S1 온보딩 전체 흐름 **20/20 soak**다.
+
+#### D-31 전용 뮤턴트
+
+| 변이 | 원본 SHA-256 | 변이 SHA-256 | 발화 |
+| --- | --- | --- | --- |
+| mapping을 IDB transaction 밖으로 분리 | `33981E68…89872` | `2AA7DD6A…D590` | rollback 테스트에서 임시 draft가 사라져 **1/1 red** |
+| correlation 재전송 시 새 planned set 생성 | `520CA490…338A8` | `C3C994A3…DD47` | 재시도 응답이 409가 되어 멱등/중복 0 테스트 **1/1 red** |
+| mapping 전 performed-set 처리 허용 | `520CA490…338A8` | `DAD74DB7…6ED1` | applied 목록에서 performed mutation이 빠져 순서 테스트 **1/1 red** |
+
+매번 `scripts/mutate.mjs` snapshot → 변이 SHA 확인 → red 판정 → 대상 파일만 restore → 원 SHA 일치 → 동일 테스트 green 순서로 실행했고 snapshot은 clear했다.
+
+### ✅ Sprint 5 — evaluator 98/100 PASS · STEP 6 완료
+
+| 평가축 | 배점 | 점수 | 근거 |
+| --- | ---: | ---: | --- |
+| 계약 잠금·red proof | 20 | 20 | 501 공통 실패를 배제한 loss/duplicate/LWW/cursor red, 데이터 있는 DB migration, OpenAPI/codegen |
+| 서버 무결성 | 25 | 25 | tenant LWW, mutation/correlation 멱등, planned-set 1:1, routine→set→completion, opaque pull cursor |
+| 클라이언트 원자성 | 25 | 25 | entity+outbox 및 D-31 4-store mapping transaction, rollback, lease heartbeat/fencing, 응답 전 ack 금지 |
+| 실브라우저 fault matrix | 20 | 18 | Chromium 전체 행렬·WebKit process 경계·64/64. 실제 iOS HTTPS PWA 강제종료 walkthrough는 도구 밖 별도 게이트 유지 |
+| 회귀·운영 증거 | 10 | 10 | 전체 게이트, 06-mobile 14/14, axe 20/0, S1 soak 20/20, 뮤턴트 3/3 사살 |
+| **합계** | **100** | **98** | **PASS — STEP 6 완료, 프로젝트 총점 70 상한 해제** |
+
+핵심 루프 `기록 → 서버 performed_set → 세션 완료 추천 재계산`은 더 이상 fixture 직접 seed에 의존하지 않는다. 완료 판정의 유일한 비차단 잔여는 실제 iOS HTTPS 설치 PWA의 OS 수준 강제종료 walkthrough이며, 자동화된 WebKit 행렬을 통과 대신 대체 증거로 과장하지 않는다.
 
 ---
 

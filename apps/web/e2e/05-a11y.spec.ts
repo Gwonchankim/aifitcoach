@@ -18,7 +18,9 @@ const RESULTS = path.resolve(process.cwd(), "e2e/axe-results.jsonl");
 
 let sessionId: string;
 
-test.beforeAll(async ({ request }) => {
+// S4/S5 both complete a real server set after STEP 6. A fresh session per case keeps the axe
+// target state intentional instead of pulling the previous case's completion.
+test.beforeEach(async ({ request }) => {
   await seedProgram(request);
   sessionId = await todaySession(request);
 });
@@ -75,7 +77,7 @@ test("S3 대시보드", async ({ page }) => {
 });
 
 /**
- * **빈 상태도 스캔한다.** 위 S3 은 beforeAll 이 프로그램을 시드해 둔 뒤라 **채워진** 대시보드만 본다 —
+ * **빈 상태도 스캔한다.** 위 S3 은 beforeEach 가 프로그램을 시드해 둔 뒤라 **채워진** 대시보드만 본다 —
  * M-UIa 가 새로 만든 빈 상태는 지금까지 axe 대상 밖이었다.
  * 완료 세트가 0개인 상태만 스캔하다 완료 행 대비 위반(4.01:1)을 놓친 적이 있다(CLAUDE.md 함정 5).
  */

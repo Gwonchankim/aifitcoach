@@ -1,5 +1,5 @@
 /**
- * 스텁 응답 통합 테스트: 라우트가 실제로 호출되고 501 + 에러 엔벨로프를 돌려주는지,
+ * 스텁 응답 통합 테스트: 스텁 라우트와 구현된 sync 라우트의 DTO 검증을 고정한다.
  * DTO 검증(ValidationPipe)이 붙어 있는지 확인한다.
  */
 import "reflect-metadata";
@@ -31,7 +31,7 @@ describe("스텁 엔드포인트", () => {
     });
   });
 
-  it("POST /v1/sync (유효한 바디) → 501 + 에러 엔벨로프", async () => {
+  it("POST /v1/sync (없는 논리 엔터티) → 200 conflict", async () => {
     const response = await request(app.getHttpServer())
       .post("/v1/sync")
       .send({
@@ -39,14 +39,64 @@ describe("스텁 엔드포인트", () => {
           {
             client_id: "8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
             entity: "performed_set",
+            entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
             op: "upsert",
-            payload: { planned_set_id: "ps_5", actual_reps: 9 },
+            updated_at: "2026-08-15T08:00:00.000Z",
+            payload: { actual_reps: 9 },
           },
         ],
       });
 
-    expect(response.status).toBe(501);
-    expect(response.body.error.code).toBe("NOT_IMPLEMENTED");
+    expect(response.status).toBe(200);
+    expect(response.body.conflicts).toEqual([
+      expect.objectContaining({
+        entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
+        reason: "not_found",
+      }),
+    ]);
+  });
+
+  it.each(["entity_id", "updated_at"])(
+    "POST /v1/sync (%s 누락) → 400 + VALIDATION_ERROR",
+    async (missing) => {
+      const mutation: Record<string, unknown> = {
+        client_id: "8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+        entity: "performed_set",
+        entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
+        op: "upsert",
+        updated_at: "2026-08-15T08:00:00.000Z",
+        payload: { actual_reps: 9 },
+      };
+      delete mutation[missing];
+
+      const response = await request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [mutation] });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+      expect(response.body.error.message).toContain(missing);
+    },
+  );
+
+  it("POST /v1/sync (profile entity) → 400 — ADR-33 로컬 전용", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/v1/sync")
+      .send({
+        mutations: [
+          {
+            client_id: "8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+            entity: "profile",
+            entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
+            op: "upsert",
+            updated_at: "2026-08-15T08:00:00.000Z",
+            payload: {},
+          },
+        ],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("POST /v1/programs/generate (필수 필드 누락) → 400 + VALIDATION_ERROR", async () => {

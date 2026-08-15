@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { CacheFirst, ExpirationPlugin, Serwist } from "serwist";
+import { CacheFirst, ExpirationPlugin, NetworkFirst, Serwist } from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -11,15 +11,24 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope;
 
-/**
- * T-UI-2의 범위는 폰트 런타임 캐시뿐이다.
- * 앱 셸·API·동기화 캐시는 STEP 6에서 별도 계약과 함께 연결한다.
- */
+const isApiRequest = (pathname: string) =>
+  pathname.startsWith("/v1/") || pathname.startsWith("/api/v1/");
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST ?? [],
   skipWaiting: true,
   clientsClaim: true,
   runtimeCaching: [
+    {
+      matcher: ({ request, sameOrigin, url }) =>
+        sameOrigin &&
+        request.method === "GET" &&
+        request.mode === "navigate" &&
+        !isApiRequest(url.pathname),
+      handler: new NetworkFirst({
+        cacheName: "afc-pages-v1",
+      }),
+    },
     {
       matcher: ({ request, sameOrigin, url }) =>
         sameOrigin && request.destination === "font" && url.pathname.endsWith(".woff2"),
@@ -36,6 +45,21 @@ const serwist = new Serwist({
       }),
     },
   ],
+});
+
+// The first document load happens before a newly installed worker controls the page,
+// so the navigation route cannot observe it. Warm only the generic root document while
+// activating; subsequent controlled navigations are refreshed by NetworkFirst.
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      const response = await fetch(new Request(new URL("/", self.location.origin)));
+      if (response.ok) {
+        const cache = await caches.open("afc-pages-v1");
+        await cache.put(new Request(new URL("/", self.location.origin)), response);
+      }
+    })(),
+  );
 });
 
 serwist.addEventListeners();

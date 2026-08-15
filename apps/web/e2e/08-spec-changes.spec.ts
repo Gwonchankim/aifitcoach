@@ -408,12 +408,7 @@ test("F6-1 종료한 당일 세션을 다시 열어 세트를 더하고 고친�
     `/session/${sessionId}`,
   );
 
-  /*
-    요약은 "오늘 2세트, 980kg" 인데 대시보드가 "기록한 세트는 없어요" 라고 말하면 두 화면이 서로를 부정한다.
-    세트 기록은 아직 서버로 가지 않으므로(STEP 6 /sync) 서버의 0 을 "없다"로 단정하지 않는다.
-  */
+  // STEP 6 /sync가 두 performed_set을 서버에 반영했으므로 대시보드도 권위 요약을 그대로 말한다.
   await expect(page.getByText("기록한 세트는 없어요")).toHaveCount(0);
-  await expect(
-    page.getByText("오늘 2세트를 기록했어요. 이 기기에만 있는 기록이라 연결되면 요약에 반영돼요."),
-  ).toBeVisible();
+  await expect(page.getByText("오늘 운동 완료! 총 980kg · 2세트")).toBeVisible();
 });

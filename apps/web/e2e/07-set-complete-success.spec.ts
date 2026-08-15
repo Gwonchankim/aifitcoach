@@ -16,6 +16,7 @@ import { addExercise, openSession, seedProgram, shot, todaySession } from "./hel
 
 const PULLUP = "e_pullup"; // 맨몸(reps)
 const PLANK = "e_plank"; // 시간(time)
+const CALF_RAISE = "e_calf_raise"; // 앞선 스펙의 상체 기록과 격리된 무게 미정(reps)
 
 /**
  * 세트 행(<li>) 하나를 완료 체크 버튼의 접근 이름으로 잡는다.
@@ -87,9 +88,10 @@ test("종목 3종 성공 경로: 입력 → 체크 → 타이머 → 카운터 �
   const sessionId = await todaySession(request);
   await addExercise(request, sessionId, PULLUP);
   await addExercise(request, sessionId, PLANK);
+  await addExercise(request, sessionId, CALF_RAISE);
 
   await openSession(page, sessionId);
-  const weighted = await firstExerciseName(page);
+  const weighted = "스탠딩 카프 레이즈";
   expect(await completedCount(page)).toBe(0);
 
   // ---- (a) 무게 미정(BASELINE): 추천 무게가 없어 사용자가 직접 입력한다 ----

@@ -169,6 +169,42 @@ export function SetRow({
   const [rir, setRir] = useState<number | null>(draft?.actual_rir ?? null);
   const [missing, setMissing] = useState<"weight" | "reps" | "time" | null>(null);
 
+  // Pull may create or replace a draft after this row mounted. Keep the controlled inputs in sync
+  // without remounting the row (a remount would steal focus while the user edits a completed set).
+  // An active field is newer unsaved UI intent: an overlapping local acknowledgement or remote pull
+  // must not replace text the user is currently typing. Its completion write will enter the outbox.
+  useEffect(() => {
+    if (!draft) return;
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLInputElement &&
+      document.activeElement.id.startsWith(`set-${set.id}-`)
+    )
+      return;
+    setWeightText(
+      draft.actual_weight != null
+        ? String(draft.actual_weight)
+        : kind === "weighted" && set.recommended_weight != null
+          ? String(set.recommended_weight)
+          : "",
+    );
+    setRepsText(
+      draft.actual_reps != null
+        ? String(draft.actual_reps)
+        : set.recommended_reps != null
+          ? String(set.recommended_reps)
+          : "",
+    );
+    setTimeText(
+      draft.actual_time_sec != null
+        ? String(draft.actual_time_sec)
+        : set.target_time_low_sec != null
+          ? String(set.target_time_low_sec)
+          : "",
+    );
+    setRir(draft.actual_rir ?? null);
+  }, [draft, kind, set.id, set.recommended_reps, set.recommended_weight, set.target_time_low_sec]);
+
   const completed = draft?.completed === true;
   /** 완료 상태를 유지한 채 값을 고치는 중(F6-1 / AC-SET-7). */
   const editing = completed && expanded;

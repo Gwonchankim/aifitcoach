@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",
+    "dexie": "4.4.5",
     "next": "15.5.22",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -31,6 +32,7 @@
     "@types/node": "22.20.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "fake-indexeddb": "6.2.5",
     "lighthouse": "13.4.1",
     "serwist": "9.5.12",
     "tailwindcss": "4.3.3",

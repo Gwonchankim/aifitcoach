@@ -10,6 +10,7 @@
     "build": "pnpm -r build",
     "postinstall": "pnpm --filter shared build",
     "test": "pnpm -r test",
+    "contract:check": "pnpm --dir apps/api exec jest --runInBand test/openapi-contract.spec.ts test/api-stubs.spec.ts test/sync-contract-lock.spec.ts && pnpm --dir apps/web exec vitest run test/api-types.test.ts",
     "codegen": "openapi-typescript docs/specs/openapi.yaml -o apps/web/lib/api-types.ts && node apps/web/scripts/add-generated-banner.mjs && prettier --write apps/web/lib/api-types.ts",
     "mock": "prism mock docs/specs/openapi.yaml --port 4010",
     "db:up": "docker compose -f scripts/docker-compose.yml up -d",

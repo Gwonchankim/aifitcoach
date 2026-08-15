@@ -6,7 +6,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type PlannedSet, type Recommendation, type Session } from "../../lib/api";
+import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
+import {
+  ApiError,
+  api,
+  type PlannedSet,
+  type Recommendation,
+  type Session,
+  type SyncResponse,
+} from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
 import { isUtcToday } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
@@ -21,7 +29,20 @@ import { primaryInputId } from "./SetRow";
 import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
 import { fetchAllExercises } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
-import { painOf, summarize, useSessionLog } from "./session-store";
+import { newClientId, painOf, summarize, useSessionLog } from "./session-store";
+import {
+  commitRoutineSnapshot,
+  commitSessionCompletion,
+  DEV_USER_SCOPE,
+  mirrorSession,
+  readThroughSession,
+  type RoutineCorrelation,
+} from "./session-db";
+import {
+  PLANNED_SET_MAPPING_EVENT,
+  requestForegroundSync,
+  SYNC_RESPONSE_EVENT,
+} from "./sync-coordinator";
 
 type CompleteResponse = {
   session: Session;
@@ -32,6 +53,17 @@ type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
 
+function mappedSession(session: Session, mappings: SyncResponse["planned_set_mappings"]): Session {
+  if (mappings.length === 0) return session;
+  const byCorrelation = new Map(
+    mappings.map((mapping) => [mapping.correlation_id, mapping.planned_set]),
+  );
+  return {
+    ...session,
+    planned_sets: session.planned_sets.map((set) => byCorrelation.get(set.id) ?? set),
+  };
+}
+
 export function SessionScreen({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
   const drafts = useSessionLog((state) => state.drafts);
@@ -39,6 +71,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const completeSetInStore = useSessionLog((state) => state.completeSet);
   const uncompleteSetInStore = useSessionLog((state) => state.uncompleteSet);
   const reportPainInStore = useSessionLog((state) => state.reportPain);
+  const remapPlannedSetsInStore = useSessionLog((state) => state.remapPlannedSets);
+  const refreshDraftsFromMirror = useSessionLog((state) => state.refreshFromMirror);
 
   const [rest, setRest] = useState<RestState | null>(null);
   /** 펼쳐 둔 완료 세트. 한 번에 하나만 펼친다(AC-SET-8) → 화면 전체에서 값 하나로 관리한다. */
@@ -53,8 +87,35 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    begin(sessionId);
+    void begin(sessionId);
   }, [sessionId, begin]);
+
+  useEffect(() => {
+    const onMapping = (event: Event) => {
+      const mappings = (event as CustomEvent<SyncResponse["planned_set_mappings"]>).detail;
+      if (!Array.isArray(mappings) || mappings.length === 0) return;
+      remapPlannedSetsInStore(mappings);
+      queryClient.setQueryData<Session>(["session", sessionId], (current) =>
+        current ? mappedSession(current, mappings) : current,
+      );
+    };
+    window.addEventListener(PLANNED_SET_MAPPING_EVENT, onMapping);
+    return () => window.removeEventListener(PLANNED_SET_MAPPING_EVENT, onMapping);
+  }, [queryClient, remapPlannedSetsInStore, sessionId]);
+
+  useEffect(() => {
+    const onSyncResponse = (event: Event) => {
+      const response = (event as CustomEvent<SyncResponse>).detail;
+      if (
+        response?.changes.some(
+          (change) => change.entity === "performed_set" || change.entity === "session",
+        )
+      )
+        void refreshDraftsFromMirror(sessionId);
+    };
+    window.addEventListener(SYNC_RESPONSE_EVENT, onSyncResponse);
+    return () => window.removeEventListener(SYNC_RESPONSE_EVENT, onSyncResponse);
+  }, [refreshDraftsFromMirror, sessionId]);
 
   useEffect(() => {
     if (!notice) return;
@@ -64,7 +125,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const sessionQuery = useQuery({
     queryKey: ["session", sessionId],
-    queryFn: () => api.session(sessionId),
+    queryFn: () =>
+      readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId)),
   });
 
   const catalogQuery = useQuery({
@@ -139,6 +201,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       const latest = await queryClient
         .fetchQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId) })
         .catch(() => null);
+      if (latest) await mirrorSession(DEV_USER_SCOPE, sessionId, latest).catch(() => undefined);
       if (
         isConflict(error) &&
         latest?.status === "completed" &&
@@ -151,9 +214,79 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     setEditError(errorMessage(error, action));
   };
 
+  const commitRoutineEdit = async (
+    next: Session,
+    correlations: RoutineCorrelation[],
+  ): Promise<Session> => {
+    const exerciseIds = [...new Set(next.planned_sets.map((plannedSet) => plannedSet.exercise_id))];
+    const clientId = newClientId();
+    await commitRoutineSnapshot(
+      DEV_USER_SCOPE,
+      sessionId,
+      exerciseIds,
+      clientId,
+      new Date().toISOString(),
+      correlations,
+      next,
+    );
+    // The local transaction is the offline success boundary. When the browser knows it is online,
+    // wait for this mutation's acknowledgement so a server conflict can keep the editor open.
+    if (typeof navigator === "undefined" || !navigator.onLine) {
+      void requestForegroundSync().catch(() => undefined);
+      return next;
+    }
+    let synced: SyncResponse | null = null;
+    try {
+      synced = await requestForegroundSync();
+    } catch {
+      // A transport failure does not undo the durable local write; the outbox retries it later.
+      return next;
+    }
+    if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
+      throw new ApiError(409, "SYNC_CONFLICT", "routine sync conflict");
+    if (synced?.applied.includes(clientId)) {
+      const authoritative = await api.session(sessionId).catch(() => null);
+      if (authoritative) {
+        await mirrorSession(DEV_USER_SCOPE, sessionId, authoritative).catch(() => undefined);
+        return authoritative;
+      }
+    }
+    return next;
+  };
+
+  const provisionalSets = (exerciseId: string, count: number) => {
+    const exercise = catalogById.get(exerciseId);
+    if (!exercise) throw new Error("운동 정보를 불러오지 못했어요.");
+    const correlations: RoutineCorrelation[] = Array.from({ length: count }, (_, index) => ({
+      correlation_id: newClientId(),
+      exercise_id: exerciseId,
+      set_no: index + 1,
+    }));
+    const sets = buildProvisionalRoutineSets(
+      session!.goal,
+      exercise,
+      correlations.map((item) => item.correlation_id),
+    ) as PlannedSet[];
+    return { sets, correlations };
+  };
+
   const addMutation = useMutation({
-    mutationFn: (exerciseId: string) => api.addExercise(sessionId, { exercise_id: exerciseId }),
-    onSuccess: (updated, exerciseId) => {
+    networkMode: "always",
+    mutationFn: async (exerciseId: string) => {
+      if (!session) throw new Error("세션을 불러오지 못했어요.");
+      const exercise = catalogById.get(exerciseId);
+      if (!exercise) throw new Error("운동 정보를 불러오지 못했어요.");
+      const provisional = provisionalSets(
+        exerciseId,
+        routineSetCountFor(session.goal, exercise.mechanic),
+      );
+      const updated = await commitRoutineEdit(
+        { ...session, planned_sets: [...session.planned_sets, ...provisional.sets] },
+        provisional.correlations,
+      );
+      return { updated, exerciseId };
+    },
+    onSuccess: ({ updated, exerciseId }) => {
       applySession(updated);
       setPicker(null);
       setNotice(`${catalogById.get(exerciseId)?.name_ko ?? "운동"}을(를) 루틴에 추가했어요`);
@@ -162,8 +295,19 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const removeMutation = useMutation({
-    mutationFn: (exerciseId: string) => api.removeExercise(sessionId, exerciseId),
-    onSuccess: (updated, exerciseId) => {
+    networkMode: "always",
+    mutationFn: async (exerciseId: string) => {
+      if (!session) throw new Error("세션을 불러오지 못했어요.");
+      const updated = await commitRoutineEdit(
+        {
+          ...session,
+          planned_sets: session.planned_sets.filter((set) => set.exercise_id !== exerciseId),
+        },
+        [],
+      );
+      return { updated, exerciseId };
+    },
+    onSuccess: ({ updated, exerciseId }) => {
       applySession(updated);
       setRemoveExerciseId(null);
       setNotice(`${catalogById.get(exerciseId)?.name_ko ?? "운동"}을(를) 루틴에서 뺐어요`);
@@ -172,9 +316,23 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const swapMutation = useMutation({
-    mutationFn: (params: { from: string; to: string }) =>
-      api.swapExercise(sessionId, params.from, { to_exercise_id: params.to }),
-    onSuccess: (updated, params) => {
+    networkMode: "always",
+    mutationFn: async (params: { from: string; to: string }) => {
+      if (!session) throw new Error("세션을 불러오지 못했어요.");
+      const replaced = session.planned_sets.filter((set) => set.exercise_id === params.from);
+      if (replaced.length === 0) throw new Error("교체할 운동을 찾지 못했어요.");
+      const provisional = provisionalSets(params.to, replaced.length);
+      const firstIndex = session.planned_sets.findIndex((set) => set.exercise_id === params.from);
+      const without = session.planned_sets.filter((set) => set.exercise_id !== params.from);
+      const planned_sets = [...without];
+      planned_sets.splice(firstIndex, 0, ...provisional.sets);
+      const updated = await commitRoutineEdit(
+        { ...session, planned_sets },
+        provisional.correlations,
+      );
+      return { updated, params };
+    },
+    onSuccess: ({ updated, params }) => {
       applySession(updated);
       setPicker(null);
       setNotice(`${catalogById.get(params.to)?.name_ko ?? "운동"}으로 바꿨어요`);
@@ -183,12 +341,44 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const completeMutation = useMutation({
-    mutationFn: (pain: number | null) =>
-      api.completeSession(sessionId, pain == null ? {} : { pain }),
+    networkMode: "always",
+    mutationFn: async (pain: number | null) => {
+      const clientId = newClientId();
+      const updatedAt = new Date().toISOString();
+      await commitSessionCompletion(
+        DEV_USER_SCOPE,
+        sessionId,
+        pain == null ? {} : { pain },
+        clientId,
+        updatedAt,
+      );
+      // The local transaction is the success boundary. Offline completion remains visible and retriable.
+      let synced = null;
+      try {
+        synced = await requestForegroundSync();
+      } catch {
+        // The local commit already succeeded. Keep the outbox row for the next foreground trigger.
+      }
+      const change = synced?.changes.find(
+        (item) => item.entity === "session" && item.entity_id === sessionId && item.data,
+      );
+      const recommendations = (change?.data as { next_recommendations?: unknown } | undefined)
+        ?.next_recommendations;
+      return {
+        session: {
+          ...(sessionQuery.data ?? ({ id: sessionId } as Session)),
+          status: "completed",
+        } as Session,
+        next_recommendations: Array.isArray(recommendations) ? recommendations : [],
+        offline: synced === null,
+      };
+    },
     onSuccess: (data) => {
       setFinishOpen(false);
       setFinishError(null);
       setSummary(data as CompleteResponse);
+      if ((data as { offline?: boolean }).offline)
+        setNotice("운동을 기기에 저장했어요. 온라인이 되면 동기화돼요.");
       // 종료(또는 재종료)로 상태·추천이 바뀐다 → 세션 캐시를 응답으로 갱신하고 대시보드는 다시 받는다.
       queryClient.setQueryData(["session", sessionId], data.session);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -196,8 +386,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     onError: (error) => setFinishError(errorMessage(error, "complete")),
   });
 
-  const handleComplete = (exerciseName: string, set: PlannedSet, values: SetValues) => {
-    completeSetInStore(set.id, values);
+  const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
+    try {
+      await completeSetInStore(set.id, values);
+    } catch {
+      setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
+      return;
+    }
     setNotice(`${set.set_no}세트 완료`);
     setRest({
       plannedSetId: set.id,
@@ -206,8 +401,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     });
   };
 
-  const handleUncomplete = (set: PlannedSet) => {
-    uncompleteSetInStore(set.id);
+  const handleUncomplete = async (set: PlannedSet) => {
+    try {
+      await uncompleteSetInStore(set.id);
+    } catch {
+      setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
+      return;
+    }
     // 해제한 세트의 타이머가 떠 있으면 함께 닫는다.
     setRest((previous) => (previous?.plannedSetId === set.id ? null : previous));
     setExpandedSetId((previous) => (previous === set.id ? null : previous));
@@ -217,8 +417,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * 완료 세트의 값 수정(AC-SET-7). 완료 상태를 그대로 두고 기록만 갈아 끼운다 —
    * **휴식 타이머를 열지 않는다**(§2.4.3: 타이머는 "완료 체크" 시점에만 연다).
    */
-  const handleEdit = (set: PlannedSet, values: SetValues) => {
-    completeSetInStore(set.id, values);
+  const handleEdit = async (set: PlannedSet, values: SetValues) => {
+    try {
+      await completeSetInStore(set.id, values);
+    } catch {
+      setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
+    }
   };
 
   /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
@@ -382,7 +586,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                       previous === plannedSetId ? null : plannedSetId,
                     )
                   }
-                  onEdit={handleEdit}
+                  onEdit={(set, values) => void handleEdit(set, values)}
                   onSwap={() => {
                     setEditError(null);
                     setPicker({ type: "swap", exerciseId: group.exerciseId });
@@ -394,9 +598,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                   onRemoveBlocked={() => setNotice(LOCKED_REASON)}
                   onReportPain={() => setPainExerciseId(group.exerciseId)}
                   onComplete={(set, values) =>
-                    handleComplete(nameOf(group.exerciseId, index), set, values)
+                    void handleComplete(nameOf(group.exerciseId, index), set, values)
                   }
-                  onUncomplete={handleUncomplete}
+                  onUncomplete={(set) => void handleUncomplete(set)}
                 />
               );
             })
@@ -490,8 +694,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           }
           canReduceWeight={painWeightTarget != null}
           onSelect={(score) => {
-            reportPainInStore(painSetIds, score);
-            setNotice(score == null ? "통증 기록을 지웠어요" : `통증 ${score}점을 기록했어요`);
+            void reportPainInStore(painSetIds, score)
+              .then(() =>
+                setNotice(score == null ? "통증 기록을 지웠어요" : `통증 ${score}점을 기록했어요`),
+              )
+              .catch(() => setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요."));
           }}
           onSwap={() => {
             setEditError(null);

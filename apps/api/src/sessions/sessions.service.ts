@@ -54,6 +54,7 @@ export interface PlannedSetResponse {
 export interface SessionResponse {
   id: string;
   program_id: string;
+  goal: Goal;
   scheduled_date: string;
   status: string;
   planned_sets: PlannedSetResponse[];
@@ -77,6 +78,15 @@ export class SessionsService {
 
   async detail(userId: string, sessionId: string): Promise<SessionResponse> {
     return toSessionResponse(await this.load(userId, sessionId));
+  }
+
+  /** Sync writes can amend an already-completed same-day session; recompute once per batch. */
+  async recomputeAfterSync(userId: string, sessionId: string): Promise<ApiRecommendation[]> {
+    const session = await this.load(userId, sessionId);
+    if (session.status === "completed") {
+      return this.recompute(userId, session);
+    }
+    return [];
   }
 
   /**
@@ -547,10 +557,12 @@ function toSessionResponse(session: {
   scheduledDate: Date;
   status: string;
   plannedSets: PlannedSet[];
+  program: { goal: Goal };
 }): SessionResponse {
   return {
     id: session.id,
     program_id: session.programId,
+    goal: session.program.goal,
     scheduled_date: session.scheduledDate.toISOString().slice(0, 10),
     status: session.status,
     planned_sets: session.plannedSets.map((set) => ({

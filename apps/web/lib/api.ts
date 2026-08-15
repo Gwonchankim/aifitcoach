@@ -15,6 +15,8 @@ export type Exercise = components["schemas"]["Exercise"];
 export type DashboardSummary = components["schemas"]["DashboardSummary"];
 export type Recommendation = components["schemas"]["Recommendation"];
 export type GenerateProgramRequest = components["schemas"]["GenerateProgramRequest"];
+export type SyncRequest = components["schemas"]["SyncRequest"];
+export type SyncResponse = components["schemas"]["SyncResponse"];
 /** 즉석 세션(F8-1)의 부위. 계약 enum 에서 직접 가져와 UI 가 목록 밖 값을 만들 수 없게 한다. */
 export type BodyPart = components["schemas"]["CreateAdHocSessionRequest"]["body_part"];
 
@@ -72,6 +74,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 type ExercisesQuery = paths["/exercises"]["get"]["parameters"]["query"];
 
 export const api = {
+  sync: (body: SyncRequest, signal?: AbortSignal) =>
+    request<SyncResponse>("/sync", { method: "POST", body: JSON.stringify(body), signal }),
+
   generateProgram: (body: GenerateProgramRequest) =>
     request<Program>("/programs/generate", { method: "POST", body: JSON.stringify(body) }),
 

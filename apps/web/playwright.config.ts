@@ -50,9 +50,10 @@ export default defineConfig({
       },
     },
     {
-      // iOS(WebKit) 렌더 확인용. 모바일 레이아웃 스펙만 돌린다.
+      // iOS(WebKit) 렌더와 핵심 오프라인 종료 복구 확인용. 전체 fault matrix는 Chromium이 소유한다.
       name: "webkit-ios",
-      testMatch: /06-mobile\.spec\.ts/,
+      testMatch: /(?:06-mobile|09-offline-sync)\.spec\.ts/,
+      grepInvert: /@chromium-only/,
       use: { ...devices["iPhone 14 Pro"] },
     },
   ],

@@ -107,15 +107,30 @@ test.describe("409", () => {
 
   test("서버가 실제로 409 를 주면 팝업 안에 안내가 뜬다(중복 종목)", async ({ page, request }) => {
     const sessionId = await todaySession(request);
-    const session = await (await request.get(`${API_V1}/sessions/${sessionId}`)).json();
-    const duplicateId = session.planned_sets[0].exercise_id as string;
 
     await openSession(page, sessionId);
 
-    // UI 가 막고 있으므로, 서버 409 화면을 보기 위해 요청 본문만 중복 종목으로 바꾼다.
-    await page.route("**/v1/sessions/*/exercises", async (route) => {
+    // UI 가 막고 있으므로, outbox sync의 루틴 mutation만 서버 conflict로 응답한다.
+    await page.route("**/v1/sync", async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
-      await route.continue({ postData: JSON.stringify({ exercise_id: duplicateId }) });
+      const body = route.request().postDataJSON() as {
+        mutations: { client_id: string; entity: string; entity_id: string }[];
+      };
+      const routine = body.mutations.find((mutation) => mutation.entity === "session_routine");
+      if (!routine) return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          applied: [],
+          conflicts: [
+            { client_id: routine.client_id, entity_id: routine.entity_id, reason: "conflict" },
+          ],
+          changes: [],
+          planned_set_mappings: [],
+          next_cursor: "v1.test",
+        }),
+      });
     });
 
     await page.getByRole("button", { name: "운동 추가" }).click();
@@ -278,19 +293,19 @@ test.describe("500 / 오프라인", () => {
     }
   });
 
-  /**
-   * 결함 D-2 재현: T-UI-2의 서비스 워커는 폰트 runtime cache만 소유한다.
-   * 앱 셸 precache는 STEP 6 범위이므로 오프라인 새로고침에서는 아직 앱이 뜨지 않는다.
-   * UX_STATES §2.3 "오프라인 · 캐시 있음" 상태로 갈 수 없다.
-   * PWA 가 붙으면 이 테스트는 "예상치 못한 통과"로 뒤집혀 갱신을 강제한다.
-   */
-  test("오프라인에서 새로고침해도 앱 셸이 뜬다(PWA) — 현재 실패가 정상", async ({
-    page,
-    context,
-  }) => {
-    test.fail(true, "결함 D-2: 앱 셸 precache 미구현");
+  test("오프라인에서 새로고침해도 앱 셸이 뜬다(PWA)", async ({ page, context }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise<void>((resolve) =>
+          navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
+            once: true,
+          }),
+        );
+      }
+    });
     await context.setOffline(true);
     await page.reload();
     await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();

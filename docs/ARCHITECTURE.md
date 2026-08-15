@@ -19,12 +19,15 @@ scripts/        # 시드 적재, docker-compose 등
 ```
 
 ## 오프라인 우선 & 동기화 (핵심 난제)
-- Local-first: 모든 쓰기는 IndexedDB에 먼저 커밋, UI 즉시 반영. 진행 중 세션의 소스 오브 트루스는 로컬.
-- Outbox 패턴: 변경을 `sync_mutations`(client_id UUID, entity, op, payload, updated_at, status)에 기록.
-- 동기화 `POST /v1/sync`: (1) client_id 멱등 검사 → 신규만 적용, (2) `updated_at` 기준 **Last-Write-Wins**, (3) 세션 완료 mutation이면 추천 재계산 → 다음 planned_set.recommended_*.
-- Pull: `since` 커서 이후 변경만 반환.
-- 추천값의 오프라인 가용성: 현재 세션 추천은 서버가 미리 계산해 내려줌(프리필). 연속 오프라인 세션은 `packages/shared`의 추천 미러가 프리필 → 동기화 시 서버가 권위 있게 재계산·조정.
-- 주의: iOS Safari는 Background Sync 제약 → 포그라운드 동기화 폴백. 브라우저 저장소 축출 대비 조기 동기화·persistent storage.
+- Local-first: 로컬 엔터티와 outbox를 **하나의 IndexedDB transaction**으로 먼저 커밋한 뒤 UI에 성공을 표시한다. 진행 중 세션의 소스 오브 트루스는 로컬이다.
+- Outbox: `client_id`는 한 번의 사용자 변경 UUID이고 재시도에서만 재사용한다. 논리 엔터티는 별도 `entity_id`로 식별하며, 같은 엔터티의 다음 편집은 새 `client_id`를 만든다.
+- 동기화 `POST /v1/sync`: `(updated_at, client_id)` 기준 결정적 LWW. `session_routine` → `performed_set` → `session` 완료 순으로 적용하고 선행 충돌이 있으면 완료를 보류한다. 완료 세트는 `planned_set_id`당 1행이며 체크 해제는 delete tombstone이다.
+- Pull: 클라이언트 시각이 아닌 서버 단조 증가 `server_seq`의 opaque `since` cursor 이후 upsert/delete를 반환한다. STEP 6에서는 change log를 purge하지 않는다.
+- 다중 탭: IndexedDB lease로 한 탭만 sync owner가 된다. 전송 중에는 heartbeat, 응답 commit에는 fencing을 두고 실패한 owner만 즉시 해제한다. 탭 crash는 15초 lease 만료 뒤 예약 재시도하며 기본 transport는 10초에 abort한다. 진행 중 요청 사이에 들어온 최신 trigger도 유실하지 않는다. 필수 trigger는 앱 시작·`online`·focus/visibility·로컬 mutation 직후이며 Background Sync는 선택적 최적화다.
+- 캐시 경계: Serwist는 폰트·정적 자산·navigation만 캐시하고 `/v1/**`는 CacheStorage에서 제외한다. 사용자 세션·수행 기록·추천 mirror는 user-scoped IndexedDB에 둔다.
+- 추천값의 오프라인 가용성: 현재 세션 추천은 서버가 미리 계산해 내려줌(프리필). 세션과 운동 카탈로그는 user-scoped IndexedDB read-through mirror에서 복구한다. 연속 오프라인 세션은 `packages/shared`의 추천 미러가 프리필 → 동기화 시 서버가 권위 있게 재계산·조정.
+- Routine ID 치환: 오프라인 add/swap은 provisional planned set마다 `correlation_id`를 만들고 `session_routine` snapshot에 함께 보낸다. 서버는 이 키를 UNIQUE로 보존하고 항상 같은 authoritative `planned_set` mapping을 반환한다. 클라이언트는 응답 ack 전에 draft·pending outbox·session/routine mirror를 **한 IndexedDB transaction**에서 치환한다. 중단되면 임시 ID 상태로 전부 롤백하며, 적용 순서는 routine mapping → performed set → session 완료다(C-4 해소, ADR-60).
+- 보장 경계: IndexedDB commit과 저장소 유지 이후의 reload·앱 종료·재오프라인·응답 유실·다중 탭에서 유실/중복 0을 보장한다. 명시적 사이트 데이터 삭제·OS 축출·디스크 고장은 제외하되 persistent storage를 요청하고 로컬 commit 실패 시 성공 UI를 금지한다.
 
 ## 인증
 - 소셜 OAuth 웹 리다이렉트 → 백엔드가 httpOnly 세션 쿠키(Secure·SameSite) 발급. 변경 요청은 `X-CSRF-Token`.
@@ -93,3 +96,8 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-53 | 공용 `cn`은 **`tailwind-merge` 3.6.0**으로 Tailwind 클래스 충돌을 해소한다. Tailwind v4 `@theme`의 프로젝트 고유 radius·spacing·text·shadow 값은 `extendTailwindMerge`에 등록한다 | 단순 문자열 연결은 호출부 클래스가 기본 variant를 덮는다는 보장이 없어 목표·경력 카드 반경이 CSS 생성 순서에 따라 달라졌고 `!important` 우회 4곳이 생겼다. 기본 설정만 쓰면 커스텀 `rounded-card`를 같은 radius 그룹으로 인식하지 못함을 회귀 테스트가 실증했다 | 확정(T-UI-1, 2026-08-15) |
 | ADR-54 | Pretendard는 **1.3.9 공식 Variable Dynamic Subset 92 WOFF2**를 CDN 없이 셀프호스팅한다. 공급자 `@font-face` CSS와 Next의 종전 fallback metric(Arial, ascent 93.76%, descent 23.75%, line-gap 0%, size-adjust 101.55%)을 수동 적용하고, 폰트 응답만 Serwist `CacheFirst` runtime cache에 둔다 | `next/font/local`은 이 92개 `unicode-range` 구성을 표현하지 못한다. 기존 정적 4웨이트는 첫 화면에서 1,051KB를 전송해 Lighthouse 100→92를 만들었다. 동적 서브셋은 실제 한글 대시보드를 11요청·303,896B로 줄여 중앙값 100을 회복했고, 수동 metric은 지연 로딩 전후 CLS 0·요소 치수 변화 0이었다. 오프라인 `FontFace.load()`도 SW 응답을 실측했다. 앱 셸·API 캐시는 STEP 6 소유로 남긴다 | **확정**(사람 결정 ①-V, T-UI-2, 2026-08-15) |
 | ADR-55 | **M-UIb Sprint 0 계약 잠금**: RIR 0~6/`null` 단일필드 + 직접 입력 + 셰브론 바텀시트, 완료행 1줄, 체크 48×48, 온보딩 하단 24px. 운동 카드 `⋯`는 교체/통증 기록/삭제의 3항목 앵커형 `role="menu"`이며 방향키·Esc·외부 클릭·트리거 포커스 복귀를 지원한다. 기록이 있으면 교체·삭제는 포커스 가능한 `aria-disabled`, 통증 기록은 활성, 잠긴 액션은 요청 0회 + 사유 낭독이다. 건너뛰기·RIR 0~5/default2·길게 누르기·화면 ± 스테퍼·undo는 제외하고 기존 키보드 ↑/↓는 유지 | 기존 검증된 RIR 결측 경로와 iOS 선택 경로를 보존하면서 프로토타입의 메뉴 구조만 수용한다. 메뉴와 완료체크→타이머 시트는 동시에 열리지 않게 하고, 메뉴 닫힘의 트리거 복귀와 타이머 닫힘의 다음 세트 입력 복귀가 서로 덮어쓰지 않게 모달 소유권을 분리한다. F14 한글 키커는 비차단 별도 티켓이다 | **확정**(D-13~D-18, 2026-08-15) |
+| ADR-56 | `/sync`의 `client_id`는 **mutation ID**, `entity_id`는 논리 엔터티 ID로 분리한다. 변경마다 새 client_id, 재시도만 같은 ID를 쓴다. LWW 동률은 `(updated_at, client_id)`, pull은 단조 증가 `server_seq` opaque cursor다. 별도 `Idempotency-Key` 헤더는 제거한다 | 같은 client_id를 편집마다 재사용하면 멱등 검사가 새 값을 버리고, timestamp cursor는 같은 밀리초 변경을 누락한다. D-20·23·25 | **확정**(STEP 6 D-19~D-30, 2026-08-15) |
+| ADR-57 | `performed_set`의 논리 ID는 `planned_set_id`이며 DB UNIQUE로 1:1을 강제한다. 완료 해제는 최신 delete tombstone, 루틴 편집은 `session_routine` 전체 ordered snapshot, 적용 순서는 routine→set→session 완료다 | 다중 탭의 서로 다른 mutation ID가 중복 행을 만들지 않게 하고, 개별 add/delete/swap 이벤트의 인과 순서 문제를 피한다. 선행 충돌이 있으면 완료를 보류해 불완전 추천을 막는다. D-21·22·24 | **확정**(STEP 6 D-19~D-30, 2026-08-15) |
+| ADR-58 | 로컬 엔터티+outbox는 단일 IndexedDB transaction, sync owner는 lease 1개다. Serwist는 폰트·정적·navigation만 캐시하고 `/v1/**`와 건강 데이터는 CacheStorage에서 제외한다. 포그라운드 sync가 필수, Background Sync는 보조다 | commit 전 성공 표시·응답 전 ack가 기록 유실을 만든다. iOS Background Sync 제약과 사용자별 건강 데이터 캐시 경계를 동시에 만족한다. D-19·26·27 | **확정**(STEP 6 D-19~D-30, 2026-08-15) |
+| ADR-59 | conflict mutation은 삭제하지 않고 확인 필요 상태와 서버 audit에 남긴다. `profile`은 ADR-33대로 공개 sync 대상에서 제외하고, 오프라인 추천은 shared mirror의 임시값을 서버 권위 결과로 교체한다 | LWW 패자와 검증 실패를 transport loss와 구분하고 민감한 onboarding profile의 무기한 동기화를 피한다. D-28·29·30 | **확정**(STEP 6 D-19~D-30, 2026-08-15) |
+| ADR-60 | 오프라인 routine의 provisional planned set은 클라이언트 `correlation_id`와 서버 `planned_set.id` mapping으로 연결한다. 서버 correlation은 nullable UNIQUE이며 재전송에 같은 mapping을 반환한다. mapping 응답은 draft·outbox·session/routine mirror를 단일 IndexedDB transaction에서 바꾸고 ack는 그 뒤다 | 첫 sync까지 입력을 잠그면 오프라인 우선의 정상 흐름을 포기한다. 순서/세트 수 추정은 기록을 다른 세트에 붙일 수 있으므로 금지한다. shared provisional mirror(ADR-04/D-30)는 즉시 표시만 담당하고 서버의 전체 `PlannedSet`으로 교체한다 | **확정**(D-31, 2026-08-16) |

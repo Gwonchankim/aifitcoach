@@ -744,7 +744,7 @@ export interface paths {
     put?: never;
     /**
      * 오프라인 변경 배치 push + 변경 pull
-     * @description client_id 멱등, updated_at 기준 LWW. 세션 완료 mutation 시 추천 재계산.
+     * @description client_id는 한 번의 로컬 변경을 식별하는 멱등 키이며 재시도에서만 재사용한다. 같은 entity_id의 변경은 (updated_at, client_id) 순서로 LWW를 판정한다. session_routine → performed_set → session 완료 순으로 적용하고, 완료 전에 같은 세션의 선행 mutation이 충돌하면 완료를 보류한다. pull은 서버 단조 증가 순서의 opaque cursor를 쓴다.
      */
     post: {
       parameters: {
@@ -752,8 +752,6 @@ export interface paths {
         header: {
           /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
           "X-CSRF-Token": components["parameters"]["CsrfHeader"];
-          /** @description 재시도 안전을 위한 멱등 키. */
-          "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
         };
         path?: never;
         cookie?: never;
@@ -762,19 +760,21 @@ export interface paths {
         content: {
           /**
            * @example {
-           *       "since": "2026-07-16T00:00:00Z",
+           *       "since": "42",
            *       "mutations": [
            *         {
            *           "client_id": "3f1b7c92-6a1e-4d8f-9b2a-5c7e0a1d4e63",
            *           "entity": "performed_set",
+           *           "entity_id": "8b0e6fcb-1645-4b59-8c4d-d1f3d4f4bb54",
            *           "op": "upsert",
+           *           "updated_at": "2026-07-16T10:22:00Z",
            *           "payload": {
-           *             "planned_set_id": "ps_5",
            *             "actual_weight": 62.5,
            *             "actual_reps": 9,
            *             "actual_rir": 2,
-           *             "completed": true,
-           *             "updated_at": "2026-07-16T10:22:00Z"
+           *             "actual_time_sec": null,
+           *             "pain_score": null,
+           *             "completed": true
            *           }
            *         }
            *       ]
@@ -1562,7 +1562,12 @@ export interface components {
       equipment: string;
       difficulty: string;
       /** @enum {string} */
+      mechanic: "compound" | "isolation";
+      /** @enum {string} */
+      region: "upper" | "lower" | "core";
+      /** @enum {string} */
       metric: "reps" | "time";
+      step_kg: number | null;
       rep_range_low?: number;
       rep_range_high?: number;
       default_time_low_sec: number | null;
@@ -1573,6 +1578,8 @@ export interface components {
     Session: {
       id: string;
       program_id: string;
+      /** @enum {string} */
+      goal: "diet" | "hypertrophy" | "strength";
       /** Format: date */
       scheduled_date: string;
       /** @enum {string} */
@@ -1632,36 +1639,99 @@ export interface components {
       computed_at: string;
     };
     SyncRequest: {
-      /** Format: date-time */
+      /** @description 직전 SyncResponse.next_cursor. 서버 순서를 감춘 opaque cursor이며 시각이 아니다. */
       since?: string | null;
       mutations: components["schemas"]["Mutation"][];
     };
     Mutation: {
-      /** Format: uuid */
+      /**
+       * Format: uuid
+       * @description 한 번의 로컬 변경 ID. 같은 변경의 네트워크 재시도에서만 재사용한다.
+       */
       client_id: string;
       /** @enum {string} */
-      entity: "performed_set" | "session" | "profile";
+      entity: "performed_set" | "session_routine" | "session";
+      /**
+       * Format: uuid
+       * @description performed_set은 planned_set_id, 나머지는 workout_session.id.
+       */
+      entity_id: string;
       /** @enum {string} */
       op: "upsert" | "delete";
-      payload: {
-        [key: string]: unknown;
-      };
+      /**
+       * Format: date-time
+       * @description 클라이언트 변경 시각. 같은 entity_id의 LWW 1차 비교값.
+       */
+      updated_at: string;
+      /** @description entity에 대응하는 payload. delete는 빈 객체를 허용하며 서비스가 entity/op 조합을 검증한다. */
+      payload:
+        | components["schemas"]["PerformedSetMutationPayload"]
+        | components["schemas"]["SessionRoutineMutationPayload"]
+        | components["schemas"]["SessionMutationPayload"];
+    };
+    PerformedSetMutationPayload: {
+      actual_weight?: number | null;
+      actual_reps?: number | null;
+      actual_rir?: number | null;
+      actual_time_sec?: number | null;
+      pain_score?: number | null;
+      completed?: boolean;
+    };
+    SessionRoutineMutationPayload: {
+      /** @description 현재 세션의 운동 순서를 나타내는 전체 snapshot. */
+      exercise_ids: string[];
+      /** @description 오프라인에서 새로 만든 planned set의 임시 상관키. 기존 서버 planned set에는 보내지 않는다. 같은 correlation_id 재전송은 반드시 같은 서버 planned_set_id로 해석한다. */
+      correlations?: components["schemas"]["PlannedSetCorrelation"][];
+    };
+    PlannedSetCorrelation: {
+      /** Format: uuid */
+      correlation_id: string;
+      exercise_id: string;
+      set_no: number;
+    };
+    PlannedSetMapping: {
+      /** Format: uuid */
+      correlation_id: string;
+      /** Format: uuid */
+      planned_set_id: string;
+      planned_set: components["schemas"]["PlannedSet"];
+    };
+    SessionMutationPayload: {
+      /** @enum {string} */
+      status?: "completed";
+      /** @enum {string} */
+      difficulty?: "easy" | "moderate" | "hard";
+      /** @enum {string} */
+      pump?: "low" | "medium" | "high";
+      pain?: number;
     };
     SyncResponse: {
       applied: string[];
       conflicts: {
+        /** Format: uuid */
         client_id: string;
+        /** Format: uuid */
+        entity_id: string;
         /** @example stale_update */
         reason: string;
       }[];
       changes: {
-        entity: string;
-        id: string;
+        /** @enum {string} */
+        entity: "performed_set" | "session_routine" | "session";
+        /** Format: uuid */
+        entity_id: string;
+        /** @enum {string} */
+        op: "upsert" | "delete";
         data: {
           [key: string]: unknown;
-        };
+        } | null;
+        /** @description JSON 정밀도 손실을 피하기 위한 10진 문자열. */
+        server_seq: string;
       }[];
-      next_cursor?: string;
+      /** @description 이번 요청의 routine correlation에 대응하는 권위 planned set. 응답 유실 재시도에도 동일하다. */
+      planned_set_mappings: components["schemas"]["PlannedSetMapping"][];
+      /** @description 마지막으로 관찰한 server_seq를 감싼 opaque cursor. */
+      next_cursor: string;
     };
     CheckoutRequest: {
       /** @enum {string} */
@@ -1764,8 +1834,6 @@ export interface components {
   parameters: {
     /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
     CsrfHeader: string;
-    /** @description 재시도 안전을 위한 멱등 키. */
-    IdempotencyKey: string;
     Cursor: string;
   };
   requestBodies: never;

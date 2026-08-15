@@ -367,28 +367,33 @@ paths:
     post:
       tags: [sync]
       summary: 오프라인 변경 배치 push + 변경 pull
-      description: client_id 멱등, updated_at 기준 LWW. 세션 완료 mutation 시 추천 재계산.
+      description: >
+        client_id는 한 번의 로컬 변경을 식별하는 멱등 키이며 재시도에서만 재사용한다.
+        같은 entity_id의 변경은 (updated_at, client_id) 순서로 LWW를 판정한다.
+        session_routine → performed_set → session 완료 순으로 적용하고, 완료 전에 같은 세션의
+        선행 mutation이 충돌하면 완료를 보류한다. pull은 서버 단조 증가 순서의 opaque cursor를 쓴다.
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SyncRequest' }
             example:
-              since: '2026-07-16T00:00:00Z'
+              since: '42'
               mutations:
                 - client_id: 3f1b7c92-6a1e-4d8f-9b2a-5c7e0a1d4e63
                   entity: performed_set
+                  entity_id: 8b0e6fcb-1645-4b59-8c4d-d1f3d4f4bb54
                   op: upsert
+                  updated_at: '2026-07-16T10:22:00Z'
                   payload:
-                    planned_set_id: ps_5
                     actual_weight: 62.5
                     actual_reps: 9
                     actual_rir: 2
+                    actual_time_sec: null
+                    pain_score: null
                     completed: true
-                    updated_at: '2026-07-16T10:22:00Z'
       responses:
         '200':
           description: 적용 결과 + 변경 목록
@@ -737,12 +742,6 @@ components:
       required: true
       schema: { type: string }
       description: CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수).
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: false
-      schema: { type: string, format: uuid }
-      description: 재시도 안전을 위한 멱등 키.
     Cursor:
       name: cursor
       in: query
@@ -919,7 +918,10 @@ components:
           primary_muscles,
           equipment,
           difficulty,
+          mechanic,
+          region,
           metric,
+          step_kg,
           default_time_low_sec,
           default_time_high_sec,
           substitutions,
@@ -935,7 +937,10 @@ components:
           items: { type: string }
         equipment: { type: string }
         difficulty: { type: string }
+        mechanic: { type: string, enum: [compound, isolation] }
+        region: { type: string, enum: [upper, lower, core] }
         metric: { type: string, enum: [reps, time] }
+        step_kg: { type: number, nullable: true }
         rep_range_low: { type: integer }
         rep_range_high: { type: integer }
         default_time_low_sec: { type: integer, nullable: true }
@@ -947,10 +952,11 @@ components:
 
     Session:
       type: object
-      required: [id, program_id, scheduled_date, status, planned_sets]
+      required: [id, program_id, goal, scheduled_date, status, planned_sets]
       properties:
         id: { type: string }
         program_id: { type: string }
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
         scheduled_date: { type: string, format: date }
         status: { type: string, enum: [scheduled, in_progress, completed] }
         planned_sets:
@@ -1049,45 +1055,133 @@ components:
       type: object
       required: [mutations]
       properties:
-        since: { type: string, format: date-time, nullable: true }
+        since:
+          type: string
+          nullable: true
+          description: 직전 SyncResponse.next_cursor. 서버 순서를 감춘 opaque cursor이며 시각이 아니다.
         mutations:
           type: array
           items: { $ref: '#/components/schemas/Mutation' }
 
     Mutation:
       type: object
-      required: [client_id, entity, op, payload]
+      required: [client_id, entity, entity_id, op, updated_at, payload]
       properties:
-        client_id: { type: string, format: uuid }
-        entity: { type: string, enum: [performed_set, session, profile] }
+        client_id:
+          type: string
+          format: uuid
+          description: 한 번의 로컬 변경 ID. 같은 변경의 네트워크 재시도에서만 재사용한다.
+        entity: { type: string, enum: [performed_set, session_routine, session] }
+        entity_id:
+          type: string
+          format: uuid
+          description: performed_set은 planned_set_id, 나머지는 workout_session.id.
         op: { type: string, enum: [upsert, delete] }
-        payload: { type: object, additionalProperties: true }
+        updated_at:
+          type: string
+          format: date-time
+          description: 클라이언트 변경 시각. 같은 entity_id의 LWW 1차 비교값.
+        payload:
+          anyOf:
+            - $ref: '#/components/schemas/PerformedSetMutationPayload'
+            - $ref: '#/components/schemas/SessionRoutineMutationPayload'
+            - $ref: '#/components/schemas/SessionMutationPayload'
+          description: >
+            entity에 대응하는 payload. delete는 빈 객체를 허용하며 서비스가 entity/op 조합을 검증한다.
+
+    PerformedSetMutationPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        actual_weight: { type: number, nullable: true }
+        actual_reps: { type: integer, nullable: true }
+        actual_rir: { type: integer, minimum: 0, maximum: 6, nullable: true }
+        actual_time_sec: { type: integer, minimum: 1, nullable: true }
+        pain_score: { type: integer, minimum: 0, maximum: 10, nullable: true }
+        completed: { type: boolean }
+
+    SessionRoutineMutationPayload:
+      type: object
+      additionalProperties: false
+      required: [exercise_ids]
+      properties:
+        exercise_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+          description: 현재 세션의 운동 순서를 나타내는 전체 snapshot.
+        correlations:
+          type: array
+          items: { $ref: '#/components/schemas/PlannedSetCorrelation' }
+          description: >
+            오프라인에서 새로 만든 planned set의 임시 상관키. 기존 서버 planned set에는 보내지 않는다.
+            같은 correlation_id 재전송은 반드시 같은 서버 planned_set_id로 해석한다.
+
+    PlannedSetCorrelation:
+      type: object
+      additionalProperties: false
+      required: [correlation_id, exercise_id, set_no]
+      properties:
+        correlation_id: { type: string, format: uuid }
+        exercise_id: { type: string }
+        set_no: { type: integer, minimum: 1, maximum: 10 }
+
+    PlannedSetMapping:
+      type: object
+      additionalProperties: false
+      required: [correlation_id, planned_set_id, planned_set]
+      properties:
+        correlation_id: { type: string, format: uuid }
+        planned_set_id: { type: string, format: uuid }
+        planned_set: { $ref: '#/components/schemas/PlannedSet' }
+
+    SessionMutationPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        status: { type: string, enum: [completed] }
+        difficulty: { type: string, enum: [easy, moderate, hard] }
+        pump: { type: string, enum: [low, medium, high] }
+        pain: { type: integer, minimum: 0, maximum: 10 }
 
     SyncResponse:
       type: object
-      required: [applied, conflicts, changes]
+      required: [applied, conflicts, changes, planned_set_mappings, next_cursor]
       properties:
         applied:
           type: array
-          items: { type: string }
+          items: { type: string, format: uuid }
         conflicts:
           type: array
           items:
             type: object
-            required: [client_id, reason]
+            required: [client_id, entity_id, reason]
             properties:
-              client_id: { type: string }
+              client_id: { type: string, format: uuid }
+              entity_id: { type: string, format: uuid }
               reason: { type: string, example: stale_update }
         changes:
           type: array
           items:
             type: object
-            required: [entity, id, data]
+            required: [entity, entity_id, op, data, server_seq]
             properties:
-              entity: { type: string }
-              id: { type: string }
-              data: { type: object, additionalProperties: true }
-        next_cursor: { type: string }
+              entity: { type: string, enum: [performed_set, session_routine, session] }
+              entity_id: { type: string, format: uuid }
+              op: { type: string, enum: [upsert, delete] }
+              data: { type: object, additionalProperties: true, nullable: true }
+              server_seq:
+                type: string
+                pattern: '^[0-9]+$'
+                description: JSON 정밀도 손실을 피하기 위한 10진 문자열.
+        planned_set_mappings:
+          type: array
+          items: { $ref: '#/components/schemas/PlannedSetMapping' }
+          description: >
+            이번 요청의 routine correlation에 대응하는 권위 planned set. 응답 유실 재시도에도 동일하다.
+        next_cursor:
+          type: string
+          description: 마지막으로 관찰한 server_seq를 감싼 opaque cursor.
 
     CheckoutRequest:
       type: object

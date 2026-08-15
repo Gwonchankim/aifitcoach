@@ -36,7 +36,8 @@ planned_sets(id PK, session_id FK, exercise_id FK, set_no int, order_index int,
       -- recommended_weight NULL = 자체중량(맨몸·시간 종목). metric=time 은 반복·RIR 축이 없어 target_reps_*/target_rir 가 NULL 이고 target_time_*_sec 를 쓴다.
 performed_sets(id PK, planned_set_id FK, actual_weight num NULL, actual_reps int NULL,
       actual_rir int NULL, actual_time_sec int NULL, pain_score int NULL, completed bool,
-      client_id uuid UNIQUE, performed_at, updated_at)   -- client_id = 멱등 키
+      client_id uuid UNIQUE, performed_at, updated_at,
+      UNIQUE(planned_set_id))   -- client_id = 최초 생성 mutation, 논리 ID = planned_set_id
       -- metric=reps 는 actual_weight/actual_reps, metric=time 은 actual_time_sec 를 채운다(배타적)
 estimated_1rm(user_id, exercise_id, e1rm num, method, computed_at,
       PRIMARY KEY(user_id, exercise_id, computed_at))
@@ -44,8 +45,10 @@ muscle_weekly_load(user_id, week_start date, muscle, hard_sets int, volume_load 
       avg_rir num, PRIMARY KEY(user_id, week_start, muscle))
 subscriptions(user_id PK, tier, provider, billing_key_ref, status,
       started_at, renews_at, trial_ends_at, updated_at)
-sync_mutations(id uuid PK, user_id, entity_type, entity_id, op, payload jsonb,
-      client_updated_at, applied_at, status)
+sync_mutations(id uuid PK, server_seq bigserial UNIQUE, user_id, entity_type, entity_id, op,
+      payload jsonb, client_updated_at, applied_at, status)
+      -- id = mutation client_id, server_seq = 누락 없는 pull cursor 순서
+      -- 공개 entity_type = performed_set | session_routine | session. profile은 ADR-33으로 미지원.
 -- RIR 캘리브레이션(P1)
 user_rir_calibration(user_id PK, bias_overall num, bias_by_region jsonb,
       confidence num, samples int, last_calibrated_at, status)  -- not_started|in_progress|graduated|stale
@@ -56,9 +59,8 @@ calibration_set(id PK, user_id, exercise_id, session_day, predicted_rir int,
 ## 인덱스
 ```
 CREATE UNIQUE INDEX ux_performed_client ON performed_sets(client_id);
--- performed_sets 는 가장 빨리 커지는 테이블이고 조회는 항상 planned_set_id 로 들어온다
--- (historyFor / 세션 완료 / 루틴 편집의 수행기록 가드). 없으면 전부 Seq Scan 이다.
-CREATE INDEX ix_performed_planned ON performed_sets(planned_set_id);
+-- 조회 hot path와 다중 탭 중복 방지를 한 인덱스로 강제한다.
+CREATE UNIQUE INDEX ux_performed_planned ON performed_sets(planned_set_id);
 CREATE INDEX ix_planned_session ON planned_sets(session_id);
 -- 한 세션에 같은 운동 중복 금지(F5 편집의 동시 요청 가드). planned_sets 는 "세트 1행"이라 set_no 를 포함한다.
 CREATE UNIQUE INDEX ux_planned_session_exercise_set ON planned_sets(session_id, exercise_id, set_no);
@@ -67,6 +69,8 @@ CREATE INDEX ix_sessions_prog_date ON workout_sessions(program_id, scheduled_dat
 CREATE INDEX ix_programs_user ON programs(user_id);
 CREATE INDEX ix_e1rm_user_ex ON estimated_1rm(user_id, exercise_id, computed_at DESC);
 CREATE INDEX ix_mwl_user_week ON muscle_weekly_load(user_id, week_start);
+CREATE UNIQUE INDEX sync_mutations_server_seq_key ON sync_mutations(server_seq);
+CREATE INDEX ix_sync_user_seq ON sync_mutations(user_id, server_seq);
 ```
 
 ## 데일리 루틴·부분 수행 (FEATURES_UX.md)

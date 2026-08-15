@@ -11,6 +11,7 @@ import {
 const VALID_SESSION = {
   id: "s_1",
   program_id: "p_1",
+  goal: "hypertrophy",
   scheduled_date: "2026-08-05",
   status: "scheduled",
   planned_sets: [

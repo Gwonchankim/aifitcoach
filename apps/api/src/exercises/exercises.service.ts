@@ -10,7 +10,7 @@ import { ListExercisesQueryDto } from "./dto/list-exercises.query.dto";
  * DB(prisma) 컬럼명과 계약 필드명이 다른 자리 → 매핑은 toExerciseResponse 한 곳에서만 한다.
  *   default_reps_low/high → rep_range_low/high  (계약이 nullable 이 아니라 metric=time 은 키를 뺀다)
  *   media(jsonb)          → media_url(문자열|null)
- * 계약에 없는 컬럼(mechanic·region·secondary_muscles·default_step_kg·unilateral·cues)은 내보내지 않는다.
+ * provisional offline routine이 쓰는 mechanic·region·default_step_kg는 계약에 명시해 내보낸다.
  */
 export interface ExerciseResponse {
   id: string;
@@ -20,7 +20,10 @@ export interface ExerciseResponse {
   primary_muscles: string[];
   equipment: string;
   difficulty: string;
+  mechanic: string;
+  region: string;
   metric: string;
+  step_kg: number | null;
   rep_range_low?: number;
   rep_range_high?: number;
   default_time_low_sec: number | null;
@@ -95,7 +98,10 @@ function toExerciseResponse(exercise: Exercise): ExerciseResponse {
     primary_muscles: exercise.primaryMuscles,
     equipment: exercise.equipment,
     difficulty: exercise.difficulty,
+    mechanic: exercise.mechanic,
+    region: exercise.region,
     metric: exercise.metric,
+    step_kg: exercise.defaultStepKg === null ? null : Number(exercise.defaultStepKg),
     // rep_range_* 는 계약에서 nullable 이 아니다 → 반복 축이 없는 종목(e_plank)은 키 자체를 뺀다.
     ...(exercise.defaultRepsLow === null ? {} : { rep_range_low: exercise.defaultRepsLow }),
     ...(exercise.defaultRepsHigh === null ? {} : { rep_range_high: exercise.defaultRepsHigh }),

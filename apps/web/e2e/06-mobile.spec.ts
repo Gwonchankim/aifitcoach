@@ -14,7 +14,9 @@ const metrics: Record<string, unknown>[] = [];
 
 let sessionId: string;
 
-test.beforeAll(async ({ request }) => {
+// A completed set is server state after STEP 6. Isolate metric cases with a fresh session so
+// the scroll-density case cannot pre-complete the timer case's first row through pull.
+test.beforeEach(async ({ request }) => {
   await seedProgram(request);
   sessionId = await todaySession(request);
 });

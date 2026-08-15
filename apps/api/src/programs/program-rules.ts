@@ -4,7 +4,14 @@
  * 문서 근거를 표기했고, 문서가 침묵하는 값은 "해석"으로 표시했다(스펙 확정 시 여기만 고친다).
  * 추천 수학(무게/진행)은 여기 없다 — packages/shared 의 recommendNextSet 이 유일한 출처다.
  */
-import type { Goal } from "shared";
+import {
+  ROUTINE_RULES_VERSION,
+  routineRepsFor,
+  routineRestSecFor,
+  routineSetCountFor,
+  routineTargetRirFor,
+  type Goal,
+} from "shared";
 
 export type Mechanic = "compound" | "isolation";
 export type MovementPattern =
@@ -27,7 +34,7 @@ export type MovementPattern =
  * docs/RECOMMENDATION_ENGINE.md 머리말: api 가 맨몸(step_kg=null)·시간(metric=time) 처방을
  * 실제로 내보내는 시점에 2026.08.1 로 올린다.
  */
-export const RULES_VERSION = "2026.08.1";
+export const RULES_VERSION = ROUTINE_RULES_VERSION;
 
 /** 요일 표기(openapi Program.sessions[].day 예시 "MON")와 월요일 기준 오프셋. */
 export const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
@@ -235,31 +242,21 @@ export function prefersStableEquipment(painAreas: string[]): boolean {
 }
 
 /** docs/RECOMMENDATION_ENGINE.md "목표별 파라미터" 표를 그대로 옮긴 값. */
-const REPS: Record<Goal, Record<Mechanic, { low: number; high: number }>> = {
-  hypertrophy: { compound: { low: 6, high: 12 }, isolation: { low: 10, high: 20 } },
-  strength: { compound: { low: 3, high: 5 }, isolation: { low: 3, high: 5 } },
-  diet: { compound: { low: 6, high: 12 }, isolation: { low: 6, high: 12 } },
-};
-
 export function repsFor(goal: Goal, mechanic: Mechanic): { low: number; high: number } {
-  return REPS[goal][mechanic];
+  return routineRepsFor(goal, mechanic);
 }
 
 /**
  * 목표 RIR. 위 표는 범위(hypertrophy 1–2, strength 2–4, diet 2–3)를 주는데
  * 엔진 입력 target.rir 은 정수 하나다 → 범위 중앙값을 올림해서 쓴다(해석).
  */
-const TARGET_RIR: Record<Goal, number> = { hypertrophy: 2, strength: 3, diet: 3 };
-
 export function targetRirFor(goal: Goal): number {
-  return TARGET_RIR[goal];
+  return routineTargetRirFor(goal);
 }
 
 /** docs/FEATURES_UX.md F2: 근비대 90~180, 스트렝스 180+, 다이어트 60~90 (각 범위 안의 값). */
-const REST_SEC: Record<Goal, number> = { hypertrophy: 120, strength: 180, diet: 90 };
-
 export function restSecFor(goal: Goal): number {
-  return REST_SEC[goal];
+  return routineRestSecFor(goal);
 }
 
 /**
@@ -268,5 +265,5 @@ export function restSecFor(goal: Goal): number {
  * 저반복인 스트렝스의 복합운동만 5세트로 둔다.
  */
 export function setCountFor(goal: Goal, mechanic: Mechanic): number {
-  return goal === "strength" && mechanic === "compound" ? 5 : 3;
+  return routineSetCountFor(goal, mechanic);
 }

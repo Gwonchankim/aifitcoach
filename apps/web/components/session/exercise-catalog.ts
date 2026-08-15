@@ -6,9 +6,14 @@
  * 부위 탭은 계약에 `region` 쿼리·필드가 없어 `primary_muscles` 로 클라이언트에서 나눈다.
  */
 import { api, type Exercise } from "../../lib/api";
+import { DEV_USER_SCOPE, readThroughCatalog } from "./session-db";
 
 /** 커서를 끝까지 따라가 카탈로그 전량을 받는다. 서버가 준 순서를 그대로 유지한다. */
 export async function fetchAllExercises(): Promise<Exercise[]> {
+  return readThroughCatalog(DEV_USER_SCOPE, fetchAllExercisesFromApi);
+}
+
+async function fetchAllExercisesFromApi(): Promise<Exercise[]> {
   const items: Exercise[] = [];
   let cursor: string | undefined;
 
