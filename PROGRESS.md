@@ -10,7 +10,7 @@
 | 2 | OpenAPI 코드젠 & 목서버 | ✅ 완료 (2026-08-05) | 84 |
 | 3 | 추천 엔진 TDD (핵심 IP) | ✅ 완료 (2026-08-05) | 78 → fix 후 뮤턴트 14/14 사살 |
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
-| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** — **M-UIa 개발·평가 완료**(71/100, fix-now 7건 처리). UIb 전 T-UI-1·T-UI-2 선행 | 69.5 → 70.0 · M-UIa **71** | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
+| 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | 🟡 **진행 중** — **M-UIa 개발·평가 완료**(71/100, fix-now 7건 처리). UIb 전 T-UI-1 완료, T-UI-2 결정 대기 | 69.5 → 70.0 · M-UIa **71** | 69.5 → 73.0 → **70.0** (아래 "STEP 5 현재 상태") |
 | 6 | 오프라인 동기화 | ⬜ 예정 | |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
@@ -363,9 +363,21 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 | # | 티켓 | 상태 |
 | --- | --- | --- |
-| **T-UI-1** | `cn` → tailwind-merge (지금 `!` 4곳 우회. 횡단 변경이라 UIb 와 섞으면 회귀 원인을 못 가린다) | 착수 대기 |
+| **T-UI-1** | `cn` → tailwind-merge (횡단 변경이라 UIb 와 단독 커밋으로 분리) | **✅ 완료 (2026-08-15)** |
 | **T-UI-2** | 폰트 페이로드 — **성능 100 → 92 실측 회귀**. Pretendard 4웨이트 1,051KB. 해법 ①동적 서브셋(정공법) ②웨이트 축소(충실도 상충) | 착수 대기 · 해법 선택 시 오너 확인 필요 |
 | **F14** | 한글 키커 대체 어법 — 프로토타입 키커 139회 vs 구현 3곳. 9.5px 모노를 한글에 못 쓴다 | **🟠 오너 결정 대기** (design 협업) |
+
+---
+
+### ✅ T-UI-1 — `cn` → tailwind-merge (2026-08-15)
+
+- `tailwind-merge` **3.6.0**을 web 런타임 의존성으로 고정하고 공용 `cn`이 마지막 Tailwind 충돌 클래스를 남기게 했다(ADR-53).
+- Tailwind v4 `@theme`의 프로젝트 고유 radius·spacing·text·shadow 값을 `extendTailwindMerge`에 등록했다. 기본 설정만으로는 `rounded-card`를 radius 그룹으로 인식하지 못해 `rounded-full rounded-card`를 둘 다 남기는 것을 테스트 먼저 red로 확인했다.
+- 온보딩의 `!important` 우회 4곳(선택 소프트 색 1곳, 목표·경력 카드 반경 2곳, 오류 카드 배경 1곳)을 제거했다.
+- 회귀 계약: `cn("rounded-full", "rounded-card") === "rounded-card"`. web 테스트 **224 → 225**.
+- 런타임 병합 비용으로 Next 빌드의 페이지별 First Load JS가 약 **8~9kB 증가**했다(`/` 127→135kB, onboarding 117→125kB, program 122→131kB, session 139→148kB). T-UI-2 Lighthouse 재측정은 이 커밋 이후 기준선으로 한다.
+- 게이트: typecheck·lint·format:check·build·test green(shared 79 / web 225 / api 237), `verify:no-test-seed`, `verify:contrast` 30/30, E2E **55/55**, `06-mobile` Chromium+WebKit 12/12, axe 19화면 위반 0.
+- 기준선 재현 중 테스트 하네스의 기존 시계 의존을 발견했다: `04-errors.spec.ts` 한 곳이 고정 브라우저 시계 대신 호스트 `Date.now() - 1일`을 써서 호스트 날짜 2026-08-15에 기본 `TEST_TODAY=2026-08-14`와 충돌했다. T-UI-1과 섞지 않고 `AFC_TEST_TODAY=2026-08-21`로 동일 금요일 계약을 재검증했다.
 
 ---
 

@@ -209,11 +209,10 @@ export function OnboardingWizard() {
       </div>
 
       {/* 상태 면은 Phase B 배지와 같은 소프트 어법이다 — 면 `danger-bg` + 1px `danger` 테두리.
-          `cn` 이 단순 연결이라 우선순위는 컴파일된 CSS 순서로 갈린다(`.bg-danger-bg` 가 `.bg-surface`
-          보다 앞이라 그냥 쓰면 진다) → 호출부가 확실히 이기도록 `!` 를 붙인다.
+          `cn` 이 Card 기본 `bg-surface` 와 충돌을 해소해 호출부의 `bg-danger-bg` 를 남긴다.
           본문 글자는 문장이라 `fg` 를 유지한다(danger-bg 위 15.87:1). */}
       {submitError ? (
-        <Card role="alert" className="mt-4 border-danger bg-danger-bg!">
+        <Card role="alert" className="mt-4 border-danger bg-danger-bg">
           <p className="text-sm text-fg">{submitError}</p>
         </Card>
       ) : null}

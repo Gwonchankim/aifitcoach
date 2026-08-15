@@ -30,11 +30,9 @@ export type StepProps = {
  * `background:#151A21; color:#fff` 즉 **ink 반전**이라, 이제 `Chip` 기본 선택색이 그 값이다(ADR-52).
  * 그래서 그쪽 오버라이드는 전부 제거했다.
  *
- * 왜 `!` 인가: `cn` 이 tailwind-merge 가 아니라 **단순 연결**이라 우선순위가 컴파일된 CSS 순서로 갈린다.
- * 실측(빌드 산출물): `.text-fg` 가 `.text-action-fg` 보다 **앞**이라 그냥 덧붙이면 흰 글자가 이긴다.
- * 근본 해결은 `T-UI-1`(cn → tailwind-merge)다.
+ * `cn` 이 Chip 기본 클래스와 이 오버라이드의 충돌을 해소해 뒤의 역할 클래스를 남긴다.
  */
-const SELECTED_SOFT = "bg-primary-bg! text-fg!";
+const SELECTED_SOFT = "bg-primary-bg text-fg";
 
 /** 단일 선택 칩 묶음. 그룹 이름을 legend 로 주어 스크린리더가 맥락을 읽게 한다. */
 function ChipGroup({
@@ -104,8 +102,7 @@ export function ProfileStep({ draft, onChange }: StepProps) {
 
 /**
  * 목표 3종은 설명이 붙는 **라디오 카드**다(칩이 아니다) → 모서리는 카드 반경 3px.
- * `rounded-card` 만 덧붙이면 Chip 의 `rounded-full` 에 진다(컴파일 순서상 `.rounded-full` 이 뒤) —
- * 실제로 지금까지 알약 모양으로 나오고 있었다. `!` 로 확실히 이기게 한다(DESIGN_TOKENS §5).
+ * Chip 기본 반경보다 뒤에 `rounded-card` 를 전달해 카드 반경을 적용한다(DESIGN_TOKENS §5).
  */
 export function GoalStep({ draft, onChange }: StepProps) {
   return (
@@ -116,7 +113,7 @@ export function GoalStep({ draft, onChange }: StepProps) {
           selected={draft.goal === option.value}
           onClick={() => onChange({ goal: option.value })}
           className={cn(
-            "w-full flex-col items-start justify-center gap-0.5 rounded-card! px-5 py-3 text-left",
+            "w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left",
             draft.goal === option.value && SELECTED_SOFT,
           )}
         >
@@ -188,7 +185,7 @@ export function ExperienceStep({ draft, onChange }: StepProps) {
             selected={draft.experience_level === option.value}
             onClick={() => onChange({ experience_level: option.value })}
             className={cn(
-              "w-full flex-col items-start justify-center gap-0.5 rounded-card! px-5 py-3 text-left",
+              "w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left",
               draft.experience_level === option.value && SELECTED_SOFT,
             )}
           >
