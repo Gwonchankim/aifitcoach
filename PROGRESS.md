@@ -462,10 +462,15 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 ---
 
-### ⏭ Deferred — E2E 고정 날짜와 호스트 시계 혼용 제거
+### ✅ Resolved — E2E 고정 날짜와 호스트 시계 혼용 제거 (2026-08-15)
 
-- `04-errors.spec.ts`의 “다른 날짜 종료 세션” fixture가 공용 `AFC_TEST_TODAY`/`TEST_TODAY`가 아니라 `Date.now() - 1일`로 날짜를 계산한다. T-UI-1 기준선 재현 중 호스트 날짜와 고정 테스트 날짜가 갈리면서 실제로 실패했다.
-- 현재는 전체 E2E를 `AFC_TEST_TODAY=2026-08-21`로 고정해 통과시키지만, 날짜가 다시 바뀌면 재발할 수 있다. 후속 테스트 인프라 티켓에서 `04-errors.spec.ts`도 `e2e/test-today.ts` 단일 기준을 사용하도록 고치고, 호스트 날짜와 다른 고정 날짜로 회귀 테스트한다. T-UI-1·T-UI-2 범위에는 섞지 않는다.
+- 첫 원격 CI에서 기본 `TEST_TODAY=2026-08-14`와 실행 호스트의 `Date.now() - 1일`이 같아지며 “다른 날짜 종료 세션” 계약이 실제로 재발했다.
+- `04-errors.spec.ts`가 `e2e/test-today.ts`의 `TEST_TODAY`에서 UTC 기준 전날을 계산하도록 고쳤다. 호스트 날짜와 다른 고정 날짜인 기본값으로 해당 스펙 11/11이 통과해 단일 시계 기준을 재검증했다.
+
+### ⏭ Deferred — CI 프로젝트 런타임 Node 22+ 전환
+
+- 현재 CI 명령은 `actions/setup-node`의 Node 20에서 실행한다. 로컬 Node 24 전체 게이트는 green이어서 명백한 Node 20 전용 의존은 없지만, CI의 Ubuntu/PostgreSQL 환경에서 Node 22+ 전체 게이트는 아직 별도로 실증하지 않았다.
+- GitHub의 경고는 checkout/setup-node/upload-artifact/pnpm 액션 자체의 Node 20 런타임이 Node 24로 강제 전환된다는 알림이므로, `node-version`만 22로 바꿔서는 사라지지 않는다. 후속 CI 런타임 티켓에서 액션 major 호환성 검토와 Node 22+ 게이트 실행을 함께 처리한다.
 
 ---
 

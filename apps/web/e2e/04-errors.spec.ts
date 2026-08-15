@@ -5,6 +5,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { API_V1, openSession, seedProgram, shot, todaySession } from "./helpers";
+import { TEST_TODAY } from "./test-today";
 
 /** 화면 어디에도 개발자용 원문이 없어야 한다. */
 async function assertNoRawServerText(page: Page): Promise<void> {
@@ -167,13 +168,18 @@ test.describe("409", () => {
   test("다른 날짜의 종료된 세션은 읽기 전용이다(F6-1)", async ({ page, request }) => {
     const sessionId = await todaySession(request);
     const session = await (await request.get(`${API_V1}/sessions/${sessionId}`)).json();
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = new Date(`${TEST_TODAY}T00:00:00.000Z`);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
 
     await page.route(`**/v1/sessions/${sessionId}`, (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ ...session, status: "completed", scheduled_date: yesterday }),
+        body: JSON.stringify({
+          ...session,
+          status: "completed",
+          scheduled_date: yesterday.toISOString().slice(0, 10),
+        }),
       }),
     );
 
