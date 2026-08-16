@@ -5,14 +5,14 @@
 "use client";
 
 import Link from "next/link";
-import type { Exercise, Recommendation } from "../../lib/api";
+import type { Exercise, GatedRecommendation, Recommendation } from "../../lib/api";
 import { Badge, Button, Card, Stat, buttonBase, cn } from "../ui";
 import { formatKg } from "./set-rules";
 
 export type SessionSummaryProps = {
   completedCount: number;
   totalVolume: number;
-  nextRecommendations: (Recommendation & { exercise_id: string })[];
+  nextRecommendations: GatedRecommendation[];
   catalogById: Map<string, Exercise>;
   /** F6-1: 당일이면 루틴 화면으로 돌아가 기록을 더하거나 고칠 수 있다. 다른 날이면 넘기지 않는다. */
   onResume?: () => void;
@@ -25,6 +25,9 @@ export function SessionSummary({
   catalogById,
   onResume,
 }: SessionSummaryProps) {
+  const visibleRecommendations = nextRecommendations.flatMap((item) =>
+    item.recommendation === null ? [] : [{ ...item.recommendation, exercise_id: item.exercise_id }],
+  );
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-col gap-2">
@@ -52,13 +55,13 @@ export function SessionSummary({
         </div>
       )}
 
-      {nextRecommendations.length === 0 ? (
+      {visibleRecommendations.length === 0 ? (
         <p className="text-sm text-fg-muted">다음 추천은 기록이 조금 더 쌓이면 보여드릴게요.</p>
       ) : (
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-bold text-fg">다음 추천</h2>
           <ul className="flex flex-col gap-2">
-            {nextRecommendations.map((recommendation) => (
+            {visibleRecommendations.map((recommendation) => (
               <li key={recommendation.exercise_id}>
                 <Card className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">

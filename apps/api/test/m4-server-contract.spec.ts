@@ -1,6 +1,5 @@
 /**
- * Sprint 0의 의도적 red suite. `pnpm --filter api test:red:m4`로만 실행한다.
- * Sprint 1에서 production 계약 테스트로 승격하기 전까지 현재 구현의 서로 다른 미구현 경계를 증명한다.
+ * Sprint 0에서 서로 다른 미구현 경계를 red로 증명한 뒤 Sprint 2 일반 게이트로 승격한 계약 테스트.
  */
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -17,7 +16,7 @@ const BASE = {
   experience_level: "intermediate",
 };
 
-describe("M-4′ Sprint 0 red", () => {
+describe("M-4′ 서버 계약", () => {
   let app: INestApplication;
   let prisma: PrismaService;
 
@@ -67,5 +66,35 @@ describe("M-4′ Sprint 0 red", () => {
       .query({ exercise_id: "e_bench_press" });
     expect(response.status).toBe(200);
     expectMatchesContract("get", "/analytics/e1rm", 200, response.body);
+  });
+
+  it("analytics volume은 주별 projector 결과와 목표별 권장 범위를 200으로 반환한다", async () => {
+    await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
+    const response = await request(app.getHttpServer())
+      .get("/v1/analytics/volume")
+      .query({ weeks: 2 })
+      .expect(200);
+    expectMatchesContract("get", "/analytics/volume", 200, response.body);
+    expect(response.body).toMatchObject({
+      goal: "hypertrophy",
+      recommendation_range: { min_hard_sets: 10, max_hard_sets: 20 },
+    });
+    expect(response.body.weeks).toHaveLength(2);
+  });
+
+  it("analytics completion은 lazy 세션과 미래 template preview를 7일 안정 정렬한다", async () => {
+    await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
+    const response = await request(app.getHttpServer())
+      .get("/v1/analytics/completion")
+      .query({ weeks: 1 })
+      .expect(200);
+    expectMatchesContract("get", "/analytics/completion", 200, response.body);
+    expect(response.body.weeks).toHaveLength(1);
+    expect(response.body.weeks[0].days).toHaveLength(7);
+    expect(response.body.weeks[0].days.map((day: { date: string }) => day.date)).toEqual(
+      [...response.body.weeks[0].days]
+        .map((day: { date: string }) => day.date)
+        .sort((left: string, right: string) => left.localeCompare(right)),
+    );
   });
 });

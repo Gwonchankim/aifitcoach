@@ -1,8 +1,8 @@
 /**
  * 통합 테스트(실제 postgres): POST /v1/sessions/ad-hoc — 휴식일 즉석 세션(FEATURES_UX F8-1).
  *
- * 오늘 세션이 없는 상태를 만들기 위해 프로그램 생성 후 **오늘 날짜 세션을 지운다**
- * (요일 배치상 오늘이 운동일일 수 있어 "오늘이 무슨 요일인가"에 흔들리지 않게 고정한다).
+ * 고정 테스트 날짜(2026-08-14, 금요일)가 휴식일인 주 2일 프로그램으로 검증한다.
+ * lazy materialization 이후 생성된 세션을 임의 삭제하면 다음 조회가 다시 생성하므로 삭제로 만들지 않는다.
  */
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
@@ -46,17 +46,13 @@ describe("즉석 세션 (F8-1)", () => {
     await resetUserData(prisma, USER_ID, OTHER_USER_ID);
   });
 
-  /** 프로그램 생성 + 오늘 세션 제거(= 오늘은 휴식일). */
+  /** 주 2일 프로그램 생성 + 현재 주 lazy materialization(금요일은 휴식일). */
   async function restDayProgram(pain?: string[]): Promise<void> {
     await request(app.getHttpServer())
       .post("/v1/programs/generate")
-      .send({ ...PROGRAM, ...(pain ? { pain_areas: pain } : {}) })
+      .send({ ...PROGRAM, days_per_week: 2, ...(pain ? { pain_areas: pain } : {}) })
       .expect(201);
-    const today = { scheduledDate: utcToday(), program: { userId: USER_ID } };
-    await prisma.plannedSet.deleteMany({ where: { session: today } });
-    await prisma.workoutSession.deleteMany({
-      where: { scheduledDate: today.scheduledDate, program: { userId: USER_ID } },
-    });
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   }
 
   async function createAdHoc(bodyPart: string) {
@@ -114,7 +110,8 @@ describe("즉석 세션 (F8-1)", () => {
       target_reps_high: 12,
       target_rir: 2,
       rest_sec: 120,
-      reason_code: "BASELINE",
+      reason_code: null,
+      recommendation_gate: "no_history",
       rules_version: "2026.08.1",
     });
   });
@@ -194,6 +191,7 @@ describe("즉석 세션 (F8-1)", () => {
 
   it("오늘 이미 세션이 있으면 409 이고 세션이 늘지 않는다", async () => {
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
     const program = await prisma.program.findFirstOrThrow({ where: { userId: USER_ID } });
     await prisma.workoutSession.create({
       data: {
@@ -216,6 +214,7 @@ describe("즉석 세션 (F8-1)", () => {
 
   it("종료된 오늘 세션이 있어도 409 다(하루에 두 개를 만들지 않는다)", async () => {
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
     const program = await prisma.program.findFirstOrThrow({ where: { userId: USER_ID } });
     await prisma.workoutSession.create({
       data: {

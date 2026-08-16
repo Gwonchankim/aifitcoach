@@ -104,6 +104,13 @@ enum SessionStatus {
   @@map("session_status")
 }
 
+enum ProgramStatus {
+  active
+  completed
+
+  @@map("program_status")
+}
+
 // 세션이 프로그램 계획에서 나왔는지(planned), 사용자가 그날 즉석으로 만든 것인지(ad_hoc).
 // 즉석 세션은 focus 가 부위명(chest/legs...)이라 focus 만으로는 계획 세션과 구분되지 않는다.
 enum SessionOrigin {
@@ -206,20 +213,25 @@ model Consent {
 }
 
 model Program {
-  id                String   @id @default(uuid()) @db.Uuid
-  userId            String   @map("user_id") @db.Uuid
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String        @map("user_id") @db.Uuid
   goal              Goal
-  daysPerWeek       Int      @map("days_per_week")
-  minutesPerDay     Int      @map("minutes_per_day")
-  splitType         String   @map("split_type")
-  rulesVersion      String   @map("rules_version")
+  daysPerWeek       Int           @map("days_per_week")
+  minutesPerDay     Int           @map("minutes_per_day")
+  splitType         String        @map("split_type")
+  rulesVersion      String        @map("rules_version")
+  startedAt         DateTime      @default(now()) @map("started_at") @db.Date
+  totalWeeks        Int           @default(12) @map("total_weeks")
+  status            ProgramStatus @default(active)
+  // 신규 프로그램은 재생성 가능한 입력을 보존한다. 레거시는 복구 불가능한 값을 추측하지 않아 null이다.
+  generationInput   Json?         @map("generation_input")
   // 생성 시점의 주간 템플릿(openapi Program.sessions). 세션은 이 템플릿의 인스턴스이고
   // 세션 편집(F5)은 세션 스코프라 템플릿에 반영되지 않는다(DATA_MODEL.md 미기재 — STEP 4 추가).
-  template          Json     @default("[]")
+  template          Json          @default("[]")
   // pain_areas 로 후보에서 뺀 운동과 사유(openapi Program.excluded_exercises, SAFETY_PAIN_MAPPING.md 규칙 3).
-  excludedExercises Json     @default("[]") @map("excluded_exercises")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  excludedExercises Json          @default("[]") @map("excluded_exercises")
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user     User             @relation(fields: [userId], references: [id])
   sessions WorkoutSession[]

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, type PlannedSet, type SyncEntityType, type SyncOp } from "@prisma/client";
+import { applyDisplayGate, displayGateState } from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
@@ -147,6 +148,9 @@ export class SyncService {
       where: { clientCorrelationId: { in: ids }, session: { program: { userId } } },
       orderBy: [{ exerciseId: "asc" }, { setNo: "asc" }],
     });
+    const completedCounts = await this.sessions.completedSessionCounts(userId, [
+      ...new Set(rows.map((row) => row.exerciseId)),
+    ]);
     const byCorrelation = new Map(rows.map((row) => [row.clientCorrelationId, row]));
     return requested.flatMap((item) => {
       const row = byCorrelation.get(item.correlation_id);
@@ -159,7 +163,7 @@ export class SyncService {
         {
           correlation_id: item.correlation_id,
           planned_set_id: row.id,
-          planned_set: plannedSetResponse(row),
+          planned_set: plannedSetResponse(row, completedCounts.get(row.exerciseId) ?? 0),
         },
       ];
     });
@@ -628,7 +632,7 @@ function correlationsOf(mutation: MutationDto): PlannedSetCorrelation[] {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function plannedSetResponse(set: PlannedSet) {
+function plannedSetResponse(set: PlannedSet, sampleCount: number) {
   return {
     id: set.id,
     exercise_id: set.exerciseId,
@@ -639,11 +643,16 @@ function plannedSetResponse(set: PlannedSet) {
     rest_sec: set.restSec,
     target_time_low_sec: set.targetTimeLowSec,
     target_time_high_sec: set.targetTimeHighSec,
-    recommended_weight: set.recommendedWeight === null ? null : Number(set.recommendedWeight),
-    recommended_reps: set.recommendedReps,
-    reason_code: set.reasonCode,
-    confidence: Number(set.confidence),
+    recommended_weight: applyDisplayGate(
+      sampleCount,
+      set.recommendedWeight === null ? null : Number(set.recommendedWeight),
+    ),
+    recommended_reps: applyDisplayGate(sampleCount, set.recommendedReps),
+    reason_code: applyDisplayGate(sampleCount, set.reasonCode),
+    confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
     rules_version: set.rulesVersion,
+    recommendation_gate: displayGateState(sampleCount),
+    performed_set: null,
   };
 }
 function validatePerformed(p: PerformedPayload): void {

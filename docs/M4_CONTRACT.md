@@ -1,6 +1,6 @@
 # M-4′ 기록·주간 프로그램·대시보드 집계 계약
 
-> 상태: Sprint 0 계약 잠금·red proof와 Sprint 1A projector·Sprint 1B T-UI-3 완료(2026-08-16).
+> 상태: Sprint 0 계약 잠금, Sprint 1A projector·Sprint 1B T-UI-3, Sprint 2 서버 계약 완료(2026-08-16).
 > 원본 프로토타입 7종 추출 및 M-4′ 3화면 픽셀·문구 체크리스트까지 고정했다.
 
 ## 1. 범위와 현재 경계
@@ -176,3 +176,27 @@ D-47~D-49도 2026-08-16 제품 오너 승인으로 확정됐다. 다섯 결정 �
 | D-47 **확정** | 홈 `프로그램 없이 … 기록`은 M-UIa D-1에서 제거 확정, 기록 `예전 기록 직접 입력`은 ADR-38/R-21과 충돌한다 | 두 CTA 모두 제외. M-UIa D-1·D-43과 일치시키고 현재 세션/프로그램 생성의 승인된 경로만 제공한다 |
 | D-48 **확정** | 주간 헤더의 `무료`는 실제 결제 상태처럼 보이나 결제·구독은 M-7′ 범위다 | TEST_SCOPE의 결제 보류를 따른다. 결제·가입 chip을 생략하고 M-7′에서 페이월과 실제 구독 상태를 함께 도입한다 |
 | D-49 **확정** | 기록의 앞당기기/add와 주간의 일정 바꾸기/미래 종목 교체는 새 planning mutation 계약을 요구한다 | D-42·ADR-24와 같이 M-4′는 조회·집계 화면으로 제한한다. 활성 세션의 기존 add/swap 경로만 허용하고 미래 계획 inline mutation은 별도 티켓으로 둔다 |
+
+## 11. Sprint 2 서버 계약 구현·검증
+
+- `/analytics/e1rm`, `/analytics/volume`, `/analytics/completion`을 200 실데이터 응답으로 구현했다.
+  e1RM·PR은 추천 엔진과 같은 `estimateE1rm`을 쓰며 raw Epley 계산 경로를 두지 않는다.
+- 세션 완료·sync는 affected session/week를 재계산하고, 조회는 사용자 원본 사실에서 reconcile한다.
+  기존 파생값은 `pnpm --dir apps/api run analytics:backfill`로 전량 rebuild한다.
+- D-37 migration은 `started_at`을 earliest session 주(없으면 `created_at` 주)로 채우고 `total_weeks=12`,
+  `status`, nullable `generation_input`을 추가한다. 신규 POST는 세션 0행으로 시작하고 첫 조회에서 현재+다음
+  주만 만든다. 레거시 `generation_input IS NULL` 프로그램도 저장된 template만으로 같은 lazy 경로를 쓴다.
+- D-39의 판정 함수는 `packages/shared/src/display-gate.ts` 하나다. 세션 상세·완료 추천·analytics·dashboard와
+  D-31 sync mapping 응답까지 서버가 distinct 완료 세션 수로 gate한 값을 내려준다. 웹 요약은 nullable
+  recommendation을 그대로 신뢰하며 자체 임계값 판정을 하지 않는다.
+- Sprint 0의 4개 intentional-red 계약은 `m4-server-contract.spec.ts` 일반 게이트로 승격했다. volume과
+  completion 실응답도 각각 OpenAPI 키셋까지 검사한다.
+- `analytics-determinism.spec.ts`는 고정 source fact를 정방향/역방향으로 DB에 넣은 두 API 응답의
+  `JSON.stringify`가 바이트 단위로 같음을 검증한다. 같은 수행값 수정 뒤 targeted recompute와 파생 테이블
+  삭제 후 full rebuild의 정렬된 e1RM/주간 부하 행도 바이트 단위로 같다.
+- 데이터가 있던 로컬 `afc`에서 migration과 backfill을 실제 실행했다. 원본 performed set 12행에서
+  `estimated_1rm` 3행·`muscle_weekly_load` 3행을 재생성했고, 레거시 program 1행은 `started_at` non-null,
+  `total_weeks=12`, `generation_input IS NULL`을 유지했다. 세션은 기존 7행 그대로라 12주 사전 생성이 없었다.
+- 웹은 gate로 null이 된 추천값을 운동 종류 판별에 쓰지 않는다. 카탈로그 `step_kg=null`만 자체중량이고,
+  외부 부하 운동의 gated null은 무게 입력이 필요한 `unknown_weight`다. 완료했지만 계획세트를 남긴 서버
+  `partial` 상태는 “오늘 수행한 운동”과 읽기 전용 부분 완료 배지로 표시하며 다시 시작 CTA로 되돌리지 않는다.

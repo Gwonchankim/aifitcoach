@@ -216,6 +216,7 @@ export function DashboardScreen() {
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-fg">{view.today.heading}</h2>
               {view.today.status === "done" ? <Badge tone="success">완료</Badge> : null}
+              {view.today.status === "partial" ? <Badge tone="warn">부분 완료</Badge> : null}
               {view.today.status === "rest" ? <Badge tone="neutral">휴식</Badge> : null}
             </div>
             <p className="text-sm text-ink-2">{view.today.message}</p>

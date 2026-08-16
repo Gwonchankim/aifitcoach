@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import { isoDate, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
+import { ProgramsService } from "../programs/programs.service";
+import { AnalyticsService, type RhythmDay } from "./analytics.service";
 
 /** openapi: DashboardSummary.today.routine_summary / tomorrow.routine_summary */
 export interface RoutineSummary {
@@ -20,7 +21,8 @@ export interface DoneSummary {
 export interface DashboardResponse {
   date: string;
   today: {
-    status: "workout" | "rest" | "done";
+    status:
+      "unperformed" | "in_progress" | "done" | "partial" | "rest" | "conflict" | "return_after_gap";
     /** 오늘 세션 id(대시보드 → 데일리 루틴 진입 경로). 휴식일이면 null. */
     session_id: string | null;
     routine_summary: RoutineSummary | null;
@@ -32,6 +34,13 @@ export interface DashboardResponse {
   };
   streak_days: number;
   weekly_completion_rate: number;
+  weekly_rhythm: RhythmDay[];
+  primary_e1rm: {
+    exercise_id: string;
+    sample_session_count: number;
+    gate_state: "no_history" | "early" | "ready";
+    latest_e1rm: number | null;
+  } | null;
 }
 
 interface SessionRow {
@@ -57,10 +66,15 @@ const DAY_MS = 86_400_000;
  */
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly programs: ProgramsService,
+    private readonly analytics: AnalyticsService,
+  ) {}
 
   async summary(userId: string): Promise<DashboardResponse> {
     const today = utcToday();
+    await this.programs.ensureCurrentWindow(userId);
     // 테넌시: 여기서 정한 프로그램이 아래 모든 조회의 스코프다.
     const program = await this.prisma.program.findFirst({
       where: { userId },
@@ -77,12 +91,27 @@ export class DashboardService {
     const todaySession = sessionOn(sessions, today);
     const tomorrowSession = sessionOn(sessions, addDays(today, 1));
     const counts = await this.exerciseCounts([todaySession, tomorrowSession]);
+    const completion = await this.analytics.completion(userId, {
+      week_start: isoDate(mondayOfWeek(today)),
+      weeks: 1,
+    });
+    const weekly_rhythm = completion.weeks[0]?.days ?? [];
+    const todayState = weekly_rhythm.find((day) => day.date === isoDate(today))?.state;
+    const primary_e1rm = await this.analytics.primaryE1rm(userId);
 
     return {
       date: isoDate(today),
       today: {
         status:
-          todaySession === null ? "rest" : todaySession.status === "completed" ? "done" : "workout",
+          todaySession === null
+            ? "rest"
+            : todayState === "completed"
+              ? "done"
+              : todayState === "partial"
+                ? "partial"
+                : todayState === "in_progress"
+                  ? "in_progress"
+                  : "unperformed",
         session_id: todaySession?.id ?? null,
         routine_summary: routineSummary(todaySession, counts),
         done_summary:
@@ -96,6 +125,8 @@ export class DashboardService {
       },
       streak_days: streakDays(sessions, today),
       weekly_completion_rate: weeklyCompletionRate(sessions, today),
+      weekly_rhythm,
+      primary_e1rm,
     };
   }
 
@@ -132,64 +163,50 @@ export class DashboardService {
     });
 
     let volume = 0;
-    const bestToday = new Map<string, number>();
     for (const set of performed) {
       if (set.actualWeight === null || set.actualReps === null) continue;
       const weight = Number(set.actualWeight);
       volume += weight * set.actualReps;
-      const exerciseId = set.plannedSet.exerciseId;
-      bestToday.set(
-        exerciseId,
-        Math.max(bestToday.get(exerciseId) ?? 0, e1rm(weight, set.actualReps)),
-      );
     }
 
     return {
       total_volume: round2(volume),
       sets_completed: performed.length,
-      pr_count: await this.prCount(userId, bestToday, today),
+      pr_count: await this.prCount(userId, sessionId, today),
     };
   }
 
   /**
-   * PR = 오늘 그 종목의 최고 e1RM 이 **오늘 이전 내 모든 기록**의 최고 e1RM 을 넘긴 종목 수(종목당 1).
-   * e1RM 은 Epley(`weight * (1 + reps/30)`, docs/RECOMMENDATION_ENGINE.md) — 무게만 보면 1회 고중량이
-   * 반복 향상을 가려버린다. 기록이 처음인 종목은 "경신"이 아니라 세지 않는다(첫날 전 종목 PR 방지).
+   * PR = 오늘 projector e1RM 이 **오늘 이전 내 모든 projector e1RM** 최고를 넘긴 종목 수(종목당 1).
+   * raw Epley를 다시 계산하지 않고 추천 엔진과 같은 shared corrected-RIR 함수를 거친 derived row만 쓴다.
+   * 기록이 처음인 종목은 "경신"이 아니라 세지 않는다(첫날 전 종목 PR 방지).
    *
    * 이력은 프로그램이 아니라 **사용자** 스코프다: 개인 기록은 프로그램을 다시 만들어도 이어진다.
    *
-   * 최고값 집계를 DB 에서 한다(종목당 1행). 수행기록을 앱으로 다 끌어오면 1년치(약 3000행)에서
-   * 대시보드 응답이 20ms → 300ms 로 늘어난다(측정). 산술은 JS 와 같은 float8 로 맞춘다.
+   * 기존 raw-Epley 파생값은 Sprint 2 backfill에서 projector 전체 rebuild로 교체한다.
    */
-  private async prCount(
-    userId: string,
-    bestToday: Map<string, number>,
-    today: Date,
-  ): Promise<number> {
-    if (bestToday.size === 0) return 0;
-
-    const history = await this.prisma.$queryRaw<{ exercise_id: string; best_e1rm: number }[]>`
-      SELECT ps.exercise_id,
-             MAX(pf.actual_weight::float8 * (1 + pf.actual_reps::float8 / 30)) AS best_e1rm
-      FROM performed_sets pf
-      JOIN planned_sets ps ON ps.id = pf.planned_set_id
-      JOIN workout_sessions ws ON ws.id = ps.session_id
-      JOIN programs p ON p.id = ws.program_id
-      -- 테넌시: 남의 기록은 내 PR 판정에 들어오지 않는다.
-      WHERE p.user_id = ${userId}::uuid
-        AND pf.completed
-        AND pf.actual_weight IS NOT NULL
-        AND pf.actual_reps IS NOT NULL
-        AND ws.scheduled_date < ${isoDate(today)}::date
-        AND ps.exercise_id IN (${Prisma.join([...bestToday.keys()])})
-      GROUP BY ps.exercise_id`;
-
-    const bestBefore = new Map(history.map((row) => [row.exercise_id, row.best_e1rm]));
+  private async prCount(userId: string, sessionId: string, today: Date): Promise<number> {
+    const current = await this.prisma.estimated1rm.findMany({ where: { userId, sessionId } });
+    if (current.length === 0) return 0;
+    const history = await this.prisma.estimated1rm.findMany({
+      where: {
+        userId,
+        exerciseId: { in: current.map((row) => row.exerciseId) },
+        computedAt: { lt: today },
+      },
+    });
+    const bestBefore = new Map<string, number>();
+    for (const row of history) {
+      bestBefore.set(
+        row.exerciseId,
+        Math.max(bestBefore.get(row.exerciseId) ?? Number.NEGATIVE_INFINITY, Number(row.e1rm)),
+      );
+    }
 
     let count = 0;
-    for (const [exerciseId, today1rm] of bestToday) {
-      const before = bestBefore.get(exerciseId);
-      if (before !== undefined && today1rm > before) count += 1;
+    for (const row of current) {
+      const before = bestBefore.get(row.exerciseId);
+      if (before !== undefined && Number(row.e1rm) > before) count += 1;
     }
     return count;
   }
@@ -203,6 +220,8 @@ function emptySummary(today: Date): DashboardResponse {
     tomorrow: { status: "rest", routine_summary: null },
     streak_days: 0,
     weekly_completion_rate: 0,
+    weekly_rhythm: [],
+    primary_e1rm: null,
   };
 }
 
@@ -274,11 +293,6 @@ function weeklyCompletionRate(sessions: SessionRow[], today: Date): number {
   if (week.length === 0) return 0;
   const done = week.filter((session) => session.status === "completed").length;
   return round2(done / week.length);
-}
-
-/** Epley e1RM — docs/RECOMMENDATION_ENGINE.md "e1RM (표시·추세)". RIR 보정은 쓰지 않는다(실측 기록 비교). */
-function e1rm(weight: number, reps: number): number {
-  return weight * (1 + reps / 30);
 }
 
 function mondayOfWeek(date: Date): Date {

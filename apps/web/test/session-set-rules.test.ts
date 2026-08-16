@@ -31,6 +31,8 @@ function plannedSet(overrides: Partial<PlannedSet> = {}): PlannedSet {
     confidence: 0.85,
     rules_version: "2026.08.1",
     ...overrides,
+    recommendation_gate: overrides.recommendation_gate ?? "ready",
+    performed_set: overrides.performed_set ?? null,
   };
 }
 
@@ -54,6 +56,14 @@ describe("setKind (판별 순서 §5.1)", () => {
 
   it("recommended_weight null 은 자체중량이다", () => {
     expect(setKind(plannedSet({ recommended_weight: null }), "reps")).toBe("bodyweight");
+  });
+
+  it("서버 gate로 추천이 null이어도 카탈로그 step이 있으면 무게 입력 운동이다", () => {
+    expect(setKind(plannedSet({ recommended_weight: null }), "reps", 2.5)).toBe("unknown_weight");
+  });
+
+  it("카탈로그 step=null인 실제 자체중량은 gate와 무관하게 자체중량이다", () => {
+    expect(setKind(plannedSet({ recommended_weight: null }), "reps", null)).toBe("bodyweight");
   });
 
   it("recommended_weight 0 은 무게 미정이다(0kg 이 아니다)", () => {

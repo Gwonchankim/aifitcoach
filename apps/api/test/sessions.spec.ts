@@ -42,6 +42,7 @@ describe("sessions", () => {
   beforeEach(async () => {
     await resetUserData(prisma, USER_ID);
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   });
 
   /** 프로그램의 세션들을 날짜 오름차순으로 (MON upper, TUE lower, THU upper, FRI lower, …). */
@@ -133,8 +134,9 @@ describe("sessions", () => {
       expect(response.body.next_recommendations).toHaveLength(1);
       expect(response.body.next_recommendations[0]).toMatchObject({
         exercise_id: exerciseId,
-        reason_code: "WEIGHT_UP_REP_TARGET_MET",
-        rules_version: "2026.08.1",
+        sample_session_count: 1,
+        gate_state: "early",
+        recommendation: null,
       });
     });
 
@@ -156,7 +158,12 @@ describe("sessions", () => {
         .expect(200);
 
       const recommendation = response.body.next_recommendations[0];
-      expect(recommendation.weight).toBe(60 + step);
+      expect(recommendation).toMatchObject({
+        exercise_id: exerciseId,
+        sample_session_count: 1,
+        gate_state: "early",
+        recommendation: null,
+      });
 
       const updated = await prisma.plannedSet.findMany({
         where: { sessionId: thursday.id, exerciseId },
@@ -202,7 +209,7 @@ describe("sessions", () => {
     });
 
     it("통증 보고(pain_score >= 4)는 안전 가드레일로 감량 + 대체 제안", async () => {
-      const [monday] = await sessions();
+      const [monday, , thursday] = await sessions();
       const exerciseId = monday.plannedSets[0].exerciseId;
       await recordSets(monday.id, exerciseId, [
         { w: 60, reps: 12, rir: 2 },
@@ -214,9 +221,16 @@ describe("sessions", () => {
         .send({})
         .expect(200);
 
-      const recommendation = response.body.next_recommendations[0];
-      expect(recommendation.reason_code).toBe("SUBSTITUTE_PAIN");
-      expect(recommendation.weight).toBeLessThan(60);
+      expect(response.body.next_recommendations[0]).toMatchObject({
+        exercise_id: exerciseId,
+        gate_state: "early",
+        recommendation: null,
+      });
+      const recommendation = await prisma.plannedSet.findFirstOrThrow({
+        where: { sessionId: thursday.id, exerciseId },
+      });
+      expect(recommendation.reasonCode).toBe("SUBSTITUTE_PAIN");
+      expect(Number(recommendation.recommendedWeight)).toBeLessThan(60);
     });
 
     it("세션 피드백의 pain 은 암호화되어 저장된다(SECURITY_PIPA)", async () => {
@@ -361,13 +375,17 @@ describe("sessions", () => {
     ];
 
     async function completeWithEasySets(): Promise<{ reason_code: string; weight: number }> {
-      const [monday] = await sessions();
-      await recordSets(monday.id, monday.plannedSets[0].exerciseId, easySets);
-      const response = await request(app.getHttpServer())
+      const [monday, , thursday] = await sessions();
+      const exerciseId = monday.plannedSets[0].exerciseId;
+      await recordSets(monday.id, exerciseId, easySets);
+      await request(app.getHttpServer())
         .post(`/v1/sessions/${monday.id}/complete`)
         .send({})
         .expect(200);
-      return response.body.next_recommendations[0];
+      const stored = await prisma.plannedSet.findFirstOrThrow({
+        where: { sessionId: thursday.id, exerciseId },
+      });
+      return { reason_code: stored.reasonCode, weight: Number(stored.recommendedWeight) };
     }
 
     it("캘리브레이션 행이 없으면 RIR 축을 쓰지 않는다(반복 기반 ADD_ONE_REP)", async () => {

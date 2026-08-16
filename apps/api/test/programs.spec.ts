@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { INestApplication } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import request from "supertest";
 import { parse } from "yaml";
 import { devUserId } from "../src/auth/dev-user";
@@ -42,6 +43,10 @@ describe("programs", () => {
     await resetUserData(prisma, USER_ID);
   });
 
+  async function materializeCurrent(): Promise<void> {
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
+  }
+
   it("프로그램이 없으면 GET /programs/current → 404 + 에러 엔벨로프", async () => {
     const response = await request(app.getHttpServer()).get("/v1/programs/current");
 
@@ -57,6 +62,12 @@ describe("programs", () => {
     expect(response.body.split_type).toBe("upper_lower");
     expect(response.body.goal).toBe("hypertrophy");
     expect(response.body.rules_version).toBe("2026.08.1");
+    expect(response.body).toMatchObject({
+      total_weeks: 12,
+      current_week: 1,
+      status: "active",
+      started_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
     expect(response.body.sessions).toHaveLength(4);
     expect(response.body.sessions.map((s: { day: string }) => s.day)).toEqual([
       "MON",
@@ -76,13 +87,23 @@ describe("programs", () => {
     }
   });
 
-  it("생성된 프로그램·세션·계획세트가 모두 dev-user 에 매달려 저장된다", async () => {
+  it("POST는 lifecycle만 저장하고 첫 read가 현재+다음 주 세션만 lazy materialize한다", async () => {
     await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
 
     const programs = await prisma.program.findMany({ where: { userId: USER_ID } });
     expect(programs).toHaveLength(1);
+    expect(programs[0]).toMatchObject({ totalWeeks: 12, status: "active" });
+    expect(programs[0].generationInput).toEqual({
+      ...BASE,
+      equipment: [],
+      avoid_exercises: [],
+      pain_areas: [],
+    });
+    expect(await prisma.workoutSession.count({ where: { programId: programs[0].id } })).toBe(0);
 
-    // 주 4일 × 2주 = 세션 8개, 각 5종목 × 3세트 = 15 계획세트
+    await materializeCurrent();
+
+    // lazy window는 현재+다음 주뿐이다. 12주(48개)를 미리 만들지 않는다.
     const sessions = await prisma.workoutSession.findMany({
       where: { programId: programs[0].id },
       orderBy: { scheduledDate: "asc" },
@@ -109,8 +130,23 @@ describe("programs", () => {
     expect(foreignChildren).toBe(0);
   });
 
+  it("generation_input이 없는 레거시도 저장된 template만으로 lazy materialize한다", async () => {
+    await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
+    const program = await prisma.program.findFirstOrThrow({ where: { userId: USER_ID } });
+    await prisma.program.update({
+      where: { id: program.id },
+      data: { generationInput: Prisma.JsonNull },
+    });
+
+    const response = await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
+
+    expect(response.body.started_at).toBe(program.startedAt.toISOString().slice(0, 10));
+    expect(await prisma.workoutSession.count({ where: { programId: program.id } })).toBe(8);
+  });
+
   it("기록이 없으면 계획세트의 추천은 엔진의 BASELINE(weight 0) 을 그대로 저장한다", async () => {
     await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
+    await materializeCurrent();
 
     const plannedSets = await prisma.plannedSet.findMany({
       where: { session: { program: { userId: USER_ID } } },
@@ -129,6 +165,7 @@ describe("programs", () => {
       .post("/v1/programs/generate")
       .send({ ...BASE, goal: "strength" })
       .expect(201);
+    await materializeCurrent();
 
     const compound = await prisma.plannedSet.findFirstOrThrow({
       where: { session: { program: { userId: USER_ID } }, exercise: { mechanic: "compound" } },
@@ -178,6 +215,7 @@ describe("programs", () => {
     // 중복 방지가 있으면 같은 패턴의 다음 후보로 채워 7종목이 나온다.
     const push = response.body.sessions.find((s: { focus: string }) => s.focus === "push");
     expect(push.exercises).toHaveLength(7);
+    await materializeCurrent();
 
     const sessions = await prisma.workoutSession.findMany({
       where: { program: { userId: USER_ID } },
@@ -225,6 +263,7 @@ describe("programs", () => {
         .post("/v1/programs/generate")
         .send({ ...BASE, equipment: ["bodyweight"] })
         .expect(201);
+      await materializeCurrent();
 
       const dips = await prisma.plannedSet.findMany({
         where: { session: { program: { userId: USER_ID } }, exerciseId: "e_dips" },
@@ -255,6 +294,7 @@ describe("programs", () => {
         time_low_sec: 20,
         time_high_sec: 60,
       });
+      await materializeCurrent();
 
       const stored = await prisma.plannedSet.findMany({
         where: { session: { program: { userId: USER_ID } }, exerciseId: "e_plank" },

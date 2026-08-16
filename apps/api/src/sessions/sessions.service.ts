@@ -6,7 +6,8 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PlannedSet } from "@prisma/client";
-import type { Goal } from "shared";
+import { applyDisplayGate, displayGateState } from "shared";
+import type { DisplayGateState, Goal } from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
@@ -19,7 +20,7 @@ import {
   patternsForBodyPart,
   prefersStableEquipment,
 } from "../programs/program-rules";
-import { DIFFICULTY_RANK, selectExercises } from "../programs/programs.service";
+import { DIFFICULTY_RANK, ProgramsService, selectExercises } from "../programs/programs.service";
 import {
   ApiRecommendation,
   EngineTarget,
@@ -46,9 +47,18 @@ export interface PlannedSetResponse {
   /** null = 자체중량(맨몸·시간 종목). */
   recommended_weight: number | null;
   recommended_reps: number | null;
-  reason_code: string;
-  confidence: number;
+  reason_code: string | null;
+  confidence: number | null;
   rules_version: string;
+  recommendation_gate: DisplayGateState;
+  performed_set: {
+    actual_weight: number | null;
+    actual_reps: number | null;
+    actual_rir: number | null;
+    actual_time_sec: number | null;
+    completed: boolean;
+    performed_at: string;
+  } | null;
 }
 
 /** openapi: components.schemas.Session */
@@ -64,7 +74,14 @@ export interface SessionResponse {
 /** openapi: POST /sessions/{sessionId}/complete 200 응답 */
 export interface CompleteSessionResponse {
   session: SessionResponse;
-  next_recommendations: ApiRecommendation[];
+  next_recommendations: GatedRecommendation[];
+}
+
+export interface GatedRecommendation {
+  exercise_id: string;
+  sample_session_count: number;
+  gate_state: DisplayGateState;
+  recommendation: ApiRecommendation | null;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,19 +93,20 @@ export class SessionsService {
     private readonly recommendation: RecommendationService,
     private readonly plannedSets: PlannedSetFactory,
     private readonly projector: AggregationProjector,
+    private readonly programs: ProgramsService,
   ) {}
 
   async detail(userId: string, sessionId: string): Promise<SessionResponse> {
-    return toSessionResponse(await this.load(userId, sessionId));
+    return this.toResponse(userId, await this.load(userId, sessionId));
   }
 
   /** Sync writes can amend an already-completed same-day session; recompute once per batch. */
-  async recomputeAfterSync(userId: string, sessionId: string): Promise<ApiRecommendation[]> {
+  async recomputeAfterSync(userId: string, sessionId: string): Promise<GatedRecommendation[]> {
     const session = await this.load(userId, sessionId);
     if (session.status === "completed") {
       const recommendations = await this.recompute(userId, session);
       await this.projector.recomputeSession(userId, session.id);
-      return recommendations;
+      return this.gateRecommendations(userId, recommendations);
     }
     return [];
   }
@@ -121,8 +139,8 @@ export class SessionsService {
     const next_recommendations = await this.recompute(userId, session);
     await this.projector.recomputeSession(userId, session.id);
     return {
-      session: toSessionResponse(await this.load(userId, sessionId)),
-      next_recommendations,
+      session: await this.toResponse(userId, await this.load(userId, sessionId)),
+      next_recommendations: await this.gateRecommendations(userId, next_recommendations),
     };
   }
 
@@ -223,6 +241,7 @@ export class SessionsService {
    * 프로그램 생성 때 적용한 통증 부위 제외도 그대로 다시 적용한다(SAFETY_PAIN_MAPPING.md).
    */
   async createAdHoc(userId: string, dto: CreateAdHocSessionDto): Promise<SessionResponse> {
+    await this.programs.ensureCurrentWindow(userId);
     const program = await this.prisma.program.findFirst({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -411,7 +430,7 @@ export class SessionsService {
     if (session.status === "completed") {
       await this.recompute(userId, session);
     }
-    return toSessionResponse(session);
+    return this.toResponse(userId, session);
   }
 
   /**
@@ -469,13 +488,78 @@ export class SessionsService {
       where: { id: sessionId, program: { userId } },
       include: {
         program: true,
-        plannedSets: { orderBy: [{ orderIndex: "asc" }, { setNo: "asc" }] },
+        plannedSets: {
+          orderBy: [{ orderIndex: "asc" }, { setNo: "asc" }],
+          include: { performedSets: { orderBy: { performedAt: "desc" }, take: 1 } },
+        },
       },
     });
     if (!session) {
       throw new NotFoundException("세션을 찾을 수 없다.");
     }
     return session;
+  }
+
+  private async toResponse(
+    userId: string,
+    session: Awaited<ReturnType<SessionsService["load"]>>,
+  ): Promise<SessionResponse> {
+    const counts = await this.completedSessionCounts(userId, [
+      ...new Set(session.plannedSets.map((set) => set.exerciseId)),
+    ]);
+    return toSessionResponse(session, counts);
+  }
+
+  private async gateRecommendations(
+    userId: string,
+    recommendations: ApiRecommendation[],
+  ): Promise<GatedRecommendation[]> {
+    const counts = await this.completedSessionCounts(
+      userId,
+      recommendations.map((item) => item.exercise_id),
+    );
+    return recommendations.map((recommendation) => {
+      const sample_session_count = counts.get(recommendation.exercise_id) ?? 0;
+      return {
+        exercise_id: recommendation.exercise_id,
+        sample_session_count,
+        gate_state: displayGateState(sample_session_count),
+        recommendation: applyDisplayGate(sample_session_count, recommendation),
+      };
+    });
+  }
+
+  /** D-39 count unit: distinct completed workout sessions, never performed-set count. */
+  async completedSessionCounts(
+    userId: string,
+    exerciseIds: string[],
+  ): Promise<Map<string, number>> {
+    if (exerciseIds.length === 0) return new Map();
+    const sessions = await this.prisma.workoutSession.findMany({
+      where: {
+        status: "completed",
+        program: { userId },
+        plannedSets: {
+          some: { exerciseId: { in: exerciseIds }, performedSets: { some: { completed: true } } },
+        },
+      },
+      select: {
+        plannedSets: {
+          where: {
+            exerciseId: { in: exerciseIds },
+            performedSets: { some: { completed: true } },
+          },
+          select: { exerciseId: true },
+        },
+      },
+    });
+    const counts = new Map<string, number>();
+    for (const session of sessions) {
+      for (const exerciseId of new Set(session.plannedSets.map((set) => set.exerciseId))) {
+        counts.set(exerciseId, (counts.get(exerciseId) ?? 0) + 1);
+      }
+    }
+    return counts;
   }
 }
 
@@ -557,35 +641,66 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
 
-function toSessionResponse(session: {
-  id: string;
-  programId: string;
-  scheduledDate: Date;
-  status: string;
-  plannedSets: PlannedSet[];
-  program: { goal: Goal };
-}): SessionResponse {
+function toSessionResponse(
+  session: {
+    id: string;
+    programId: string;
+    scheduledDate: Date;
+    status: string;
+    plannedSets: (PlannedSet & {
+      performedSets: {
+        actualWeight: Prisma.Decimal | null;
+        actualReps: number | null;
+        actualRir: number | null;
+        actualTimeSec: number | null;
+        completed: boolean;
+        performedAt: Date;
+      }[];
+    })[];
+    program: { goal: Goal };
+  },
+  completedCounts: Map<string, number>,
+): SessionResponse {
   return {
     id: session.id,
     program_id: session.programId,
     goal: session.program.goal,
     scheduled_date: session.scheduledDate.toISOString().slice(0, 10),
     status: session.status,
-    planned_sets: session.plannedSets.map((set) => ({
-      id: set.id,
-      exercise_id: set.exerciseId,
-      set_no: set.setNo,
-      target_reps_low: set.targetRepsLow,
-      target_reps_high: set.targetRepsHigh,
-      target_rir: set.targetRir,
-      rest_sec: set.restSec,
-      target_time_low_sec: set.targetTimeLowSec,
-      target_time_high_sec: set.targetTimeHighSec,
-      recommended_weight: set.recommendedWeight === null ? null : Number(set.recommendedWeight),
-      recommended_reps: set.recommendedReps,
-      reason_code: set.reasonCode,
-      confidence: Number(set.confidence),
-      rules_version: set.rulesVersion,
-    })),
+    planned_sets: session.plannedSets.map((set) => {
+      const sampleCount = completedCounts.get(set.exerciseId) ?? 0;
+      const performed = set.performedSets[0];
+      return {
+        id: set.id,
+        exercise_id: set.exerciseId,
+        set_no: set.setNo,
+        target_reps_low: set.targetRepsLow,
+        target_reps_high: set.targetRepsHigh,
+        target_rir: set.targetRir,
+        rest_sec: set.restSec,
+        target_time_low_sec: set.targetTimeLowSec,
+        target_time_high_sec: set.targetTimeHighSec,
+        recommended_weight: applyDisplayGate(
+          sampleCount,
+          set.recommendedWeight === null ? null : Number(set.recommendedWeight),
+        ),
+        recommended_reps: applyDisplayGate(sampleCount, set.recommendedReps),
+        reason_code: applyDisplayGate(sampleCount, set.reasonCode),
+        confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
+        rules_version: set.rulesVersion,
+        recommendation_gate: displayGateState(sampleCount),
+        performed_set: performed
+          ? {
+              actual_weight:
+                performed.actualWeight === null ? null : Number(performed.actualWeight),
+              actual_reps: performed.actualReps,
+              actual_rir: performed.actualRir,
+              actual_time_sec: performed.actualTimeSec,
+              completed: performed.completed,
+              performed_at: performed.performedAt.toISOString(),
+            }
+          : null,
+      };
+    }),
   };
 }

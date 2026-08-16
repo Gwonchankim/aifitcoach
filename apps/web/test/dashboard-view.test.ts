@@ -5,10 +5,12 @@ import { buildDashboardView } from "../components/dashboard/dashboard-view";
 function summary(patch: Partial<DashboardSummary> = {}): DashboardSummary {
   return {
     date: "2026-08-05",
-    today: { status: "workout", session_id: "s_1", routine_summary: null, done_summary: null },
+    today: { status: "unperformed", session_id: "s_1", routine_summary: null, done_summary: null },
     tomorrow: { status: "rest", routine_summary: null },
     streak_days: 3,
     weekly_completion_rate: 0.5,
+    weekly_rhythm: [],
+    primary_e1rm: null,
     ...patch,
   } as DashboardSummary;
 }
@@ -18,7 +20,7 @@ describe("오늘 카드", () => {
     const view = buildDashboardView(
       summary({
         today: {
-          status: "workout",
+          status: "unperformed",
           session_id: "s_42",
           routine_summary: { exercise_count: 5, focus: "upper" },
           done_summary: null,
@@ -167,11 +169,31 @@ describe("오늘 카드", () => {
     expect(view.today.message).toBe("오늘 운동 완료! 총 1,200kg · 8세트");
   });
 
+  it("부분 종료도 다시 시작할 운동이 아니라 수행 기록으로 보여준다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "partial",
+          session_id: "s_partial",
+          routine_summary: { exercise_count: 4, focus: "upper" },
+          done_summary: { total_volume: 700, sets_completed: 3, pr_count: 0 },
+        },
+      }),
+    );
+
+    expect(view.today).toMatchObject({
+      status: "partial",
+      heading: "오늘 수행한 운동",
+      message: "오늘 운동 완료! 총 700kg · 3세트",
+      primary: { label: "기록 보기", href: "/session/s_partial" },
+    });
+  });
+
   it("세션 id 가 없으면 진입 링크를 만들지 않는다", () => {
     const view = buildDashboardView(
       summary({
         today: {
-          status: "workout",
+          status: "unperformed",
           session_id: null,
           routine_summary: { exercise_count: 4, focus: "push" },
           done_summary: null,
@@ -186,7 +208,7 @@ describe("오늘 카드", () => {
     const view = buildDashboardView(
       summary({
         today: {
-          status: "workout",
+          status: "unperformed",
           session_id: "s_1",
           routine_summary: { exercise_count: 3, focus: "mystery" },
           done_summary: null,

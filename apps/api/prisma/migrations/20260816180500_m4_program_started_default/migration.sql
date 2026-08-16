@@ -1,0 +1,1 @@
+ALTER TABLE "programs" ALTER COLUMN "started_at" SET DEFAULT CURRENT_DATE;

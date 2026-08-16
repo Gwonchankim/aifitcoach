@@ -160,6 +160,38 @@ export class RecommendationService {
       rules_version: recommendation.rules_version,
     };
   }
+
+  /** Persisted planned-set recommendation → public contract, without re-running the engine. */
+  plannedToApi(
+    exerciseId: string,
+    sets: number,
+    planned: {
+      recommendedWeight: { toString(): string } | null;
+      recommendedReps: number | null;
+      targetRepsLow: number | null;
+      targetRepsHigh: number | null;
+      targetTimeLowSec: number | null;
+      targetTimeHighSec: number | null;
+      reasonCode: string;
+      confidence: { toString(): string };
+      rulesVersion: string;
+    },
+  ): ApiRecommendation {
+    const reason = planned.reasonCode as ReasonCode;
+    return {
+      exercise_id: exerciseId,
+      weight: planned.recommendedWeight === null ? null : Number(planned.recommendedWeight),
+      reps_low: planned.recommendedReps,
+      reps_high: planned.targetRepsHigh,
+      sets,
+      ...(planned.targetTimeLowSec === null ? {} : { time_low_sec: planned.targetTimeLowSec }),
+      ...(planned.targetTimeHighSec === null ? {} : { time_high_sec: planned.targetTimeHighSec }),
+      reason_code: planned.reasonCode,
+      confidence: Number(planned.confidence),
+      explanation: EXPLANATION[reason] ?? "최근 완료 기록을 반영한 다음 세션 추천이다.",
+      rules_version: planned.rulesVersion,
+    };
+  }
 }
 
 /** 암호문 → 숫자 복호화는 서비스 레이어(여기)에서만 한다. repository/prisma 는 string|null 만 다룬다. */

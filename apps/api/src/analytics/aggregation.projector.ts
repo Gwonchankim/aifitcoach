@@ -133,6 +133,17 @@ export function projectFacts(sessions: ProjectorSession[]): {
 export class AggregationProjector {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** D-34 migration/backfill entrypoint. Stable user ordering makes reruns auditable. */
+  async rebuildAll(): Promise<number> {
+    const programs = await this.prisma.program.findMany({
+      select: { userId: true },
+      distinct: ["userId"],
+      orderBy: { userId: "asc" },
+    });
+    for (const { userId } of programs) await this.rebuildUser(userId);
+    return programs.length;
+  }
+
   async recomputeSession(userId: string, sessionId: string): Promise<void> {
     const session = await this.prisma.workoutSession.findFirst({
       where: { id: sessionId, program: { userId } },

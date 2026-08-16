@@ -53,6 +53,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
    */
   async function twoSessions(program: object): Promise<[string, string]> {
     await request(app.getHttpServer()).post("/v1/programs/generate").send(program).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
     const all = await prisma.workoutSession.findMany({
       where: { program: { userId: USER_ID } },
       orderBy: { scheduledDate: "asc" },
@@ -234,7 +235,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
       await complete(todayId);
 
       expect((await dashboard()).today).toMatchObject({
-        status: "done",
+        status: "partial",
         session_id: todayId,
         done_summary: { total_volume: 1200, sets_completed: 2 },
       });
@@ -271,7 +272,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
       await addExercise(todayId, "e_face_pull");
 
       const body = await dashboard();
-      expect(body.today.status).toBe("done");
+      expect(body.today.status).toBe("partial");
       expect(body.today.routine_summary.exercise_count).toBe(before + 1);
       expect(body.today.done_summary).toMatchObject({ total_volume: 600, sets_completed: 1 });
     });

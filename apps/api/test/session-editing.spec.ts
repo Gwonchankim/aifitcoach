@@ -56,6 +56,7 @@ describe("데일리 루틴 편집 (F5)", () => {
   beforeEach(async () => {
     await resetUserData(prisma, USER_ID);
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
     const session = await prisma.workoutSession.findFirstOrThrow({
       where: { program: { userId: USER_ID } },
       orderBy: { scheduledDate: "asc" },

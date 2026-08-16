@@ -390,7 +390,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 ### ▶ M-4′ Sprint 0 — 계약 잠금·red proof (2026-08-16)
 
 - D-32~D-44 승인. D-37은 12주 세션 사전 생성 대신 lifecycle 메타 + lazy 생성으로, D-39는 단일
-  `packages/shared/display-gate.ts` + 서버 권위 게이트 결과로 수정 확정됐다(ADR-61·62).
+  `packages/shared/display-gate.ts` + 서버 권위 게이트 결과로 수정 확정됐다(ADR-63·64).
 - 실측 정정: 저장소에는 설명에 있던 `generation_input` 컬럼과 `planWeek` 함수가 아직 없다. 기존 program에는
   반복 가능한 `template`이 있으므로 lifecycle backfill은 `started_at`만 설정하고 template snapshot을 lazy
   fallback으로 쓴다. 신규 프로그램부터 generation input을 보존하며 복원 불가능한 레거시 입력을 추측하지 않는다.
@@ -440,6 +440,35 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   WebKit 7/7, axe 20화면 위반 0이다. API 전체는 **227 passed / 41 intentional red**로 Sprint 0보다
   projector 5개가 늘고 red 수는 동일하다. root typecheck red도 lifecycle/gate/actual 응답을 아직 구현하지
   않은 Sprint 0 계약 경계뿐이며 API·shared typecheck와 새 T-UI-3 타입은 green이다.
+
+### ✅ M-4′ Sprint 2 — 서버 집계·이력·dashboard·12주 lifecycle (2026-08-16)
+
+- Sprint 0의 intentional-red 4건을 일반 `m4-server-contract.spec.ts`로 승격했다. analytics e1RM/volume/
+  completion 3종, Program lifecycle, Session actual+gate, Dashboard rhythm+gate가 모두 200/OpenAPI 키셋을
+  통과하며 root typecheck red도 해소됐다.
+- D-37은 program POST 시 12주 세션을 만들지 않고 lifecycle/template/generation input만 저장한다. 첫 read가
+  현재+다음 주만 lazy 생성한다. `generation_input`이 null인 레거시는 template fallback으로 통과하며,
+  migration은 earliest session(없으면 created_at) 주로 `started_at`만 backfill한다.
+- D-39 gate 정의는 `packages/shared/src/display-gate.ts` 하나뿐이다. 세션·완료 추천·analytics·dashboard와
+  D-31 sync mapping까지 서버가 distinct 완료 세션 수로 값을 제거하며 웹은 wrapper의 nullable 추천을
+  그대로 신뢰한다. 0/1/2/3회 단위 테스트와 early/ready 렌더 테스트로 웹 재판정 경로가 없음을 고정했다.
+- D-34는 projector와 대시보드 PR이 추천 엔진의 공용 corrected-RIR/저반복 e1RM 함수를 쓴다. 운영 명령
+  `pnpm --dir apps/api run analytics:backfill`을 추가했고 데이터가 있는 `afc`에서 실행해 performed set 12행을
+  e1RM 3행·주간 부하 3행으로 재생성했다. 레거시 program 1행의 started_at/12주 제약은 충족했고 기존 session
+  7행은 그대로라 사전 생성이 없었다.
+- 세 DB `afc`·`afc_test`·`afc_e2e`에 **12 migrations** 적용·up-to-date를 확인했다. PostgreSQL은 healthy,
+  Redis는 running이다.
+- 결정론 통합 테스트는 source fact 삽입 순서를 뒤집은 API 응답의 byte equality와 affected-session 증분 ==
+  derived 전량 삭제 후 full rebuild를 실제 PostgreSQL 행으로 증명한다. projector 순수 증명과 별개라 transport/
+  persistence 정렬 누락도 잡는다.
+- ADR 번호 중복을 바로잡아 STEP 6 종단 ADR-61·62를 보존하고 M-4′ 집계/lifecycle을 ADR-63·64로 확정했다.
+- 첫 전체 E2E가 D-39 연동 사각지대 2건을 잡았다. 추천 무게가 gate로 null이 되자 웹이 외부 부하 운동을
+  자체중량으로 오인해 무게 입력을 없앴고, 서버의 `partial` 종료 상태를 웹이 미수행으로 그렸다. 운동 종류는
+  카탈로그 `step_kg`로 판정하고 partial은 수행 기록 카드+`부분 완료`로 표시하도록 각각 전용 단언 뒤 수정했다.
+- **Sprint 2 최종 게이트**: contract **31/31**, typecheck·lint·format:check·build green,
+  verify:no-test-seed **150파일**, contrast **30/30**, font **92 faces / 2,957,724B**, test shared **87/87** ·
+  web **277/277** · api **277/277**. E2E 직렬 **68/68**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
+  axe **20화면 위반 0**으로 Sprint 1 기준선이 감소하지 않았다.
 
 ### M-UIb 진입 조건
 

@@ -11,6 +11,7 @@ import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { expectMatchesContract } from "./support/openapi-response";
 
 const USER_ID = devUserId();
 const PROGRAM = {
@@ -38,6 +39,7 @@ describe("STEP 6 sync 계약 잠금", () => {
   beforeEach(async () => {
     await resetUserData(prisma, USER_ID);
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   });
 
   async function firstPlannedSet() {
@@ -395,6 +397,7 @@ describe("STEP 6 sync 계약 잠금", () => {
       .send({ mutations: [performed, routine] })
       .expect(200);
 
+    expectMatchesContract("post", "/sync", 200, response.body);
     expect(response.body.applied).toEqual(
       expect.arrayContaining([routine.client_id, performed.client_id]),
     );

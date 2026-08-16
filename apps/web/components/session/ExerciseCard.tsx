@@ -57,7 +57,7 @@ export function ExerciseCard({
   onUncomplete,
 }: ExerciseCardProps) {
   const completedCount = sets.filter((set) => drafts[set.id]?.completed).length;
-  const kinds = sets.map((set) => setKind(set, exercise?.metric));
+  const kinds = sets.map((set) => setKind(set, exercise?.metric, exercise?.step_kg));
   // 근거·무게 배지는 카드 단위다 → 이 종목의 축(시간/자체중량/무게)에 맞는 문구만 남긴다.
   const reason = reasonLabel(sets[0]?.reason_code ?? "", kinds[0]);
   const badge = weightBadge(kinds[0] ?? "weighted");

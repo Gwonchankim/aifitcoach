@@ -177,6 +177,8 @@ describe("GET /dashboard (F8 대시보드)", () => {
       tomorrow: { status: "rest", routine_summary: null },
       streak_days: 0,
       weekly_completion_rate: 0,
+      weekly_rhythm: [],
+      primary_e1rm: null,
     });
   });
 
@@ -201,7 +203,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
     });
   });
 
-  it("오늘 미수행: status=workout + routine_summary, done_summary=null, 내일 휴식", async () => {
+  it("오늘 미수행: status=unperformed + routine_summary, done_summary=null, 내일 휴식", async () => {
     const programId = await createProgram(USER_ID);
     const sessionId = await seedSession(programId, utcDay(0), "upper", "scheduled", [
       { exerciseId: "e_bench_press", sets: 3 },
@@ -212,7 +214,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
     const body = await dashboard();
 
     expect(body.today).toEqual({
-      status: "workout",
+      status: "unperformed",
       session_id: sessionId,
       routine_summary: { exercise_count: 3, focus: "upper" },
       done_summary: null,
@@ -237,7 +239,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
   });
 
   describe("오늘 완료(done_summary)", () => {
-    it("status=done + 볼륨·완료 세트 수·PR", async () => {
+    it("일부 계획세트를 남기고 종료하면 status=partial + 볼륨·완료 세트 수·PR", async () => {
       const programId = await createProgram(USER_ID);
       // 지난주 같은 종목 60kg×10 (e1RM 80) → 오늘 70kg×10 (e1RM 93.3) 은 경신이다.
       await seedSession(programId, utcDay(-7), "upper", "completed", [
@@ -268,7 +270,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
 
       const body = await dashboard();
 
-      expect(body.today.status).toBe("done");
+      expect(body.today.status).toBe("partial");
       expect(body.today.session_id).toBe(sessionId);
       expect(body.today.routine_summary).toEqual({ exercise_count: 2, focus: "upper" });
       expect(body.today.done_summary).toEqual({

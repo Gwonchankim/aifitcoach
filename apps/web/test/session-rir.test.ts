@@ -102,6 +102,8 @@ describe("미입력 RIR 은 기록에 들어가지 않는다", () => {
     reason_code: "WEIGHT_UP_REP_TARGET_MET",
     confidence: 0.85,
     rules_version: "2026.08.1",
+    recommendation_gate: "ready",
+    performed_set: null,
   };
 
   it("프리필에 RIR 축이 없다(목표 RIR 을 기록값으로 쓰지 않는다)", () => {
@@ -263,6 +265,8 @@ describe("목표 RIR 표기", () => {
     reason_code: "WEIGHT_UP_REP_TARGET_MET",
     confidence: 0.85,
     rules_version: "2026.08.1",
+    recommendation_gate: "ready",
+    performed_set: null,
   };
 
   const row = (overrides: Partial<PlannedSet> = {}) =>
@@ -321,6 +325,8 @@ describe("시간 종목(AC-E-4)", () => {
     reason_code: "TIME_HOLD",
     confidence: 0.6,
     rules_version: "2026.08.1",
+    recommendation_gate: "ready",
+    performed_set: null,
   };
 
   it("RIR 입력이 DOM 에 없다", () => {

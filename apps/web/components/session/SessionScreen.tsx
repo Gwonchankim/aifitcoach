@@ -10,8 +10,8 @@ import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
 import {
   ApiError,
   api,
+  type GatedRecommendation,
   type PlannedSet,
-  type Recommendation,
   type Session,
   type SyncResponse,
 } from "../../lib/api";
@@ -46,7 +46,7 @@ import {
 
 type CompleteResponse = {
   session: Session;
-  next_recommendations: (Recommendation & { exercise_id: string })[];
+  next_recommendations: GatedRecommendation[];
 };
 
 type RestState = { plannedSetId: string; title: string; timer: RestTimer };
@@ -377,7 +377,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           ...(sessionQuery.data ?? ({ id: sessionId } as Session)),
           status: "completed",
         } as Session,
-        next_recommendations: Array.isArray(recommendations) ? recommendations : [],
+        // D-39: 서버가 gate_state와 nullable recommendation을 결정한다. 웹은 재판정하지 않는다.
+        next_recommendations: Array.isArray(recommendations)
+          ? (recommendations as GatedRecommendation[])
+          : [],
         offline: synced === null,
       };
     },
@@ -444,7 +447,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     window.setTimeout(() => {
       const target = next
         ? document.getElementById(
-            primaryInputId(next, setKind(next, catalogById.get(next.exercise_id)?.metric)),
+            primaryInputId(
+              next,
+              setKind(
+                next,
+                catalogById.get(next.exercise_id)?.metric,
+                catalogById.get(next.exercise_id)?.step_kg,
+              ),
+            ),
           )
         : document.querySelector<HTMLElement>(`[data-set-check="${from}"]`);
       target?.focus();
@@ -501,7 +511,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const painWeightTarget = painGroup?.sets.find(
     (set) =>
       !drafts[set.id]?.completed &&
-      hasWeightInput(setKind(set, catalogById.get(set.exercise_id)?.metric)),
+      hasWeightInput(
+        setKind(
+          set,
+          catalogById.get(set.exercise_id)?.metric,
+          catalogById.get(set.exercise_id)?.step_kg,
+        ),
+      ),
   );
 
   return (

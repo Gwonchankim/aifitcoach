@@ -8,7 +8,7 @@ import { focusLabel, formatKg, formatRate } from "../../lib/program-labels";
 export type DashboardAction = { label: string; href: string };
 
 export type TodayCard = {
-  status: "workout" | "rest" | "done";
+  status: "workout" | "rest" | "done" | "partial";
   heading: string;
   message: string;
   /** PR·볼륨 보조 문구. 해당 없으면 넣지 않는다(0개 표시 금지). */
@@ -96,13 +96,13 @@ function todayCard(today: DashboardSummary["today"], localSetsCompleted: number)
   }
 
   // 분기는 status 로만 한다. routine_summary 는 done 일 때도 non-null 로 내려온다.
-  if (today.status === "done") {
+  if (today.status === "done" || today.status === "partial") {
     const done = today.done_summary;
     const copy = done
       ? doneCopy(done, localSetsCompleted)
       : { message: "오늘 운동을 마쳤어요.", notes: [] };
     return {
-      status: "done",
+      status: today.status,
       heading: "오늘 수행한 운동",
       message: copy.message,
       notes: copy.notes,
@@ -153,5 +153,5 @@ export function buildDashboardView(
   };
 }
 
-/** e1RM 추세는 `GET /analytics/e1rm`(아직 501)에서 온다. 지금은 빈 상태 문구만 보여준다(§2.3 빈④). */
-export const E1RM_EMPTY_NOTE = "기록이 2회 이상 쌓이면 변화를 보여드릴게요.";
+/** e1RM 추세는 서버의 종목별 완료 세션 gate를 따른다. 값은 세 번째 세션부터 보인다(D-39). */
+export const E1RM_EMPTY_NOTE = "같은 종목 기록이 세 세션 이상 쌓이면 변화를 보여드릴게요.";

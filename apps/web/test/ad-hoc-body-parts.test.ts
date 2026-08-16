@@ -42,7 +42,7 @@ describe("부위 목록", () => {
     const view = buildDashboardView({
       date: "2026-08-05",
       today: {
-        status: "workout",
+        status: "unperformed",
         session_id: "s_adhoc",
         routine_summary: { exercise_count: 4, focus: "shoulders" },
         done_summary: null,
@@ -50,6 +50,8 @@ describe("부위 목록", () => {
       tomorrow: { status: "rest", routine_summary: null },
       streak_days: 3,
       weekly_completion_rate: 0.5,
+      weekly_rhythm: [],
+      primary_e1rm: null,
     });
 
     expect(view.today.message).toBe("오늘은 어깨 운동 4개예요.");

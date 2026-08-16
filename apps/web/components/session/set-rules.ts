@@ -7,7 +7,7 @@ import type { Exercise, PlannedSet } from "../../lib/api";
 export type SetKind =
   /** metric=time 종목: 시간(초)만 기록하고 RIR 을 묻지 않는다. */
   | "time"
-  /** recommended_weight === null: 자체중량. 무게 입력칸 자체가 없다. */
+  /** catalog step_kg === null: 자체중량. 무게 입력칸 자체가 없다. */
   | "bodyweight"
   /** recommended_weight === 0: 무게 미정. "0kg" 으로 절대 표시하지 않는다. */
   | "unknown_weight"
@@ -16,11 +16,18 @@ export type SetKind =
 
 /**
  * UX_STATES §5.1 의 판별 순서를 그대로 따른다.
- * metric 은 카탈로그가 1차 출처이고, 못 받았을 때만 target_time_low_sec 로 폴백한다.
+ * metric/step_kg는 카탈로그가 1차 출처다. D-39 gate가 외부 부하 운동의 recommended_weight도 null로
+ * 숨길 수 있으므로, null 추천값만 보고 자체중량으로 판정하면 무게 입력칸이 사라진다.
  */
-export function setKind(set: PlannedSet, metric?: Exercise["metric"]): SetKind {
+export function setKind(
+  set: PlannedSet,
+  metric?: Exercise["metric"],
+  stepKg?: Exercise["step_kg"],
+): SetKind {
   const isTime = metric === "time" || (metric == null && set.target_time_low_sec != null);
   if (isTime) return "time";
+  if (stepKg === null) return "bodyweight";
+  if (stepKg !== undefined && set.recommended_weight === null) return "unknown_weight";
   if (set.recommended_weight === null) return "bodyweight";
   // 0 은 "0kg 을 들어라"가 아니라 "무게 미정"이다(BASELINE 계약).
   if (set.recommended_weight === 0) return "unknown_weight";

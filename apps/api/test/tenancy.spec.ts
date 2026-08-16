@@ -146,6 +146,7 @@ describe("테넌시 격리 (user_id)", () => {
     await resetUserData(prisma, USER_ID, OTHER_USER_ID);
     await seedForeignData();
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
     const session = await prisma.workoutSession.findFirstOrThrow({
       where: { program: { userId: USER_ID } },
       orderBy: { scheduledDate: "asc" },
@@ -232,9 +233,17 @@ describe("테넌시 격리 (user_id)", () => {
       );
       expect(added.length).toBeGreaterThan(0);
       for (const set of added) {
-        expect(set.reason_code).toBe("BASELINE");
-        expect(set.recommended_weight).toBe(0);
+        expect(set).toMatchObject({
+          reason_code: null,
+          recommended_weight: null,
+          recommendation_gate: "no_history",
+        });
       }
+      const stored = await prisma.plannedSet.findMany({
+        where: { sessionId: mySessionId, exerciseId: ADDED_EXERCISE },
+      });
+      expect(stored.every((set) => set.reasonCode === "BASELINE")).toBe(true);
+      expect(stored.every((set) => Number(set.recommendedWeight) === 0)).toBe(true);
     });
 
     it("운동 교체: 남의 기록이 있는 종목으로 바꿔도 BASELINE(0kg)", async () => {
@@ -253,9 +262,17 @@ describe("테넌시 격리 (user_id)", () => {
       );
       expect(swapped.length).toBeGreaterThan(0);
       for (const set of swapped) {
-        expect(set.reason_code).toBe("BASELINE");
-        expect(set.recommended_weight).toBe(0);
+        expect(set).toMatchObject({
+          reason_code: null,
+          recommended_weight: null,
+          recommendation_gate: "no_history",
+        });
       }
+      const stored = await prisma.plannedSet.findMany({
+        where: { sessionId: mySessionId, exerciseId: ADDED_EXERCISE },
+      });
+      expect(stored.every((set) => set.reasonCode === "BASELINE")).toBe(true);
+      expect(stored.every((set) => Number(set.recommendedWeight) === 0)).toBe(true);
     });
   });
 });

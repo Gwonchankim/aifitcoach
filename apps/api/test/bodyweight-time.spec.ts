@@ -46,6 +46,7 @@ describe("맨몸·시간 종목 E2E", () => {
   beforeEach(async () => {
     await resetUserData(prisma, USER_ID);
     await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   });
 
   async function sessions() {
@@ -92,13 +93,17 @@ describe("맨몸·시간 종목 E2E", () => {
     return response.body as {
       next_recommendations: {
         exercise_id: string;
-        weight: number | null;
-        reps_low: number | null;
-        reps_high: number | null;
-        time_low_sec?: number;
-        time_high_sec?: number;
-        reason_code: string;
-        explanation: string;
+        sample_session_count: number;
+        gate_state: "no_history" | "early" | "ready";
+        recommendation: null | {
+          weight: number | null;
+          reps_low: number | null;
+          reps_high: number | null;
+          time_low_sec?: number;
+          time_high_sec?: number;
+          reason_code: string;
+          explanation: string;
+        };
       }[];
     };
   }
@@ -120,12 +125,10 @@ describe("맨몸·시간 종목 E2E", () => {
 
     const dips = body.next_recommendations.find((item) => item.exercise_id === "e_dips")!;
     expect(dips).toMatchObject({
-      reason_code: "REPS_UP_BODYWEIGHT",
-      weight: null,
-      reps_low: 6,
-      reps_high: 13,
+      sample_session_count: 1,
+      gate_state: "early",
+      recommendation: null,
     });
-    expect(dips.explanation).toContain("자체중량");
 
     const next = await prisma.plannedSet.findMany({
       where: { sessionId: second.id, exerciseId: "e_dips" },
@@ -140,17 +143,22 @@ describe("맨몸·시간 종목 E2E", () => {
   });
 
   it("맨몸: 하단에 크게 미달 → SUBSTITUTE_TOO_HARD_BODYWEIGHT (무한 하향 대신 대체 제안)", async () => {
-    const [first] = await sessions();
+    const [first, second] = await sessions();
     await recordSets(first.id, "e_pullup", [{ reps: 2 }, { reps: 1 }]);
 
     const body = await complete(first.id);
 
     expect(body.next_recommendations.find((item) => item.exercise_id === "e_pullup")).toMatchObject(
       {
-        reason_code: "SUBSTITUTE_TOO_HARD_BODYWEIGHT",
-        weight: null,
+        gate_state: "early",
+        recommendation: null,
       },
     );
+    const next = await prisma.plannedSet.findFirstOrThrow({
+      where: { sessionId: second.id, exerciseId: "e_pullup" },
+    });
+    expect(next.reasonCode).toBe("SUBSTITUTE_TOO_HARD_BODYWEIGHT");
+    expect(next.recommendedWeight).toBeNull();
   });
 
   it("시간: 모든 세트가 상단 도달 → TIME_UP 으로 목표 유지 시간이 늘어난다", async () => {
@@ -161,12 +169,8 @@ describe("맨몸·시간 종목 E2E", () => {
     const body = await complete(first.id);
 
     expect(body.next_recommendations.find((item) => item.exercise_id === "e_plank")).toMatchObject({
-      reason_code: "TIME_UP",
-      weight: null,
-      reps_low: null,
-      reps_high: null,
-      time_low_sec: 20,
-      time_high_sec: 70,
+      gate_state: "early",
+      recommendation: null,
     });
 
     const next = await prisma.plannedSet.findMany({
@@ -182,23 +186,37 @@ describe("맨몸·시간 종목 E2E", () => {
   });
 
   it("시간: 범위 안이면 TIME_HOLD, 하단의 절반에도 못 미치면 TIME_DOWN", async () => {
-    const [first, second] = await sessions();
+    const [first, second, third] = await sessions();
     await recordSets(first.id, "e_plank", [{ timeSec: 35 }, { timeSec: 40 }]);
 
     const hold = await complete(first.id);
     expect(hold.next_recommendations[0]).toMatchObject({
-      reason_code: "TIME_HOLD",
-      time_low_sec: 20,
-      time_high_sec: 60,
+      gate_state: "early",
+      recommendation: null,
+    });
+    const held = await prisma.plannedSet.findFirstOrThrow({
+      where: { sessionId: second.id, exerciseId: "e_plank" },
+    });
+    expect(held).toMatchObject({
+      reasonCode: "TIME_HOLD",
+      targetTimeLowSec: 20,
+      targetTimeHighSec: 60,
     });
 
     // 다음 세션에서 5초(하단 20 의 절반 미만) → 하향
     await recordSets(second.id, "e_plank", [{ timeSec: 5 }]);
     const down = await complete(second.id);
     expect(down.next_recommendations[0]).toMatchObject({
-      reason_code: "TIME_DOWN",
-      time_low_sec: 10,
-      time_high_sec: 50,
+      gate_state: "early",
+      recommendation: null,
+    });
+    const lowered = await prisma.plannedSet.findFirstOrThrow({
+      where: { sessionId: third.id, exerciseId: "e_plank" },
+    });
+    expect(lowered).toMatchObject({
+      reasonCode: "TIME_DOWN",
+      targetTimeLowSec: 10,
+      targetTimeHighSec: 50,
     });
   });
 
@@ -249,7 +267,8 @@ describe("맨몸·시간 종목 E2E", () => {
       target_reps_low: 6,
       target_reps_high: 12,
       recommended_weight: null,
-      recommended_reps: 6,
+      recommended_reps: null,
+      recommendation_gate: "no_history",
     });
   });
 });

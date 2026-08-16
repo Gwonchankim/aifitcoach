@@ -14,6 +14,7 @@ export type PlannedSet = components["schemas"]["PlannedSet"];
 export type Exercise = components["schemas"]["Exercise"];
 export type DashboardSummary = components["schemas"]["DashboardSummary"];
 export type Recommendation = components["schemas"]["Recommendation"];
+export type GatedRecommendation = components["schemas"]["GatedRecommendation"];
 export type GenerateProgramRequest = components["schemas"]["GenerateProgramRequest"];
 export type SyncRequest = components["schemas"]["SyncRequest"];
 export type SyncResponse = components["schemas"]["SyncResponse"];
@@ -95,10 +96,9 @@ export const api = {
     sessionId: string,
     body: { difficulty?: string; pump?: string; pain?: number } = {},
   ) =>
-    request<{
-      session: Session;
-      next_recommendations: (Recommendation & { exercise_id: string })[];
-    }>(`/sessions/${sessionId}/complete`, { method: "POST", body: JSON.stringify(body) }),
+    request<
+      paths["/sessions/{sessionId}/complete"]["post"]["responses"][200]["content"]["application/json"]
+    >(`/sessions/${sessionId}/complete`, { method: "POST", body: JSON.stringify(body) }),
 
   exercises: (query: ExercisesQuery = {}) => {
     const params = new URLSearchParams();

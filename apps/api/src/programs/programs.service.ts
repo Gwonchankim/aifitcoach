@@ -25,6 +25,10 @@ export interface ProgramResponse {
   goal: string;
   split_type: string;
   rules_version: string;
+  started_at: string;
+  total_weeks: number;
+  current_week: number;
+  status: "active" | "completed";
   /** pain_areas 로 후보에서 뺀 운동과 사유(docs/SAFETY_PAIN_MAPPING.md 규칙 3). */
   excluded_exercises: {
     exercise_id: string;
@@ -49,8 +53,8 @@ export interface ProgramResponse {
   }[];
 }
 
-/** 주 단위 템플릿을 실제 날짜로 펼칠 사이클 수. 2주치를 만들어 "다음 세션"이 항상 존재하게 한다. */
-const CYCLES = 2;
+/** 현재 주와 다음 주만 materialize해 추천을 쓸 다음 세션을 확보한다. 12주 전체 생성은 금지한다(D-37). */
+const MATERIALIZED_WEEK_WINDOW = 2;
 
 /**
  * excluded_exercises 항목의 "제외한 운동 없음" 표시(exercise_id/movement_pattern).
@@ -130,26 +134,22 @@ export class ProgramsService {
           minutesPerDay: dto.minutes_per_day,
           splitType: splitTypeFor(dto.days_per_week),
           rulesVersion: RULES_VERSION,
+          startedAt: weekStart,
+          totalWeeks: 12,
+          status: "active",
+          generationInput: {
+            goal: dto.goal,
+            days_per_week: dto.days_per_week,
+            minutes_per_day: dto.minutes_per_day,
+            experience_level: dto.experience_level,
+            equipment: dto.equipment ?? [],
+            avoid_exercises: dto.avoid_exercises ?? [],
+            pain_areas: dto.pain_areas ?? [],
+          },
           template: templateFor(schedule, rowsByFocus),
           excludedExercises: excluded,
         },
       });
-      for (let cycle = 0; cycle < CYCLES; cycle += 1) {
-        for (const { day, focus } of schedule) {
-          const rows = rowsByFocus.get(focus) ?? [];
-          const session = await tx.workoutSession.create({
-            data: {
-              programId: created.id,
-              scheduledDate: addDays(weekStart, WEEKDAYS.indexOf(day) + cycle * 7),
-              focus,
-              status: "scheduled",
-            },
-          });
-          await tx.plannedSet.createMany({
-            data: rows.map((row) => ({ ...row, sessionId: session.id })),
-          });
-        }
-      }
       return created;
     });
 
@@ -164,7 +164,85 @@ export class ProgramsService {
     if (!program) {
       throw new NotFoundException("생성된 프로그램이 없다.");
     }
+    await this.materializeCurrentWindow(userId, program);
     return this.toResponse(program);
+  }
+
+  /**
+   * Dashboard/analytics가 실제 세션을 읽기 전에 호출하는 lazy 경계. 프로그램 생성 POST는 lifecycle과
+   * template만 저장하고 세션을 만들지 않는다. 첫 read에서 현재+다음 주만 생성하므로 미수행 미래 행을
+   * 12주치 쌓지 않으면서도 추천 재계산이 쓸 다음 세션은 존재한다.
+   */
+  async ensureCurrentWindow(userId: string): Promise<Program | null> {
+    const program = await this.prisma.program.findFirst({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!program) return null;
+    await this.materializeCurrentWindow(userId, program);
+    return program;
+  }
+
+  private async materializeCurrentWindow(userId: string, program: Program): Promise<void> {
+    const current = currentWeek(program.startedAt, program.totalWeeks, utcToday());
+    const last = Math.min(program.totalWeeks, current + MATERIALIZED_WEEK_WINDOW - 1);
+    for (let week = current; week <= last; week += 1) {
+      await this.materializeWeek(userId, program, week);
+    }
+  }
+
+  private async materializeWeek(userId: string, program: Program, week: number): Promise<void> {
+    const template = program.template as unknown as ProgramSessionTemplate[];
+    const candidates: { date: Date; focus: string; rows: PlannedSetRow[] }[] = [];
+    for (const session of template) {
+      const day = session.day as (typeof WEEKDAYS)[number];
+      const date = addDays(program.startedAt, (week - 1) * 7 + WEEKDAYS.indexOf(day));
+      const rows: PlannedSetRow[] = [];
+      for (const [orderIndex, planned] of session.exercises.entries()) {
+        const exercise = await this.prisma.exercise.findUniqueOrThrow({
+          where: { id: planned.exercise_id },
+        });
+        rows.push(
+          ...(await this.plannedSets.build({
+            userId,
+            goal: program.goal,
+            exercise,
+            orderIndex,
+            sets: planned.sets,
+          })),
+        );
+      }
+      candidates.push({ date, focus: session.focus, rows });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM programs WHERE id = ${program.id}::uuid FOR UPDATE`;
+      const existing = new Set(
+        (
+          await tx.workoutSession.findMany({
+            where: {
+              programId: program.id,
+              scheduledDate: { in: candidates.map((item) => item.date) },
+            },
+            select: { scheduledDate: true },
+          })
+        ).map((session) => session.scheduledDate.toISOString().slice(0, 10)),
+      );
+      for (const candidate of candidates) {
+        if (existing.has(candidate.date.toISOString().slice(0, 10))) continue;
+        const session = await tx.workoutSession.create({
+          data: {
+            programId: program.id,
+            scheduledDate: candidate.date,
+            focus: candidate.focus,
+            status: "scheduled",
+          },
+        });
+        await tx.plannedSet.createMany({
+          data: candidate.rows.map((row) => ({ ...row, sessionId: session.id })),
+        });
+      }
+    });
   }
 
   /**
@@ -179,12 +257,35 @@ export class ProgramsService {
       goal: program.goal,
       split_type: program.splitType,
       rules_version: program.rulesVersion,
+      started_at: program.startedAt.toISOString().slice(0, 10),
+      total_weeks: program.totalWeeks,
+      current_week: currentWeek(program.startedAt, program.totalWeeks, utcToday()),
+      status: lifecycleStatus(program, utcToday()),
       excluded_exercises: (program.excludedExercises as unknown as ExcludedExercise[]).filter(
         (item) => item.exercise_id !== NO_EXCLUSION,
       ),
       sessions: program.template as unknown as ProgramSessionTemplate[],
     };
   }
+}
+
+function currentWeek(startedAt: Date, totalWeeks: number, today: Date): number {
+  const elapsed = Math.floor(
+    (mondayOfWeek(today).getTime() - startedAt.getTime()) / (7 * 86_400_000),
+  );
+  return Math.min(totalWeeks, Math.max(1, elapsed + 1));
+}
+
+function lifecycleStatus(
+  program: Pick<Program, "startedAt" | "totalWeeks" | "status">,
+  today: Date,
+) {
+  const elapsedWeeks = Math.floor(
+    (mondayOfWeek(today).getTime() - program.startedAt.getTime()) / (7 * 86_400_000),
+  );
+  return program.status === "completed" || elapsedWeeks >= program.totalWeeks
+    ? "completed"
+    : "active";
 }
 
 type ProgramSessionTemplate = ProgramResponse["sessions"][number];

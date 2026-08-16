@@ -8,6 +8,6 @@ import { ProgramsService } from "./programs.service";
   imports: [RecommendationModule],
   controllers: [ProgramsController],
   providers: [ProgramsService, PlannedSetFactory],
-  exports: [PlannedSetFactory],
+  exports: [PlannedSetFactory, ProgramsService],
 })
 export class ProgramsModule {}
