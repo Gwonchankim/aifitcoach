@@ -350,11 +350,11 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 > **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-10.md` 에 있다. 그걸 먼저 읽어라.**
 > STEP 6 기술 커밋 `b3148e5` 완료·`origin/master` 동기화·[CI 31896676785](https://github.com/Gwonchankim/aifitcoach/actions/runs/31896676785) green. D-31 routine correlation mapping으로 C-4 해소.
-> 최신 통합 게이트: shared 81 · web 270 · api 256 · **E2E 64/64** · `06-mobile` 14/14 · axe 20화면 0 · S1 soak 20/20 · verify:contrast 30조합.
+> 최신 통합 게이트: shared 81 · web 270 · api 256 · **E2E 65/65** · `06-mobile` 14/14 · axe 20화면 0 · S1 soak 20/20 · verify:contrast 30조합.
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → [데스크톱 종단 A ✅·재연결 UI fix-now] → **갤럭시 Z 플립6 종단 B(다음, M-4′ 차단)** → M-4′ → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → **M-4′ 기획(다음)** → M-7′
 
 ### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
 
@@ -376,6 +376,16 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   경합 회귀 1건 포함), 06-mobile Chromium 7/7+WebKit 7/7, axe 20화면 위반 0으로 기존 기준선이 감소하지 않았다.
 - Background Sync는 ADR-58의 선택적 최적화로 계속 미구현이다. B에서는 자동 백그라운드 전송을 기대하지
   않고, 앱 재실행/focus 시 foreground sync가 반드시 수렴하는지를 판정한다.
+
+### ✅ STEP 6 종단 워크스루 B·최종 완료 (제품 오너, 2026-08-16)
+
+- 갤럭시 Z 플립6 Chrome production-LAN PWA에서 실제 비행기 모드 기록·저장이 정상 동작했다.
+- 폰 완전 종료와 앱 강제 종료 뒤에도 기록이 보존돼 IndexedDB transaction commit 뒤의 로컬 내구성을
+  실기기 프로세스 경계에서 확인했다. 운동 중 가독성과 한 손 조작감도 양호했다.
+- 커버 스크린은 갤럭시 Z 플립6의 커버 화면 실행 앱 목록에 Chrome이 없어 검증 대상에서 제외했다.
+  커버 화면·접기 전환은 현재 지원 환경의 AC에서 제거하며, Chrome 지원 상태가 바뀔 때 별도 호환성 티켓으로 재평가한다.
+- A의 서버 무결성·재연결 경합 회귀와 B의 실제 기내모드·강제 종료 내구성 증거가 합쳐졌고 유실·중복·추천
+  불일치는 발견되지 않았다. **STEP 6 최종 완료**, evaluator 98/100 PASS와 프로젝트 총점 70 상한 해제 판정을 유지한다.
 
 ### M-UIb 진입 조건
 
