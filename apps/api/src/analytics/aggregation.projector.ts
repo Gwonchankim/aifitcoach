@@ -145,14 +145,15 @@ export class AggregationProjector {
   }
 
   async recomputeSession(userId: string, sessionId: string): Promise<void> {
-    const session = await this.prisma.workoutSession.findFirst({
-      where: { id: sessionId, program: { userId } },
-      select: { scheduledDate: true },
-    });
-    if (!session) return;
-    const start = weekStart(session.scheduledDate);
-    const projection = projectFacts(await this.loadFacts(userId, { week: start }));
     await this.prisma.$transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      const session = await tx.workoutSession.findFirst({
+        where: { id: sessionId, program: { userId } },
+        select: { scheduledDate: true },
+      });
+      if (!session) return;
+      const start = weekStart(session.scheduledDate);
+      const projection = projectFacts(await this.loadFacts(tx, userId, { week: start }));
       await tx.estimated1rm.deleteMany({ where: { userId, sessionId } });
       await tx.muscleWeeklyLoad.deleteMany({ where: { userId, weekStart: start } });
       await this.write(tx, {
@@ -164,8 +165,9 @@ export class AggregationProjector {
 
   /** Backfill entrypoint: rebuild all derived rows from performed_sets/workout_sessions. */
   async rebuildUser(userId: string): Promise<void> {
-    const projection = projectFacts(await this.loadFacts(userId, {}));
     await this.prisma.$transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      const projection = projectFacts(await this.loadFacts(tx, userId, {}));
       await tx.estimated1rm.deleteMany({ where: { userId } });
       await tx.muscleWeeklyLoad.deleteMany({ where: { userId } });
       await this.write(tx, projection);
@@ -195,11 +197,12 @@ export class AggregationProjector {
   }
 
   private async loadFacts(
+    tx: Prisma.TransactionClient,
     userId: string,
     filter: { sessionIds?: string[]; week?: Date },
   ): Promise<ProjectorSession[]> {
     const nextWeek = filter.week ? new Date(filter.week.getTime() + 7 * 86_400_000) : undefined;
-    const rows = await this.prisma.workoutSession.findMany({
+    const rows = await tx.workoutSession.findMany({
       where: {
         program: { userId },
         ...(filter.sessionIds ? { id: { in: filter.sessionIds } } : {}),
@@ -239,6 +242,11 @@ export class AggregationProjector {
         },
       ),
     }));
+  }
+
+  private async lockUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    const key = JSON.stringify(["analytics-projector", userId]);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
   }
 }
 

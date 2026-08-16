@@ -472,6 +472,11 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **Sprint 0~2 통합 완료**: Sprint 0·1에서 의도적으로 유지했던 API **41 intentional red는 Sprint 2 서버
   계약 구현과 함께 41→0으로 해소**됐다. `m4-sprint01`의 두 체크포인트를 `master`에 fast-forward 병합했으며,
   다음 범위는 Sprint 3의 user-scoped analytics/history mirror와 offline read-through다.
+- **첫 master CI fix-now**: 로컬 68/68 뒤 첫 Linux CI에서 마지막 WebKit offline-sync만 500으로 실패했다.
+  dashboard full rebuild와 다른 projector 갱신이 같은 사용자의 파생 행을 동시에 교체해 UNIQUE가 충돌한
+  실제 경합이었다. full/targeted 경로가 source facts를 읽기 전에 같은 사용자별 PostgreSQL transaction
+  advisory lock을 잡도록 통일했다. 동시 rebuild 지연 주입 테스트는 수정 전 P2002 red, 수정 후 green이며,
+  lock 제거 뮤턴트도 SHA-256 주입·원복 절차에서 같은 red를 재현했다.
 
 ### M-UIb 진입 조건
 

@@ -169,4 +169,34 @@ describe("M-4′ analytics 결정론", () => {
     await projector.rebuildUser(USER_ID);
     expect(await derivedRows()).toBe(incremental);
   });
+
+  it("같은 사용자의 동시 rebuild를 직렬화해 유일 키 충돌 없이 수렴한다", async () => {
+    await seed([0, 1, 2]);
+    await prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION afc_test_delay_muscle_load_insert()
+      RETURNS trigger AS $$
+      BEGIN
+        PERFORM pg_sleep(0.25);
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER afc_test_delay_muscle_load_insert
+      BEFORE INSERT ON muscle_weekly_load
+      FOR EACH ROW EXECUTE FUNCTION afc_test_delay_muscle_load_insert()
+    `);
+
+    try {
+      await expect(
+        Promise.all([projector.rebuildUser(USER_ID), projector.rebuildUser(USER_ID)]),
+      ).resolves.toEqual([undefined, undefined]);
+      expect(await prisma.muscleWeeklyLoad.count({ where: { userId: USER_ID } })).toBe(1);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        "DROP TRIGGER IF EXISTS afc_test_delay_muscle_load_insert ON muscle_weekly_load",
+      );
+      await prisma.$executeRawUnsafe("DROP FUNCTION IF EXISTS afc_test_delay_muscle_load_insert()");
+    }
+  });
 });
