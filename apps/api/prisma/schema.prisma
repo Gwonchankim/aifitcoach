@@ -282,30 +282,30 @@ model WorkoutSession {
 }
 
 model PlannedSet {
-  id                String   @id @default(uuid()) @db.Uuid
+  id                  String   @id @default(uuid()) @db.Uuid
   // D-31: offline routine에서 클라이언트가 만든 임시 세트와 서버 권위 ID의 안정적 상관키.
   // nullable이라 기존 계획세트는 영향 없고, 같은 correlation 재전송은 같은 행으로 해석한다.
-  clientCorrelationId String? @unique(map: "ux_planned_correlation") @map("client_correlation_id") @db.Uuid
-  sessionId         String   @map("session_id") @db.Uuid
-  exerciseId        String   @map("exercise_id")
+  clientCorrelationId String?  @unique(map: "ux_planned_correlation") @map("client_correlation_id") @db.Uuid
+  sessionId           String   @map("session_id") @db.Uuid
+  exerciseId          String   @map("exercise_id")
   // 세션 안에서 운동이 놓이는 순서. openapi AddExerciseRequest.position 을 구현하려면
   // 세션 스코프 운동 순서가 필요한데 DATA_MODEL.md 에 없다(STEP 4 추가). set_no 는 운동 내 세트 번호다.
-  orderIndex        Int      @map("order_index")
-  setNo             Int      @map("set_no")
+  orderIndex          Int      @map("order_index")
+  setNo               Int      @map("set_no")
   // metric=time 종목(e_plank)은 반복·RIR 축이 없다 → 반복 목표는 NULL 이고 시간 목표를 채운다.
-  targetRepsLow     Int?     @map("target_reps_low")
-  targetRepsHigh    Int?     @map("target_reps_high")
-  targetRir         Int?     @map("target_rir")
-  restSec           Int      @map("rest_sec")
-  targetTimeLowSec  Int?     @map("target_time_low_sec")
-  targetTimeHighSec Int?     @map("target_time_high_sec")
+  targetRepsLow       Int?     @map("target_reps_low")
+  targetRepsHigh      Int?     @map("target_reps_high")
+  targetRir           Int?     @map("target_rir")
+  restSec             Int      @map("rest_sec")
+  targetTimeLowSec    Int?     @map("target_time_low_sec")
+  targetTimeHighSec   Int?     @map("target_time_high_sec")
   // NULL = 자체중량(맨몸·시간 종목) — 추가 부하를 처방하지 않는다(RECOMMENDATION_ENGINE.md).
-  recommendedWeight Decimal? @map("recommended_weight") @db.Decimal(6, 2)
-  recommendedReps   Int?     @map("recommended_reps")
-  reasonCode        String   @map("reason_code")
-  confidence        Decimal  @db.Decimal(3, 2)
-  rulesVersion      String   @map("rules_version")
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  recommendedWeight   Decimal? @map("recommended_weight") @db.Decimal(6, 2)
+  recommendedReps     Int?     @map("recommended_reps")
+  reasonCode          String   @map("reason_code")
+  confidence          Decimal  @db.Decimal(3, 2)
+  rulesVersion        String   @map("rules_version")
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   session       WorkoutSession @relation(fields: [sessionId], references: [id])
   exercise      Exercise       @relation(fields: [exerciseId], references: [id])
@@ -344,6 +344,7 @@ model PerformedSet {
 model Estimated1rm {
   userId     String   @map("user_id") @db.Uuid
   exerciseId String   @map("exercise_id")
+  sessionId  String   @map("session_id") @db.Uuid
   e1rm       Decimal  @db.Decimal(6, 2)
   method     String
   computedAt DateTime @map("computed_at") @db.Timestamptz(3)
@@ -351,7 +352,7 @@ model Estimated1rm {
   user     User     @relation(fields: [userId], references: [id])
   exercise Exercise @relation(fields: [exerciseId], references: [id])
 
-  @@id([userId, exerciseId, computedAt])
+  @@id([userId, exerciseId, sessionId])
   @@index([userId, exerciseId, computedAt(sort: Desc)], map: "ix_e1rm_user_ex")
   @@map("estimated_1rm")
 }
@@ -362,7 +363,7 @@ model MuscleWeeklyLoad {
   muscle     String
   hardSets   Int      @map("hard_sets")
   volumeLoad Decimal  @map("volume_load") @db.Decimal(10, 2)
-  avgRir     Decimal  @map("avg_rir") @db.Decimal(3, 1)
+  avgRir     Decimal? @map("avg_rir") @db.Decimal(3, 1)
 
   user User @relation(fields: [userId], references: [id])
 

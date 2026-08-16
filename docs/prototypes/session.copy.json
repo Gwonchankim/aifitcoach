@@ -1,0 +1,1195 @@
+{
+  "format": 1,
+  "source": "AFC 세션 프로토타입 (오프라인).html",
+  "note": "정적 템플릿 텍스트와 상태 데이터의 한글 문자열을 원본 등장 순서로 중복 제거했다.",
+  "entries": [
+    {
+      "origin": "template",
+      "text": "AIFITCOACH · 세션 프로토타입 v0.2"
+    },
+    {
+      "origin": "template",
+      "text": "세트 시작 전에 판단이"
+    },
+    {
+      "origin": "template",
+      "text": "먼저 보인다"
+    },
+    {
+      "origin": "template",
+      "text": "방향 시안의 색·타이포·컴포넌트를 그대로 씁니다. 입력은 세트 행 안에서 직접 합니다. 값을 탭하면 그 자리에서 편집되고, 길게 누르면 키패드가 열립니다. 잘못 눌렀다면 3초간 뜨는 '되돌리기' 토스트나 세트 행의 체크를 다시 눌러 해제하세요."
+    },
+    {
+      "origin": "template",
+      "text": "저장 상태"
+    },
+    {
+      "origin": "template",
+      "text": "앱 재시작 시뮬레이션"
+    },
+    {
+      "origin": "template",
+      "text": "진행 중인 세션 · 기기에 저장됨"
+    },
+    {
+      "origin": "template",
+      "text": "이어하기"
+    },
+    {
+      "origin": "template",
+      "text": "지금 다시 시도"
+    },
+    {
+      "origin": "template",
+      "text": "+ 운동 추가"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 완료"
+    },
+    {
+      "origin": "template",
+      "text": "연속 기록"
+    },
+    {
+      "origin": "template",
+      "text": "일"
+    },
+    {
+      "origin": "template",
+      "text": "벤치프레스 추정 1RM"
+    },
+    {
+      "origin": "template",
+      "text": "▲ 3.2kg · 4주"
+    },
+    {
+      "origin": "template",
+      "text": "운동 종료"
+    },
+    {
+      "origin": "template",
+      "text": "오늘"
+    },
+    {
+      "origin": "template",
+      "text": "기록"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "내 정보"
+    },
+    {
+      "origin": "template",
+      "text": "기록 취소"
+    },
+    {
+      "origin": "template",
+      "text": "부담 적은 종목으로 교체"
+    },
+    {
+      "origin": "template",
+      "text": "무게"
+    },
+    {
+      "origin": "template",
+      "text": "횟수"
+    },
+    {
+      "origin": "template",
+      "text": "값을 길게 누르면 숫자 키패드가 열립니다."
+    },
+    {
+      "origin": "template",
+      "text": "RIR이 뭐예요?"
+    },
+    {
+      "origin": "template",
+      "text": "휴식 90초"
+    },
+    {
+      "origin": "template",
+      "text": "다음 세트 추천"
+    },
+    {
+      "origin": "template",
+      "text": "회 · RIR 2"
+    },
+    {
+      "origin": "template",
+      "text": "추천 없음"
+    },
+    {
+      "origin": "template",
+      "text": "이번엔 직접 정해 주세요"
+    },
+    {
+      "origin": "template",
+      "text": "참고값"
+    },
+    {
+      "origin": "template",
+      "text": "참고값으로 시작"
+    },
+    {
+      "origin": "template",
+      "text": "다음 세트 시작 무게"
+    },
+    {
+      "origin": "template",
+      "text": "비슷한 종목 기록으로 잡은 값입니다. 첫 세트 후 조정됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "다음"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 마지막 종목입니다. 이 종목을 끝내면 세션이 종료됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "8월 9일 토 · 3주차"
+    },
+    {
+      "origin": "template",
+      "text": "상체 밀기"
+    },
+    {
+      "origin": "template",
+      "text": "종목"
+    },
+    {
+      "origin": "template",
+      "text": "세트 완료"
+    },
+    {
+      "origin": "template",
+      "text": "분"
+    },
+    {
+      "origin": "template",
+      "text": "무게(kg)"
+    },
+    {
+      "origin": "template",
+      "text": "PR · 추정 1RM 78.5kg"
+    },
+    {
+      "origin": "template",
+      "text": "다음 세션"
+    },
+    {
+      "origin": "template",
+      "text": "월요일 하체 · 4종목"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 화면으로"
+    },
+    {
+      "origin": "template",
+      "text": "추천 처방"
+    },
+    {
+      "origin": "template",
+      "text": "왜 이렇게 추천했나"
+    },
+    {
+      "origin": "template",
+      "text": "RIR 감각을 한 번 맞춰보면 이 추천이 더 정확해집니다. 3일이면 됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "근거"
+    },
+    {
+      "origin": "template",
+      "text": "디로드 제안 · 이번 주"
+    },
+    {
+      "origin": "template",
+      "text": "최근 3주간 같은 무게에서 체감 난이도가 계속 올라갔습니다. 이번 주는 볼륨을 줄여 회복하는 주로 제안합니다."
+    },
+    {
+      "origin": "template",
+      "text": "볼륨 −40%"
+    },
+    {
+      "origin": "template",
+      "text": "디로드 주 구성"
+    },
+    {
+      "origin": "template",
+      "text": "무게는 그대로 두고 세트와 강도만 낮춥니다. 다음 주에 원래 계획으로 돌아갑니다."
+    },
+    {
+      "origin": "template",
+      "text": "3주 연속 세션 RPE 상승 · 같은 무게의 반복 수 감소 · 4–6주마다 회복 주 배치"
+    },
+    {
+      "origin": "template",
+      "text": "디로드 주로 전환"
+    },
+    {
+      "origin": "template",
+      "text": "이대로 계속"
+    },
+    {
+      "origin": "template",
+      "text": "교체"
+    },
+    {
+      "origin": "template",
+      "text": "건너뛰기"
+    },
+    {
+      "origin": "template",
+      "text": "기록한 세트는 남기고 다음 종목으로"
+    },
+    {
+      "origin": "template",
+      "text": "삭제"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 세션에서 이 종목을 모두 뺀다"
+    },
+    {
+      "origin": "template",
+      "text": "기록이 있어 끌 수 없음"
+    },
+    {
+      "origin": "template",
+      "text": "남은 세트 건너뛰기"
+    },
+    {
+      "origin": "template",
+      "text": "통증 기록"
+    },
+    {
+      "origin": "template",
+      "text": "아픈 곳과 정도를 남긴다"
+    },
+    {
+      "origin": "template",
+      "text": "닫기"
+    },
+    {
+      "origin": "template",
+      "text": "교체해도 무게를 1:1로 옮기지 않습니다. 비슷한 종목 기록으로 시작 무게를 잡은 뒤, 첫 세트 결과로 보정합니다."
+    },
+    {
+      "origin": "template",
+      "text": "교체하기"
+    },
+    {
+      "origin": "template",
+      "text": "운동 추가"
+    },
+    {
+      "origin": "template",
+      "text": "추가"
+    },
+    {
+      "origin": "template",
+      "text": "검색어와 맞는 종목이 없습니다. 다른 단어를 쓰거나 부위 탭을 바꿔 보세요."
+    },
+    {
+      "origin": "template",
+      "text": "어디가 불편한가요"
+    },
+    {
+      "origin": "template",
+      "text": "강도"
+    },
+    {
+      "origin": "template",
+      "text": "1–3 가벼운 불편"
+    },
+    {
+      "origin": "template",
+      "text": "4–6 운동에 지장"
+    },
+    {
+      "origin": "template",
+      "text": "7+ 심함"
+    },
+    {
+      "origin": "template",
+      "text": "언제 아픈가요"
+    },
+    {
+      "origin": "template",
+      "text": "기록하기"
+    },
+    {
+      "origin": "template",
+      "text": "계속 진행"
+    },
+    {
+      "origin": "template",
+      "text": "대체 종목 보기"
+    },
+    {
+      "origin": "template",
+      "text": "중단하고 다음 종목"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 세션 종료"
+    },
+    {
+      "origin": "template",
+      "text": "세트를 끝냈을 때 더 할 수 있었던 반복 수"
+    },
+    {
+      "origin": "template",
+      "text": "더는 한 개도 못 하는 완전한 실패 지점"
+    },
+    {
+      "origin": "template",
+      "text": "1~2개 더 할 힘이 남은 상태. 근비대와 근력 훈련에 가장 효율적인 구간입니다."
+    },
+    {
+      "origin": "template",
+      "text": "여유가 많은 상태. 다음 세션에 무게를 올립니다."
+    },
+    {
+      "origin": "template",
+      "text": "목표 RIR 2 · 채워진 칸 = 남은 여유"
+    },
+    {
+      "origin": "template",
+      "text": "이 프로그램은 RIR 1~2를 목표로 합니다. 매 세트 실패까지 갈 필요는 없습니다. RIR 0이 반복되면 피로가 쌓인 신호로 보고 무게를 조정합니다."
+    },
+    {
+      "origin": "template",
+      "text": "알겠습니다"
+    },
+    {
+      "origin": "template",
+      "text": "세션 종료"
+    },
+    {
+      "origin": "template",
+      "text": "기록한 세트만 저장됩니다. 나머지 세트는 비워 둡니다."
+    },
+    {
+      "origin": "template",
+      "text": "종료하고 저장"
+    },
+    {
+      "origin": "template",
+      "text": "계속하기"
+    },
+    {
+      "origin": "template",
+      "text": "되돌리기"
+    },
+    {
+      "origin": "template",
+      "text": "접기 ∨"
+    },
+    {
+      "origin": "template",
+      "text": "방금 기록"
+    },
+    {
+      "origin": "template",
+      "text": "되돌려서 수정"
+    },
+    {
+      "origin": "template",
+      "text": "기록을 수정 중입니다. 뒤에서 세트 값을 다시 입력하세요."
+    },
+    {
+      "origin": "template",
+      "text": "최대 10분"
+    },
+    {
+      "origin": "template",
+      "text": "휴식 종료"
+    },
+    {
+      "origin": "template",
+      "text": "불편한 곳이 있나요"
+    },
+    {
+      "origin": "template",
+      "text": "휴식 도는 중 · 뒤에서 기록을 고칠 수 있습니다"
+    },
+    {
+      "origin": "template",
+      "text": "타이머 펼치기"
+    },
+    {
+      "origin": "template",
+      "text": "흐름."
+    },
+    {
+      "origin": "template",
+      "text": "세트 완료 → 휴식 시트(90초) → 다음 세트. 마지막 세트를 끝내면 오늘 화면으로 돌아갑니다. 추천 카드를 누르면 이유 화면이 열리고, 거기서 무게를 받아들이거나 유지할 수 있습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난주 60kg으로 세 세트 다 12회를 채웠어요. RIR도 2로 맞았고요. 2.5kg 올립니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 덤벨 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션과 같은 무게로 갑니다. 12회를 다 채우면 다음 세션에 올립니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "유지"
+    },
+    {
+      "origin": "state-data",
+      "text": "오버헤드 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션 세 세트 모두 RIR 0으로 끝났어요. 2.5kg 내려서 다시 쌓습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 푸시다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "이 종목은 이번이 처음이라 참고할 기록이 없습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "기록 없음"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난달 트라이셉스 익스텐션 기록에서 환산한 값입니다. 첫 세트는 RIR 3에서 멈추고, 다음 세트부터 조정하세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "가슴"
+    },
+    {
+      "origin": "state-data",
+      "text": "수평 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "상향 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "어깨"
+    },
+    {
+      "origin": "state-data",
+      "text": "수직 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "팔"
+    },
+    {
+      "origin": "state-data",
+      "text": "팔꿈치 폄"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션에서 60kg로 세 세트 모두 목표 상단인 12회를 채웠습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "보고한 RIR이 세 세트 모두 2로, 목표 강도에 정확히 맞았습니다. RIR은 세트를 끝냈을 때 더 할 수 있었던 반복 수입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "그래서 무게를 상체 바벨 증량 단위인 2.5kg 올리고, 횟수는 범위 하단 8회로 되돌립니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "이번 주 가슴 볼륨은 14세트로 권장 범위(10–20) 안에 있어 세트 수는 그대로 둡니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션 평균 RIR 2 · 목표와 동일"
+    },
+    {
+      "origin": "state-data",
+      "text": "이중 점진(반복 채운 뒤 증량) · 근육군당 주 10–20세트 · RIR 기반 강도 조절 · e1RM 78.5kg(4주 +3.2kg)"
+    },
+    {
+      "origin": "state-data",
+      "text": "62.5kg로 진행"
+    },
+    {
+      "origin": "state-data",
+      "text": "추천 대신 60kg 유지"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션 세 세트에서 반복이 6 → 5 → 4회로 떨어졌습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "세 세트 모두 RIR 0으로 끝났습니다. 목표는 RIR 2입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "그래서 2.5kg 내려 목표 반복 8–12회를 채울 수 있는 무게로 맞춥니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "이번 주 어깨 볼륨은 12세트로 권장 범위 안이라 세트 수는 그대로 둡니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션 평균 RIR 0 · 목표 2보다 높음"
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 기반 강도 조절 · 세트 간 반복 감소율 감지 · 근육군당 주 10–20세트 · 목표 반복 8–12회 RIR 2"
+    },
+    {
+      "origin": "state-data",
+      "text": "32.5kg로 진행"
+    },
+    {
+      "origin": "state-data",
+      "text": "추천 대신 35kg 유지"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 덤벨 · 시작 20kg"
+    },
+    {
+      "origin": "state-data",
+      "text": "체스트 프레스 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 어깨 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "딥스"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 맨몸 · 난이도 높음"
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 머신 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 자세 잡기 쉬움"
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 바벨 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 바벨 · 무게 올리기 쉬움"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 로우 투 하이"
+    },
+    {
+      "origin": "state-data",
+      "text": "다른 패턴 · 케이블 · 어깨 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "숄더 프레스 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 허리 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "덤벨 숄더 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 프리웨이트 · 앉아서 수행"
+    },
+    {
+      "origin": "state-data",
+      "text": "래터럴 레이즈"
+    },
+    {
+      "origin": "state-data",
+      "text": "다른 패턴 · 단관절 · 어깨 통증이 있을 때"
+    },
+    {
+      "origin": "state-data",
+      "text": "어깨 벌림"
+    },
+    {
+      "origin": "state-data",
+      "text": "오버헤드 케이블 익스텐션"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 케이블 · 긴갈래 자극"
+    },
+    {
+      "origin": "state-data",
+      "text": "딥스 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 무게 올리기 쉬움"
+    },
+    {
+      "origin": "state-data",
+      "text": "클로즈그립 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "다른 패턴 · 바벨 · 복합 동작"
+    },
+    {
+      "origin": "state-data",
+      "text": "덤벨 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 플라이"
+    },
+    {
+      "origin": "state-data",
+      "text": "랫 풀다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "등"
+    },
+    {
+      "origin": "state-data",
+      "text": "시티드 케이블 로우"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 로우"
+    },
+    {
+      "origin": "state-data",
+      "text": "페이스 풀"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 컬"
+    },
+    {
+      "origin": "state-data",
+      "text": "해머 컬"
+    },
+    {
+      "origin": "state-data",
+      "text": "레그 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "하체"
+    },
+    {
+      "origin": "state-data",
+      "text": "레그 컬"
+    },
+    {
+      "origin": "state-data",
+      "text": "불가리안 스플릿 스쿼트"
+    },
+    {
+      "origin": "state-data",
+      "text": "행잉 레그 레이즈"
+    },
+    {
+      "origin": "state-data",
+      "text": "코어"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 크런치"
+    },
+    {
+      "origin": "state-data",
+      "text": "플랭크"
+    },
+    {
+      "origin": "state-data",
+      "text": "오른쪽 어깨"
+    },
+    {
+      "origin": "state-data",
+      "text": "특정 동작에서"
+    },
+    {
+      "origin": "state-data",
+      "text": "머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "단관절"
+    },
+    {
+      "origin": "state-data",
+      "text": "통증"
+    },
+    {
+      "origin": "state-data",
+      "text": "점 기록됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "으로 교체됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "건너뜀"
+    },
+    {
+      "origin": "state-data",
+      "text": "삭제됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "추가 종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "체중"
+    },
+    {
+      "origin": "state-data",
+      "text": "kg 기준으로 잡은 값입니다. 첫 세트 결과로 바로 맞춥니다. 정확하지 않을 수 있어 가볍게 시작해 올리는 쪽으로 잡았습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "KG · 2.5 단위"
+    },
+    {
+      "origin": "state-data",
+      "text": "REPS · 1 단위"
+    },
+    {
+      "origin": "state-data",
+      "text": "무게 2.5kg 감소"
+    },
+    {
+      "origin": "state-data",
+      "text": "횟수 1회 감소"
+    },
+    {
+      "origin": "state-data",
+      "text": "무게 2.5kg 증가"
+    },
+    {
+      "origin": "state-data",
+      "text": "횟수 1회 증가"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 완료 해제"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 완료로 표시"
+    },
+    {
+      "origin": "state-data",
+      "text": "회"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 ✓"
+    },
+    {
+      "origin": "state-data",
+      "text": "중단"
+    },
+    {
+      "origin": "state-data",
+      "text": "신규"
+    },
+    {
+      "origin": "state-data",
+      "text": "대기"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 →"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트로 교체"
+    },
+    {
+      "origin": "state-data",
+      "text": "점 기록 · 다음 세션 추천에 반영"
+    },
+    {
+      "origin": "state-data",
+      "text": "저장됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "저장 대기"
+    },
+    {
+      "origin": "state-data",
+      "text": "저장 실패"
+    },
+    {
+      "origin": "state-data",
+      "text": "지우기"
+    },
+    {
+      "origin": "state-data",
+      "text": "· 참고값"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "통증 없음"
+    },
+    {
+      "origin": "state-data",
+      "text": "가벼운 불편"
+    },
+    {
+      "origin": "state-data",
+      "text": "운동에 지장"
+    },
+    {
+      "origin": "state-data",
+      "text": "심함"
+    },
+    {
+      "origin": "state-data",
+      "text": "왼쪽 어깨"
+    },
+    {
+      "origin": "state-data",
+      "text": "팔꿈치"
+    },
+    {
+      "origin": "state-data",
+      "text": "손목"
+    },
+    {
+      "origin": "state-data",
+      "text": "허리"
+    },
+    {
+      "origin": "state-data",
+      "text": "무릎"
+    },
+    {
+      "origin": "state-data",
+      "text": "기타"
+    },
+    {
+      "origin": "state-data",
+      "text": "운동 중"
+    },
+    {
+      "origin": "state-data",
+      "text": "계속"
+    },
+    {
+      "origin": "state-data",
+      "text": "조정"
+    },
+    {
+      "origin": "state-data",
+      "text": "여기까지 기록하고 다음 종목으로 넘어갔습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "+5초"
+    },
+    {
+      "origin": "state-data",
+      "text": "+10초"
+    },
+    {
+      "origin": "state-data",
+      "text": "+30초"
+    },
+    {
+      "origin": "state-data",
+      "text": "+1분"
+    },
+    {
+      "origin": "state-data",
+      "text": "다음 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "점을"
+    },
+    {
+      "origin": "state-data",
+      "text": "에서 기록했습니다. 다음 세션 추천에 반영됩니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 저장됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "세션 요약"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 9일 토"
+    },
+    {
+      "origin": "state-data",
+      "text": "추천 근거"
+    },
+    {
+      "origin": "state-data",
+      "text": "화 · 3주차"
+    },
+    {
+      "origin": "state-data",
+      "text": "오프라인 · 저장됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "연결 없음 · 기기에 보관"
+    },
+    {
+      "origin": "state-data",
+      "text": "업로드 실패 · 기기에 보관"
+    },
+    {
+      "origin": "state-data",
+      "text": "저장 대기 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "서버에 올리지 못했습니다. 기록은 기기에 남아 있고, 연결되면 자동으로 다시 올라갑니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "연결이 없어 기록을 기기에 보관하고 있습니다. 연결되면 자동으로 올라갑니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "세트를 기록한 뒤 교체했습니다. 이전 기록은 그대로 남아 있습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 세션에 추가한 종목입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "중단 권장"
+    },
+    {
+      "origin": "state-data",
+      "text": "주의 · 종목 조정"
+    },
+    {
+      "origin": "state-data",
+      "text": "기록됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 이 종목은 여기서 멈추는 걸 권합니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "점이 기록됐어요. 부담이 적은 종목으로 바꿉니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "기록해 둬습니다. 통증이 커지면 알려 주세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "점 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": ". 남은 세트를 비워 두고 다음 종목으로 넘어가거나 세션을 마무리합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": ". 같은 패턴 중 부담이 적은 종목을 먼저 보여 주고, 시작 무게는 낮춰 제시합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": ". 추천은 그대로 둡니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "통증이 며칠 이상 이어지거나 일상에서도 느껴지면 전문가 상담을 권합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "부담이 적은 종목을 먼저 보여 줍니다. 시작 무게는 참고값에서 낮춰 제시합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "점 기록됨 · 다음 세션 추천에 반영됩니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "미분류"
+    },
+    {
+      "origin": "state-data",
+      "text": "패턴 없음"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트를 기록해서 삭제할 수 없습니다. 남은 세트를 건너뛸까요? 기록한 세트는 그대로 남습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "무게 조정"
+    },
+    {
+      "origin": "state-data",
+      "text": "디로드 제안"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 진행 중 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 기록 요약"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 수행할 운동"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트를 기록했어요. 오늘 세션을 종료할까요?"
+    },
+    {
+      "origin": "state-data",
+      "text": "왜 이렇게 추천했나 ›"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 세션과 동일"
+    },
+    {
+      "origin": "state-data",
+      "text": "kg · 3세트 · 8–12회 · RIR 2"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 기록 저장됨 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 세션 완료 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 이어하기"
+    },
+    {
+      "origin": "state-data",
+      "text": "시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "세션 마무리"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 · 값을 탭해 수정"
+    },
+    {
+      "origin": "state-data",
+      "text": "목표 RIR 2 · 지금"
+    },
+    {
+      "origin": "state-data",
+      "text": "여유 없음 · 한계"
+    },
+    {
+      "origin": "state-data",
+      "text": "1회 여유 · 힘듦"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 더 가능"
+    },
+    {
+      "origin": "state-data",
+      "text": "기록 수정 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 완료 · 다음"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 · 다음"
+    },
+    {
+      "origin": "state-data",
+      "text": "마지막 세트 완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 · RIR"
+    },
+    {
+      "origin": "state-data",
+      "text": "계획대로입니다. 다음 세트도"
+    },
+    {
+      "origin": "state-data",
+      "text": "kg으로 갑니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "마지막 세트에서 여유가 거의 없었어요. 다음 세트는 무게를 유지합니다."
+    }
+  ]
+}

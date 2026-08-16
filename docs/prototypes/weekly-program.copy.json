@@ -1,0 +1,407 @@
+{
+  "format": 1,
+  "source": "AFC 주간 프로그램 (오프라인).html",
+  "note": "정적 템플릿 텍스트와 상태 데이터의 한글 문자열을 원본 등장 순서로 중복 제거했다.",
+  "entries": [
+    {
+      "origin": "template",
+      "text": "AIFITCOACH · 주간 프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "이번 주와"
+    },
+    {
+      "origin": "template",
+      "text": "그 이후"
+    },
+    {
+      "origin": "template",
+      "text": "홈이 오늘을 맡는다면 여기는 한 주 전체와 프로그램 진행을 봅니다. 날짜를 탭하면 그날 종목이 펼쳐지고, 종목마다 미리 교체할 수 있습니다."
+    },
+    {
+      "origin": "template",
+      "text": "화면"
+    },
+    {
+      "origin": "template",
+      "text": "주간 프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "무료"
+    },
+    {
+      "origin": "template",
+      "text": "가입 24일 · 10세션"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 진행"
+    },
+    {
+      "origin": "template",
+      "text": "근비대 4분할 · 12주 중 3주차"
+    },
+    {
+      "origin": "template",
+      "text": "일정 바꾸기"
+    },
+    {
+      "origin": "template",
+      "text": "3주간 10세션 완료 · 벤치프레스 +3.2kg · 스쿼트 +7.5kg"
+    },
+    {
+      "origin": "template",
+      "text": "이번 주 볼륨 · 권장 10–20세트"
+    },
+    {
+      "origin": "template",
+      "text": "교체"
+    },
+    {
+      "origin": "template",
+      "text": "12주 완료"
+    },
+    {
+      "origin": "template",
+      "text": "근비대 4분할 프로그램을 마쳤습니다"
+    },
+    {
+      "origin": "template",
+      "text": "세션"
+    },
+    {
+      "origin": "template",
+      "text": "벤치"
+    },
+    {
+      "origin": "template",
+      "text": "스쿼트"
+    },
+    {
+      "origin": "template",
+      "text": "다음 12주를 어떻게 짤지 정합니다. 목표를 유지하면 지금 페이스로 이어 가고, 바꾸면 반복·볼륨 구성이 새로 짜입니다."
+    },
+    {
+      "origin": "template",
+      "text": "같은 목표로 계속"
+    },
+    {
+      "origin": "template",
+      "text": "목표 바꾸기"
+    },
+    {
+      "origin": "template",
+      "text": "무게를 1:1로 옮기지 않습니다. 비슷한 종목 기록으로 시작 무게를 잡고, 첫 세트 결과로 조정합니다."
+    },
+    {
+      "origin": "template",
+      "text": "교체하기"
+    },
+    {
+      "origin": "template",
+      "text": "상태."
+    },
+    {
+      "origin": "template",
+      "text": "월요일 완료(체크) · 수요일 부분 수행(구분되지만 실패 아님) · 금요일 오늘(강조) · 토요일 예정 · 화·목·일 휴식(비움). 등 9세트만 권장 범위 아래라 노란색으로 표시하고 아래 한 줄로 대안을 제안합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "월"
+    },
+    {
+      "origin": "state-data",
+      "text": "하체"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 스쿼트"
+    },
+    {
+      "origin": "state-data",
+      "text": "80kg · 4세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "레그 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "140kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "레그 컬"
+    },
+    {
+      "origin": "state-data",
+      "text": "42kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "카프 레이즈"
+    },
+    {
+      "origin": "state-data",
+      "text": "60kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "화"
+    },
+    {
+      "origin": "state-data",
+      "text": "휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "수"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 당기기"
+    },
+    {
+      "origin": "state-data",
+      "text": "랫 풀다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "52kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "시티드 케이블 로우"
+    },
+    {
+      "origin": "state-data",
+      "text": "48kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "페이스 풀"
+    },
+    {
+      "origin": "state-data",
+      "text": "16kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "목"
+    },
+    {
+      "origin": "state-data",
+      "text": "금"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "62.5kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 덤벨 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "20kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "오버헤드 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "32.5kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 푸시다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "토"
+    },
+    {
+      "origin": "state-data",
+      "text": "전신"
+    },
+    {
+      "origin": "state-data",
+      "text": "데드리프트"
+    },
+    {
+      "origin": "state-data",
+      "text": "90kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "풀업"
+    },
+    {
+      "origin": "state-data",
+      "text": "맨몸 · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "플랭크"
+    },
+    {
+      "origin": "state-data",
+      "text": "60초 · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "일"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 덤벨 · 시작 20kg"
+    },
+    {
+      "origin": "state-data",
+      "text": "체스트 프레스 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 어깨 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "딥스"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 맨몸 · 난이도 높음"
+    },
+    {
+      "origin": "state-data",
+      "text": "다른 패턴 · 케이블 · 자세 잡기 쉬움"
+    },
+    {
+      "origin": "state-data",
+      "text": "어시스트 풀업 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 무게 보조"
+    },
+    {
+      "origin": "state-data",
+      "text": "스트레이트 암 풀다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "다른 패턴 · 단관절 · 광배 고립"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 허리 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "핵 스쿼트"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 머신 · 자세 고정"
+    },
+    {
+      "origin": "state-data",
+      "text": "스미스 머신 스쿼트"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 패턴 · 가이드 바 · 밸런스 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "진행 중(3주차)"
+    },
+    {
+      "origin": "state-data",
+      "text": "프로그램 종료(12주)"
+    },
+    {
+      "origin": "state-data",
+      "text": "가슴"
+    },
+    {
+      "origin": "state-data",
+      "text": "등"
+    },
+    {
+      "origin": "state-data",
+      "text": "어깨"
+    },
+    {
+      "origin": "state-data",
+      "text": "팔"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "분"
+    },
+    {
+      "origin": "state-data",
+      "text": "부분 수행 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 · 예상"
+    },
+    {
+      "origin": "state-data",
+      "text": "예정 · 예상"
+    },
+    {
+      "origin": "state-data",
+      "text": "요일 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "같은 부위 대체 종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "비슷한 패턴 · 참고값으로 시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "머신 대체 종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "자세 고정 · 어깨 부담 적음"
+    },
+    {
+      "origin": "state-data",
+      "text": "보조 종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "가벼운 부하 · 자극 유지"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트: 다음 주 상체 당기기를 한 번 더 배치할 수 있습니다."
+    }
+  ]
+}

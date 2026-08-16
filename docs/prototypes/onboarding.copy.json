@@ -1,0 +1,587 @@
+{
+  "format": 1,
+  "source": "AFC 온보딩 (오프라인).html",
+  "note": "정적 템플릿 텍스트와 상태 데이터의 한글 문자열을 원본 등장 순서로 중복 제거했다.",
+  "entries": [
+    {
+      "origin": "template",
+      "text": "AIFITCOACH · 온보딩"
+    },
+    {
+      "origin": "template",
+      "text": "질문 네 개,"
+    },
+    {
+      "origin": "template",
+      "text": "1분"
+    },
+    {
+      "origin": "template",
+      "text": "한 화면에 질문 하나. 같은 색·타이포를 쓰되 밀도를 낮췄습니다. 건너뛰기는 모든 단계 우상단에 있고, 확인 팝업은 설득 없이 사실만 말합니다."
+    },
+    {
+      "origin": "template",
+      "text": "진입 경로"
+    },
+    {
+      "origin": "template",
+      "text": "홈 방문 (데모)"
+    },
+    {
+      "origin": "template",
+      "text": "‹ 뒤로"
+    },
+    {
+      "origin": "template",
+      "text": "건너뛰기"
+    },
+    {
+      "origin": "template",
+      "text": "무엇을 목표로 하나요"
+    },
+    {
+      "origin": "template",
+      "text": "기본 정보를 알려 주세요"
+    },
+    {
+      "origin": "template",
+      "text": "체중은 시작 무게와 볼륨 계산의 기준이 되고, 나이·성별은 세트 사이 회복 시간에 반영됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "체지방률"
+    },
+    {
+      "origin": "template",
+      "text": "선택"
+    },
+    {
+      "origin": "template",
+      "text": "넣으면 볼륨 상한을 체중 대신 제지방량 기준으로 계산합니다. 비워 두면 체중 기준으로 계산합니다."
+    },
+    {
+      "origin": "template",
+      "text": "비우기"
+    },
+    {
+      "origin": "template",
+      "text": "3–60 사이로 입력하세요"
+    },
+    {
+      "origin": "template",
+      "text": "일주일에 몇 번, 얼마나"
+    },
+    {
+      "origin": "template",
+      "text": "주당 일수"
+    },
+    {
+      "origin": "template",
+      "text": "회당 시간"
+    },
+    {
+      "origin": "template",
+      "text": "웨이트 경력은 어느 정도인가요"
+    },
+    {
+      "origin": "template",
+      "text": "RIR 캘리브레이션"
+    },
+    {
+      "origin": "template",
+      "text": "3일 안내"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 생성 중"
+    },
+    {
+      "origin": "template",
+      "text": "주간 분할"
+    },
+    {
+      "origin": "template",
+      "text": "참고값"
+    },
+    {
+      "origin": "template",
+      "text": "시작 무게는 체중과 경력으로 잡은 참고값입니다. 첫 세트 RIR을 기록하면 두 번째 세트부터 조정됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "적용 방식"
+    },
+    {
+      "origin": "template",
+      "text": "지금까지의 기록은 그대로 유지됩니다. 다음 세션부터 새 프로그램이 적용됩니다. 진행 중인 세션이 있으면 그 세션을 끝낸 뒤 적용됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "답변 고치기"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 다시 만들기"
+    },
+    {
+      "origin": "template",
+      "text": "목표·일정이 바뀌었을 때. 기존 답변에서 시작합니다"
+    },
+    {
+      "origin": "template",
+      "text": "현재 프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "근비대 · 주 4일 · 60분 · 3주차"
+    },
+    {
+      "origin": "template",
+      "text": "단위"
+    },
+    {
+      "origin": "template",
+      "text": "kg · 2.5kg 단위 증량"
+    },
+    {
+      "origin": "template",
+      "text": "RIR 캘리브레이션 다시 하기"
+    },
+    {
+      "origin": "template",
+      "text": "세 세션 기록됨"
+    },
+    {
+      "origin": "template",
+      "text": "이제 추천을 낼 수 있습니다. 목표와 일정을 정하면 주간 프로그램을 짜 드립니다."
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 만들기"
+    },
+    {
+      "origin": "template",
+      "text": "닫기"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 없이 오늘 한 종목만 기록"
+    },
+    {
+      "origin": "template",
+      "text": "지금 상태"
+    },
+    {
+      "origin": "template",
+      "text": "종목은 직접 고릅니다. 검색과 부위 탭으로 찾을 수 있습니다."
+    },
+    {
+      "origin": "template",
+      "text": "시작 무게는 첫 세트로 직접 잡습니다. RIR만 남기면 됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "세 세션이 쌓이면 추천이 나옵니다. 그때 다시 안내합니다."
+    },
+    {
+      "origin": "template",
+      "text": "프로그램은 언제든 내 정보 탭 › 프로그램 다시 만들기에서 만들 수 있습니다."
+    },
+    {
+      "origin": "template",
+      "text": "이번 주"
+    },
+    {
+      "origin": "template",
+      "text": "건너뛰면 이렇게 됩니다"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 할 종목이 자동으로 짜이지 않습니다. 직접 고릅니다."
+    },
+    {
+      "origin": "template",
+      "text": "시작 무게 추천이 없습니다. 첫 세트로 직접 잡습니다."
+    },
+    {
+      "origin": "template",
+      "text": "세 세션이 쌓이면 그때부터 추천이 나옵니다."
+    },
+    {
+      "origin": "template",
+      "text": "질문 네 개, 1분이면 끝납니다."
+    },
+    {
+      "origin": "template",
+      "text": "온보딩 계속"
+    },
+    {
+      "origin": "template",
+      "text": "그래도 건너뛰기"
+    },
+    {
+      "origin": "template",
+      "text": "건너뛰기."
+    },
+    {
+      "origin": "template",
+      "text": "확인 팝업은 세션당 한 번만 뜹니다. 두 번째부터는 바로 넘어갑니다. 건너뛴 뒤 홈은 '프로그램 없음' 상태로, 한 종목 기록 경로가 살아 있고 프로그램 안내는 카드 안 한 줄로만 남습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "남성"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체"
+    },
+    {
+      "origin": "state-data",
+      "text": "휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "하체"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 당기기"
+    },
+    {
+      "origin": "state-data",
+      "text": "전신"
+    },
+    {
+      "origin": "state-data",
+      "text": "목표"
+    },
+    {
+      "origin": "state-data",
+      "text": "기본 정보"
+    },
+    {
+      "origin": "state-data",
+      "text": "일정"
+    },
+    {
+      "origin": "state-data",
+      "text": "경력"
+    },
+    {
+      "origin": "state-data",
+      "text": "프로그램 생성"
+    },
+    {
+      "origin": "state-data",
+      "text": "미리보기"
+    },
+    {
+      "origin": "state-data",
+      "text": "다이어트"
+    },
+    {
+      "origin": "state-data",
+      "text": "체중을 줄이면서 근육을 지킵니다. 볼륨을 유지하고 강도를 낮추지 않습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "근비대"
+    },
+    {
+      "origin": "state-data",
+      "text": "근육 크기를 키웁니다. 8–12회 구간과 주간 볼륨을 중심으로 짭니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "스트렝스"
+    },
+    {
+      "origin": "state-data",
+      "text": "드는 무게를 올립니다. 3–6회 구간과 긴 휴식으로 짭니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "초보"
+    },
+    {
+      "origin": "state-data",
+      "text": "웨이트 1년 미만. 매 세션 무게가 오를 수 있어 증량 폭을 크게 잡습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "중급"
+    },
+    {
+      "origin": "state-data",
+      "text": "1–3년. 주 단위로 무게가 오릅니다. RIR 기반으로 조절합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "숙련"
+    },
+    {
+      "origin": "state-data",
+      "text": "3년 이상. 월 단위 진전. 디로드와 피로 관리를 함께 넣습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "여성"
+    },
+    {
+      "origin": "state-data",
+      "text": "선택 안 함"
+    },
+    {
+      "origin": "state-data",
+      "text": "나이"
+    },
+    {
+      "origin": "state-data",
+      "text": "세"
+    },
+    {
+      "origin": "state-data",
+      "text": "14–90 사이로 입력하세요"
+    },
+    {
+      "origin": "state-data",
+      "text": "키"
+    },
+    {
+      "origin": "state-data",
+      "text": "130–210 사이로 입력하세요"
+    },
+    {
+      "origin": "state-data",
+      "text": "체중"
+    },
+    {
+      "origin": "state-data",
+      "text": "35–200 사이로 입력하세요"
+    },
+    {
+      "origin": "state-data",
+      "text": "분"
+    },
+    {
+      "origin": "state-data",
+      "text": "주"
+    },
+    {
+      "origin": "state-data",
+      "text": "일 · 회당"
+    },
+    {
+      "origin": "state-data",
+      "text": "분이면 세션당"
+    },
+    {
+      "origin": "state-data",
+      "text": "종목, 주"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트 안팎이 됩니다. 나중에 언제든 바꿀 수 있습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "목표와 경력으로 반복 구간 결정"
+    },
+    {
+      "origin": "state-data",
+      "text": "일정에 맞춰 분할 배치"
+    },
+    {
+      "origin": "state-data",
+      "text": "체중 기준 시작 무게 계산"
+    },
+    {
+      "origin": "state-data",
+      "text": "월"
+    },
+    {
+      "origin": "state-data",
+      "text": "화"
+    },
+    {
+      "origin": "state-data",
+      "text": "수"
+    },
+    {
+      "origin": "state-data",
+      "text": "목"
+    },
+    {
+      "origin": "state-data",
+      "text": "금"
+    },
+    {
+      "origin": "state-data",
+      "text": "토"
+    },
+    {
+      "origin": "state-data",
+      "text": "일"
+    },
+    {
+      "origin": "state-data",
+      "text": "종목 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 덤벨 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "오버헤드 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 푸시다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "랫 풀다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "플랭크"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "다음"
+    },
+    {
+      "origin": "state-data",
+      "text": "답변 네 개로"
+    },
+    {
+      "origin": "state-data",
+      "text": "일 프로그램을 짜고 있습니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "· 주"
+    },
+    {
+      "origin": "state-data",
+      "text": "일 프로그램이 준비됐습니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "체지방률 미입력"
+    },
+    {
+      "origin": "state-data",
+      "text": "체지방"
+    },
+    {
+      "origin": "state-data",
+      "text": "요일"
+    },
+    {
+      "origin": "state-data",
+      "text": "가입 직후"
+    },
+    {
+      "origin": "state-data",
+      "text": "내 정보 탭"
+    },
+    {
+      "origin": "state-data",
+      "text": "맥락형 안내"
+    },
+    {
+      "origin": "state-data",
+      "text": "다시 만들기(프리필)"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 · 보정값 +1.1회"
+    },
+    {
+      "origin": "state-data",
+      "text": "아직 하지 않음. 초보는 남은 반복을 평균 4~5회 적게 봅니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "1회차"
+    },
+    {
+      "origin": "state-data",
+      "text": "2회차 이상"
+    },
+    {
+      "origin": "state-data",
+      "text": "새 프로그램 적용"
+    },
+    {
+      "origin": "state-data",
+      "text": "이 프로그램으로 시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 캘리브레이션은 건너뜁니다. 기록한 RIR을 그대로 씁니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "시작 전에 RIR 감각을 맞추는 3일 과정을 안내합니다. 초보는 남은 반복을 평균 4~5회 적게 보기 때문에, 개인 보정값을 먼저 구합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "기존 답변에서 시작합니다. 바꾸고 싶은 것만 고치세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "프로그램 없음"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 수행할 운동"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 할 종목을 고르면 바로 시작합니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "기록만 남겨도 됩니다. 세 세션이 쌓이면 추천이 나옵니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "첫 세션이 준비됐습니다. 시작 무게는 참고값이고 첫 세트로 조정됩니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "종목 고르고 시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "세션 시작"
+    }
+  ]
+}

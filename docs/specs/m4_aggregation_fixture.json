@@ -1,0 +1,36 @@
+{
+  "description": "M-4′ red-proof fixture. Same facts must produce the same ordered projection.",
+  "sessions": [
+    {
+      "session_id": "s-03",
+      "date": "2026-08-15",
+      "exercise_id": "e_bench_press",
+      "primary_muscles": ["chest"],
+      "sets": [{ "weight": 102.5, "reps": 6, "rir": 1 }]
+    },
+    {
+      "session_id": "s-01",
+      "date": "2026-08-01",
+      "exercise_id": "e_bench_press",
+      "primary_muscles": ["chest"],
+      "sets": [
+        { "weight": 100, "reps": 5, "rir": 2 },
+        { "weight": 90, "reps": 10, "rir": 1 }
+      ]
+    },
+    {
+      "session_id": "s-02",
+      "date": "2026-08-08",
+      "exercise_id": "e_bench_press",
+      "primary_muscles": ["chest"],
+      "sets": [{ "weight": 102.5, "reps": 5, "rir": 2 }]
+    }
+  ],
+  "expected": {
+    "sample_session_count": 3,
+    "gate_state": "ready",
+    "first_e1rm": 123.33,
+    "ordered_session_ids": ["s-01", "s-02", "s-03"],
+    "week_2026_07_27_chest": { "hard_sets": 2, "volume_load": 1400, "avg_rir": 1.5 }
+  }
+}

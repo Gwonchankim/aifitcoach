@@ -301,7 +301,7 @@ paths:
           description: OK
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Recommendation' }
+              schema: { $ref: '#/components/schemas/GatedRecommendation' }
 
   /sessions/{sessionId}:
     get:
@@ -351,7 +351,7 @@ paths:
                   session: { $ref: '#/components/schemas/Session' }
                   next_recommendations:
                     type: array
-                    items: { $ref: '#/components/schemas/Recommendation' }
+                    items: { $ref: '#/components/schemas/GatedRecommendation' }
         '400':
           description: 잘못된 입력(difficulty/pump enum 밖, pain 이 0~10 범위 밖).
           content:
@@ -414,24 +414,15 @@ paths:
         - name: from
           in: query
           schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                required: [exercise_id, points]
-                properties:
-                  exercise_id: { type: string }
-                  points:
-                    type: array
-                    items:
-                      type: object
-                      required: [date, e1rm]
-                      properties:
-                        date: { type: string, format: date }
-                        e1rm: { type: number }
+              schema: { $ref: '#/components/schemas/E1rmAnalytics' }
 
   /analytics/volume:
     get:
@@ -441,38 +432,33 @@ paths:
         - name: week_start
           in: query
           schema: { type: string, format: date }
+        - name: weeks
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12, default: 1 }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required: [muscle, hard_sets, avg_rir]
-                  properties:
-                    muscle: { type: string }
-                    hard_sets: { type: integer }
-                    avg_rir: { type: number }
+              schema: { $ref: '#/components/schemas/VolumeAnalytics' }
 
   /analytics/completion:
     get:
       tags: [analytics]
       summary: 주간 운동 완료율
+      parameters:
+        - name: week_start
+          in: query
+          schema: { type: string, format: date }
+        - name: weeks
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12, default: 1 }
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                required: [week_start, completed, planned, rate]
-                properties:
-                  week_start: { type: string, format: date }
-                  completed: { type: integer }
-                  planned: { type: integer }
-                  rate: { type: number }
+              schema: { $ref: '#/components/schemas/CompletionAnalytics' }
 
   /billing/checkout:
     post:
@@ -861,12 +847,28 @@ components:
       type: object
       # excluded_exercises 는 안전 근거(SAFETY_PAIN_MAPPING.md 규칙 3)라 생략 가능하면 안 된다.
       # 제외가 없었으면 빈 배열이다(구현은 항상 내보낸다).
-      required: [program_id, goal, split_type, rules_version, excluded_exercises, sessions]
+      required:
+        [
+          program_id,
+          goal,
+          split_type,
+          rules_version,
+          started_at,
+          total_weeks,
+          current_week,
+          status,
+          excluded_exercises,
+          sessions,
+        ]
       properties:
         program_id: { type: string }
         goal: { type: string }
         split_type: { type: string, example: upper_lower }
         rules_version: { type: string, example: '2026.08.1' }
+        started_at: { type: string, format: date }
+        total_weeks: { type: integer, minimum: 12, maximum: 12 }
+        current_week: { type: integer, minimum: 1, maximum: 12 }
+        status: { type: string, enum: [active, completed] }
         # pain_areas 로 후보에서 뺀 운동과 사유(docs/SAFETY_PAIN_MAPPING.md 규칙 3).
         # 비어 있으면 제외가 없었다는 뜻이다.
         excluded_exercises:
@@ -981,6 +983,8 @@ components:
           reason_code,
           confidence,
           rules_version,
+          recommendation_gate,
+          performed_set,
         ]
       properties:
         id: { type: string }
@@ -994,9 +998,14 @@ components:
         target_time_high_sec: { type: integer, nullable: true }
         recommended_weight: { type: number, nullable: true }
         recommended_reps: { type: integer, nullable: true }
-        reason_code: { type: string, example: WEIGHT_UP_REP_TARGET_MET }
-        confidence: { type: number }
+        reason_code: { type: string, nullable: true, example: WEIGHT_UP_REP_TARGET_MET }
+        confidence: { type: number, nullable: true }
         rules_version: { type: string }
+        recommendation_gate: { $ref: '#/components/schemas/DisplayGateState' }
+        performed_set:
+          allOf:
+            - $ref: '#/components/schemas/PerformedSetSummary'
+          nullable: true
 
     PerformedSet:
       type: object
@@ -1050,6 +1059,136 @@ components:
         e1rm: { type: number }
         method: { type: string, example: epley }
         computed_at: { type: string, format: date-time }
+
+    DisplayGateState:
+      type: string
+      enum: [no_history, early, ready]
+
+    PerformedSetSummary:
+      type: object
+      required:
+        [actual_weight, actual_reps, actual_rir, actual_time_sec, completed, performed_at]
+      properties:
+        actual_weight: { type: number, nullable: true }
+        actual_reps: { type: integer, nullable: true }
+        actual_rir: { type: integer, minimum: 0, maximum: 6, nullable: true }
+        actual_time_sec: { type: integer, nullable: true }
+        completed: { type: boolean }
+        performed_at: { type: string, format: date-time }
+
+    GatedRecommendation:
+      type: object
+      required: [exercise_id, sample_session_count, gate_state, recommendation]
+      properties:
+        exercise_id: { type: string }
+        sample_session_count: { type: integer, minimum: 0 }
+        gate_state: { $ref: '#/components/schemas/DisplayGateState' }
+        recommendation:
+          allOf:
+            - $ref: '#/components/schemas/Recommendation'
+          nullable: true
+
+    E1rmAnalytics:
+      type: object
+      required:
+        [exercise_id, sample_session_count, gate_state, observations, points, next_recommendation]
+      properties:
+        exercise_id: { type: string }
+        sample_session_count: { type: integer, minimum: 0 }
+        gate_state: { $ref: '#/components/schemas/DisplayGateState' }
+        observations:
+          type: array
+          description: 완료 세션 날짜. early 상태의 점 표시에 쓰며 e1RM 값은 포함하지 않는다.
+          items:
+            type: object
+            required: [session_id, date]
+            properties:
+              session_id: { type: string }
+              date: { type: string, format: date }
+        points:
+          type: array
+          description: gate_state=ready에서만 값이 있으며 date, session_id 순으로 결정적으로 정렬한다.
+          items:
+            type: object
+            required: [session_id, date, e1rm, method, is_pr]
+            properties:
+              session_id: { type: string }
+              date: { type: string, format: date }
+              e1rm: { type: number }
+              method: { type: string }
+              is_pr: { type: boolean }
+        next_recommendation:
+          allOf:
+            - $ref: '#/components/schemas/Recommendation'
+          nullable: true
+
+    VolumeAnalytics:
+      type: object
+      required: [goal, recommendation_range, weeks]
+      properties:
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
+        recommendation_range:
+          type: object
+          nullable: true
+          required: [min_hard_sets, max_hard_sets]
+          properties:
+            min_hard_sets: { type: integer }
+            max_hard_sets: { type: integer }
+        weeks:
+          type: array
+          items:
+            type: object
+            required: [week_start, muscles]
+            properties:
+              week_start: { type: string, format: date }
+              muscles:
+                type: array
+                items:
+                  type: object
+                  required: [muscle, hard_sets, volume_load, avg_rir, range_status]
+                  properties:
+                    muscle: { type: string }
+                    hard_sets: { type: integer }
+                    volume_load: { type: number }
+                    avg_rir: { type: number, nullable: true }
+                    range_status:
+                      type: string
+                      enum: [below, within, above, not_applicable]
+
+    RhythmDay:
+      type: object
+      required: [date, state, session_id, focus]
+      properties:
+        date: { type: string, format: date }
+        state:
+          type: string
+          enum:
+            [unperformed, in_progress, completed, partial, rest, conflict, return_after_gap, scheduled]
+        session_id: { type: string, nullable: true }
+        focus: { type: string, nullable: true }
+
+    CompletionAnalytics:
+      type: object
+      required: [program_id, started_at, total_weeks, current_week, weeks]
+      properties:
+        program_id: { type: string }
+        started_at: { type: string, format: date }
+        total_weeks: { type: integer, minimum: 12, maximum: 12 }
+        current_week: { type: integer, minimum: 1, maximum: 12 }
+        weeks:
+          type: array
+          items:
+            type: object
+            required: [week_start, week_number, completed, planned, rate, days]
+            properties:
+              week_start: { type: string, format: date }
+              week_number: { type: integer, minimum: 1, maximum: 12 }
+              completed: { type: integer }
+              planned: { type: integer }
+              rate: { type: number }
+              days:
+                type: array
+                items: { $ref: '#/components/schemas/RhythmDay' }
 
     SyncRequest:
       type: object
@@ -1231,7 +1370,8 @@ components:
 
     DashboardSummary:
       type: object
-      required: [date, today, tomorrow, streak_days, weekly_completion_rate]
+      required:
+        [date, today, tomorrow, streak_days, weekly_completion_rate, weekly_rhythm, primary_e1rm]
       properties:
         date: { type: string, format: date }
         today:
@@ -1239,7 +1379,9 @@ components:
           # routine_summary/done_summary 는 상태와 무관하게 항상 내려가고, 해당 없으면 null 이다.
           required: [status, session_id, routine_summary, done_summary]
           properties:
-            status: { type: string, enum: [workout, rest, done] }
+            status:
+              type: string
+              enum: [unperformed, in_progress, done, partial, rest, conflict, return_after_gap]
             # 오늘 세션(workout_session)의 id. 대시보드 → 데일리 루틴 진입 경로다.
             # 휴식일(status=rest)이면 null.
             session_id: { type: string, nullable: true }
@@ -1272,3 +1414,15 @@ components:
                 focus: { type: string }
         streak_days: { type: integer }
         weekly_completion_rate: { type: number }
+        weekly_rhythm:
+          type: array
+          items: { $ref: '#/components/schemas/RhythmDay' }
+        primary_e1rm:
+          type: object
+          nullable: true
+          required: [exercise_id, sample_session_count, gate_state, latest_e1rm]
+          properties:
+            exercise_id: { type: string }
+            sample_session_count: { type: integer, minimum: 0 }
+            gate_state: { $ref: '#/components/schemas/DisplayGateState' }
+            latest_e1rm: { type: number, nullable: true }

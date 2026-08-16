@@ -10,6 +10,7 @@ import type { Goal } from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
+import { AggregationProjector } from "../analytics/aggregation.projector";
 import { PlannedSetFactory, PlannedSetRow } from "../programs/planned-set.factory";
 import {
   MovementPattern,
@@ -74,6 +75,7 @@ export class SessionsService {
     private readonly prisma: PrismaService,
     private readonly recommendation: RecommendationService,
     private readonly plannedSets: PlannedSetFactory,
+    private readonly projector: AggregationProjector,
   ) {}
 
   async detail(userId: string, sessionId: string): Promise<SessionResponse> {
@@ -84,7 +86,9 @@ export class SessionsService {
   async recomputeAfterSync(userId: string, sessionId: string): Promise<ApiRecommendation[]> {
     const session = await this.load(userId, sessionId);
     if (session.status === "completed") {
-      return this.recompute(userId, session);
+      const recommendations = await this.recompute(userId, session);
+      await this.projector.recomputeSession(userId, session.id);
+      return recommendations;
     }
     return [];
   }
@@ -114,9 +118,11 @@ export class SessionsService {
       },
     });
 
+    const next_recommendations = await this.recompute(userId, session);
+    await this.projector.recomputeSession(userId, session.id);
     return {
       session: toSessionResponse(await this.load(userId, sessionId)),
-      next_recommendations: await this.recompute(userId, session),
+      next_recommendations,
     };
   }
 

@@ -9,6 +9,7 @@
     "start:dev": "nest start --watch",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
+    "test:red:m4": "jest --runInBand --testRegex=m4-contract\\.red\\.ts$",
     "db:migrate": "cd ../.. && prisma migrate deploy --schema apps/api/prisma/schema.prisma",
     "db:seed": "cd ../.. && tsx scripts/seed-exercises.ts"
   },

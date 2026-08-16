@@ -34,6 +34,16 @@
 - 오프라인 routine add→swap→서버 mapping 전 즉시 세트 기록은 provisional ID가 서버에 저장되지 않고 authoritative ID로만 정확히 1회 반영되는지 확인한다. mapping 응답 유실 재전송은 같은 planned set을 반환해야 하며, client mapping transaction 중단은 draft·outbox·mirror 모두 임시 ID로 롤백돼야 한다.
 - pull E2E는 다른 클라이언트가 만든 performed-set upsert가 로컬 draft가 없는 탭에도 생성되고, 더 최신 delete tombstone이 완료 상태를 해제하는 데까지 관찰한다. 서버 계약의 `changes` 배열만 확인하고 브라우저 mirror 반영을 생략하면 통과로 세지 않는다.
 
+## M-4′ 집계 정확성 게이트
+
+- 같은 사실 행을 다른 순서로 삽입해도 정렬된 API JSON이 바이트 단위로 같아야 한다.
+- 세션/주 단위 증분 projection과 전체 rebuild의 DB 행·API 응답이 같아야 한다.
+- 완료·sync·backfill 재실행은 중복 e1RM/PR/hard-set을 만들지 않는다.
+- raw Epley PR을 저반복 우선+RIR 보정 공용 공식으로 바꿀 때 기존 projection을 전량 rebuild한다.
+  M-4′의 캘리브레이션 bias는 미구현 상태를 숨기지 않고 0을 명시적으로 사용한다.
+- 3세션 게이트는 세트 수가 아니라 종목별 distinct 완료 세션 수를 센다. 서버가 값/추천을 제거한 결과가 온라인 권위다.
+- 데이터가 있는 DB에서 lifecycle/aggregate migration과 backfill을 검증한다. 레거시 generation input은 추측하지 않고 template snapshot fallback을 쓴다.
+
 ## 나중에 로그인 도입 시 (체크리스트)
 - dev-user 주입 미들웨어를 소셜 OAuth + httpOnly 세션 쿠키 + CSRF로 교체(docs/SECURITY_PIPA.md).
 - me/consents/export/delete 엔드포인트 구현, 온보딩에 동의 UI 추가.

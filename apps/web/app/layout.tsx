@@ -3,6 +3,7 @@ import "./fonts/pretendard-variable.css";
 import "./globals.css";
 import { jetbrainsMono } from "./fonts";
 import { Providers } from "./providers";
+import { AppShell } from "../components/navigation/app-shell";
 
 export const metadata: Metadata = {
   title: "AIFITCOACH",
@@ -22,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           본문 바로가기
         </a>
         <Providers>
-          <main id="main">{children}</main>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "extractor": "scripts/extract-prototypes.mjs",
+  "prototypes": [
+    {
+      "slug": "home-dashboard",
+      "title": "홈 대시보드",
+      "source": "AFC 홈 대시보드 (오프라인).html",
+      "source_bytes": 22855182,
+      "source_sha256": "e30e9c84059e8e72c8037a8880c7e2846c27fbbebc42dbbf2e2d224682fb2406",
+      "embedded_template_sha256": "ea0d889ec51c85d79703eb73cc289552b32e903b2d99776b260b41d1b41bf963",
+      "template_bytes": 13911,
+      "copy_entries": 118
+    },
+    {
+      "slug": "history",
+      "title": "기록",
+      "source": "AFC 기록 (오프라인).html",
+      "source_bytes": 22861282,
+      "source_sha256": "c2a94d19447aa32e0aaef3712de10efb49ea4847248a18c2eb6acc2a90ccfbbe",
+      "embedded_template_sha256": "e81a1ffd3c8318702517de3024c80857f1c8c5e7039afd1562f20b9f1f9a3ba9",
+      "template_bytes": 20752,
+      "copy_entries": 86
+    },
+    {
+      "slug": "weekly-program",
+      "title": "주간 프로그램",
+      "source": "AFC 주간 프로그램 (오프라인).html",
+      "source_bytes": 22849432,
+      "source_sha256": "77707074d74933e6e2ed533bc52165c8c64b9cb53bea93bf2fc279a20ef281ce",
+      "embedded_template_sha256": "0acd6bfbcfccca80f7eea0c45a8fac994c7e2ec7bd7fba688b4374cf00d21d9e",
+      "template_bytes": 11758,
+      "copy_entries": 100
+    },
+    {
+      "slug": "session",
+      "title": "세션",
+      "source": "AFC 세션 프로토타입 (오프라인).html",
+      "source_bytes": 22932273,
+      "source_sha256": "f6f48efd37983dc8a321f18648971c914922d1191ec547208509030ea826078e",
+      "embedded_template_sha256": "8f8e87fc259829e7d73666320c4e106e1b7f28f1f2480a31bce06c5ef6495119",
+      "template_bytes": 58871,
+      "copy_entries": 297
+    },
+    {
+      "slug": "onboarding",
+      "title": "온보딩",
+      "source": "AFC 온보딩 (오프라인).html",
+      "source_bytes": 22870324,
+      "source_sha256": "df1fb0de1d878e045374e1e408491d32a557d446d9ea05f89d059b458a567cdb",
+      "embedded_template_sha256": "b9151a49bfbd323a570e01fb8627a314d889ddb7578f478705f4372f045b0db7",
+      "template_bytes": 25970,
+      "copy_entries": 145
+    },
+    {
+      "slug": "rir-tutorial",
+      "title": "RIR 튜토리얼",
+      "source": "AFC RIR 튜토리얼 (오프라인).html",
+      "source_bytes": 22856666,
+      "source_sha256": "9d164967502ea2e23f6f17a7bb21f72dd8235ff83c7d6fe51425156b6e5a5401",
+      "embedded_template_sha256": "918bebf6bd04f49705bae17067c9473a38a85d490b3a95a7838803467b174bfd",
+      "template_bytes": 17320,
+      "copy_entries": 97
+    },
+    {
+      "slug": "paywall-b",
+      "title": "페이월 B 확정",
+      "source": "AFC 페이월 B 확정 (오프라인).html",
+      "source_bytes": 22849522,
+      "source_sha256": "dd4d70540a87283d3a98fc3d57c3e64114a1281be359db834f878f9d49ddb455",
+      "embedded_template_sha256": "b0f4fe90ce1028cfbe2cf7a313d7bf06fb46d05a26ae511603846a31a64326c8",
+      "template_bytes": 15297,
+      "copy_entries": 76
+    }
+  ]
+}

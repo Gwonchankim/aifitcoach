@@ -1,0 +1,395 @@
+{
+  "format": 1,
+  "source": "AFC RIR 튜토리얼 (오프라인).html",
+  "note": "정적 템플릿 텍스트와 상태 데이터의 한글 문자열을 원본 등장 순서로 중복 제거했다.",
+  "entries": [
+    {
+      "origin": "template",
+      "text": "AIFITCOACH · RIR 캘리브레이션"
+    },
+    {
+      "origin": "template",
+      "text": "예측과 실제의"
+    },
+    {
+      "origin": "template",
+      "text": "차이를 구한다"
+    },
+    {
+      "origin": "template",
+      "text": "초보는 실패까지 남은 반복을 평균 4~5회 적게 봅니다. 3일간 머신 종목에서 예측과 실제를 맞대어 개인 보정값을 구합니다. 빗나간 예측은 틀린 값이 아니라 우리가 찾는 값입니다."
+    },
+    {
+      "origin": "template",
+      "text": "화면"
+    },
+    {
+      "origin": "template",
+      "text": "시작 전 · 3일"
+    },
+    {
+      "origin": "template",
+      "text": "RIR 감각, 3일이면 익혀요"
+    },
+    {
+      "origin": "template",
+      "text": "RIR은 세트를 끝냈을 때 더 할 수 있었던 반복 수입니다. 이 숫자가 정확해야 다음 무게를 맞게 계산할 수 있습니다."
+    },
+    {
+      "origin": "template",
+      "text": "여유 많음"
+    },
+    {
+      "origin": "template",
+      "text": "한계"
+    },
+    {
+      "origin": "template",
+      "text": "채워진 칸이 남은 여유입니다. 목표는 RIR 2 — 두 번 더 할 수 있는 지점에서 멈추는 것입니다."
+    },
+    {
+      "origin": "template",
+      "text": "3일 동안"
+    },
+    {
+      "origin": "template",
+      "text": "1일"
+    },
+    {
+      "origin": "template",
+      "text": "머신 3종에서 예상 RIR을 적고, 폼이 유지되는 한계까지 더 해봅니다."
+    },
+    {
+      "origin": "template",
+      "text": "2일"
+    },
+    {
+      "origin": "template",
+      "text": "RIR 2에서 멈추는 연습. 멈춘 뒤 1~2회만 더 해 확인합니다."
+    },
+    {
+      "origin": "template",
+      "text": "3일"
+    },
+    {
+      "origin": "template",
+      "text": "검증. 예측이 ±1.5회 안에 들면 끝납니다."
+    },
+    {
+      "origin": "template",
+      "text": "머신과 안정된 종목만 씁니다. 프리웨이트 복합운동으로는 한계 세트를 하지 않습니다. 통증이 있으면 즉시 멈추세요."
+    },
+    {
+      "origin": "template",
+      "text": "시작하기"
+    },
+    {
+      "origin": "template",
+      "text": "건너뛰기"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 할 일"
+    },
+    {
+      "origin": "template",
+      "text": "이 값으로 세트 시작"
+    },
+    {
+      "origin": "template",
+      "text": "기록하고 비교"
+    },
+    {
+      "origin": "template",
+      "text": "통증으로 중단"
+    },
+    {
+      "origin": "template",
+      "text": "예상"
+    },
+    {
+      "origin": "template",
+      "text": "실제"
+    },
+    {
+      "origin": "template",
+      "text": "차이"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 기록"
+    },
+    {
+      "origin": "template",
+      "text": "한계 근접 세트는 종목당 한 번만 합니다. 폼이 무너지기 시작하면 그 지점이 오늘의 한계입니다."
+    },
+    {
+      "origin": "template",
+      "text": "개인 보정값"
+    },
+    {
+      "origin": "template",
+      "text": "회"
+    },
+    {
+      "origin": "template",
+      "text": "일자별 오차"
+    },
+    {
+      "origin": "template",
+      "text": "검증 하루 더 하기"
+    },
+    {
+      "origin": "template",
+      "text": "지금 값으로 시작"
+    },
+    {
+      "origin": "template",
+      "text": "메인 프로그램 시작"
+    },
+    {
+      "origin": "template",
+      "text": "흐름."
+    },
+    {
+      "origin": "template",
+      "text": "안내 → 1일차(예상 → AMRAP → 비교, 머신 3종) → 2일차(RIR 2에서 멈추고 검증) → 3일차(±1.5회면 졸업). 못 맞추면 최대 7일까지 하루씩 늘리고, 7일에 닿으면 현재 값으로 졸업하되 신뢰도를 낮게 표시합니다. 숙련을 고른 사람과 온보딩을 건너뛴 사람에게는 이 안내를 띄우지 않습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "체스트 프레스 머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "머신"
+    },
+    {
+      "origin": "state-data",
+      "text": "등받이에 붙이고 팔꿈치를 끝까지 펴지 않습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "랫 풀다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "반동 없이. 어깨가 올라가면 그 지점이 한계입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "레그 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "무릎이 안으로 모이기 시작하면 멈춥니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "세트를 시작하기 전에 몇 회 남을지 예상해 적습니다. 그다음 폼이 유지되는 한계까지 해보고, 실제로 몇 회가 더 남아 있었는지 비교합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 2라고 느끼는 지점에서 멈춰 보세요. 멈춘 뒤 1~2회만 더 해 실제로 몇 회가 남아 있었는지 확인합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘은 검증입니다. 예상과 실제 차이가 ±1.5회 안에 들면 끝납니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "안내"
+    },
+    {
+      "origin": "state-data",
+      "text": "1일차"
+    },
+    {
+      "origin": "state-data",
+      "text": "2일차"
+    },
+    {
+      "origin": "state-data",
+      "text": "3일차"
+    },
+    {
+      "origin": "state-data",
+      "text": "졸업"
+    },
+    {
+      "origin": "state-data",
+      "text": "미졸업"
+    },
+    {
+      "origin": "state-data",
+      "text": "어제는 예상보다 평균"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 더 남아 있었어요. 오늘은 그만큼 감안해서 예상해 보세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "일차"
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 캘리브레이션 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "일차 /"
+    },
+    {
+      "origin": "state-data",
+      "text": "일"
+    },
+    {
+      "origin": "state-data",
+      "text": "예상과 실제 비교"
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 2에서 멈추기"
+    },
+    {
+      "origin": "state-data",
+      "text": "검증"
+    },
+    {
+      "origin": "state-data",
+      "text": "멈춘 지점에서 남았다고 느낀 반복"
+    },
+    {
+      "origin": "state-data",
+      "text": "이 세트 뒤 몇 회 남을 것 같나요"
+    },
+    {
+      "origin": "state-data",
+      "text": "여유 없음 · 한계"
+    },
+    {
+      "origin": "state-data",
+      "text": "1회 여유"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 더 가능"
+    },
+    {
+      "origin": "state-data",
+      "text": "멈춘 뒤 1~2회만 확인"
+    },
+    {
+      "origin": "state-data",
+      "text": "폼 유지 한계까지 AMRAP"
+    },
+    {
+      "origin": "state-data",
+      "text": "멈춘 지점에서 1~2회만 더 해 봅니다. 실제로 몇 회가 남아 있었는지만 확인하면 됩니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "폼이 무너지기 직전까지 더 해 보고, 몇 회를 더 했는지 적습니다. 통증이 있으면 즉시 멈추세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "예상과 실제가 같았습니다. 이 감각을 다음 세트에도 그대로 쓰면 됩니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "실제로"
+    },
+    {
+      "origin": "state-data",
+      "text": "회가 더 남아 있었습니다. 초보에게 흔한 폭이고, 이 차이가 우리가 찾던 보정값입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "예상보다"
+    },
+    {
+      "origin": "state-data",
+      "text": "회 적게 남아 있었습니다. 다음 세트는 조금 더 여유를 두고 멈춰 보세요."
+    },
+    {
+      "origin": "state-data",
+      "text": "다음 종목 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "결과 보기"
+    },
+    {
+      "origin": "state-data",
+      "text": "일차 마치기"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 ·"
+    },
+    {
+      "origin": "state-data",
+      "text": "7일 도달"
+    },
+    {
+      "origin": "state-data",
+      "text": "검증 계속"
+    },
+    {
+      "origin": "state-data",
+      "text": "RIR 감각이 잡혔습니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "7일치 값으로 시작합니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "하루 더 하면 더 정확해집니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "예상보다 평균"
+    },
+    {
+      "origin": "state-data",
+      "text": "더"
+    },
+    {
+      "origin": "state-data",
+      "text": "덜"
+    },
+    {
+      "origin": "state-data",
+      "text": "남아 있었습니다. 앞으로 기록한 RIR에서 이만큼 보정해 다음 무게를 계산합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "신뢰도 높음"
+    },
+    {
+      "origin": "state-data",
+      "text": "신뢰도 낮음"
+    },
+    {
+      "origin": "state-data",
+      "text": "검증 필요"
+    },
+    {
+      "origin": "state-data",
+      "text": "일 측정"
+    },
+    {
+      "origin": "state-data",
+      "text": "이 보정값은 추천 계산에만 쓰입니다. 기록에 남는 RIR은 사용자가 적은 값 그대로입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "7일까지 측정했습니다. 오차가 아직 ±1.5회 밖이라 추천 강도를 한 단계 보수적으로 잡고, 세션이 쌓이면 자동으로 다시 맞춥니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "검증 세션을 하루 더 하면 오차가 줄어듭니다. 최대 7일까지 가능하고, 지금 값으로 시작해도 됩니다."
+    }
+  ]
+}

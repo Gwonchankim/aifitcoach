@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="afc-prototype-source" content="AFC 페이월 B 확정 (오프라인).html">
+<style>
+body{margin:0;background:#E9ECF1;color:#151A21;font-family:Pretendard,-apple-system,'Noto Sans KR',sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#1B4FC4}a:hover{color:#153c96}
+button{font-family:inherit;cursor:pointer;border:none;background:none;padding:0;color:inherit}
+button:focus-visible{outline:2px solid #1B4FC4;outline-offset:2px}
+::-webkit-scrollbar{width:0;height:0}
+@keyframes afcSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes afcFade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<x-dc>
+
+<div style="padding:40px 24px 72px;display:flex;flex-direction:column;align-items:center;gap:22px">
+
+<div style="width:100%;max-width:900px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end;justify-content:space-between">
+<div>
+<div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#5D6875">AIFITCOACH · 페이월 B 확정</div>
+<h1 style="margin:10px 0 0;font-size:32px;font-weight:800;letter-spacing:-.03em;line-height:1.1">복합운동 우선, <span style="color:#5D6875;font-weight:500">잠금 없이</span></h1>
+<p style="margin:10px 0 0;max-width:58ch;color:#3A424E;font-size:14px;line-height:1.65;text-wrap:pretty">설명은 프로그램 개요에서 한 번. 세션 안에서는 안내가 총 1회만 뜨고, 나머지 직접 입력 종목은 자물쇠 없이 그냥 평범한 입력 카드입니다.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875">화면</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ nav }}" as="n" hint-placeholder-count="2">
+<button sc-camel-on-click="{{ n.pick }}" style="{{ n.style }}">{{ n.label }}</button>
+</sc-for>
+</div>
+</div>
+</div>
+
+<div style="position:relative;width:390px;height:812px;background:#FFFFFF;border:1px solid #C9D0DA;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 1px 0 rgba(21,26,33,.05),0 18px 34px -22px rgba(21,26,33,.45)">
+
+<div style="height:26px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#5D6875">
+<span>9:41</span><span>PWA</span>
+</div>
+
+<sc-if value="{{ isOverview }}">
+<div data-screen-label="프로그램 개요" style="flex:1;overflow-y:auto;padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px">
+<h2 style="font-size:20px;font-weight:800;letter-spacing:-.025em;line-height:1.3">추천은 이렇게 붙습니다</h2>
+<div style="border:1.5px solid #151A21;border-radius:3px;padding:13px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875">규칙</div>
+<div style="margin-top:6px;font-size:14px;font-weight:700;line-height:1.5;letter-spacing:-.01em;text-wrap:pretty">무게 판단이 가장 어려운 종목부터 도와드립니다.</div>
+<div style="margin-top:6px;font-size:12.5px;line-height:1.6;color:#333B47;text-wrap:pretty">고립 운동은 감으로 잡아도 위험이 적습니다. 그래서 스쿼트·데드리프트·벤치프레스처럼 무게 오차의 위험이 큰 복합운동에 추천이 먼저 붙습니다.</div>
+</div>
+<div style="border:1px solid #C9D0DA;border-radius:3px;padding:12px 13px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875;margin-bottom:8px">추천 대상 · 무료 2종목</div>
+<sc-for list="{{ targetChips }}" as="t" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-top:1px dotted #C9D0DA">
+<span style="font-size:13.5px;font-weight:700">{{ t.name }}</span>
+<span style="display:inline-flex;border:1px solid #B6DFC6;border-radius:2px;padding:3px 7px;font-family:'JetBrains Mono',monospace;font-size:9px;color:#1B8A4B;background:#EFF8F2">추천 무료</span>
+</div>
+</sc-for>
+<button sc-camel-on-click="{{ openSwap }}" style="margin-top:9px;width:100%;height:44px;border:1px solid #C9D0DA;border-radius:2px;background:#F5F7FA;font-size:13px;font-weight:700;color:#151A21">대상 종목 바꾸기</button>
+</div>
+<div style="border:1px solid #C9D0DA;border-radius:3px;background:#F5F7FA;padding:11px 12px;font-size:11.5px;line-height:1.6;color:#5D6875;text-wrap:pretty">그 외 세트 기록 · 히스토리 · 프로그램 보기는 무제한 무료입니다. 통증 기록, 부담 적은 종목 교체, 기록 내보내기도 항상 무료입니다.</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSession }}">
+<div data-screen-label="세션 기록" style="flex:1;overflow-y:auto;padding:14px 16px 16px;display:flex;flex-direction:column;gap:11px">
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.02em">상체 밀기 · 4종목</h2>
+<sc-for list="{{ session }}" as="ex" hint-placeholder-count="4">
+<div style="{{ ex.cardStyle }}">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+<h3 style="font-size:14.5px;font-weight:800;letter-spacing:-.02em">{{ ex.name }}</h3>
+<sc-if value="{{ ex.isTarget }}"><span style="display:inline-flex;border:1px solid #B6DFC6;border-radius:2px;padding:3px 7px;font-family:'JetBrains Mono',monospace;font-size:9px;color:#1B8A4B;background:#EFF8F2">{{ ex.delta }}</span></sc-if>
+</div>
+
+<sc-if value="{{ ex.isTarget }}">
+<div style="display:flex;align-items:baseline;gap:8px;margin:8px 0 4px">
+<span style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums">{{ ex.w }}</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#5D6875">kg</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700">{{ ex.r }}</span>
+<span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#5D6875">회 · 3세트</span>
+</div>
+<button style="font-size:11.5px;font-weight:700;color:#1B4FC4;padding:2px 0">왜 이렇게 추천했나 ›</button>
+</sc-if>
+
+<sc-if value="{{ ex.notTarget }}">
+<div style="margin-top:9px;display:flex;align-items:center;gap:9px">
+<button aria-label="무게 감소" style="width:44px;height:40px;flex:none;border:1px solid #C9D0DA;border-radius:2px;background:#F5F7FA;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700">−</button>
+<div style="flex:1;height:40px;border:1.5px solid #C9D0DA;border-radius:2px;display:flex;align-items:center;justify-content:center;gap:6px;font-family:'JetBrains Mono',monospace;font-weight:700">
+<span style="font-size:16px">{{ ex.w }}</span><span style="font-size:10px;color:#5D6875">kg</span><span style="font-size:15px">× {{ ex.r }}</span>
+</div>
+<button aria-label="무게 증가" style="width:44px;height:40px;flex:none;border:1px solid #C9D0DA;border-radius:2px;background:#F5F7FA;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700">+</button>
+</div>
+<sc-if value="{{ ex.showNote }}">
+<div style="margin-top:9px;padding-top:9px;border-top:1px solid #E4E9F0;font-size:11.5px;line-height:1.6;color:#5D6875;text-wrap:pretty">직접 정하는 종목입니다. 복합운동 2종목에만 추천이 붙습니다. <button sc-camel-on-click="{{ ex.toTarget }}" style="color:#1B4FC4;font-weight:700;padding:0">이 종목을 추천 대상으로</button></div>
+</sc-if>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ isUpgrade }}">
+<div data-screen-label="업그레이드" style="flex:1;overflow-y:auto;padding:14px 16px 16px;display:flex;flex-direction:column;gap:11px">
+
+<div style="border:1.5px solid #151A21;border-radius:3px;padding:13px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875">지금까지 당신의 기록</div>
+<div style="margin-top:6px;font-size:17px;font-weight:800;letter-spacing:-.02em;line-height:1.4;text-wrap:pretty">3주간 10세션 · 벤치 +3.2kg · 스쿼트 +7.5kg</div>
+<div style="margin-top:5px;font-size:12px;line-height:1.55;color:#5D6875">Pro는 이 페이스를 모든 종목에서 이어갑니다.</div>
+</div>
+
+<div style="border:1px solid #C9D0DA;border-radius:3px;overflow:hidden">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:#F5F7FA;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.06em;color:#5D6875">
+<div style="padding:8px 10px"></div>
+<div style="padding:8px 10px;text-align:center">무료</div>
+<div style="padding:8px 10px;text-align:center;color:#151A21;font-weight:700">Pro</div>
+</div>
+<sc-for list="{{ compareRows }}" as="row" hint-placeholder-count="4">
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid #E4E9F0;font-size:11px;line-height:1.45">
+<div style="padding:9px 10px;font-weight:700">{{ row.label }}</div>
+<div style="padding:9px 8px;text-align:center;color:#333B47">{{ row.free }}</div>
+<div style="padding:9px 8px;text-align:center;color:#151A21;font-weight:600">{{ row.pro }}</div>
+</div>
+</sc-for>
+</div>
+
+<div style="display:flex;gap:9px">
+<button sc-camel-on-click="{{ pickMonthly }}" style="{{ monthlyStyle }}">
+<span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#5D6875">월간</span>
+<span style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;letter-spacing:-.02em">9,900원</span>
+<span style="font-size:10.5px;color:#5D6875">월</span>
+</button>
+<button sc-camel-on-click="{{ pickYearly }}" style="{{ yearlyStyle }}">
+<span style="display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.1em;color:#5D6875">연간<span style="display:inline-flex;border-radius:2px;padding:1px 5px;background:#EFF8F2;color:#1B8A4B;font-weight:700">33% 할인</span></span>
+<span style="margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;letter-spacing:-.02em">79,000원</span>
+<span style="font-size:10.5px;color:#5D6875">연</span>
+</button>
+</div>
+
+<div style="border:1px solid #C9D0DA;border-radius:3px;padding:11px 12px;font-size:11.5px;line-height:1.65;color:#333B47;text-wrap:pretty">7일 무료 체험 후 결제가 시작됩니다. 체험 종료 2일 전에 알려드립니다. 결제는 국내 카드·간편결제(토스페이·카카오페이)로 진행됩니다.</div>
+<div style="display:flex;gap:14px;font-size:11.5px">
+<a href="#">결제수단 안내</a><a href="#">해지·환불 안내</a>
+</div>
+
+<div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+<button style="height:48px;border-radius:3px;background:#151A21;color:#fff;font-size:14.5px;font-weight:700">{{ ctaLabel }}</button>
+<button sc-camel-on-click="{{ goHome }}" style="height:46px;border-radius:3px;border:1px solid #C9D0DA;background:#fff;color:#151A21;font-size:13.5px;font-weight:700">나중에</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCancel }}">
+<div data-screen-label="해지" style="flex:1;overflow-y:auto;padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px">
+<h2 style="font-size:19px;font-weight:800;letter-spacing:-.02em">구독 관리</h2>
+<div style="border:1px solid #C9D0DA;border-radius:3px;padding:12px 13px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875">현재 플랜</div>
+<div style="margin-top:5px;font-size:14.5px;font-weight:700">Pro · 월간 9,900원</div>
+<div style="margin-top:3px;font-size:11.5px;color:#5D6875">다음 결제일 2026년 9월 9일</div>
+</div>
+<sc-if value="{{ notConfirming }}">
+<button sc-camel-on-click="{{ askCancel }}" style="height:48px;border-radius:3px;border:1.5px solid #151A21;background:#fff;color:#151A21;font-size:14px;font-weight:700">구독 해지</button>
+</sc-if>
+<sc-if value="{{ confirmCancel }}">
+<div style="border:1px solid #C9D0DA;border-radius:3px;padding:12px 13px">
+<div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5D6875;margin-bottom:6px">해지하면</div>
+<div style="font-size:12.5px;line-height:1.7;color:#333B47">지금까지 기록은 그대로 남습니다.<br>추천·추천 이유·자동 보정이 멈춥니다.<br>9월 9일까지는 Pro 기능을 계속 쓸 수 있습니다.</div>
+</div>
+<div style="display:flex;gap:9px">
+<button sc-camel-on-click="{{ doCancel }}" style="flex:1;height:48px;border-radius:3px;background:#151A21;color:#fff;font-size:14px;font-weight:700">해지하기</button>
+<button sc-camel-on-click="{{ cancelCancel }}" style="flex:1;height:48px;border-radius:3px;border:1px solid #C9D0DA;background:#fff;color:#151A21;font-size:14px;font-weight:700">유지하기</button>
+</div>
+</sc-if>
+<sc-if value="{{ cancelled }}">
+<div style="border:1px solid #C9D0DA;border-radius:3px;background:#F5F7FA;padding:12px 13px;font-size:12.5px;line-height:1.6;color:#333B47">해지됐습니다. 9월 9일까지 Pro 기능을 계속 쓸 수 있고, 이후 무료 방식으로 자동 전환됩니다. 기록은 계속 남습니다.</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ showSwap }}">
+<div sc-camel-on-click="{{ closeSwap }}" style="position:absolute;left:0;right:0;top:26px;bottom:0;background:rgba(21,26,33,.42);animation:afcFade .18s ease-out"></div>
+<div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #C9D0DA;border-radius:12px 12px 0 0;padding:16px 18px 20px;display:flex;flex-direction:column;gap:10px;animation:afcSheet .22s cubic-bezier(.2,.8,.3,1);box-shadow:0 -14px 34px -18px rgba(21,26,33,.55);max-height:80%;overflow-y:auto">
+<div style="width:34px;height:3px;background:#C9D0DA;border-radius:2px;margin:0 auto 2px"></div>
+<h3 style="font-size:18px;font-weight:800;letter-spacing:-.02em">추천 대상 2종목 고르기</h3>
+<div style="font-size:12px;line-height:1.6;color:#5D6875">복합운동을 우선 권합니다. 다른 종목을 고르면 기록이 쌓일 때까지 추천이 덜 정확합니다.</div>
+<sc-for list="{{ swapList }}" as="c" hint-placeholder-count="6">
+<button sc-camel-on-click="{{ c.toggle }}" style="{{ c.style }}">
+<span style="{{ c.box }}">{{ c.check }}</span>
+<span style="flex:1;text-align:left">
+<span style="display:block;font-size:14px;font-weight:700">{{ c.name }}</span>
+<span style="display:block;margin-top:2px;font-size:11px;color:#5D6875">{{ c.tag }}</span>
+</span>
+</button>
+<sc-if value="{{ c.warn }}"><div style="margin:-2px 0 2px 34px;font-size:11px;line-height:1.5;color:#5D6875">기록이 쌓일 때까지 추천이 덜 정확합니다.</div></sc-if>
+</sc-for>
+<button sc-camel-on-click="{{ closeSwap }}" style="margin-top:6px;height:48px;border-radius:3px;background:#151A21;color:#fff;font-size:14.5px;font-weight:700">적용하기</button>
+</div>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+</body>
+</html>

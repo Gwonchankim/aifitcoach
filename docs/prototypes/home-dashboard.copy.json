@@ -1,0 +1,479 @@
+{
+  "format": 1,
+  "source": "AFC 홈 대시보드 (오프라인).html",
+  "note": "정적 템플릿 텍스트와 상태 데이터의 한글 문자열을 원본 등장 순서로 중복 제거했다.",
+  "entries": [
+    {
+      "origin": "template",
+      "text": "AIFITCOACH · 홈 확정안"
+    },
+    {
+      "origin": "template",
+      "text": "오늘 할 일이"
+    },
+    {
+      "origin": "template",
+      "text": "화면을 가진다"
+    },
+    {
+      "origin": "template",
+      "text": "A안(오늘 우선)을 홈으로 확정했습니다. C안의 주간 리듬은 한 줄 스트립으로 흡수하고, B안의 성과 지표는 요약 한 줄만 남기고 '기록' 탭 상단으로 옮깁니다. 오늘 상태를 바꿔 가며 확인하세요."
+    },
+    {
+      "origin": "template",
+      "text": "오늘 상태"
+    },
+    {
+      "origin": "template",
+      "text": "오늘"
+    },
+    {
+      "origin": "template",
+      "text": "8.09 토 · 3주차"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 없음"
+    },
+    {
+      "origin": "template",
+      "text": "주 몇 회 운동할지만 정하면 오늘 할 일이 생깁니다"
+    },
+    {
+      "origin": "template",
+      "text": "질문 세 개 · 1분. 종목과 시작 무게는 답에 맞춰 자동으로 짜이고, 첫 세션 결과로 바로 조정됩니다."
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 만들기"
+    },
+    {
+      "origin": "template",
+      "text": "만들고 나면"
+    },
+    {
+      "origin": "template",
+      "text": "요일마다 할 종목과 세트가 이 자리에 뜹니다."
+    },
+    {
+      "origin": "template",
+      "text": "세 세션이 쌓이면 무게 추천과 추정 1RM이 나타납니다."
+    },
+    {
+      "origin": "template",
+      "text": "주간 리듬과 근육군별 볼륨이 여기 아래로 붙습니다."
+    },
+    {
+      "origin": "template",
+      "text": "프로그램 없이 오늘 한 종목만 기록"
+    },
+    {
+      "origin": "template",
+      "text": "예정이던 상체 밀기"
+    },
+    {
+      "origin": "template",
+      "text": "어떻게 할까요"
+    },
+    {
+      "origin": "template",
+      "text": "고르는 대로 이번 주 계획을 다시 짭니다."
+    },
+    {
+      "origin": "template",
+      "text": "이대로 반영"
+    },
+    {
+      "origin": "template",
+      "text": "이번 주 리듬"
+    },
+    {
+      "origin": "template",
+      "text": "닫기"
+    },
+    {
+      "origin": "template",
+      "text": "벤치프레스 추정 1RM"
+    },
+    {
+      "origin": "template",
+      "text": "▲ 3.2kg · 4주"
+    },
+    {
+      "origin": "template",
+      "text": "기록 탭 ›"
+    },
+    {
+      "origin": "template",
+      "text": "주간 볼륨"
+    },
+    {
+      "origin": "template",
+      "text": "권장 10–20"
+    },
+    {
+      "origin": "template",
+      "text": "기록"
+    },
+    {
+      "origin": "template",
+      "text": "프로그램"
+    },
+    {
+      "origin": "template",
+      "text": "내 정보"
+    },
+    {
+      "origin": "template",
+      "text": "확정."
+    },
+    {
+      "origin": "template",
+      "text": "홈은 A안. 주간 리듬은 7칸 스트립 한 줄로 흡수했고(날짜를 탭하면 그날 기록이 펼쳐집니다), 성과는 1RM 한 줄만 남기고 상세 추이는 '기록' 탭으로 넘겼습니다. 3안 비교본은"
+    },
+    {
+      "origin": "template",
+      "text": "3안 비교 파일"
+    },
+    {
+      "origin": "template",
+      "text": "에 남겨 뒀습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "진행 중인 세션 · 기기에 저장됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "5세트 기록됨"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 · 4종목"
+    },
+    {
+      "origin": "state-data",
+      "text": "벤치프레스 2세트까지 기록했습니다. 다음은 3세트 62.5kg × 8회."
+    },
+    {
+      "origin": "state-data",
+      "text": "이어하기"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘은 여기까지"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 기록 요약"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료 ✓"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 · 12세트 완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "4종목 12세트 · 48분. 다음은 월요일 하체 · 4종목."
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 기록 보기"
+    },
+    {
+      "origin": "state-data",
+      "text": "8세트 완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 · 8세트 완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "3종목 8세트 · 41분. 기록한 세트는 모두 저장됐습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "남은 종목 이어하기"
+    },
+    {
+      "origin": "state-data",
+      "text": "하체 · 12세트 완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "4종목 12세트 · 62분. 예정이던 상체 밀기는 아직 남아 있습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 수행할 운동"
+    },
+    {
+      "origin": "state-data",
+      "text": "추천 신뢰도 낮음"
+    },
+    {
+      "origin": "state-data",
+      "text": "마지막 세션은 7월 12일 상체 밀기였습니다. 그때 무게에서 10% 낮춰 시작합니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "첫 세트로 무게 가늠하기"
+    },
+    {
+      "origin": "state-data",
+      "text": "지난 무게 그대로 시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘은 휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "예정된 운동 없음"
+    },
+    {
+      "origin": "state-data",
+      "text": "다음 세션은 월요일 하체 · 4종목입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "가볍게 한 종목 추가"
+    },
+    {
+      "origin": "state-data",
+      "text": "12세트 예정"
+    },
+    {
+      "origin": "state-data",
+      "text": "벤치프레스부터 시작합니다. 첫 세트 추천은 62.5kg × 8회."
+    },
+    {
+      "origin": "state-data",
+      "text": "세션 시작"
+    },
+    {
+      "origin": "state-data",
+      "text": "미수행"
+    },
+    {
+      "origin": "state-data",
+      "text": "진행 중"
+    },
+    {
+      "origin": "state-data",
+      "text": "완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "부분 수행"
+    },
+    {
+      "origin": "state-data",
+      "text": "휴식일"
+    },
+    {
+      "origin": "state-data",
+      "text": "계획 충돌"
+    },
+    {
+      "origin": "state-data",
+      "text": "공백 후 복귀"
+    },
+    {
+      "origin": "state-data",
+      "text": "바벨 벤치프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "62.5kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "인클라인 덤벨 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "20.0kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "오버헤드 프레스"
+    },
+    {
+      "origin": "state-data",
+      "text": "32.5kg · 3세트"
+    },
+    {
+      "origin": "state-data",
+      "text": "케이블 푸시다운"
+    },
+    {
+      "origin": "state-data",
+      "text": "대기"
+    },
+    {
+      "origin": "state-data",
+      "text": "가슴"
+    },
+    {
+      "origin": "state-data",
+      "text": "등"
+    },
+    {
+      "origin": "state-data",
+      "text": "어깨"
+    },
+    {
+      "origin": "state-data",
+      "text": "하체"
+    },
+    {
+      "origin": "state-data",
+      "text": "팔"
+    },
+    {
+      "origin": "state-data",
+      "text": "부족"
+    },
+    {
+      "origin": "state-data",
+      "text": "초과"
+    },
+    {
+      "origin": "state-data",
+      "text": "월"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 4일 월 · 하체"
+    },
+    {
+      "origin": "state-data",
+      "text": "4종목 12세트 · 62분."
+    },
+    {
+      "origin": "state-data",
+      "text": "화"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 5일 화 · 휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "예정된 운동이 없었습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "수"
+    },
+    {
+      "origin": "state-data",
+      "text": "부분"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 6일 수 · 상체 당기기"
+    },
+    {
+      "origin": "state-data",
+      "text": "3종목 8세트 완료 · 41분. 시간이 없어 종료했습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "목"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 7일 목 · 휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "금"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 8일 금 · 상체 밀기"
+    },
+    {
+      "origin": "state-data",
+      "text": "4종목 12세트 · 45분. 벤치프레스에서 오른쪽 어깨 통증 4점 기록, 2세트 후 체스트 프레스 머신으로 교체."
+    },
+    {
+      "origin": "state-data",
+      "text": "토"
+    },
+    {
+      "origin": "state-data",
+      "text": "일"
+    },
+    {
+      "origin": "state-data",
+      "text": "8월 10일 일 · 휴식"
+    },
+    {
+      "origin": "state-data",
+      "text": "예정된 운동이 없습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "오늘 이어서 하기"
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 4종목을 지금 세션에 붙입니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "다음 운동일로 미루기"
+    },
+    {
+      "origin": "state-data",
+      "text": "월요일 하체 → 화요일로 하루씩 밀립니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "이번 주는 건너뛰기"
+    },
+    {
+      "origin": "state-data",
+      "text": "가슴 주간 볼륨은 14 → 8세트가 됩니다"
+    },
+    {
+      "origin": "state-data",
+      "text": "미루면 화요일 상체 밀기, 수요일 하체, 금요일 상체 당기기로 한 칸씩 밀립니다. 주간 볼륨은 그대로입니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "이번 주 가슴 볼륨은 8세트로 권장 범위 아래가 됩니다. 다음 주에 상체 밀기를 두 번 배치할 수 있습니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "상체 밀기 4종목 12세트를 오늘 세션에 이어 붙입니다. 오늘 볼륨은 24세트가 됩니다."
+    },
+    {
+      "origin": "state-data",
+      "text": "이번 주 첫 세션 · 마지막 7월 12일"
+    },
+    {
+      "origin": "state-data",
+      "text": "연속 12일 · 3완료"
+    },
+    {
+      "origin": "state-data",
+      "text": "연속 11일 · 2완료 +1부분"
+    },
+    {
+      "origin": "state-data",
+      "text": "마지막 세션은 7월 12일 상체 밀기입니다. 공백이 있어 지난 무게를 그대로 쓰지 않고 10% 낮춰 잡았습니다. 첫 세트 RIR을 기록하면 두 번째 세트부터 다시 맞춥니다."
+    }
+  ]
+}

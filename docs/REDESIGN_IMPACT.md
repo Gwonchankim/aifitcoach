@@ -143,6 +143,17 @@
 - 12주 수명주기(R-03), 주간 볼륨 권장 범위(R-24), 세션 상세(계획 대비 실제), 종목 추이·공백 끊김.
 - 선행 결정: R-11(재배치), R-21(backfill).
 
+#### Sprint 0 계약 잠금 (D-32~D-44, 2026-08-16)
+
+- 집계는 수행기록 원본 + targeted recompute/조회 reconcile/전체 rebuild가 같은 projector를 쓰는 hybrid다.
+- e1RM·PR은 저반복 우선 + RIR 보정 공용 공식으로 통일하며 기존 raw-Epley projection은 rebuild한다.
+- 프로그램은 lifecycle 메타만 저장하고 12주 세션을 사전 생성하지 않는다. 실제 저장소에는 기존 설명의
+  `generation_input`/`planWeek`가 아직 없으므로 신규 입력 보존과 레거시 template fallback을 구분한다.
+- 표시 게이트 파일은 `packages/shared/display-gate.ts` 하나다. 서버가 게이트한 응답이 온라인 권위이고,
+  오프라인 mirror만 같은 모듈을 사용한다.
+- T-UI-3만 projector와 병렬 가능하다. 일정 재배치·수동 과거 기록 입력·스트렝스 임의 범위는 제외한다.
+- 상세 계약과 red proof 기준은 `M4_CONTRACT.md`가 소유한다.
+
 ### M-7′ — 페이월 · 구독 · RIR 캘리브레이션
 
 - R-02·R-05·R-06. `TEST_SCOPE.md` 의 "결제 보류" 해제 여부가 선행(**D-9**).

@@ -28,6 +28,8 @@ const VALID_SESSION = {
       reason_code: "BASELINE",
       confidence: 0.5,
       rules_version: "2026.07.1",
+      recommendation_gate: "no_history",
+      performed_set: null,
     },
   ],
 };
@@ -120,6 +122,10 @@ describe("openapi 응답 검증기", () => {
           goal: "hypertrophy",
           split_type: "upper_lower",
           rules_version: "2026.07.1",
+          started_at: "2026-08-04",
+          total_weeks: 12,
+          current_week: 1,
+          status: "active",
           excluded_exercises: [],
           sessions: [
             {
@@ -149,19 +155,24 @@ describe("openapi 응답 검증기", () => {
           next_recommendations: [
             {
               exercise_id: "e_bench_press",
-              weight: 62.5,
-              reps_low: 6,
-              reps_high: 12,
-              sets: 3,
-              reason_code: "BASELINE",
-              confidence: 0.5,
-              explanation: "기록이 없다",
-              rules_version: "2026.07.1",
-              debug_history: [{ w: 60 }],
+              sample_session_count: 3,
+              gate_state: "ready",
+              recommendation: {
+                exercise_id: "e_bench_press",
+                weight: 62.5,
+                reps_low: 6,
+                reps_high: 12,
+                sets: 3,
+                reason_code: "BASELINE",
+                confidence: 0.5,
+                explanation: "기록이 없다",
+                rules_version: "2026.07.1",
+                debug_history: [{ w: 60 }],
+              },
             },
           ],
         }),
-      ).toThrow(/\$\.next_recommendations\[0\]\.debug_history/);
+      ).toThrow(/\$\.next_recommendations\[0\]\.recommendation\.debug_history/);
     });
   });
 

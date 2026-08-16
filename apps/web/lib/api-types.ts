@@ -609,7 +609,7 @@ export interface paths {
             [name: string]: unknown;
           };
           content: {
-            "application/json": components["schemas"]["Recommendation"];
+            "application/json": components["schemas"]["GatedRecommendation"];
           };
         };
       };
@@ -703,7 +703,7 @@ export interface paths {
           content: {
             "application/json": {
               session: components["schemas"]["Session"];
-              next_recommendations: components["schemas"]["Recommendation"][];
+              next_recommendations: components["schemas"]["GatedRecommendation"][];
             };
           };
         };
@@ -815,6 +815,7 @@ export interface paths {
         query: {
           exercise_id: string;
           from?: string;
+          to?: string;
         };
         header?: never;
         path?: never;
@@ -828,14 +829,7 @@ export interface paths {
             [name: string]: unknown;
           };
           content: {
-            "application/json": {
-              exercise_id: string;
-              points: {
-                /** Format: date */
-                date: string;
-                e1rm: number;
-              }[];
-            };
+            "application/json": components["schemas"]["E1rmAnalytics"];
           };
         };
       };
@@ -860,6 +854,7 @@ export interface paths {
       parameters: {
         query?: {
           week_start?: string;
+          weeks?: number;
         };
         header?: never;
         path?: never;
@@ -873,11 +868,7 @@ export interface paths {
             [name: string]: unknown;
           };
           content: {
-            "application/json": {
-              muscle: string;
-              hard_sets: number;
-              avg_rir: number;
-            }[];
+            "application/json": components["schemas"]["VolumeAnalytics"];
           };
         };
       };
@@ -900,7 +891,10 @@ export interface paths {
     /** 주간 운동 완료율 */
     get: {
       parameters: {
-        query?: never;
+        query?: {
+          week_start?: string;
+          weeks?: number;
+        };
         header?: never;
         path?: never;
         cookie?: never;
@@ -913,13 +907,7 @@ export interface paths {
             [name: string]: unknown;
           };
           content: {
-            "application/json": {
-              /** Format: date */
-              week_start: string;
-              completed: number;
-              planned: number;
-              rate: number;
-            };
+            "application/json": components["schemas"]["CompletionAnalytics"];
           };
         };
       };
@@ -1526,6 +1514,12 @@ export interface components {
       split_type: string;
       /** @example 2026.08.1 */
       rules_version: string;
+      /** Format: date */
+      started_at: string;
+      total_weeks: number;
+      current_week: number;
+      /** @enum {string} */
+      status: "active" | "completed";
       excluded_exercises: {
         /** @example e_back_squat */
         exercise_id: string;
@@ -1599,9 +1593,11 @@ export interface components {
       recommended_weight: number | null;
       recommended_reps: number | null;
       /** @example WEIGHT_UP_REP_TARGET_MET */
-      reason_code: string;
-      confidence: number;
+      reason_code: string | null;
+      confidence: number | null;
       rules_version: string;
+      recommendation_gate: components["schemas"]["DisplayGateState"];
+      performed_set: components["schemas"]["PerformedSetSummary"] | null;
     };
     PerformedSet: {
       planned_set_id?: string;
@@ -1637,6 +1633,96 @@ export interface components {
       method: string;
       /** Format: date-time */
       computed_at: string;
+    };
+    /** @enum {string} */
+    DisplayGateState: "no_history" | "early" | "ready";
+    PerformedSetSummary: {
+      actual_weight: number | null;
+      actual_reps: number | null;
+      actual_rir: number | null;
+      actual_time_sec: number | null;
+      completed: boolean;
+      /** Format: date-time */
+      performed_at: string;
+    };
+    GatedRecommendation: {
+      exercise_id: string;
+      sample_session_count: number;
+      gate_state: components["schemas"]["DisplayGateState"];
+      recommendation: components["schemas"]["Recommendation"] | null;
+    };
+    E1rmAnalytics: {
+      exercise_id: string;
+      sample_session_count: number;
+      gate_state: components["schemas"]["DisplayGateState"];
+      /** @description 완료 세션 날짜. early 상태의 점 표시에 쓰며 e1RM 값은 포함하지 않는다. */
+      observations: {
+        session_id: string;
+        /** Format: date */
+        date: string;
+      }[];
+      /** @description gate_state=ready에서만 값이 있으며 date, session_id 순으로 결정적으로 정렬한다. */
+      points: {
+        session_id: string;
+        /** Format: date */
+        date: string;
+        e1rm: number;
+        method: string;
+        is_pr: boolean;
+      }[];
+      next_recommendation: components["schemas"]["Recommendation"] | null;
+    };
+    VolumeAnalytics: {
+      /** @enum {string} */
+      goal: "diet" | "hypertrophy" | "strength";
+      recommendation_range: {
+        min_hard_sets: number;
+        max_hard_sets: number;
+      } | null;
+      weeks: {
+        /** Format: date */
+        week_start: string;
+        muscles: {
+          muscle: string;
+          hard_sets: number;
+          volume_load: number;
+          avg_rir: number | null;
+          /** @enum {string} */
+          range_status: "below" | "within" | "above" | "not_applicable";
+        }[];
+      }[];
+    };
+    RhythmDay: {
+      /** Format: date */
+      date: string;
+      /** @enum {string} */
+      state:
+        | "unperformed"
+        | "in_progress"
+        | "completed"
+        | "partial"
+        | "rest"
+        | "conflict"
+        | "return_after_gap"
+        | "scheduled";
+      session_id: string | null;
+      focus: string | null;
+    };
+    CompletionAnalytics: {
+      program_id: string;
+      /** Format: date */
+      started_at: string;
+      total_weeks: number;
+      current_week: number;
+      weeks: {
+        /** Format: date */
+        week_start: string;
+        week_number: number;
+        completed: number;
+        planned: number;
+        rate: number;
+        days: components["schemas"]["RhythmDay"][];
+      }[];
     };
     SyncRequest: {
       /** @description 직전 SyncResponse.next_cursor. 서버 순서를 감춘 opaque cursor이며 시각이 아니다. */
@@ -1778,7 +1864,14 @@ export interface components {
       date: string;
       today: {
         /** @enum {string} */
-        status: "workout" | "rest" | "done";
+        status:
+          | "unperformed"
+          | "in_progress"
+          | "done"
+          | "partial"
+          | "rest"
+          | "conflict"
+          | "return_after_gap";
         session_id: string | null;
         routine_summary: {
           exercise_count: number;
@@ -1800,6 +1893,13 @@ export interface components {
       };
       streak_days: number;
       weekly_completion_rate: number;
+      weekly_rhythm: components["schemas"]["RhythmDay"][];
+      primary_e1rm: {
+        exercise_id: string;
+        sample_session_count: number;
+        gate_state: components["schemas"]["DisplayGateState"];
+        latest_e1rm: number | null;
+      } | null;
     };
   };
   responses: {

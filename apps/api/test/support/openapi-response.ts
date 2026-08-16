@@ -35,6 +35,8 @@ function toJsonSchema(node: unknown): unknown {
   }
   if (source.nullable === true && typeof source.type === "string") {
     result.type = [source.type, "null"];
+  } else if (source.nullable === true) {
+    return { anyOf: [result, { type: "null" }] };
   }
   return result;
 }
@@ -91,6 +93,18 @@ function collectUndeclaredKeys(
   found: string[],
 ): void {
   const node = resolveRef(schema);
+  const allOf = node.allOf as SchemaNode[] | undefined;
+  if (allOf) {
+    for (const branch of allOf) collectUndeclaredKeys(branch, value, pointer, found);
+    return;
+  }
+  const anyOf = node.anyOf as SchemaNode[] | undefined;
+  if (anyOf) {
+    for (const branch of anyOf) {
+      if (branch.type !== "null") collectUndeclaredKeys(branch, value, pointer, found);
+    }
+    return;
+  }
 
   if (Array.isArray(value)) {
     const items = node.items as SchemaNode | undefined;

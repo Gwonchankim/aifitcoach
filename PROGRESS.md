@@ -387,6 +387,60 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - A의 서버 무결성·재연결 경합 회귀와 B의 실제 기내모드·강제 종료 내구성 증거가 합쳐졌고 유실·중복·추천
   불일치는 발견되지 않았다. **STEP 6 최종 완료**, evaluator 98/100 PASS와 프로젝트 총점 70 상한 해제 판정을 유지한다.
 
+### ▶ M-4′ Sprint 0 — 계약 잠금·red proof (2026-08-16)
+
+- D-32~D-44 승인. D-37은 12주 세션 사전 생성 대신 lifecycle 메타 + lazy 생성으로, D-39는 단일
+  `packages/shared/display-gate.ts` + 서버 권위 게이트 결과로 수정 확정됐다(ADR-61·62).
+- 실측 정정: 저장소에는 설명에 있던 `generation_input` 컬럼과 `planWeek` 함수가 아직 없다. 기존 program에는
+  반복 가능한 `template`이 있으므로 lifecycle backfill은 `started_at`만 설정하고 template snapshot을 lazy
+  fallback으로 쓴다. 신규 프로그램부터 generation input을 보존하며 복원 불가능한 레거시 입력을 추측하지 않는다.
+- 대시보드 PR의 raw Epley와 추천 엔진 e1RM 공식 불일치는 결함으로 확정했다. 저반복 우선+RIR 보정 공용
+  함수로 통일하고 기존 `estimated_1rm`/PR 파생값을 전체 rebuild한다.
+- 계약 원천: `docs/M4_CONTRACT.md`, `docs/specs/openapi.yaml`, `docs/DATA_MODEL.md`.
+- Sprint 0 red는 analytics 501 하나로 전부 실패하면 무효다. Program lifecycle 누락, Session actual 누락,
+  Dashboard rhythm/gate 누락과 fixture mutant(삽입 순서·증분 parity·세트/세션 오계수·raw Epley)를 각각 분리한다.
+- **red proof 실측**: `test:red:m4`는 의도대로 **4/4 red** — Program의
+  `started_at/total_weeks/current_week/status`, Session의 `recommendation_gate/performed_set`, Dashboard의
+  `weekly_rhythm/primary_e1rm`, analytics의 **501→200**이 서로 다른 원인으로 발화했다. 메타 하네스는 정상
+  fixture 1건과 삽입순서/증분 parity/세트→세션 오계수/raw-Epley mutant 4종을 모두 판별해 **5/5 green**이었다.
+- Sprint 0 계약 자체의 codegen·route/스키마 contract는 **31/31 green**, harness 포함 집중 테스트 **38/38**,
+  lint·format:check·`git diff --check` green이다. production 미구현을 숨기지 않아 전체 typecheck는 새 status와
+  required gate/actual 타입에서 red, 전체 test는 shared **81/81**·web **270/270**, api **222 passed / 41 red**다.
+  Sprint 1은 이 red를 일반 gate로 승격해 구현하고 기존 기준선 이하로 줄이지 않는다.
+- 제품 오너가 제공한 프로토타입 원본 HTML 7종에서 실행 런타임·폰트 자산을 제외한 템플릿/스타일/카피를
+  `scripts/extract-prototypes.mjs`로 결정론적으로 추출해 `docs/prototypes/`에 보존했다. 원본 SHA-256과
+  `--check` 바이트 재현성을 고정하고, 홈·기록·주간 프로그램의 픽셀·문구 체크리스트를
+  `docs/M4_CONTRACT.md` §9에 추가했다. 추가 충돌 D-45~D-49 중 기존 승인 D-39/D-42/D-1/ADR-38을
+  우선 적용하고, D-47~D-49도 제품 오너가 권장안대로 확정했다. 결제·미래 planning mutation은
+  M-4′에서 앞당기지 않는다.
+
+### ✅ M-4′ Sprint 1A projector ∥ Sprint 1B T-UI-3 (2026-08-16)
+
+- 승인된 유일한 병렬 구간을 Orca orchestration으로 실행했다. 1A는 API·Prisma·shared, 1B는 web
+  app shell·route·E2E만 소유해 같은 상태를 동시에 쓰지 않았다.
+- **1A projector**: 추천 엔진의 기존 corrected-RIR 저반복 e1RM 함수를 공용 export로 재사용하고,
+  완료 세션에서 사용자·종목·세션 e1RM과 UTC 주/주동근 hard sets·volume·avg RIR을 만드는 순수
+  projector를 추가했다. 세션 완료·sync 뒤 targeted recompute와 전체 rebuild가 같은 함수를 쓰며,
+  파생 테이블 교체는 transaction 안에서 수행한다. `estimated_1rm`은 `session_id` 논리 키로 바꾸고
+  `muscle_weekly_load.avg_rir` 결측을 `null`로 보존한다.
+- projector 전용 테스트는 **5/5 green**이다. 삽입 순서 byte equality, 주 단위 증분==전체 결과,
+  tenant 격리, 재실행 idempotency, corrected-RIR 수치를 고정했다. 첫 정렬 뮤턴트가 테스트의 약한
+  insertion-order 배치를 드러내 한 번 살아남았고, 반대 tenant를 실제 선행 배치하도록 oracle을 고친 뒤
+  정렬 제거·중복 세션 방지 제거·RIR 보정 제거 3종이 각각 red가 됨을 SHA-256 주입→판정→원복→일치로 확인했다.
+- migration은 데이터가 있는 `afc`(`performed_sets=12`)와 `afc_test`, `afc_e2e`
+  (`performed_sets=440`)에 적용했다. 세 DB 모두 **10 migrations**이며 파생 테이블은 적용 전 0행이라
+  손실 대상이 없었다. backfill/reconcile 실행 경로는 마련했지만 실제 운영 backfill 실행과 대조 보고는
+  이후 집계 API Sprint의 필수 게이트로 남긴다.
+- **1B T-UI-3**: 고정 50px 4탭 `오늘/기록/프로그램/내 정보`를 실제 링크와
+  `aria-current=page`로 연결했다. 390px에서 각 97.5px, hit area ≥44px, 본문 하단 여백을 수치 단언하고,
+  세션·온보딩 렌더 트리에는 내비를 넣지 않는다. `/history`와 비민감 읽기 전용 `/profile` route shell을
+  추가했다. 단위 **2/2**, 집중 E2E **3/3** green이며 직접 영향 화면 9개의 증거 이미지만 갱신했다.
+- **통합 게이트**: contract **31/31**, shared **81/81**, web **272/272**, projector **5/5**,
+  lint·format:check·build·verify 3종 green. 전체 E2E 직렬 **68/68**, `06-mobile` Chromium 7/7 +
+  WebKit 7/7, axe 20화면 위반 0이다. API 전체는 **227 passed / 41 intentional red**로 Sprint 0보다
+  projector 5개가 늘고 red 수는 동일하다. root typecheck red도 lifecycle/gate/actual 응답을 아직 구현하지
+  않은 Sprint 0 계약 경계뿐이며 API·shared typecheck와 새 T-UI-3 타입은 green이다.
+
 ### M-UIb 진입 조건
 
 | # | 티켓 | 상태 |

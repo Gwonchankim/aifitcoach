@@ -8,8 +8,11 @@ users(id uuid PK, sex, birth_year int, height_cm num, weight_kg num, body_fat_pc
       goal enum, experience_level enum, constraints jsonb, created_at, updated_at)
 consents(id PK, user_id FK, type, version, granted bool, granted_at)
 programs(id PK, user_id FK, goal, days_per_week int, minutes_per_day int, split_type,
-      rules_version, template jsonb, excluded_exercises jsonb, created_at, updated_at)
+      rules_version, template jsonb, generation_input jsonb NULL, started_at date,
+      total_weeks int DEFAULT 12, status active|completed, excluded_exercises jsonb, created_at, updated_at)
       -- template = 생성 시점의 주간 템플릿(openapi Program.sessions). 세션 편집(F5)은 세션 스코프라 여기 반영되지 않는다.
+      -- 12주 세션을 사전 생성하지 않는다. started_at+오늘로 현재 주차를 계산하고 template/generation_input으로 가까운 주만 lazy 생성한다.
+      -- 레거시 generation_input은 복구 불가능한 필드를 추측하지 않고 기존 template snapshot을 fallback으로 쓴다(D-37).
       -- excluded_exercises = pain_areas 로 뺀 운동과 사유(openapi Program.excluded_exercises, SAFETY_PAIN_MAPPING.md 규칙 3)
       --   추가로 **제외가 0건인 부위도 마커 항목으로 저장**한다(exercise_id·movement_pattern 을 빈 문자열로).
       --   이유: 통증 부위를 따로 저장하지 않으므로(PIPA) 즉석 세션이 이 필드에서 부위를 역산하는데,
@@ -39,10 +42,10 @@ performed_sets(id PK, planned_set_id FK, actual_weight num NULL, actual_reps int
       client_id uuid UNIQUE, performed_at, updated_at,
       UNIQUE(planned_set_id))   -- client_id = 최초 생성 mutation, 논리 ID = planned_set_id
       -- metric=reps 는 actual_weight/actual_reps, metric=time 은 actual_time_sec 를 채운다(배타적)
-estimated_1rm(user_id, exercise_id, e1rm num, method, computed_at,
-      PRIMARY KEY(user_id, exercise_id, computed_at))
+estimated_1rm(user_id, exercise_id, session_id FK, e1rm num, method, computed_at,
+      PRIMARY KEY(user_id, exercise_id, session_id))
 muscle_weekly_load(user_id, week_start date, muscle, hard_sets int, volume_load num,
-      avg_rir num, PRIMARY KEY(user_id, week_start, muscle))
+      avg_rir num NULL, updated_at, PRIMARY KEY(user_id, week_start, muscle))
 subscriptions(user_id PK, tier, provider, billing_key_ref, status,
       started_at, renews_at, trial_ends_at, updated_at)
 sync_mutations(id uuid PK, server_seq bigserial UNIQUE, user_id, entity_type, entity_id, op,

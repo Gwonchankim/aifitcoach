@@ -57,14 +57,14 @@ function stepDown(weight: number, step: number): number {
 }
 
 /** 판정에 쓰는 작업세트(반복 축). 맨몸은 w 가 없으므로 0(자체중량)으로 채운다. */
-interface WorkingSet {
+export interface E1rmSet {
   w: number;
   reps: number;
   rir?: number;
 }
 
 /** reps<=0(미수행·오입력) 세트는 계산에서 제외한다(GC-17). */
-function toWorkingSets(sets: PerformedSet[]): WorkingSet[] {
+function toWorkingSets(sets: PerformedSet[]): E1rmSet[] {
   return sets
     .filter(
       (s) =>
@@ -84,12 +84,12 @@ function validTimesSec(sets: PerformedSet[]): number[] {
 }
 
 /** corrected_RIR = clamp(reported + rir_bias, 0, 6) */
-function correctedRir(rir: number, bias: number): number {
+export function correctedRir(rir: number, bias: number): number {
   return Math.min(6, Math.max(0, rir + bias));
 }
 
 /** Epley + RIR 보정: effective_reps = reps + corrected_RIR. 저반복(<=6) 세트 우선, 그 중 최대값. */
-function estimateE1rm(sets: WorkingSet[], bias: number): number | undefined {
+export function estimateE1rm(sets: E1rmSet[], bias: number): number | undefined {
   if (sets.length === 0) return undefined;
   const lowRep = sets.filter((s) => s.reps <= 6);
   const source = lowRep.length > 0 ? lowRep : sets;
