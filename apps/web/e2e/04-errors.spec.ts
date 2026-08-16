@@ -311,4 +311,33 @@ test.describe("500 / 오프라인", () => {
     await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
     await context.setOffline(false);
   });
+
+  test("오프라인 새로고침은 마지막 서버 대시보드와 동기화 시각을 복원한다", async ({
+    page,
+    context,
+    request,
+  }) => {
+    await seedProgram(request);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "오늘 수행할 운동" })).toBeVisible();
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+      if (!navigator.serviceWorker.controller) {
+        await new Promise<void>((resolve) =>
+          navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), {
+            once: true,
+          }),
+        );
+      }
+    });
+
+    await context.setOffline(true);
+    try {
+      await page.reload();
+      await expect(page.getByText(/오프라인 · 마지막 동기화 .* 기준/)).toBeVisible();
+      await expect(page.getByRole("heading", { name: "오늘 수행할 운동" })).toBeVisible();
+    } finally {
+      await context.setOffline(false);
+    }
+  });
 });

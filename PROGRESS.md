@@ -354,7 +354,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ Sprint 0·1·2 ✅] → **M-4′ Sprint 3 클라이언트 데이터 계층(다음)** → Sprint 4 UI → Sprint 5 평가 → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ Sprint 0·1·2·3 ✅] → **M-4′ Sprint 4 UI(다음)** → Sprint 5 평가 → M-7′
 
 ### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
 
@@ -477,6 +477,27 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   실제 경합이었다. full/targeted 경로가 source facts를 읽기 전에 같은 사용자별 PostgreSQL transaction
   advisory lock을 잡도록 통일했다. 동시 rebuild 지연 주입 테스트는 수정 전 P2002 red, 수정 후 green이며,
   lock 제거 뮤턴트도 SHA-256 주입·원복 절차에서 같은 red를 재현했다.
+
+### ✅ M-4′ Sprint 3 — 클라이언트 데이터 계층·offline read-through (2026-08-16)
+
+- D-50~D-52/ADR-65로 전체 이력 복제를 거부하고 성공적으로 조회한 서버 범위만 user-scoped Dexie
+  read-model snapshot으로 저장한다. 종류별 상한은 dashboard 1, e1RM 8, volume 4, completion 4,
+  history session detail 48이며 같은 transaction에서 오래된 snapshot을 제거해 사용자당 최대 65개로 제한한다.
+- e1RM 요청은 `from/to`가 모두 있는 최대 12주만, volume/completion은 최대 12주만 adapter가 허용한다.
+  `recentAnalyticsWindow()`가 UTC 기준 동일 12주 범위를 만들며 `/analytics` 3종의 타입은 codegen 산출물만 쓴다.
+- transport `TypeError`에서만 마지막 서버 snapshot과 실제 `synced_at`을 stale로 반환한다. HTTP 4xx/5xx,
+  AbortError, JSON/계약 오류는 cache로 숨기지 않는다. snapshot이 없으면 기존 오프라인 빈 상태를 유지한다.
+- cached gate와 nullable 수치는 서버 응답 그대로이며 local draft/outbox를 합성해 쓰는 API를 만들지 않았다.
+  서버 fetch 성공값은 언제나 현재 화면의 권위이고, 늦게 끝난 오래된 동일-key 요청은 request 시작 시각으로
+  더 최신 snapshot을 덮지 못한다. 대시보드는 reload 뒤에도 `오프라인 · 마지막 동기화 HH:mm 기준`과
+  마지막 서버 내용을 복원한다.
+- red proof는 영속화 없음·LRU 없음·늦은 응답 보호 없음이 서로 다른 단언으로 발화했다. transport-only guard,
+  LRU 제거, stale-response guard 제거 뮤턴트 3종도 각각 전용 테스트를 red로 만들었고 SHA-256 원복 일치 뒤
+  집중 테스트 **9/9**로 돌아왔다.
+- 최종 게이트는 contract **31/31**, typecheck·lint·format:check·build green, shared **87/87**,
+  web **286/286**, api **278/278**, verify:no-test-seed **152파일**, contrast **30/30**, font
+  **92 faces / 2,957,724B**다. E2E 직렬 **69/69**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
+  axe **20화면 위반 0**이며 package/lockfile 변경은 없다.
 
 ### M-UIb 진입 조건
 

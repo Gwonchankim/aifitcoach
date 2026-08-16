@@ -18,6 +18,16 @@ export type GatedRecommendation = components["schemas"]["GatedRecommendation"];
 export type GenerateProgramRequest = components["schemas"]["GenerateProgramRequest"];
 export type SyncRequest = components["schemas"]["SyncRequest"];
 export type SyncResponse = components["schemas"]["SyncResponse"];
+export type E1rmAnalytics = components["schemas"]["E1rmAnalytics"];
+export type VolumeAnalytics = components["schemas"]["VolumeAnalytics"];
+export type CompletionAnalytics = components["schemas"]["CompletionAnalytics"];
+export type E1rmAnalyticsQuery = paths["/analytics/e1rm"]["get"]["parameters"]["query"];
+export type VolumeAnalyticsQuery = NonNullable<
+  paths["/analytics/volume"]["get"]["parameters"]["query"]
+>;
+export type CompletionAnalyticsQuery = NonNullable<
+  paths["/analytics/completion"]["get"]["parameters"]["query"]
+>;
 /** 즉석 세션(F8-1)의 부위. 계약 enum 에서 직접 가져와 UI 가 목록 밖 값을 만들 수 없게 한다. */
 export type BodyPart = components["schemas"]["CreateAdHocSessionRequest"]["body_part"];
 
@@ -74,6 +84,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 type ExercisesQuery = paths["/exercises"]["get"]["parameters"]["query"];
 
+function withQuery(path: string, query: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    if (value != null) params.set(key, String(value));
+  }
+  return params.size ? `${path}?${params.toString()}` : path;
+}
+
 export const api = {
   sync: (body: SyncRequest, signal?: AbortSignal) =>
     request<SyncResponse>("/sync", { method: "POST", body: JSON.stringify(body), signal }),
@@ -84,6 +104,15 @@ export const api = {
   currentProgram: () => request<Program>("/programs/current"),
 
   dashboard: () => request<DashboardSummary>("/dashboard"),
+
+  analyticsE1rm: (query: E1rmAnalyticsQuery) =>
+    request<E1rmAnalytics>(withQuery("/analytics/e1rm", query)),
+
+  analyticsVolume: (query: VolumeAnalyticsQuery = {}) =>
+    request<VolumeAnalytics>(withQuery("/analytics/volume", query)),
+
+  analyticsCompletion: (query: CompletionAnalyticsQuery = {}) =>
+    request<CompletionAnalytics>(withQuery("/analytics/completion", query)),
 
   session: (sessionId: string, signal?: AbortSignal) =>
     request<Session>(`/sessions/${sessionId}`, { signal }),

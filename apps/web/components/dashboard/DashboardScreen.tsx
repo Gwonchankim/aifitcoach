@@ -14,6 +14,7 @@ import { Badge, Button, Card, Kicker, buttonBase, cn } from "../ui";
 import { ApiError, api, type BodyPart } from "../../lib/api";
 import { DASHBOARD_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 import { formatClock, useOnline } from "../../lib/use-online";
+import { dashboardReadModel } from "../../lib/read-model-data";
 import { summarize, useSessionLog } from "../session/session-store";
 import { BodyPartSheet } from "./BodyPartSheet";
 import { E1RM_EMPTY_NOTE, type MetricCard, buildDashboardView } from "./dashboard-view";
@@ -106,7 +107,7 @@ export function DashboardScreen() {
 
   const dashboard = useQuery({
     queryKey: ["dashboard"],
-    queryFn: api.dashboard,
+    queryFn: () => dashboardReadModel(),
     retry: false,
   });
 
@@ -116,7 +117,7 @@ export function DashboardScreen() {
     → 그 0 을 "기록이 없다"로 **단정하지 않도록** 이 기기의 기록 수를 함께 넘긴다.
     STEP 6 이 붙으면 서버 요약이 채워져 이 분기는 자연히 사라진다.
   */
-  const todaySessionId = dashboard.data?.today.session_id ?? null;
+  const todaySessionId = dashboard.data?.data.today.session_id ?? null;
   const localSetsCompleted = useSessionLog((state) =>
     state.sessionId != null && state.sessionId === todaySessionId
       ? summarize(state.drafts).completedCount
@@ -139,11 +140,11 @@ export function DashboardScreen() {
     onError: async (error) => {
       if (error instanceof ApiError && error.status === 409) {
         const latest = await queryClient
-          .fetchQuery({ queryKey: ["dashboard"], queryFn: api.dashboard })
+          .fetchQuery({ queryKey: ["dashboard"], queryFn: () => dashboardReadModel() })
           .catch(() => null);
-        if (latest?.today.session_id) {
+        if (latest?.data.today.session_id) {
           setPartSheetOpen(false);
-          router.push(`/session/${latest.today.session_id}`);
+          router.push(`/session/${latest.data.today.session_id}`);
           return;
         }
       }
@@ -200,13 +201,14 @@ export function DashboardScreen() {
    */
   const loading = (program.isPending || dashboard.isPending) && !dashboard.data;
   const view =
-    !loading && dashboard.data ? buildDashboardView(dashboard.data, localSetsCompleted) : null;
+    !loading && dashboard.data ? buildDashboardView(dashboard.data.data, localSetsCompleted) : null;
 
   return (
     <Screen>
-      {!online && dashboard.data ? (
+      {dashboard.data?.stale ? (
         <p role="status" className="text-xs text-fg-muted">
-          오프라인 · <span className="font-mono">{formatClock(dashboard.dataUpdatedAt)}</span> 기준
+          오프라인 · 마지막 동기화{" "}
+          <span className="font-mono">{formatClock(Date.parse(dashboard.data.syncedAt))}</span> 기준
         </p>
       ) : null}
 
@@ -293,7 +295,7 @@ export function DashboardScreen() {
 
       <BodyPartSheet
         open={partSheetOpen}
-        streakDays={dashboard.data?.streak_days ?? 0}
+        streakDays={dashboard.data?.data.streak_days ?? 0}
         pending={adHoc.isPending}
         errorText={adHocError}
         onSelect={(bodyPart) => {

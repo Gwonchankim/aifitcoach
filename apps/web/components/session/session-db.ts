@@ -41,6 +41,15 @@ type ConflictAudit = {
   payload: unknown;
 };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
+export type ReadModelKind = "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
+export type ReadModelMirror = {
+  user_id: string;
+  cache_key: string;
+  kind: ReadModelKind;
+  data: unknown;
+  request_started_at: number;
+  synced_at: string;
+};
 
 class SessionDatabase extends Dexie {
   drafts!: Table<StoredDraft, unknown>;
@@ -51,6 +60,7 @@ class SessionDatabase extends Dexie {
   syncMeta!: Table<SyncMeta, unknown>;
   conflicts!: Table<ConflictAudit, number>;
   leases!: Table<Lease, unknown>;
+  readModels!: Table<ReadModelMirror, unknown>;
 
   constructor() {
     super("afc-session-v1");
@@ -64,6 +74,9 @@ class SessionDatabase extends Dexie {
       leases: "[user_id+name], user_id",
     });
     this.version(2).stores({ catalogs: "user_id" });
+    this.version(3).stores({
+      readModels: "[user_id+cache_key], [user_id+kind], [user_id+synced_at]",
+    });
   }
 }
 

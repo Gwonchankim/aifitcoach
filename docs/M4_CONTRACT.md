@@ -1,6 +1,7 @@
 # M-4′ 기록·주간 프로그램·대시보드 집계 계약
 
-> 상태: Sprint 0 계약 잠금, Sprint 1A projector·Sprint 1B T-UI-3, Sprint 2 서버 계약 완료(2026-08-16).
+> 상태: Sprint 0 계약 잠금, Sprint 1A projector·Sprint 1B T-UI-3, Sprint 2 서버 계약 완료,
+> Sprint 3 클라이언트 read-through 계약 잠금(2026-08-16).
 > 원본 프로토타입 7종 추출 및 M-4′ 3화면 픽셀·문구 체크리스트까지 고정했다.
 
 ## 1. 범위와 현재 경계
@@ -200,3 +201,15 @@ D-47~D-49도 2026-08-16 제품 오너 승인으로 확정됐다. 다섯 결정 �
 - 웹은 gate로 null이 된 추천값을 운동 종류 판별에 쓰지 않는다. 카탈로그 `step_kg=null`만 자체중량이고,
   외부 부하 운동의 gated null은 무게 입력이 필요한 `unknown_weight`다. 완료했지만 계획세트를 남긴 서버
   `partial` 상태는 “오늘 수행한 운동”과 읽기 전용 부분 완료 배지로 표시하며 다시 시작 CTA로 되돌리지 않는다.
+
+## 12. Sprint 3 클라이언트 read-through 계약 — D-50~D-52
+
+| 결정 | 확정 내용 |
+|---|---|
+| D-50 | Dexie에는 전체 수행 이력을 복제하지 않고 **성공적으로 조회한 서버 응답 범위만** user-scoped snapshot으로 저장한다. e1RM·volume·completion 조회는 최대 12주로 제한하고, 종류별 최근 접근 상한은 dashboard 1, e1RM 8, volume 4, completion 4, history session detail 48이다. 상한을 넘으면 가장 오래 동기화한 snapshot부터 같은 IndexedDB transaction에서 제거한다. |
+| D-51 | transport offline일 때 snapshot이 있으면 마지막 서버 데이터와 `synced_at`을 `stale`로 반환한다. snapshot이 없으면 오프라인 빈 상태다. HTTP 4xx/5xx, 요청 취소, JSON/계약 오류는 stale fallback으로 숨기지 않는다. 화면은 `마지막 동기화 HH:mm 기준`을 표시하고 미동기화 outbox가 집계에 포함된 것처럼 가장하지 않는다. |
+| D-52 | read-model mirror는 **서버 snapshot 전용**이며 로컬 draft/outbox를 합성해 쓰는 API를 제공하지 않는다. cached `gate_state`와 nullable 값은 서버가 적용한 그대로 보존한다. 온라인 응답은 mirror보다 항상 권위 있고, 늦게 끝난 오래된 동일-key 요청은 먼저 시작한 시각 비교로 더 최신 요청의 snapshot을 덮지 않는다. 오프라인 provisional 집계를 Sprint 4에서 추가할 필요가 생기면 공용 `display-gate.ts`를 별도 표시층에서만 쓰며 서버 snapshot 도착 시 교체한다. |
+
+저장량은 사용자당 최대 65개 read-model snapshot으로 유계다. 세션 로깅의 drafts/outbox/session mirror와
+테이블을 분리하므로 analytics 정리 작업이 미전송 운동 기록을 삭제할 수 없다. CacheStorage에는 `/v1/**`를
+넣지 않는 ADR-58 경계도 유지한다.
