@@ -346,7 +346,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 STEP 6 완료 시점)
+## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 M-4′ Sprint 0~2 완료 시점)
 
 > **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-10.md` 에 있다. 그걸 먼저 읽어라.**
 > STEP 6 기술 커밋 `b3148e5` 완료·`origin/master` 동기화·[CI 31896676785](https://github.com/Gwonchankim/aifitcoach/actions/runs/31896676785) green. D-31 routine correlation mapping으로 C-4 해소.
@@ -354,7 +354,7 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → **M-4′ 기획(다음)** → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ Sprint 0·1·2 ✅] → **M-4′ Sprint 3 클라이언트 데이터 계층(다음)** → Sprint 4 UI → Sprint 5 평가 → M-7′
 
 ### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
 
@@ -469,6 +469,9 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   verify:no-test-seed **150파일**, contrast **30/30**, font **92 faces / 2,957,724B**, test shared **87/87** ·
   web **277/277** · api **277/277**. E2E 직렬 **68/68**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
   axe **20화면 위반 0**으로 Sprint 1 기준선이 감소하지 않았다.
+- **Sprint 0~2 통합 완료**: Sprint 0·1에서 의도적으로 유지했던 API **41 intentional red는 Sprint 2 서버
+  계약 구현과 함께 41→0으로 해소**됐다. `m4-sprint01`의 두 체크포인트를 `master`에 fast-forward 병합했으며,
+  다음 범위는 Sprint 3의 user-scoped analytics/history mirror와 offline read-through다.
 
 ### M-UIb 진입 조건
 
