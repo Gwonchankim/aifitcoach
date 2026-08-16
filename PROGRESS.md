@@ -551,9 +551,13 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   실제 요일 상태를 복원하고 마지막 동기화 시각을 표시한다. 반대로 program 404/HTTP 오류는 completion data가
   있어도 캐시로 숨기지 않는다. 두 경계를 E2E로 함께 고정해 전체 수가 74→75로 늘었다.
 - 첫 최종 기본 스위트에서 WebKit offline loss-0 입력이 `50→40`으로 한 번 되감겨 **74/75**였다.
-  같은 fresh-server 경로 단독 1회, `repeat-each=3`, 최종 전체에서 모두 통과(**후속 5/5**)했고 결정적 재현은
-  얻지 못했다. 제품·테스트를 느슨하게 바꾸지 않고 관찰 항목으로 남긴다. CI나 다음 전체 E2E에서 재발하면
-  trace의 pull/입력 이벤트 순서를 지연 주입으로 고정해 STEP 6 UI 경합 fix-now로 먼저 처리한다.
+  이후 같은 fresh-server 경로 단독 1회, `repeat-each=3`, 최종 전체 1회가 통과한 데 이어 병합 전 WebKit
+  단독 `repeat-each=20`도 **20/20** 통과했다(관찰 뒤 누적 **25/25**, 이번 soak 재현율 **0/20**).
+  **해결로 닫지 않는다.** 증상은 전날 고친 “완료 해제 ack가 포커스 중인 최신 입력을 되감음”과 같으므로,
+  포커스 보호/refresh 방어가 WebKit에서 불완전하거나 다른 순서로 발화할 가능성이 열린 상태다. 최초 실패의
+  trace·screenshot은 후속 Playwright 실행이 `.artifacts`를 정리해 병합 전 확인 시 남아 있지 않았다.
+  제품·테스트를 느슨하게 바꾸지 않고 관찰 위험으로 유지하며, CI나 다음 전체 E2E에서 재발하면 새 artifact를
+  즉시 보존하고 pull/ack/입력 이벤트 순서를 지연 주입으로 고정해 STEP 6 UI 경합 fix-now로 먼저 처리한다.
 - **최종 게이트**: codegen diff 0, contract **31/31**, typecheck·lint·format:check·build green,
   verify:no-test-seed **157파일**, contrast **30/30**, font **92 faces / 2,957,724B**, shared **87/87**,
   web **300/300**, api **279/279**, 전체 E2E **75/75**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
