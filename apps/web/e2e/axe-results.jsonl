@@ -5,7 +5,10 @@
 {"screen":"S1-onboarding-step5","violationCount":0,"violations":[]}
 {"screen":"S1-onboarding-step6","violationCount":0,"violations":[]}
 {"screen":"S1-onboarding-step7","violationCount":0,"violations":[]}
-{"screen":"S2-program","violationCount":0,"violations":[]}
+{"screen":"S2-weekly-program","violationCount":0,"violations":[]}
+{"screen":"S2-weekly-program-expanded","violationCount":0,"violations":[]}
+{"screen":"M4-history","violationCount":0,"violations":[]}
+{"screen":"TUI3-profile","violationCount":0,"violations":[]}
 {"screen":"S3-dashboard","violationCount":0,"violations":[]}
 {"screen":"S3-dashboard-empty","violationCount":0,"violations":[]}
 {"screen":"S4-routine","violationCount":0,"violations":[]}

@@ -66,8 +66,24 @@ test("S1 온보딩 각 스텝", async ({ page }) => {
 
 test("S2 프로그램 확인", async ({ page }) => {
   await page.goto("/program");
-  await expect(page.getByRole("heading", { name: "내 운동 계획" })).toBeVisible();
-  await scan(page, "S2-program");
+  await expect(page.getByRole("heading", { name: "주간 프로그램" })).toBeVisible();
+  await scan(page, "S2-weekly-program");
+  const expandable = page.locator('button[aria-expanded="false"]').first();
+  await expect(expandable).toBeVisible();
+  await expandable.click();
+  await scan(page, "S2-weekly-program-expanded");
+});
+
+test("M-4 기록", async ({ page }) => {
+  await page.goto("/history");
+  await expect(page.getByRole("heading", { name: "기록", exact: true })).toBeVisible();
+  await scan(page, "M4-history");
+});
+
+test("T-UI-3 내 정보", async ({ page }) => {
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { name: "내 정보" })).toBeVisible();
+  await scan(page, "TUI3-profile");
 });
 
 test("S3 대시보드", async ({ page }) => {

@@ -213,3 +213,37 @@ D-47~D-49도 2026-08-16 제품 오너 승인으로 확정됐다. 다섯 결정 �
 저장량은 사용자당 최대 65개 read-model snapshot으로 유계다. 세션 로깅의 drafts/outbox/session mirror와
 테이블을 분리하므로 analytics 정리 작업이 미전송 운동 기록을 삭제할 수 없다. CacheStorage에는 `/v1/**`를
 넣지 않는 ADR-58 경계도 유지한다.
+
+## 13. Sprint 4 화면 구현 대조표
+
+판정 기호는 `✅ 충족`, `⚠ 계약 원천 없음(추측 금지)`, `— 승인 제외`다. prototype 수치의 자동 검증은
+`e2e/11-m4-screens.spec.ts`, gate 의미는 `test/history-view.test.ts`와 API의
+`test/m4-server-contract.spec.ts`가 소유한다.
+
+| 화면 | §9 체크 항목 | 판정·구현 증거 |
+|---|---|---|
+| 공통 | 390px frame, 16px gutter, 11~12px gap, 4탭 | ✅ 고정 목업 frame은 제외하고 `max-w-md`, 16px/12px를 computed style로 측정한다. T-UI-3 4탭은 50px·각 97.5px·hit area ≥44px를 유지한다. |
+| 공통 | 카드·색 역할·터치 | ✅ 1px border/3px radius, 강조 1.5px ink. 액션 면 `#151A21`, 상태·정보 `#1B4FC4`; 리듬/요일 hit area ≥44px와 program progress 6px를 전용 단언한다. |
+| 홈 | 헤더·프로그램 없음·빈 안내 | ✅ `오늘`, 실제 UTC 날짜·lifecycle 주차. 프로그램 없음/`만들고 나면`/`세 세션` 및 승인된 계획 생성 경로만 유지한다. |
+| 홈 | 오늘 상태 7종 | ✅ 미수행·진행·완료·부분·휴식·충돌·공백 복귀를 서버 status로 나눈다. 실제 session detail에서 예정 세트와 gate된 첫 추천을 읽고, 충돌/복귀는 mutation·임의 감량 수식 없이 설명한다. |
+| 홈 | 주간 리듬 | ✅ 월→일 7열/4px, 완료 ✓·부분 ½·진행 ●·예정·휴식을 문자+색으로 표시하며 날짜 상세를 펼친다. raw focus 식별자는 한국어로 변환한다. |
+| 홈 | e1RM 요약·주간 볼륨 | ✅ server `ready`에서만 값/기록 링크와 공개된 4주 points delta를 표시한다. 34px/1fr/54px 볼륨 행, 9px track, 목표 범위와 읽기 전용 이탈 문구를 쓴다. strength에는 범위를 만들지 않는다. |
+| 기록 | 기본 IA·빈 상태 | ✅ URL에 선택 종목을 보존하는 horizontal chips. 전체 0회에는 `세 세션` 설명과 오늘 화면 링크만 두며 과거 직접 입력 CTA는 없다(D-47). |
+| 기록 | no history·예정 종목 | ✅ 승인된 substitutions/같은 movement pattern만 최대 3개. 현재 template의 예정일·세트·반복을 읽기 전용으로 보이며 add/앞당기기 CTA는 없다(D-49). |
+| 기록 | early 1~2회 | ✅ observation 날짜 점만 렌더한다. payload에 42.5kg point/recommendation이 잘못 남아도 e1RM 값·선·추천·근거를 DOM에 만들지 않는다. |
+| 기록 | ready·공백 | ✅ 36px 값, `326×118` SVG, primary 2px line. 14일 초과 공백은 polyline segment를 분리하며 임의 감량 추천을 만들지 않는다. |
+| 기록 | 최근 세션·실제 세트 | ✅ completion의 완료/부분 session id를 최신 날짜순으로 읽고 실제 weight/reps/time/RIR을 `16px 1fr 1fr 42px`, gap 7px, padding 7px 행으로 표시한다. 상세는 기존 소유권 검증 `GET /sessions/{id}` 경로로 연결한다. |
+| 기록 | duration·감사 이력 | ⚠ Session 계약에 duration과 교체/통증 감사 이벤트가 없다. performed timestamp에서 duration/이벤트를 추측하지 않고 해당 사실이 서버 계약에 생길 때까지 행을 만들지 않는다. |
+| 프로그램 | 헤더·진행·성과 | ✅ 결제/가입 chip 없이 lifecycle의 `started_at/total_weeks/current_week`로 12주 진행과 6px bar를 만든다. 완료 session 합계와 server-ready e1RM delta만 성과 문장에 합친다(D-48). |
+| 프로그램 | 볼륨·요일 목록 | ✅ current volume/range와 7일 완료·부분·진행·예정·휴식을 표시한다. 날짜 행은 ≥44px, 펼친 상세는 padding-left 55px와 dotted divider를 쓰며 계획값만 읽는다. |
+| 프로그램 | 미래 주차·종료 | ✅ completion의 synthetic future week를 `예정`으로 표시하며 session id/DB 행을 가장하지 않는다. completed는 실제 합계와 onboarding 명시 이동만 제공하고 자동 생성하지 않는다. |
+| 프로그램 | 일정 변경·미래 교체 | — 버튼/결제 상태/미래 mutation을 DOM에서 제외했다(D-48·D-49). 활성 세션의 교체는 기존 M-UIb 세션 화면만 사용한다. |
+
+색·치수 회귀는 대비/axe가 잡지 못하므로 `11-m4-screens.spec.ts`가 16/12/11/4px, 7열,
+`34px 1fr 54px`, 6px progress, ≥44px targets, ink action/blue information의 실제 computed style을
+별도로 고정한다. axe 대상은 기존 20화면에 기록·주간 프로그램 펼침·프로필을 더한 23화면이다.
+
+Sprint 5에서 프로그램의 offline read-through도 같은 스펙에 고정했다. `GET /programs/current`의
+transport 실패에 한해서만 마지막 completion snapshot으로 일반 lifecycle·요일 상태·동기화 시각을
+복원한다. 404와 HTTP 오류는 snapshot이 있어도 숨기지 않으므로, 서버가 권위라는 D-39와 Sprint 3의
+transport-only stale 정책을 화면에서도 유지한다.

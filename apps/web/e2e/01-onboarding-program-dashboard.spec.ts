@@ -67,8 +67,9 @@ test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {
 
     // S2 프로그램 확인
     await expect(page).toHaveURL(/\/program$/);
-    await expect(page.getByRole("heading", { name: "내 운동 계획" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "주간 프로그램" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "왜 이 루틴인가요" })).toBeVisible();
+    await expect(page.getByText("프로그램 진행", { exact: true })).toBeVisible();
 
     // 전송 페이로드가 enum 8종의 부분집합인지(AC-P-3)
     expect(generateRequests).toHaveLength(1);
@@ -87,9 +88,12 @@ test.describe("S1 온보딩 → S2 프로그램 → S3 대시보드", () => {
     expect(body).not.toMatch(/movement_pattern|rules_version|horizontal_push|squat|hinge/);
 
     // S3 대시보드
-    await page.getByRole("link", { name: "대시보드로" }).click();
+    await page
+      .getByRole("navigation", { name: "주요 탐색" })
+      .getByRole("link", { name: "오늘" })
+      .click();
     await expect(page).toHaveURL(/localhost:\d+\/$/);
-    await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "오늘", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "오늘 수행할 운동" })).toBeVisible();
     await expect(page.getByRole("link", { name: "운동 시작" })).toBeVisible();
     await shot(page, "03-dashboard-workout");

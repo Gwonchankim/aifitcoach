@@ -5,6 +5,7 @@
 import "reflect-metadata";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/app.setup";
@@ -32,14 +33,17 @@ describe("스텁 엔드포인트", () => {
   });
 
   it("POST /v1/sync (없는 논리 엔터티) → 200 conflict", async () => {
+    // 유효 요청은 sync_mutations에 멱등 키를 남긴다. 고정 UUID면 로컬 재실행이 이전 실행과 충돌한다.
+    const clientId = randomUUID();
+    const entityId = randomUUID();
     const response = await request(app.getHttpServer())
       .post("/v1/sync")
       .send({
         mutations: [
           {
-            client_id: "8f1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d",
+            client_id: clientId,
             entity: "performed_set",
-            entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
+            entity_id: entityId,
             op: "upsert",
             updated_at: "2026-08-15T08:00:00.000Z",
             payload: { actual_reps: 9 },
@@ -50,7 +54,7 @@ describe("스텁 엔드포인트", () => {
     expect(response.status).toBe(200);
     expect(response.body.conflicts).toEqual([
       expect.objectContaining({
-        entity_id: "7d410e45-f83e-4951-82c7-c2cf6a09d536",
+        entity_id: entityId,
         reason: "not_found",
       }),
     ]);

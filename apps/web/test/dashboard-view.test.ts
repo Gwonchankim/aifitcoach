@@ -16,6 +16,60 @@ function summary(patch: Partial<DashboardSummary> = {}): DashboardSummary {
 }
 
 describe("오늘 카드", () => {
+  it("진행 중이면 로컬 기록 수와 이어하기를 표시한다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "in_progress",
+          session_id: "s_progress",
+          routine_summary: { exercise_count: 4, focus: "upper" },
+          done_summary: null,
+        },
+      }),
+      3,
+    );
+    expect(view.today).toMatchObject({
+      status: "in_progress",
+      heading: "진행 중인 세션",
+      message: "3세트 기록됨 · 기기에 저장됨",
+      primary: { label: "이어하기", href: "/session/s_progress" },
+    });
+  });
+
+  it("계획 충돌은 mutation 없이 사실과 영향만 설명한다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "conflict",
+          session_id: "s_conflict",
+          routine_summary: { exercise_count: 4, focus: "upper" },
+          done_summary: null,
+        },
+      }),
+    );
+    expect(view.today.heading).toBe("계획과 기록이 달라요");
+    expect(view.today.notes).toEqual(["일정 재배치나 건너뛰기는 여기서 자동 반영하지 않아요."]);
+    expect(view.today.primary).toEqual({
+      label: "현재 세션 보기",
+      href: "/session/s_conflict",
+    });
+  });
+
+  it("공백 복귀는 근거 없는 감량 수치를 만들지 않는다", () => {
+    const view = buildDashboardView(
+      summary({
+        today: {
+          status: "return_after_gap",
+          session_id: "s_return",
+          routine_summary: { exercise_count: 4, focus: "upper" },
+          done_summary: null,
+        },
+      }),
+    );
+    expect(view.today.heading).toBe("추천 신뢰도 낮음");
+    expect(view.today.message).not.toMatch(/\d+%/);
+  });
+
   it("미수행이면 오늘 루틴 요약과 [운동 시작]을 보여준다", () => {
     const view = buildDashboardView(
       summary({

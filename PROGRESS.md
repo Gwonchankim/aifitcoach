@@ -12,6 +12,7 @@
 | 4 | 백엔드 엔드포인트 (테스트 스코프: 로그인 보류·dev-user) | ✅ 완료 (2026-08-05) | 77 → fix-now 7건 + 결정 4건 반영 후 재평가 |
 | 5 | 프론트 핵심 플로우 (FEATURES_UX F0~F8) | ✅ **M-UIa·M-UIb 완료** — M-UIb Sprint 0~4 직렬 종료, fix-now 반영·defer 1건 분리 | M-UIa **71** · M-UIb **95** |
 | 6 | 오프라인 동기화 | ✅ **완료 (2026-08-16)** — D-19~D-31, Sprint 0~5 종료 · 핵심 루프 복구 | **98 PASS** |
+| M-4′ | 기록·주간 프로그램·대시보드 집계 | ✅ **완료 (2026-08-16)** — Sprint 0~5, 서버 집계·offline read-through·3화면 | **97 PASS** |
 | 7 | 엔타이틀먼트 토글 + 계측 (결제 제외) | ⬜ 예정 | |
 | 8 | QA·안전·배포 | ⬜ 예정 | |
 | — | 최종 다각도 평가 (≥99/100) | ⬜ 예정 | |
@@ -346,15 +347,18 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 - **`body_fat_pct` 추세·정렬**: 현재 스펙에 해당 화면·쿼리 없음(FEATURES_UX 대시보드는 완료율·스트릭·e1RM만). 추후 체지방 추세 기능을 만들면 앱 레이어 집계 필요.
 - **영향 없음 확인**: 안전 가드레일 `pain_score >= 4`(RECOMMENDATION_ENGINE L78, 골든 GC-13)는 **입력값 in-memory 판정**이라 암호화와 무관. `muscle_weekly_load` 집계(hard_sets·volume_load·avg_rir)에는 pain/body_fat이 없다.
 
-## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 M-4′ Sprint 0~2 완료 시점)
+## ▶ 다음 세션은 여기부터 읽어라 (2026-08-16 M-4′ 완료 시점)
 
 > **한 장 요약은 `docs/SESSION_CHECKPOINT_2026-08-10.md` 에 있다. 그걸 먼저 읽어라.**
-> STEP 6 기술 커밋 `b3148e5` 완료·`origin/master` 동기화·[CI 31896676785](https://github.com/Gwonchankim/aifitcoach/actions/runs/31896676785) green. D-31 routine correlation mapping으로 C-4 해소.
-> 최신 통합 게이트: shared 81 · web 270 · api 256 · **E2E 65/65** · `06-mobile` 14/14 · axe 20화면 0 · S1 soak 20/20 · verify:contrast 30조합.
+> Sprint 3 체크포인트 `856ae5f`는 `master`/origin에 fast-forward 병합됐고
+> [CI 31949090369](https://github.com/Gwonchankim/aifitcoach/actions/runs/31949090369) green이다. Sprint 4는
+> `m4-sprint4`에서 화면·전용 계약과 Sprint 5 통합 평가까지 완료했으며 아직 master에 병합하지 않았다.
+> 최신 로컬 게이트: contract 31 · shared 87 · web 300 · api 279 · **E2E 75/75** ·
+> `06-mobile` 14/14 · axe 23화면 0 · verify:contrast 30/30.
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ Sprint 0·1·2·3 ✅] → **M-4′ Sprint 4 UI(다음)** → Sprint 5 평가 → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ ✅] → **M-7′(다음)**
 
 ### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
 
@@ -498,6 +502,64 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
   web **286/286**, api **278/278**, verify:no-test-seed **152파일**, contrast **30/30**, font
   **92 faces / 2,957,724B**다. E2E 직렬 **69/69**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
   axe **20화면 위반 0**이며 package/lockfile 변경은 없다.
+
+### ✅ M-4′ Sprint 4 — 홈 집계·기록·주간 프로그램 화면 (2026-08-16)
+
+- `docs/prototypes/` 정본과 `M4_CONTRACT.md` §9를 홈→기록→주간 프로그램 순으로 반영했다. 항목별
+  실제 값·구현·증거는 §13 대조표에 고정했다. 공통 16px gutter/12px gap, 리듬 7열·4px,
+  볼륨 `34px 1fr 54px`, 9px track, 프로그램 progress 6px, 날짜/리듬 hit area ≥44px를 실제
+  computed style로 측정한다. ink=액션, blue=상태·정보(ADR-52)도 대비 gate와 별도의 전용 단언이다.
+- 홈은 실제 UTC 날짜·lifecycle 주차, 오늘 7상태, weekly rhythm, gate된 primary e1RM/4주 delta,
+  current volume을 표시한다. 미수행은 session detail의 실제 예정 세트와 gate된 첫 추천만 보며,
+  conflict/return-after-gap은 D-42대로 읽기 전용 설명만 제공한다.
+- 기록은 URL 종목 선택, 0회 유사 종목·예정 계획, early 날짜 points, ready `326×118` 추이와 공백
+  segment, 실제 최근 세트를 연결했다. D-39가 서버 권위다. early payload에 `42.5kg` point/추천이
+  남아 있어도 값·선·추천·근거를 DOM에 만들지 않는다. D-47 과거 직접 입력·D-49 add/앞당기기는 없다.
+- 주간 프로그램은 12주 lifecycle·완료 session·ready e1RM delta·현재 volume과 7일 상태를 표시한다.
+  미래 주차는 synthetic `예정`일 뿐 session id/DB 행으로 가장하지 않는다. `무료`/가입 chip(D-48),
+  일정 변경·미래 교체 mutation(D-49)은 만들지 않았다. duration과 감사 이벤트는 서버 계약에 없어
+  performed timestamp에서 추측하지 않는다.
+- distinct session gate 전용 Postgres 단언은 한 완료 세션에 실제 세트 3개를 넣고도
+  `sample_session_count=1`, `early`, `points=[]`, `next_recommendation=null`을 확인한다. production count를
+  `sessions.length*3`으로 바꾼 뮤턴트는 SHA-256 `DEA417…ADFB`→`AD6D67…DA76` 주입 후 정확히
+  `3/ready/value/recommendation`으로 red가 됐고, 원복 SHA 일치 뒤 **7/7** 재통과했다.
+- 전체 API 재실행에서 `api-stubs`의 고정 sync `client_id`가 이전 실행의 idempotency row와 충돌해
+  `not_found` 대신 `client_id_mismatch`가 된 격리 결함을 발견했다. 유효 테스트 요청만 `randomUUID()`를
+  쓰도록 고쳐 재실행 가능한 테스트로 만들었고 API **279/279**를 연속 통과했다.
+- 첫 전체 E2E는 PWA 앱 셸이 아니라 옛 홈 제목 `AIFITCOACH` 셀렉터 한 건에서 **73/74** red였다.
+  승인된 `오늘` 제목으로 의미를 유지해 갱신한 뒤 단독 green과 전체 직렬 **74/74**를 다시 확인했다.
+- **Sprint 4 최종 게이트**: contract **31/31**, typecheck·lint·format:check·build green,
+  verify:no-test-seed **157파일**, contrast **30/30**, font **92 faces / 2,957,724B**, test shared
+  **87/87** · web **300/300** · api **279/279**. E2E **74/74**, `06-mobile` Chromium **7/7** +
+  WebKit **7/7**, axe **23화면 위반 0**이다. 기존 기준선은 감소하지 않았고 package/lockfile 변경은 없다.
+- 전체 실행이 덮어쓴 unrelated session raster/mobile JSON은 HEAD binary diff 역적용으로 제거했다.
+  승인 범위인 홈·프로그램·그 위 오버레이 기준선 11개만 갱신했다. 다음 단계는 Sprint 5 통합 QA·평가다.
+
+### ✅ M-4′ Sprint 5 — 통합 QA·evaluator 97/100 PASS (2026-08-16)
+
+| 평가 축 | 배점 | 점수 | 근거 |
+|---|---:|---:|---|
+| 집계 정확성·결정론 | 30 | 30 | 삽입 순서 byte equality, 증분==full rebuild, 공용 corrected-RIR e1RM, 실제 Postgres backfill |
+| 계약·게이트·lifecycle | 25 | 25 | OpenAPI 31/31, 단일 shared display gate, 0/1~2/3회 서버 권위 경계, 12주 lazy 생성 |
+| 프로토타입·화면 완성도 | 25 | 23 | `M4_CONTRACT` §13 전수 대조. 계약 원천이 없는 duration·감사 이벤트는 추측하지 않아 감점 |
+| offline·오류·접근성 | 10 | 10 | transport-only stale snapshot, HTTP/abort/계약 오류 비은폐, axe 23화면 0, 모바일 14/14 |
+| 회귀·프로세스 증거 | 10 | 9 | 전체 gate green·세션/세트 mutant 사살. WebKit 입력 되감김 1회가 후속 5회에서 재현되지 않아 관찰 감점 |
+| **합계** | **100** | **97** | **PASS — M-4′ 완료** |
+
+- 평가 중 `/program` transport 실패에서 서버 completion snapshot은 있는데 program 메타 요청만 끊긴 경우,
+  화면이 집계를 버리던 사각지대를 발견했다. 전체 program 복제 없이 승인된 completion mirror로 일반 lifecycle과
+  실제 요일 상태를 복원하고 마지막 동기화 시각을 표시한다. 반대로 program 404/HTTP 오류는 completion data가
+  있어도 캐시로 숨기지 않는다. 두 경계를 E2E로 함께 고정해 전체 수가 74→75로 늘었다.
+- 첫 최종 기본 스위트에서 WebKit offline loss-0 입력이 `50→40`으로 한 번 되감겨 **74/75**였다.
+  같은 fresh-server 경로 단독 1회, `repeat-each=3`, 최종 전체에서 모두 통과(**후속 5/5**)했고 결정적 재현은
+  얻지 못했다. 제품·테스트를 느슨하게 바꾸지 않고 관찰 항목으로 남긴다. CI나 다음 전체 E2E에서 재발하면
+  trace의 pull/입력 이벤트 순서를 지연 주입으로 고정해 STEP 6 UI 경합 fix-now로 먼저 처리한다.
+- **최종 게이트**: codegen diff 0, contract **31/31**, typecheck·lint·format:check·build green,
+  verify:no-test-seed **157파일**, contrast **30/30**, font **92 faces / 2,957,724B**, shared **87/87**,
+  web **300/300**, api **279/279**, 전체 E2E **75/75**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
+  axe **23화면 위반 0**. package/lockfile·보안·결제·PIPA·추천 엔진 규칙 변경은 없다.
+- 남은 비차단 항목은 계약 원천이 생긴 뒤의 기록 duration/감사 이벤트, F14 한글 키커, 완료행 접기 버튼
+  16×44px, Node 22 CI 갱신이다. D-47·D-48·D-49 제외는 그대로이며 M-7′ 범위를 앞당기지 않았다.
 
 ### M-UIb 진입 조건
 

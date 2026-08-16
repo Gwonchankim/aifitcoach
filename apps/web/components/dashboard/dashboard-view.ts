@@ -8,7 +8,7 @@ import { focusLabel, formatKg, formatRate } from "../../lib/program-labels";
 export type DashboardAction = { label: string; href: string };
 
 export type TodayCard = {
-  status: "workout" | "rest" | "done" | "partial";
+  status: "workout" | "in_progress" | "rest" | "done" | "partial" | "conflict" | "return_after_gap";
   heading: string;
   message: string;
   /** PR·볼륨 보조 문구. 해당 없으면 넣지 않는다(0개 표시 금지). */
@@ -108,6 +108,42 @@ function todayCard(today: DashboardSummary["today"], localSetsCompleted: number)
       notes: copy.notes,
       // AC-S3-1: done 이면 [운동 시작] 이 보이지 않는다.
       primary: sessionHref ? { label: "기록 보기", href: sessionHref } : null,
+      secondary: null,
+    };
+  }
+
+  if (today.status === "in_progress") {
+    return {
+      status: "in_progress",
+      heading: "진행 중인 세션",
+      message:
+        localSetsCompleted > 0
+          ? `${localSetsCompleted}세트 기록됨 · 기기에 저장됨`
+          : "진행 중인 세션을 이어서 기록하세요.",
+      notes: [],
+      primary: sessionHref ? { label: "이어하기", href: sessionHref } : null,
+      secondary: null,
+    };
+  }
+
+  if (today.status === "conflict") {
+    return {
+      status: "conflict",
+      heading: "계획과 기록이 달라요",
+      message: "예정된 루틴과 오늘 세션이 달라요. 현재 세션을 기준으로 확인해 주세요.",
+      notes: ["일정 재배치나 건너뛰기는 여기서 자동 반영하지 않아요."],
+      primary: sessionHref ? { label: "현재 세션 보기", href: sessionHref } : null,
+      secondary: null,
+    };
+  }
+
+  if (today.status === "return_after_gap") {
+    return {
+      status: "return_after_gap",
+      heading: "추천 신뢰도 낮음",
+      message: "마지막 완료 뒤 공백이 있어요. 기록이 다시 쌓이면 추천 신뢰도가 회복돼요.",
+      notes: [],
+      primary: sessionHref ? { label: "운동 시작", href: sessionHref } : null,
       secondary: null,
     };
   }

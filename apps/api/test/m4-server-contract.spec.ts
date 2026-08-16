@@ -2,8 +2,10 @@
  * Sprint 0에서 서로 다른 미구현 경계를 red로 증명한 뒤 Sprint 2 일반 게이트로 승격한 계약 테스트.
  */
 import type { INestApplication } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
+import { encryptNumber } from "../src/common/crypto/field-encryption";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
@@ -66,6 +68,45 @@ describe("M-4′ 서버 계약", () => {
       .query({ exercise_id: "e_bench_press" });
     expect(response.status).toBe(200);
     expectMatchesContract("get", "/analytics/e1rm", 200, response.body);
+  });
+
+  it("한 완료 세션의 세 세트를 3세션으로 세지 않고 early를 유지한다", async () => {
+    const sessionId = await seedAndLocateTodaySession();
+    const planned = await prisma.plannedSet.findMany({
+      where: { sessionId },
+      orderBy: [{ orderIndex: "asc" }, { setNo: "asc" }],
+      take: 3,
+    });
+    const exerciseId = planned[0].exerciseId;
+    for (const set of planned) {
+      await prisma.performedSet.create({
+        data: {
+          plannedSetId: set.id,
+          actualWeight: 60,
+          actualReps: 10,
+          actualRir: 2,
+          painScore: encryptNumber(null),
+          completed: true,
+          clientId: randomUUID(),
+          performedAt: new Date("2026-08-14T10:00:00.000Z"),
+        },
+      });
+    }
+    await prisma.workoutSession.update({
+      where: { id: sessionId },
+      data: { status: "completed", completedAt: new Date("2026-08-14T10:10:00.000Z") },
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/v1/analytics/e1rm")
+      .query({ exercise_id: exerciseId })
+      .expect(200);
+    expect(response.body).toMatchObject({
+      sample_session_count: 1,
+      gate_state: "early",
+      points: [],
+      next_recommendation: null,
+    });
   });
 
   it("analytics volume은 주별 projector 결과와 목표별 권장 범위를 200으로 반환한다", async () => {

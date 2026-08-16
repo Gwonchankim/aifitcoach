@@ -295,7 +295,7 @@ test.describe("500 / 오프라인", () => {
 
   test("오프라인에서 새로고침해도 앱 셸이 뜬다(PWA)", async ({ page, context }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "오늘", exact: true })).toBeVisible();
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
       if (!navigator.serviceWorker.controller) {
@@ -308,7 +308,7 @@ test.describe("500 / 오프라인", () => {
     });
     await context.setOffline(true);
     await page.reload();
-    await expect(page.getByRole("heading", { name: "AIFITCOACH" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "오늘", exact: true })).toBeVisible();
     await context.setOffline(false);
   });
 

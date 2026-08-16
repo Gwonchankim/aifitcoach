@@ -14,10 +14,24 @@ import { Badge, Button, Card, Kicker, buttonBase, cn } from "../ui";
 import { ApiError, api, type BodyPart } from "../../lib/api";
 import { DASHBOARD_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 import { formatClock, useOnline } from "../../lib/use-online";
-import { dashboardReadModel } from "../../lib/read-model-data";
+import {
+  dashboardReadModel,
+  e1rmReadModel,
+  historySessionReadModel,
+  recentAnalyticsWindow,
+  volumeReadModel,
+} from "../../lib/read-model-data";
 import { summarize, useSessionLog } from "../session/session-store";
 import { BodyPartSheet } from "./BodyPartSheet";
 import { E1RM_EMPTY_NOTE, type MetricCard, buildDashboardView } from "./dashboard-view";
+import {
+  dashboardDate,
+  e1rmDelta,
+  E1rmSummaryCard,
+  VolumeCard,
+  WeeklyRhythmCard,
+} from "../analytics/AnalyticsCards";
+import { fetchExerciseNames } from "../../app/program/exercise-names";
 
 function LinkAction({
   href,
@@ -64,10 +78,13 @@ function Metric({ card }: { card: MetricCard }) {
   );
 }
 
-function Screen({ children }: { children: React.ReactNode }) {
+function Screen({ children, meta }: { children: React.ReactNode; meta?: string }) {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-4 pb-safe-bottom">
-      <h1 className="text-2xl font-bold text-fg">AIFITCOACH</h1>
+    <div className="mx-auto flex w-full max-w-md flex-col gap-3 p-4 pb-safe-bottom">
+      <header className="flex items-baseline justify-between border-b border-border pb-3">
+        <h1 className="text-[19px] font-extrabold text-fg">오늘</h1>
+        {meta ? <p className="font-mono text-kicker text-fg-muted">{meta}</p> : null}
+      </header>
       {children}
     </div>
   );
@@ -111,13 +128,48 @@ export function DashboardScreen() {
     retry: false,
   });
 
+  const volumeWindow = dashboard.data
+    ? recentAnalyticsWindow(dashboard.data.data.date, 1).weekly
+    : null;
+  const volume = useQuery({
+    queryKey: ["analytics", "volume", volumeWindow],
+    queryFn: () => volumeReadModel(volumeWindow ?? {}),
+    enabled: volumeWindow !== null,
+    retry: false,
+  });
+  const todaySessionId = dashboard.data?.data.today.session_id ?? null;
+  const todaySession = useQuery({
+    queryKey: ["dashboard-session", todaySessionId],
+    queryFn: () => historySessionReadModel(todaySessionId!),
+    enabled: todaySessionId !== null,
+    retry: false,
+  });
+  const primaryExerciseId = dashboard.data?.data.primary_e1rm?.exercise_id;
+  const e1rmWindow = dashboard.data
+    ? recentAnalyticsWindow(dashboard.data.data.date, 4).e1rm
+    : null;
+  const primaryTrend = useQuery({
+    queryKey: ["analytics", "e1rm", primaryExerciseId, e1rmWindow],
+    queryFn: () => e1rmReadModel({ exercise_id: primaryExerciseId!, ...e1rmWindow! }),
+    enabled:
+      primaryExerciseId != null &&
+      dashboard.data?.data.primary_e1rm?.gate_state === "ready" &&
+      e1rmWindow != null,
+    retry: false,
+  });
+  const exerciseNames = useQuery({
+    queryKey: ["exercises", "names"],
+    queryFn: fetchExerciseNames,
+    enabled: primaryExerciseId != null || todaySessionId != null,
+    retry: false,
+  });
+
   /*
     오늘 세션의 완료 세트는 아직 서버로 가지 않는다(세트 저장 경로는 STEP 6 `/sync`).
     그래서 요약 화면이 "오늘 2세트"를 보여주는 순간에도 `done_summary.sets_completed` 는 0 이다
     → 그 0 을 "기록이 없다"로 **단정하지 않도록** 이 기기의 기록 수를 함께 넘긴다.
     STEP 6 이 붙으면 서버 요약이 채워져 이 분기는 자연히 사라진다.
   */
-  const todaySessionId = dashboard.data?.data.today.session_id ?? null;
   const localSetsCompleted = useSessionLog((state) =>
     state.sessionId != null && state.sessionId === todaySessionId
       ? summarize(state.drafts).completedCount
@@ -200,11 +252,17 @@ export function DashboardScreen() {
    * 온보딩 카드로 바뀐다 → 프로그램 조회가 끝날 때까지는 스켈레톤을 유지한다.
    */
   const loading = (program.isPending || dashboard.isPending) && !dashboard.data;
-  const view =
-    !loading && dashboard.data ? buildDashboardView(dashboard.data.data, localSetsCompleted) : null;
+  const summary = dashboard.data?.data ?? null;
+  const view = !loading && summary ? buildDashboardView(summary, localSetsCompleted) : null;
 
   return (
-    <Screen>
+    <Screen
+      meta={
+        dashboard.data
+          ? `${dashboardDate(dashboard.data.data.date)}${program.data ? ` · ${program.data.current_week}주차` : ""}`
+          : undefined
+      }
+    >
       {dashboard.data?.stale ? (
         <p role="status" className="text-xs text-fg-muted">
           오프라인 · 마지막 동기화{" "}
@@ -214,11 +272,16 @@ export function DashboardScreen() {
 
       {view ? (
         <>
-          <Card className="flex flex-col gap-3">
+          <Card className="flex flex-col gap-3 border-[1.5px] border-border-strong p-[13px]">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-fg">{view.today.heading}</h2>
               {view.today.status === "done" ? <Badge tone="success">완료</Badge> : null}
               {view.today.status === "partial" ? <Badge tone="warn">부분 완료</Badge> : null}
+              {view.today.status === "in_progress" ? <Badge tone="neutral">진행</Badge> : null}
+              {view.today.status === "conflict" ? <Badge tone="warn">계획 충돌</Badge> : null}
+              {view.today.status === "return_after_gap" ? (
+                <Badge tone="warn">공백 복귀</Badge>
+              ) : null}
               {view.today.status === "rest" ? <Badge tone="neutral">휴식</Badge> : null}
             </div>
             <p className="text-sm text-ink-2">{view.today.message}</p>
@@ -227,6 +290,26 @@ export function DashboardScreen() {
                 {note}
               </p>
             ))}
+            {view.today.status === "workout" && todaySession.data ? (
+              <div className="flex flex-col gap-1 border-t border-border-weak pt-2 text-xs text-fg-muted">
+                <p>
+                  <span className="font-mono tabular-nums">
+                    {todaySession.data.data.planned_sets.length}
+                  </span>
+                  세트 예정
+                </p>
+                {todaySession.data.data.planned_sets[0]?.recommended_weight != null ? (
+                  <p>
+                    첫 추천 ·{" "}
+                    {exerciseNames.data?.[todaySession.data.data.planned_sets[0].exercise_id] ??
+                      "운동"}{" "}
+                    <span className="font-mono tabular-nums">
+                      {todaySession.data.data.planned_sets[0].recommended_weight}kg
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {view.today.primary ? (
               <LinkAction href={view.today.primary.href}>{view.today.primary.label}</LinkAction>
             ) : null}
@@ -260,6 +343,18 @@ export function DashboardScreen() {
             <Metric card={view.streak} />
             <Metric card={view.weekly} />
           </div>
+
+          {summary?.weekly_rhythm.length === 7 ? (
+            <WeeklyRhythmCard days={summary.weekly_rhythm} />
+          ) : null}
+
+          <E1rmSummaryCard
+            summary={summary?.primary_e1rm ?? null}
+            exerciseName={primaryExerciseId ? exerciseNames.data?.[primaryExerciseId] : undefined}
+            delta={e1rmDelta(primaryTrend.data?.data)}
+          />
+
+          {volume.data ? <VolumeCard analytics={volume.data.data} /> : null}
         </>
       ) : loading ? (
         <>
@@ -280,11 +375,13 @@ export function DashboardScreen() {
         </Card>
       )}
 
-      {/* 요약이 실패해도 이 카드는 그대로 렌더된다(AC-S3-2). */}
-      <Card className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold text-fg">주요 리프트 추세</h2>
-        <p className="text-xs text-fg-muted">{E1RM_EMPTY_NOTE}</p>
-      </Card>
+      {/* 서버 gate가 ready가 아닐 때는 수치·기록 링크를 만들지 않는다(D-39). */}
+      {!summary?.primary_e1rm || summary.primary_e1rm.gate_state !== "ready" ? (
+        <Card className="flex flex-col gap-1">
+          <h2 className="text-lg font-semibold text-fg">주요 리프트 추세</h2>
+          <p className="text-xs text-fg-muted">{E1RM_EMPTY_NOTE}</p>
+        </Card>
+      ) : null}
 
       <Link
         href="/program"
