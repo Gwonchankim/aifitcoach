@@ -354,7 +354,28 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 
 ### 로드맵 현재 위치
 
-[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → **실기기 워크스루 재실행(내일 최우선) 또는 M-4′** → M-7′
+[테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화 ✅] → [데스크톱 종단 A ✅·재연결 UI fix-now] → **갤럭시 Z 플립6 종단 B(다음, M-4′ 차단)** → M-4′ → M-7′
+
+### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
+
+- 데스크톱 Chrome 종단에서 서버 무결성은 통과했다. 오프라인 add 직후 3세트와 두 탭의 서로 다른 2세트가
+  서버에 모두 도달했고, 최종 `planned=12`, `performed=5`, planned/performed 중복 0, 임시 correlation ID
+  유출 0, 대시보드·요약·다음 추천 일치를 DB와 화면으로 함께 확인했다.
+- **fix-now 발견**: 최초 재연결 탭의 오래된 session GET(9 planned)이 mapping 적용 뒤 도착해 서버 12와
+  달리 화면이 20초 이상 `계획 9세트`로 남았다. 지연 응답을 주입한 Chromium E2E가 수정 전
+  `서버 18 / 화면 15`로 red임을 확인했다. mapping 시 해당 query를 취소(AbortSignal 전달)하고 mapped cache
+  보존 후 권위 서버를 refetch하도록 수정했으며, 취소 제거 뮤턴트가 같은 E2E를 red로 되돌리는 것을
+  SHA-256 주입·원복 절차로 확인했다.
+- **A의 한계**: Browser Use가 네트워크 offline 전환을 제공하지 않아 서버 종료로 transport loss를 만들었고,
+  IndexedDB outbox 수는 직접 읽지 못해 서버 mutation `applied`와 중복 0으로 간접 확인했다. 두 한계는 B의
+  실제 기내모드·OS 강제 종료·DB 재대조로 보완한다.
+- **production-LAN 준비**: `build:lan`+`start:lan`을 실제 기동해 TLS·page/API/SW 200을 확인했다.
+  `verify:lan-pwa` 실측은 controller=`/sw.js`, state=`activated`, `afc-pages-v1` root 1개,
+  `afc-fonts-v1` 6개, 실제 Chromium offline reload PASS다. `dev:lan`은 Serwist가 비활성이므로 화면 개발에만 쓴다.
+- fix-now 최종 게이트는 contract 31/31, shared 81, web 270, api 256, E2E 65/65(신규 Chromium
+  경합 회귀 1건 포함), 06-mobile Chromium 7/7+WebKit 7/7, axe 20화면 위반 0으로 기존 기준선이 감소하지 않았다.
+- Background Sync는 ADR-58의 선택적 최적화로 계속 미구현이다. B에서는 자동 백그라운드 전송을 기대하지
+  않고, 앱 재실행/focus 시 foreground sync가 반드시 수렴하는지를 판정한다.
 
 ### M-UIb 진입 조건
 

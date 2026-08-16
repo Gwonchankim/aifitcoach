@@ -95,9 +95,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       const mappings = (event as CustomEvent<SyncResponse["planned_set_mappings"]>).detail;
       if (!Array.isArray(mappings) || mappings.length === 0) return;
       remapPlannedSetsInStore(mappings);
-      queryClient.setQueryData<Session>(["session", sessionId], (current) =>
-        current ? mappedSession(current, mappings) : current,
-      );
+      void (async () => {
+        const queryKey = ["session", sessionId] as const;
+        // A reconnect read can have captured the pre-mapping routine before /sync commits.
+        // Abort that request first so its late response cannot overwrite the mapped cache or mirror,
+        // then refetch from the now-authoritative server state.
+        await queryClient.cancelQueries({ queryKey, exact: true });
+        queryClient.setQueryData<Session>(queryKey, (current) =>
+          current ? mappedSession(current, mappings) : current,
+        );
+        await queryClient.invalidateQueries({ queryKey, exact: true });
+      })();
     };
     window.addEventListener(PLANNED_SET_MAPPING_EVENT, onMapping);
     return () => window.removeEventListener(PLANNED_SET_MAPPING_EVENT, onMapping);
@@ -125,8 +133,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const sessionQuery = useQuery({
     queryKey: ["session", sessionId],
-    queryFn: () =>
-      readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId)),
+    queryFn: ({ signal }) =>
+      readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId, signal)),
   });
 
   const catalogQuery = useQuery({

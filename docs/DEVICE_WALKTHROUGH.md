@@ -5,8 +5,9 @@
 전부 실패했는데 E2E 37개가 전부 통과한 적이 있다(CLAUDE.md 함정 1). 그래서 **폰은 HTTPS 로 붙인다.**
 터널(ngrok 등)은 쓰지 않는다 — ADR-43.
 
-아래 절차는 이 PC 에서 **실제로 실행해 검증**했다(인증서 체인 `Verify return code: 0 (ok)`,
-프록시 경유 API 200, 브라우저 콘솔 에러 0).
+아래 절차는 이 PC 에서 **실제로 실행해 검증**했다. 2026-08-16 production-LAN 기준으로 인증서
+`Verification: OK`, 페이지·프록시 API·`/sw.js` 200, Service Worker `activated`+controller 확보,
+`afc-pages-v1`·`afc-fonts-v1` 동시 생성, Chromium 오프라인 reload까지 통과했다.
 
 ---
 
@@ -112,9 +113,9 @@ $env:CAROOT = "$env:LOCALAPPDATA\mkcert"
 cd C:\Users\amole\Desktop\aifitcoach\apps\web\certificates
 & $mk -key-file lan-key.pem -cert-file lan.pem localhost 127.0.0.1 ::1 <새IP>
 
-# ④ 다시 띄운다
+# ④ 기존 production-LAN 빌드를 다시 띄운다(빌드가 없으면 §4의 build:lan 먼저)
 cd C:\Users\amole\Desktop\aifitcoach
-pnpm --filter web dev:lan
+pnpm --filter web start:lan
 ```
 
 **검증 — 여기까지 통과해야 폰으로 넘어간다** (`<새IP>` 를 그대로 치환):
@@ -172,7 +173,7 @@ C:\Users\amole\AppData\Local\mkcert\rootCA.pem
 
 ---
 
-## 4. 서버 2개 띄우기
+## 4. 서버 2개 띄우기 — STEP 6은 production-LAN 필수
 
 터미널 2개. 순서는 **API 먼저**.
 
@@ -183,19 +184,28 @@ pnpm db:up                                           # postgres/redis 가 안 �
 pnpm --filter api start
 ```
 
+웹 실행은 목적에 따라 나눈다.
+
+| 명령 | 용도 | Service Worker |
+| --- | --- | --- |
+| `pnpm --filter web dev:lan` | 코드 수정 중 실기기 화면·터치·반응형 확인 | **비활성** — Next development 모드라 오프라인 셸 판정 금지 |
+| `pnpm --filter web build:lan` 후 `pnpm --filter web start:lan` | STEP 6 PWA 설치·기내모드·강제 종료·캐시 검증 | **활성** — 프로덕션 산출물 |
+| `pnpm --filter web prod:lan` | 위 build+start를 한 명령으로 실행 | **활성** |
+
 ```powershell
-# 터미널 2 — 웹 HTTPS (:3000, 0.0.0.0 바인딩)
+# 터미널 2 — production-LAN HTTPS (:3000, 0.0.0.0 바인딩)
 cd C:\Users\amole\Desktop\aifitcoach
-pnpm --filter web dev:lan
+pnpm --filter web build:lan
+pnpm --filter web start:lan
 ```
 
-`dev:lan` 이 하는 일(`apps/web/scripts/dev-lan.mjs`):
-- `certificates/lan.pem` / `lan-key.pem` 으로 HTTPS 기동, `-H 0.0.0.0` 으로 LAN 노출
-- `NEXT_PUBLIC_API_BASE_URL=/api/v1` 을 **Node 프로세스 안에서** 주입
+`build:lan`은 `NEXT_PUBLIC_API_BASE_URL=/api/v1`을 **Node 프로세스 안에서 빌드에 주입**해 폰용
+클라이언트 청크에 same-origin API 경로를 굽는다. `start:lan`은 그 프로덕션 빌드를 `lan.pem`/
+`lan-key.pem` HTTPS 서버로 `0.0.0.0:3000`에 제공한다. 셸 환경변수나 `WEB_ORIGIN` 변경은 필요 없다.
 
 ### CORS / origin 은 어떻게 되나 — **손댈 게 없다**
 
-`dev:lan` 에서는 브라우저가 `https://192.168.0.174:3000/api/v1/*` 만 부르고,
+`dev:lan`과 production-LAN 모두 브라우저가 `https://192.168.0.174:3000/api/v1/*` 만 부르고,
 Next 개발 서버가 서버사이드에서 `http://localhost:3001/v1/*` 로 넘긴다.
 **브라우저 관점에선 same-origin 이라 preflight 도 `Origin` 헤더 검사도 발생하지 않는다.**
 → API 의 `WEB_ORIGIN` 을 폰 IP 로 바꿀 필요 없고, 바꾸면 안 된다(로컬 E2E 의 CORS 회귀 스펙이 깨진다).
@@ -208,9 +218,12 @@ Next 개발 서버가 서버사이드에서 `http://localhost:3001/v1/*` 로 넘
 ```powershell
 curl.exe -sk -o NUL -w "page %{http_code}`n"  https://192.168.0.174:3000/
 curl.exe -sk -o NUL -w "api  %{http_code}`n"  https://192.168.0.174:3000/api/v1/dashboard
+curl.exe -sk -o NUL -w "sw   %{http_code}`n"  https://192.168.0.174:3000/sw.js
+pnpm --filter web verify:lan-pwa -- https://192.168.0.174:3000
 ```
 
-둘 다 `200` 이어야 폰으로 넘어간다.
+세 HTTP 응답이 `200`이고 검증기가 controller·`afc-pages-v1`·`afc-fonts-v1`·offline reload를
+모두 통과해야 폰으로 넘어간다.
 
 | 결과 | 원인 |
 | --- | --- |
@@ -235,7 +248,29 @@ https://192.168.0.174:3000
 
 ---
 
-## 6. 확인 순서 4가지 (화면 이동 경로 포함)
+## 6. STEP 6 갤럭시 Z 플립6 체크리스트 (production-LAN)
+
+데스크톱 (A)는 Browser Use에 네트워크 offline 전환이 없어 서버 종료로 transport loss를 만들었고,
+IndexedDB outbox 개수를 직접 읽지 못해 서버 mutation `applied`·중복 0으로 간접 확인했다. 이 두 한계는
+아래 3~6번에서 **실제 기내모드와 OS 강제 종료**로 보완한다.
+
+| # | 확인 | 기대 결과 |
+| --- | --- | --- |
+| 1 | Android Chrome에서 production-LAN 접속 후 홈 화면 추가 | 인증서 경고가 없고 standalone PWA로 열린다. 삼성 인터넷·인앱 웹뷰는 쓰지 않는다. |
+| 2 | 온라인 상태로 앱 셸·카탈로그·세션을 연 뒤 한 번 재실행 | Service Worker가 페이지를 제어하고 이후 오프라인 앱 셸을 제공한다. |
+| 3 | 실제 기내모드에서 운동 add 또는 swap 직후 첫 세트를 포함해 N개 기록하고 세션 완료 | 모든 조작이 로컬 성공하고 화면의 루틴·N개 기록·완료 상태가 일치한다. |
+| 4 | 기내모드인 채 Android 설정에서 PWA 강제 종료 후 재실행 | 앱 셸이 열리고 루틴·N개 기록·완료 상태가 정확히 복원된다. |
+| 5 | 기내모드 해제 직후 다시 켰다가 최종 해제 | 중간 실패에도 기록이 남고 최종 foreground sync가 outbox를 비운다. |
+| 6 | 앱을 닫은 채 네트워크만 복구한 뒤, 다시 앱을 열거나 focus | **자동 Background Sync는 기대하지 않는다.** 앱 재실행/focus 시 foreground sync로 반드시 수렴한다(ADR-58). |
+| 7 | 두 Chrome 탭에서 서로 다른 세트를 기록 | 두 세트가 서버에 각각 1회 도달하고 performed/planned 중복과 임시 ID 유출이 0이다. |
+| 8 | 내부 화면과 커버 스크린에서 세트 행·⋯ 메뉴·RIR 시트·48×48 완료 체크 확인 | 가로 스크롤·겹침·잘림 없이 조작할 수 있다. |
+| 9 | 세션/RIR 시트를 연 채 접었다 펴기 | 폭이 즉시 재계산되고 시트·키보드·포커스가 화면 밖으로 벗어나지 않는다. |
+| 10 | 운동 자세에서 한 손으로 반복 조작 | 숫자가 읽히고 ⋯·RIR·완료 체크를 오조작 없이 누를 수 있다. |
+
+각 단계 스크린샷과 세션 URL의 UUID를 남긴다. 3·5·7번 뒤에는 PC에서 DB를 직접 조회해 수행 수,
+중복, correlation ID 유출, 대시보드·요약·다음 추천을 화면과 함께 판정한다.
+
+### 화면 세부 확인 (이동 경로 포함)
 
 스크린샷은 매 항목마다 찍는다. 저장 경로:
 
@@ -295,20 +330,20 @@ C:\Users\amole\Desktop\AFC-화면확인\실기기-2026-08-08\
 
 ---
 
-### ③ 휴지통 역할 구분
+### ③ ⋯ 단일 메뉴 역할 구분
 
-역할 분리(ADR-40): **[교체] = 다른 운동으로 바꾸기 / 휴지통 = 삭제 / [운동 추가] = 목록 맨 아래**.
-중간에 `[편집]` 시트를 두지 않는다.
+M-UIb 계약: 카드 헤더에는 ⋯ 트리거 하나만 두고 **교체·통증 기록·삭제**를 단일 메뉴에 모은다.
+`[운동 추가]`는 목록 맨 아래에 둔다.
 
 **이동 경로**: 같은 세션 화면 → 운동 카드 헤더.
 
 **볼 것**
-- [ ] 운동 카드 헤더에 **[교체] · [통증 기록] · 🗑** 이 보인다
-- [ ] 🗑 이 **교체와 헷갈리지 않게** 구분된다(아이콘·간격·라벨)
-- [ ] 🗑 탭 → **확인 다이얼로그**가 뜬다 (즉시 삭제되지 않는다)
+- [ ] 운동 카드 헤더에 **⋯ 트리거 하나만** 보인다
+- [ ] ⋯ 탭 → **교체·통증 기록·삭제** 메뉴가 열린다
+- [ ] 삭제 선택 → **확인 다이얼로그**가 뜬다 (즉시 삭제되지 않는다)
 - [ ] **이미 수행 기록이 있는 운동은 삭제가 막히고** 이유가 뜬다
 - [ ] **[운동 추가]** 가 운동 목록 **맨 아래**에 있다
-- [ ] 손가락으로 🗑 을 **오조작하지 않는다**(터치 타깃 44px 이상, 다른 버튼과 간격)
+- [ ] 손가락으로 ⋯ 메뉴 항목을 오조작하지 않는다
 
 📸 `05-운동카드-헤더.png`, `06-삭제-확인다이얼로그.png`
 

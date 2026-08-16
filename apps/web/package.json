@@ -6,13 +6,17 @@
     "dev": "next dev",
     "dev:lan": "node scripts/dev-lan.mjs",
     "build": "next build",
+    "build:lan": "pnpm --filter shared build && node scripts/build-lan.mjs",
     "start": "next start",
+    "start:lan": "node scripts/start-lan.mjs",
+    "prod:lan": "pnpm run build:lan && pnpm run start:lan",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify:no-test-seed": "node scripts/verify-no-test-seed.mjs",
     "verify:contrast": "node scripts/verify-contrast.mjs",
-    "verify:font-payload": "node scripts/verify-font-payload.mjs"
+    "verify:font-payload": "node scripts/verify-font-payload.mjs",
+    "verify:lan-pwa": "node scripts/verify-lan-pwa.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",

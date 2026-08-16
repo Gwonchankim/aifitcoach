@@ -84,7 +84,8 @@ export const api = {
 
   dashboard: () => request<DashboardSummary>("/dashboard"),
 
-  session: (sessionId: string) => request<Session>(`/sessions/${sessionId}`),
+  session: (sessionId: string, signal?: AbortSignal) =>
+    request<Session>(`/sessions/${sessionId}`, { signal }),
 
   /** F8-1 휴식일에도 운동하기: 부위를 골라 오늘 세션을 즉석 생성한다. 이미 있으면 409. */
   createAdHocSession: (body: { body_part: BodyPart }) =>

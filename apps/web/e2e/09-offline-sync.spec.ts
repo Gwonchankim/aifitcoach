@@ -180,6 +180,64 @@ test("loss 0: offline add/swap/immediate logging survives reload and a closed ta
   await assertAuthoritativeSummary(request, 4, 1900);
 });
 
+test("@chromium-only a stale reconnect read cannot overwrite an applied routine mapping", async ({
+  page,
+  context,
+  request,
+}) => {
+  await seedProgram(request);
+  const sessionId = await todaySession(request);
+  await openSession(page, sessionId);
+  const initialResponse = await request.get(`${API_V1}/sessions/${sessionId}`);
+  const initialCount = ((await initialResponse.json()) as { planned_sets: unknown[] }).planned_sets
+    .length;
+
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "운동 추가" }).click();
+  const picker = page.getByRole("dialog", { name: "운동 추가" });
+  await picker.getByRole("tab", { name: "팔" }).click();
+  await picker.getByRole("button", { name: /^바벨 컬/ }).click();
+  await expect(page.getByRole("heading", { name: "바벨 컬", exact: true })).toBeVisible();
+  await expect(page.getByText(`계획 ${initialCount + 3}세트`, { exact: false })).toBeVisible();
+  await page.close();
+
+  let captureStale!: () => void;
+  const staleCaptured = new Promise<void>((resolve) => {
+    captureStale = resolve;
+  });
+  let releaseStale!: () => void;
+  const staleGate = new Promise<void>((resolve) => {
+    releaseStale = resolve;
+  });
+  let firstRead = true;
+  await context.route(`**/v1/sessions/${sessionId}`, async (route) => {
+    if (!firstRead) {
+      await route.continue();
+      return;
+    }
+    firstRead = false;
+    const staleResponse = await route.fetch();
+    captureStale();
+    await staleGate;
+    await route.fulfill({ response: staleResponse }).catch(() => undefined);
+  });
+
+  await context.setOffline(false);
+  const resumed = await context.newPage();
+  await resumed.goto(`/session/${sessionId}`);
+  await staleCaptured;
+  await expect
+    .poll(async () => {
+      const response = await request.get(`${API_V1}/sessions/${sessionId}`);
+      return ((await response.json()) as { planned_sets: unknown[] }).planned_sets.length;
+    })
+    .toBe(initialCount + 3);
+  releaseStale();
+
+  await expect(resumed.getByText(`계획 ${initialCount + 3}세트`, { exact: false })).toBeVisible();
+  await expect(resumed.getByRole("heading", { name: "바벨 컬", exact: true })).toBeVisible();
+});
+
 test("@chromium-only response loss retries one server-received mutation without a duplicate performed set", async ({
   page,
   context,
