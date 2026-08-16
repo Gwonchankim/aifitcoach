@@ -9,7 +9,7 @@ const context = await browser.newContext({ ignoreHTTPSErrors: true });
 try {
   const page = await context.newPage();
   await page.goto(origin, { waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "AIFITCOACH" }).waitFor();
+  await page.getByRole("heading", { name: "오늘", exact: true }).waitFor();
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
     if (navigator.serviceWorker.controller) return;
@@ -54,7 +54,7 @@ try {
 
   await context.setOffline(true);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.getByRole("heading", { name: "AIFITCOACH" }).waitFor();
+  await page.getByRole("heading", { name: "오늘", exact: true }).waitFor();
   console.log(JSON.stringify({ ...online, offlineReload: "passed" }, null, 2));
 } finally {
   await context.setOffline(false).catch(() => undefined);
