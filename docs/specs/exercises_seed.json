@@ -1,307 +1,3444 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "rules_version_ref": "2026.07.1",
-  "note": "AI 맞춤형 운동프로그램 웹앱 운동DB 시드 30종. 저작 가이드(docx)의 스키마·taxonomy를 따른다. media는 자체제작/라이선스 확보 후 채운다.",
+  "note": "AI 맞춤형 운동프로그램 웹앱 운동DB 시드 105종. 기존 정본 30종 + 확장 75종이며, 저장소 Equipment enum에 맞춰 smith_machine은 machine, kettlebell은 dumbbell로 정규화했다. media는 자체제작/라이선스 확보 후 채운다.",
   "exercises": [
     {
-      "id": "e_back_squat", "name_ko": "바벨 백스쿼트", "name_en": "Barbell Back Squat",
-      "movement_pattern": "squat", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["quads", "glutes"], "secondary_muscles": ["hamstrings", "lower_back", "abs"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 5, "default_reps_high": 10, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_leg_press", "e_goblet_squat"],
-      "cues": ["가슴을 세우고 코어를 조인다", "무릎이 발끝 방향을 향하게", "엉덩이를 뒤로 앉듯 내려간다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_back_squat",
+      "name_ko": "바벨 백스쿼트",
+      "name_en": "Barbell Back Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "lower_back",
+        "abs"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 10,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_press",
+        "e_goblet_squat"
+      ],
+      "cues": [
+        "가슴을 세우고 코어를 조인다",
+        "무릎이 발끝 방향을 향하게",
+        "엉덩이를 뒤로 앉듯 내려간다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_leg_press", "name_ko": "레그 프레스", "name_en": "Leg Press",
-      "movement_pattern": "squat", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["quads", "glutes"], "secondary_muscles": ["hamstrings"],
-      "equipment": "machine", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_back_squat", "e_goblet_squat"],
-      "cues": ["허리를 시트에 밀착", "무릎을 완전히 잠그지 않는다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_leg_press",
+      "name_ko": "레그 프레스",
+      "name_en": "Leg Press",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_back_squat",
+        "e_goblet_squat"
+      ],
+      "cues": [
+        "허리를 시트에 밀착",
+        "무릎을 완전히 잠그지 않는다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_goblet_squat", "name_ko": "고블릿 스쿼트", "name_en": "Goblet Squat",
-      "movement_pattern": "squat", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["quads", "glutes"], "secondary_muscles": ["abs"],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_leg_press", "e_back_squat"],
-      "cues": ["덤벨을 가슴 앞에 세워 든다", "상체를 곧게 유지"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_goblet_squat",
+      "name_ko": "고블릿 스쿼트",
+      "name_en": "Goblet Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_press",
+        "e_back_squat"
+      ],
+      "cues": [
+        "덤벨을 가슴 앞에 세워 든다",
+        "상체를 곧게 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_rdl", "name_ko": "루마니안 데드리프트", "name_en": "Romanian Deadlift",
-      "movement_pattern": "hinge", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["hamstrings", "glutes"], "secondary_muscles": ["lower_back"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 6, "default_reps_high": 12, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_leg_curl", "e_hip_thrust"],
-      "cues": ["엉덩이를 뒤로 밀며 내린다", "등을 편평하게 유지", "햄스트링 늘어남을 느낀다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_rdl",
+      "name_ko": "루마니안 데드리프트",
+      "name_en": "Romanian Deadlift",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "lower_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_curl",
+        "e_hip_thrust"
+      ],
+      "cues": [
+        "엉덩이를 뒤로 밀며 내린다",
+        "등을 편평하게 유지",
+        "햄스트링 늘어남을 느낀다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_deadlift", "name_ko": "데드리프트", "name_en": "Conventional Deadlift",
-      "movement_pattern": "hinge", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["glutes", "hamstrings", "lower_back"], "secondary_muscles": ["upper_back", "quads", "forearms"],
-      "equipment": "barbell", "difficulty": "advanced", "metric": "reps",
-      "default_reps_low": 3, "default_reps_high": 6, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_rdl", "e_hip_thrust"],
-      "cues": ["바를 정강이 가까이", "등을 곧게 세우고 밀어 올린다", "허리로 들지 않는다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_deadlift",
+      "name_ko": "데드리프트",
+      "name_en": "Conventional Deadlift",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes",
+        "hamstrings",
+        "lower_back"
+      ],
+      "secondary_muscles": [
+        "upper_back",
+        "quads",
+        "forearms"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 3,
+      "default_reps_high": 6,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rdl",
+        "e_hip_thrust"
+      ],
+      "cues": [
+        "바를 정강이 가까이",
+        "등을 곧게 세우고 밀어 올린다",
+        "허리로 들지 않는다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_hip_thrust", "name_ko": "힙 쓰러스트", "name_en": "Barbell Hip Thrust",
-      "movement_pattern": "hinge", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["glutes"], "secondary_muscles": ["hamstrings"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_rdl", "e_leg_press"],
-      "cues": ["턱을 당기고 갈비를 닫는다", "정점에서 엉덩이를 조인다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_hip_thrust",
+      "name_ko": "힙 쓰러스트",
+      "name_en": "Barbell Hip Thrust",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rdl",
+        "e_leg_press"
+      ],
+      "cues": [
+        "턱을 당기고 갈비를 닫는다",
+        "정점에서 엉덩이를 조인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_walking_lunge", "name_ko": "워킹 런지", "name_en": "Walking Lunge",
-      "movement_pattern": "lunge", "mechanic": "compound", "region": "lower",
-      "primary_muscles": ["quads", "glutes"], "secondary_muscles": ["hamstrings"],
-      "equipment": "dumbbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 12, "default_step_kg": 2.5, "unilateral": true,
-      "substitutions": ["e_leg_press", "e_goblet_squat"],
-      "cues": ["보폭을 충분히", "무릎이 바닥 가까이", "상체를 곧게"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_walking_lunge",
+      "name_ko": "워킹 런지",
+      "name_en": "Walking Lunge",
+      "movement_pattern": "lunge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_leg_press",
+        "e_goblet_squat"
+      ],
+      "cues": [
+        "보폭을 충분히",
+        "무릎이 바닥 가까이",
+        "상체를 곧게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_leg_extension", "name_ko": "레그 익스텐션", "name_en": "Leg Extension",
-      "movement_pattern": "knee_extension", "mechanic": "isolation", "region": "lower",
-      "primary_muscles": ["quads"], "secondary_muscles": [],
-      "equipment": "machine", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 20, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_goblet_squat", "e_leg_press"],
-      "cues": ["정점에서 대퇴 수축", "천천히 내린다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_leg_extension",
+      "name_ko": "레그 익스텐션",
+      "name_en": "Leg Extension",
+      "movement_pattern": "knee_extension",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "quads"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_goblet_squat",
+        "e_leg_press"
+      ],
+      "cues": [
+        "정점에서 대퇴 수축",
+        "천천히 내린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_leg_curl", "name_ko": "레그 컬", "name_en": "Lying Leg Curl",
-      "movement_pattern": "knee_flexion", "mechanic": "isolation", "region": "lower",
-      "primary_muscles": ["hamstrings"], "secondary_muscles": ["calves"],
-      "equipment": "machine", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 20, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_rdl"],
-      "cues": ["엉덩이를 패드에 고정", "수축을 끝까지"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_leg_curl",
+      "name_ko": "레그 컬",
+      "name_en": "Lying Leg Curl",
+      "movement_pattern": "knee_flexion",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings"
+      ],
+      "secondary_muscles": [
+        "calves"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rdl"
+      ],
+      "cues": [
+        "엉덩이를 패드에 고정",
+        "수축을 끝까지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_calf_raise", "name_ko": "스탠딩 카프 레이즈", "name_en": "Standing Calf Raise",
-      "movement_pattern": "calf", "mechanic": "isolation", "region": "lower",
-      "primary_muscles": ["calves"], "secondary_muscles": [],
-      "equipment": "machine", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 20, "default_step_kg": 5, "unilateral": false,
+      "id": "e_calf_raise",
+      "name_ko": "스탠딩 카프 레이즈",
+      "name_en": "Standing Calf Raise",
+      "movement_pattern": "calf",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "calves"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
       "substitutions": [],
-      "cues": ["최대 신전-수축 가동", "정점에서 멈춘다"],
-      "media": { "image_url": null, "video_url": null }
+      "cues": [
+        "최대 신전-수축 가동",
+        "정점에서 멈춘다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_bench_press", "name_ko": "바벨 벤치프레스", "name_en": "Barbell Bench Press",
-      "movement_pattern": "horizontal_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["chest"], "secondary_muscles": ["front_delts", "triceps"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 5, "default_reps_high": 12, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_incline_db_press", "e_chest_press_machine", "e_dips"],
-      "cues": ["견갑을 모으고 고정", "바를 가슴 중앙으로", "발로 바닥을 민다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_bench_press",
+      "name_ko": "바벨 벤치프레스",
+      "name_en": "Barbell Bench Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_incline_db_press",
+        "e_chest_press_machine",
+        "e_dips"
+      ],
+      "cues": [
+        "견갑을 모으고 고정",
+        "바를 가슴 중앙으로",
+        "발로 바닥을 민다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_incline_db_press", "name_ko": "인클라인 덤벨 프레스", "name_en": "Incline Dumbbell Press",
-      "movement_pattern": "horizontal_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["chest", "front_delts"], "secondary_muscles": ["triceps"],
-      "equipment": "dumbbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 12, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_bench_press", "e_chest_press_machine"],
-      "cues": ["벤치 30~45도", "덤벨을 가슴 위로 모은다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_incline_db_press",
+      "name_ko": "인클라인 덤벨 프레스",
+      "name_en": "Incline Dumbbell Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest",
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_bench_press",
+        "e_chest_press_machine"
+      ],
+      "cues": [
+        "벤치 30~45도",
+        "덤벨을 가슴 위로 모은다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_chest_press_machine", "name_ko": "체스트 프레스 머신", "name_en": "Chest Press Machine",
-      "movement_pattern": "horizontal_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["chest"], "secondary_muscles": ["front_delts", "triceps"],
-      "equipment": "machine", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_bench_press", "e_incline_db_press"],
-      "cues": ["손잡이를 가슴 높이", "끝까지 밀되 팔꿈치 잠그지 않기"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_chest_press_machine",
+      "name_ko": "체스트 프레스 머신",
+      "name_en": "Chest Press Machine",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_bench_press",
+        "e_incline_db_press"
+      ],
+      "cues": [
+        "손잡이를 가슴 높이",
+        "끝까지 밀되 팔꿈치 잠그지 않기"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_ohp", "name_ko": "오버헤드 프레스", "name_en": "Overhead Press",
-      "movement_pattern": "vertical_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["front_delts"], "secondary_muscles": ["side_delts", "triceps"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 5, "default_reps_high": 10, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_db_shoulder_press"],
-      "cues": ["갈비를 닫고 코어 고정", "머리 위로 곧게", "귀 옆까지 바를 지난다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_ohp",
+      "name_ko": "오버헤드 프레스",
+      "name_en": "Overhead Press",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 10,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_shoulder_press"
+      ],
+      "cues": [
+        "갈비를 닫고 코어 고정",
+        "머리 위로 곧게",
+        "귀 옆까지 바를 지난다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_db_shoulder_press", "name_ko": "덤벨 숄더 프레스", "name_en": "Dumbbell Shoulder Press",
-      "movement_pattern": "vertical_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["front_delts"], "secondary_muscles": ["side_delts", "triceps"],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 12, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_ohp"],
-      "cues": ["팔꿈치를 살짝 앞으로", "머리 위에서 모은다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_db_shoulder_press",
+      "name_ko": "덤벨 숄더 프레스",
+      "name_en": "Dumbbell Shoulder Press",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_ohp"
+      ],
+      "cues": [
+        "팔꿈치를 살짝 앞으로",
+        "머리 위에서 모은다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_dips", "name_ko": "딥스", "name_en": "Dips",
-      "movement_pattern": "horizontal_push", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["chest", "triceps"], "secondary_muscles": ["front_delts"],
-      "equipment": "bodyweight", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 6, "default_reps_high": 15, "default_step_kg": null, "unilateral": false,
-      "substitutions": ["e_chest_press_machine", "e_triceps_pushdown"],
-      "cues": ["가슴을 앞으로 기울이면 가슴 강조", "어깨 통증 시 가동 축소"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_dips",
+      "name_ko": "딥스",
+      "name_en": "Dips",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest",
+        "triceps"
+      ],
+      "secondary_muscles": [
+        "front_delts"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_chest_press_machine",
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "가슴을 앞으로 기울이면 가슴 강조",
+        "어깨 통증 시 가동 축소"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_triceps_pushdown", "name_ko": "케이블 트라이셉 푸시다운", "name_en": "Cable Triceps Pushdown",
-      "movement_pattern": "elbow_extension", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["triceps"], "secondary_muscles": [],
-      "equipment": "cable", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 20, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_overhead_triceps_ext"],
-      "cues": ["팔꿈치를 몸에 고정", "끝까지 편다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_triceps_pushdown",
+      "name_ko": "케이블 트라이셉 푸시다운",
+      "name_en": "Cable Triceps Pushdown",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_overhead_triceps_ext"
+      ],
+      "cues": [
+        "팔꿈치를 몸에 고정",
+        "끝까지 편다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_overhead_triceps_ext", "name_ko": "오버헤드 트라이셉 익스텐션", "name_en": "Overhead Triceps Extension",
-      "movement_pattern": "elbow_extension", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["triceps"], "secondary_muscles": [],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_triceps_pushdown"],
-      "cues": ["팔꿈치를 고정하고 머리 뒤로", "천천히 신전"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_overhead_triceps_ext",
+      "name_ko": "오버헤드 트라이셉 익스텐션",
+      "name_en": "Overhead Triceps Extension",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "팔꿈치를 고정하고 머리 뒤로",
+        "천천히 신전"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_lateral_raise", "name_ko": "사이드 레터럴 레이즈", "name_en": "Dumbbell Lateral Raise",
-      "movement_pattern": "shoulder_isolation", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["side_delts"], "secondary_muscles": [],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 12, "default_reps_high": 20, "default_step_kg": 2.5, "unilateral": false,
+      "id": "e_lateral_raise",
+      "name_ko": "사이드 레터럴 레이즈",
+      "name_en": "Dumbbell Lateral Raise",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "side_delts"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
       "substitutions": [],
-      "cues": ["팔꿈치를 살짝 굽혀 옆으로", "어깨높이까지", "반동 금지"],
-      "media": { "image_url": null, "video_url": null }
+      "cues": [
+        "팔꿈치를 살짝 굽혀 옆으로",
+        "어깨높이까지",
+        "반동 금지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_lat_pulldown", "name_ko": "랫풀다운", "name_en": "Lat Pulldown",
-      "movement_pattern": "vertical_pull", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["lats"], "secondary_muscles": ["biceps", "upper_back"],
-      "equipment": "cable", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_pullup", "e_seated_cable_row"],
-      "cues": ["가슴을 세우고 바를 쇄골로", "견갑을 아래로 당긴다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_lat_pulldown",
+      "name_ko": "랫풀다운",
+      "name_en": "Lat Pulldown",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "upper_back"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_pullup",
+        "e_seated_cable_row"
+      ],
+      "cues": [
+        "가슴을 세우고 바를 쇄골로",
+        "견갑을 아래로 당긴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_pullup", "name_ko": "풀업", "name_en": "Pull-up",
-      "movement_pattern": "vertical_pull", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["lats"], "secondary_muscles": ["biceps", "upper_back"],
-      "equipment": "bodyweight", "difficulty": "advanced", "metric": "reps",
-      "default_reps_low": 4, "default_reps_high": 12, "default_step_kg": null, "unilateral": false,
-      "substitutions": ["e_lat_pulldown"],
-      "cues": ["견갑을 먼저 내린다", "가슴을 바에 가깝게"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_pullup",
+      "name_ko": "풀업",
+      "name_en": "Pull-up",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "upper_back"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 4,
+      "default_reps_high": 12,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_lat_pulldown"
+      ],
+      "cues": [
+        "견갑을 먼저 내린다",
+        "가슴을 바에 가깝게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_barbell_row", "name_ko": "바벨 로우", "name_en": "Barbell Row",
-      "movement_pattern": "horizontal_pull", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["upper_back", "lats"], "secondary_muscles": ["biceps", "rear_delts", "lower_back"],
-      "equipment": "barbell", "difficulty": "intermediate", "metric": "reps",
-      "default_reps_low": 6, "default_reps_high": 12, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_seated_cable_row", "e_one_arm_db_row"],
-      "cues": ["힙힌지로 상체를 숙인다", "배꼽 쪽으로 당긴다", "등을 곧게"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_barbell_row",
+      "name_ko": "바벨 로우",
+      "name_en": "Barbell Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts",
+        "lower_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_seated_cable_row",
+        "e_one_arm_db_row"
+      ],
+      "cues": [
+        "힙힌지로 상체를 숙인다",
+        "배꼽 쪽으로 당긴다",
+        "등을 곧게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_seated_cable_row", "name_ko": "시티드 케이블 로우", "name_en": "Seated Cable Row",
-      "movement_pattern": "horizontal_pull", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["upper_back", "lats"], "secondary_muscles": ["biceps", "rear_delts"],
-      "equipment": "cable", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 5, "unilateral": false,
-      "substitutions": ["e_barbell_row", "e_one_arm_db_row"],
-      "cues": ["가슴을 세우고 견갑을 모은다", "반동 최소화"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_seated_cable_row",
+      "name_ko": "시티드 케이블 로우",
+      "name_en": "Seated Cable Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_row",
+        "e_one_arm_db_row"
+      ],
+      "cues": [
+        "가슴을 세우고 견갑을 모은다",
+        "반동 최소화"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_one_arm_db_row", "name_ko": "원암 덤벨 로우", "name_en": "One-Arm Dumbbell Row",
-      "movement_pattern": "horizontal_pull", "mechanic": "compound", "region": "upper",
-      "primary_muscles": ["lats", "upper_back"], "secondary_muscles": ["biceps", "rear_delts"],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": true,
-      "substitutions": ["e_seated_cable_row", "e_barbell_row"],
-      "cues": ["등을 편평하게", "팔꿈치를 몸통 뒤로 당긴다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_one_arm_db_row",
+      "name_ko": "원암 덤벨 로우",
+      "name_en": "One-Arm Dumbbell Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats",
+        "upper_back"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_seated_cable_row",
+        "e_barbell_row"
+      ],
+      "cues": [
+        "등을 편평하게",
+        "팔꿈치를 몸통 뒤로 당긴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_face_pull", "name_ko": "페이스 풀", "name_en": "Face Pull",
-      "movement_pattern": "shoulder_isolation", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["rear_delts"], "secondary_muscles": ["upper_back"],
-      "equipment": "cable", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 12, "default_reps_high": 20, "default_step_kg": 2.5, "unilateral": false,
+      "id": "e_face_pull",
+      "name_ko": "페이스 풀",
+      "name_en": "Face Pull",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "rear_delts"
+      ],
+      "secondary_muscles": [
+        "upper_back"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
       "substitutions": [],
-      "cues": ["얼굴 높이로 당긴다", "팔꿈치를 높게", "견갑 후인"],
-      "media": { "image_url": null, "video_url": null }
+      "cues": [
+        "얼굴 높이로 당긴다",
+        "팔꿈치를 높게",
+        "견갑 후인"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_barbell_curl", "name_ko": "바벨 컬", "name_en": "Barbell Curl",
-      "movement_pattern": "elbow_flexion", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["biceps"], "secondary_muscles": ["forearms"],
-      "equipment": "ez_bar", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 8, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_db_curl", "e_hammer_curl"],
-      "cues": ["팔꿈치를 고정", "반동 없이 올린다"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_barbell_curl",
+      "name_ko": "바벨 컬",
+      "name_en": "Barbell Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "ez_bar",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_curl",
+        "e_hammer_curl"
+      ],
+      "cues": [
+        "팔꿈치를 고정",
+        "반동 없이 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_db_curl", "name_ko": "덤벨 컬", "name_en": "Dumbbell Curl",
-      "movement_pattern": "elbow_flexion", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["biceps"], "secondary_muscles": ["forearms"],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_barbell_curl", "e_hammer_curl"],
-      "cues": ["팔꿈치 고정", "정점에서 수축"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_db_curl",
+      "name_ko": "덤벨 컬",
+      "name_en": "Dumbbell Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_curl",
+        "e_hammer_curl"
+      ],
+      "cues": [
+        "팔꿈치 고정",
+        "정점에서 수축"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_hammer_curl", "name_ko": "해머 컬", "name_en": "Hammer Curl",
-      "movement_pattern": "elbow_flexion", "mechanic": "isolation", "region": "upper",
-      "primary_muscles": ["biceps", "forearms"], "secondary_muscles": [],
-      "equipment": "dumbbell", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 10, "default_reps_high": 15, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_db_curl", "e_barbell_curl"],
-      "cues": ["중립 그립 유지", "반동 금지"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_hammer_curl",
+      "name_ko": "해머 컬",
+      "name_en": "Hammer Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps",
+        "forearms"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_curl",
+        "e_barbell_curl"
+      ],
+      "cues": [
+        "중립 그립 유지",
+        "반동 금지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_plank", "name_ko": "플랭크", "name_en": "Plank",
-      "movement_pattern": "core", "mechanic": "isolation", "region": "core",
-      "primary_muscles": ["abs"], "secondary_muscles": ["obliques", "lower_back"],
-      "equipment": "bodyweight", "difficulty": "beginner", "metric": "time",
-      "default_time_low_sec": 20, "default_time_high_sec": 60, "default_step_kg": null, "unilateral": false,
-      "substitutions": ["e_cable_crunch"],
-      "cues": ["엉덩이가 처지지 않게", "코어를 조인다", "호흡 유지"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_plank",
+      "name_ko": "플랭크",
+      "name_en": "Plank",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques",
+        "lower_back"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "time",
+      "default_time_low_sec": 20,
+      "default_time_high_sec": 60,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_crunch"
+      ],
+      "cues": [
+        "엉덩이가 처지지 않게",
+        "코어를 조인다",
+        "호흡 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     },
     {
-      "id": "e_cable_crunch", "name_ko": "케이블 크런치", "name_en": "Cable Crunch",
-      "movement_pattern": "core", "mechanic": "isolation", "region": "core",
-      "primary_muscles": ["abs"], "secondary_muscles": ["obliques"],
-      "equipment": "cable", "difficulty": "beginner", "metric": "reps",
-      "default_reps_low": 12, "default_reps_high": 20, "default_step_kg": 2.5, "unilateral": false,
-      "substitutions": ["e_plank"],
-      "cues": ["복부로 척추를 말아 내린다", "골반 고정"],
-      "media": { "image_url": null, "video_url": null }
+      "id": "e_cable_crunch",
+      "name_ko": "케이블 크런치",
+      "name_en": "Cable Crunch",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_plank"
+      ],
+      "cues": [
+        "복부로 척추를 말아 내린다",
+        "골반 고정"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_front_squat",
+      "name_ko": "프론트 스쿼트",
+      "name_en": "Front Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads"
+      ],
+      "secondary_muscles": [
+        "glutes",
+        "abs",
+        "upper_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 10,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_back_squat",
+        "e_hack_squat",
+        "e_goblet_squat"
+      ],
+      "cues": [
+        "팔꿈치를 높게 들어 바를 어깨에 얹는다",
+        "상체를 곧게 세운 채 내려간다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_hack_squat",
+      "name_ko": "핵 스쿼트",
+      "name_en": "Hack Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads"
+      ],
+      "secondary_muscles": [
+        "glutes"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_press",
+        "e_back_squat"
+      ],
+      "cues": [
+        "등을 패드에 밀착",
+        "무릎이 발끝 방향을 향하게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_smith_squat",
+      "name_ko": "스미스머신 스쿼트",
+      "name_en": "Smith Machine Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_back_squat",
+        "e_hack_squat"
+      ],
+      "cues": [
+        "발을 약간 앞에 둔다",
+        "허리를 중립으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_bulgarian_split_squat",
+      "name_ko": "불가리안 스플릿 스쿼트",
+      "name_en": "Bulgarian Split Squat",
+      "movement_pattern": "lunge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_walking_lunge",
+        "e_split_squat"
+      ],
+      "cues": [
+        "뒷발을 벤치에 올린다",
+        "앞무릎이 흔들리지 않게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_split_squat",
+      "name_ko": "스플릿 스쿼트",
+      "name_en": "Split Squat",
+      "movement_pattern": "lunge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_bulgarian_split_squat",
+        "e_walking_lunge"
+      ],
+      "cues": [
+        "앞뒤로 다리를 벌리고 수직으로 내린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_reverse_lunge",
+      "name_ko": "리버스 런지",
+      "name_en": "Reverse Lunge",
+      "movement_pattern": "lunge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_walking_lunge",
+        "e_split_squat"
+      ],
+      "cues": [
+        "뒤로 내딛으며 내려간다",
+        "상체를 곧게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_step_up",
+      "name_ko": "스텝업",
+      "name_en": "Step-up",
+      "movement_pattern": "lunge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "calves"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_reverse_lunge",
+        "e_split_squat"
+      ],
+      "cues": [
+        "박스에 발 전체를 올린다",
+        "반동 없이 밀어 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_belt_squat",
+      "name_ko": "벨트 스쿼트",
+      "name_en": "Belt Squat",
+      "movement_pattern": "squat",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_press",
+        "e_hack_squat"
+      ],
+      "cues": [
+        "허리 부담이 적다",
+        "무릎을 안정적으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_sissy_squat",
+      "name_ko": "시시 스쿼트",
+      "name_en": "Sissy Squat",
+      "movement_pattern": "knee_extension",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "quads"
+      ],
+      "secondary_muscles": [],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_extension"
+      ],
+      "cues": [
+        "무릎에 부담이 크므로 천천히",
+        "지지물을 잡는다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_sumo_deadlift",
+      "name_ko": "스모 데드리프트",
+      "name_en": "Sumo Deadlift",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes",
+        "quads"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "lower_back",
+        "upper_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 3,
+      "default_reps_high": 6,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_deadlift",
+        "e_trap_bar_deadlift"
+      ],
+      "cues": [
+        "발을 넓게, 발끝을 벌린다",
+        "가슴을 세우고 민다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_trap_bar_deadlift",
+      "name_ko": "트랩바 데드리프트",
+      "name_en": "Trap Bar Deadlift",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes",
+        "quads"
+      ],
+      "secondary_muscles": [
+        "hamstrings",
+        "upper_back",
+        "forearms"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 10,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_deadlift",
+        "e_sumo_deadlift"
+      ],
+      "cues": [
+        "허리 부담이 적은 변형",
+        "가슴을 세우고 밀어 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_single_leg_rdl",
+      "name_ko": "싱글레그 RDL",
+      "name_en": "Single-leg Romanian Deadlift",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "lower_back"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_rdl",
+        "e_leg_curl"
+      ],
+      "cues": [
+        "한 다리로 균형을 잡고 엉덩이를 뒤로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_good_morning",
+      "name_ko": "굿모닝",
+      "name_en": "Good Morning",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings",
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "lower_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rdl",
+        "e_back_extension"
+      ],
+      "cues": [
+        "등을 곧게 유지",
+        "허리로 들지 않는다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_cable_pull_through",
+      "name_ko": "케이블 풀 스루",
+      "name_en": "Cable Pull-through",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_hip_thrust",
+        "e_rdl"
+      ],
+      "cues": [
+        "엉덩이를 뒤로 밀었다가 조인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_glute_bridge",
+      "name_ko": "글루트 브릿지",
+      "name_en": "Glute Bridge",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [
+        "hamstrings"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_hip_thrust",
+        "e_cable_pull_through"
+      ],
+      "cues": [
+        "정점에서 엉덩이를 조인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_back_extension",
+      "name_ko": "백 익스텐션",
+      "name_en": "Back Extension",
+      "movement_pattern": "hinge",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "lower_back"
+      ],
+      "secondary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_good_morning",
+        "e_rdl"
+      ],
+      "cues": [
+        "과신전하지 않는다",
+        "중립까지만 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_hip_abduction",
+      "name_ko": "힙 어브덕션 머신",
+      "name_en": "Hip Abduction Machine",
+      "movement_pattern": "hinge",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_glute_bridge"
+      ],
+      "cues": [
+        "상체를 고정하고 다리만 벌린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_kettlebell_swing",
+      "name_ko": "케틀벨 스윙",
+      "name_en": "Kettlebell Swing",
+      "movement_pattern": "hinge",
+      "mechanic": "compound",
+      "region": "lower",
+      "primary_muscles": [
+        "glutes",
+        "hamstrings"
+      ],
+      "secondary_muscles": [
+        "lower_back",
+        "abs"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_pull_through",
+        "e_rdl"
+      ],
+      "cues": [
+        "팔이 아니라 힙으로 밀어낸다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_seated_leg_curl",
+      "name_ko": "시티드 레그 컬",
+      "name_en": "Seated Leg Curl",
+      "movement_pattern": "knee_flexion",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings"
+      ],
+      "secondary_muscles": [
+        "calves"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_curl",
+        "e_rdl"
+      ],
+      "cues": [
+        "엉덩이를 시트에 고정",
+        "끝까지 수축"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_nordic_curl",
+      "name_ko": "노르딕 컬",
+      "name_en": "Nordic Hamstring Curl",
+      "movement_pattern": "knee_flexion",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "hamstrings"
+      ],
+      "secondary_muscles": [
+        "glutes"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 10,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_curl",
+        "e_seated_leg_curl"
+      ],
+      "cues": [
+        "천천히 버티며 내려간다",
+        "발목을 고정"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_seated_calf_raise",
+      "name_ko": "시티드 카프 레이즈",
+      "name_en": "Seated Calf Raise",
+      "movement_pattern": "calf",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "calves"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_calf_raise"
+      ],
+      "cues": [
+        "무릎을 굽힌 상태로 가자미근 자극"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_leg_press_calf_raise",
+      "name_ko": "레그프레스 카프 레이즈",
+      "name_en": "Leg Press Calf Raise",
+      "movement_pattern": "calf",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "calves"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_calf_raise",
+        "e_seated_calf_raise"
+      ],
+      "cues": [
+        "발 앞쪽만 플레이트에 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_adduction_machine",
+      "name_ko": "힙 어덕션 머신",
+      "name_en": "Hip Adduction Machine",
+      "movement_pattern": "knee_extension",
+      "mechanic": "isolation",
+      "region": "lower",
+      "primary_muscles": [
+        "quads"
+      ],
+      "secondary_muscles": [
+        "glutes"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 5,
+      "unilateral": false,
+      "substitutions": [
+        "e_leg_extension"
+      ],
+      "cues": [
+        "천천히 모으고 천천히 벌린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_incline_bench_press",
+      "name_ko": "인클라인 바벨 벤치프레스",
+      "name_en": "Incline Barbell Bench Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest",
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_incline_db_press",
+        "e_bench_press"
+      ],
+      "cues": [
+        "벤치 30도",
+        "바를 쇄골 아래로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_decline_bench_press",
+      "name_ko": "디클라인 벤치프레스",
+      "name_en": "Decline Bench Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "triceps",
+        "front_delts"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_bench_press",
+        "e_chest_press_machine"
+      ],
+      "cues": [
+        "가슴 하부 강조",
+        "안전에 유의"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_flat_db_press",
+      "name_ko": "플랫 덤벨 프레스",
+      "name_en": "Flat Dumbbell Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_bench_press",
+        "e_incline_db_press"
+      ],
+      "cues": [
+        "덤벨을 가슴 위로 모은다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_smith_bench_press",
+      "name_ko": "스미스머신 벤치프레스",
+      "name_en": "Smith Machine Bench Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_bench_press",
+        "e_chest_press_machine"
+      ],
+      "cues": [
+        "궤도가 고정돼 안정적"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_pushup",
+      "name_ko": "푸시업",
+      "name_en": "Push-up",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "triceps",
+        "abs"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_chest_press_machine",
+        "e_flat_db_press"
+      ],
+      "cues": [
+        "몸을 일직선으로",
+        "팔꿈치를 45도로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_cable_fly",
+      "name_ko": "케이블 플라이",
+      "name_en": "Cable Fly",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_pec_deck",
+        "e_db_fly"
+      ],
+      "cues": [
+        "팔꿈치를 약간 굽힌 채 모은다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_pec_deck",
+      "name_ko": "펙덱 플라이",
+      "name_en": "Pec Deck Fly",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_fly",
+        "e_db_fly"
+      ],
+      "cues": [
+        "가슴을 열었다가 모은다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_db_fly",
+      "name_ko": "덤벨 플라이",
+      "name_en": "Dumbbell Fly",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "chest"
+      ],
+      "secondary_muscles": [
+        "front_delts"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_fly",
+        "e_pec_deck"
+      ],
+      "cues": [
+        "과신전 주의",
+        "팔꿈치 각도 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_seated_db_shoulder_press",
+      "name_ko": "시티드 덤벨 숄더프레스",
+      "name_en": "Seated Dumbbell Shoulder Press",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_shoulder_press",
+        "e_shoulder_press_machine"
+      ],
+      "cues": [
+        "등받이에 기대 안정적으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_shoulder_press_machine",
+      "name_ko": "숄더프레스 머신",
+      "name_en": "Shoulder Press Machine",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_shoulder_press",
+        "e_ohp"
+      ],
+      "cues": [
+        "손잡이를 어깨 높이에 맞춘다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_arnold_press",
+      "name_ko": "아놀드 프레스",
+      "name_en": "Arnold Press",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_shoulder_press"
+      ],
+      "cues": [
+        "회전하며 밀어 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_push_press",
+      "name_ko": "푸시 프레스",
+      "name_en": "Push Press",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "side_delts",
+        "triceps",
+        "quads"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 3,
+      "default_reps_high": 6,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_ohp"
+      ],
+      "cues": [
+        "다리 반동으로 시작해 밀어 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_pike_pushup",
+      "name_ko": "파이크 푸시업",
+      "name_en": "Pike Push-up",
+      "movement_pattern": "vertical_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_shoulder_press",
+        "e_pushup"
+      ],
+      "cues": [
+        "엉덩이를 높이 들고 머리를 바닥으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_chinup",
+      "name_ko": "친업",
+      "name_en": "Chin-up",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats",
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "upper_back"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 4,
+      "default_reps_high": 12,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_pullup",
+        "e_lat_pulldown"
+      ],
+      "cues": [
+        "언더그립",
+        "가슴을 바에 가깝게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_neutral_grip_pulldown",
+      "name_ko": "뉴트럴그립 랫풀다운",
+      "name_en": "Neutral-grip Lat Pulldown",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "upper_back"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lat_pulldown",
+        "e_pullup"
+      ],
+      "cues": [
+        "중립 그립으로 어깨 부담 감소"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_assisted_pullup",
+      "name_ko": "어시스트 풀업 머신",
+      "name_en": "Assisted Pull-up Machine",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "upper_back"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_pullup",
+        "e_lat_pulldown"
+      ],
+      "cues": [
+        "보조 무게로 정확한 폼 연습"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_straight_arm_pulldown",
+      "name_ko": "스트레이트암 풀다운",
+      "name_en": "Straight-arm Pulldown",
+      "movement_pattern": "vertical_pull",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "lats"
+      ],
+      "secondary_muscles": [
+        "upper_back"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lat_pulldown"
+      ],
+      "cues": [
+        "팔을 편 채 광배로 당긴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_chest_supported_row",
+      "name_ko": "체스트 서포티드 로우",
+      "name_en": "Chest-supported Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_seated_cable_row",
+        "e_barbell_row"
+      ],
+      "cues": [
+        "가슴을 패드에 붙여 허리 부담 제거"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_t_bar_row",
+      "name_ko": "티바 로우",
+      "name_en": "T-Bar Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts",
+        "lower_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_row",
+        "e_chest_supported_row"
+      ],
+      "cues": [
+        "힙힌지 자세 유지",
+        "배꼽으로 당긴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_pendlay_row",
+      "name_ko": "펜들레이 로우",
+      "name_en": "Pendlay Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "lower_back"
+      ],
+      "equipment": "barbell",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 5,
+      "default_reps_high": 8,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_row",
+        "e_t_bar_row"
+      ],
+      "cues": [
+        "매 반복 바를 바닥에서 시작"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_inverted_row",
+      "name_ko": "인버티드 로우",
+      "name_en": "Inverted Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps",
+        "rear_delts"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_seated_cable_row",
+        "e_chest_supported_row"
+      ],
+      "cues": [
+        "몸을 일직선으로 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_machine_row",
+      "name_ko": "머신 로우",
+      "name_en": "Machine Row",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back",
+        "lats"
+      ],
+      "secondary_muscles": [
+        "biceps"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_seated_cable_row",
+        "e_chest_supported_row"
+      ],
+      "cues": [
+        "견갑을 모으며 당긴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_shrug",
+      "name_ko": "슈러그",
+      "name_en": "Shrug",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_shrug"
+      ],
+      "cues": [
+        "어깨를 위로만 들어올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_barbell_shrug",
+      "name_ko": "바벨 슈러그",
+      "name_en": "Barbell Shrug",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "upper_back"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "barbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_shrug"
+      ],
+      "cues": [
+        "회전하지 않고 수직으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_cable_lateral_raise",
+      "name_ko": "케이블 레터럴 레이즈",
+      "name_en": "Cable Lateral Raise",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "side_delts"
+      ],
+      "secondary_muscles": [],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lateral_raise",
+        "e_machine_lateral_raise"
+      ],
+      "cues": [
+        "케이블로 전 구간 장력 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_machine_lateral_raise",
+      "name_ko": "레터럴 레이즈 머신",
+      "name_en": "Lateral Raise Machine",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "side_delts"
+      ],
+      "secondary_muscles": [],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lateral_raise",
+        "e_cable_lateral_raise"
+      ],
+      "cues": [
+        "반동 없이 어깨높이까지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_rear_delt_fly",
+      "name_ko": "리어 델트 플라이",
+      "name_en": "Rear Delt Fly",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "rear_delts"
+      ],
+      "secondary_muscles": [
+        "upper_back"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_face_pull",
+        "e_reverse_pec_deck"
+      ],
+      "cues": [
+        "상체를 숙이고 옆으로 벌린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_reverse_pec_deck",
+      "name_ko": "리버스 펙덱",
+      "name_en": "Reverse Pec Deck",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "rear_delts"
+      ],
+      "secondary_muscles": [
+        "upper_back"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rear_delt_fly",
+        "e_face_pull"
+      ],
+      "cues": [
+        "팔을 뒤로 벌리며 견갑 후인"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_front_raise",
+      "name_ko": "프론트 레이즈",
+      "name_en": "Front Raise",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "front_delts"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lateral_raise"
+      ],
+      "cues": [
+        "어깨높이까지만 들어올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_upright_row",
+      "name_ko": "업라이트 로우",
+      "name_en": "Upright Row",
+      "movement_pattern": "shoulder_isolation",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "side_delts"
+      ],
+      "secondary_muscles": [
+        "upper_back",
+        "biceps"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_lateral_raise",
+        "e_face_pull"
+      ],
+      "cues": [
+        "어깨 통증 시 회피",
+        "가슴 높이까지만"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_close_grip_bench",
+      "name_ko": "클로즈그립 벤치프레스",
+      "name_en": "Close-grip Bench Press",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [
+        "chest",
+        "front_delts"
+      ],
+      "equipment": "barbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_dips",
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "손 간격을 어깨너비로",
+        "팔꿈치를 몸에 붙인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_skull_crusher",
+      "name_ko": "스컬 크러셔",
+      "name_en": "Skull Crusher",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "ez_bar",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_overhead_triceps_ext",
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "팔꿈치를 고정하고 이마 쪽으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_rope_pushdown",
+      "name_ko": "로프 푸시다운",
+      "name_en": "Rope Pushdown",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_triceps_pushdown",
+        "e_skull_crusher"
+      ],
+      "cues": [
+        "끝에서 로프를 벌린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_bench_dip",
+      "name_ko": "벤치 딥",
+      "name_en": "Bench Dip",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [
+        "front_delts",
+        "chest"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_dips",
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "어깨가 말리지 않게 주의"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_kickback",
+      "name_ko": "트라이셉 킥백",
+      "name_en": "Triceps Kickback",
+      "movement_pattern": "elbow_extension",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "triceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_rope_pushdown",
+        "e_triceps_pushdown"
+      ],
+      "cues": [
+        "팔꿈치를 고정하고 뒤로 편다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_incline_db_curl",
+      "name_ko": "인클라인 덤벨 컬",
+      "name_en": "Incline Dumbbell Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_db_curl",
+        "e_barbell_curl"
+      ],
+      "cues": [
+        "팔을 뒤로 늘어뜨려 스트레치"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_preacher_curl",
+      "name_ko": "프리처 컬",
+      "name_en": "Preacher Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "ez_bar",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_curl",
+        "e_db_curl"
+      ],
+      "cues": [
+        "팔을 패드에 밀착",
+        "반동 금지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_cable_curl",
+      "name_ko": "케이블 컬",
+      "name_en": "Cable Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [
+        "forearms"
+      ],
+      "equipment": "cable",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_barbell_curl",
+        "e_db_curl"
+      ],
+      "cues": [
+        "전 구간 장력 유지"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_concentration_curl",
+      "name_ko": "컨센트레이션 컬",
+      "name_en": "Concentration Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "biceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 15,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_db_curl",
+        "e_preacher_curl"
+      ],
+      "cues": [
+        "팔꿈치를 허벅지에 고정"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_reverse_curl",
+      "name_ko": "리버스 컬",
+      "name_en": "Reverse Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "forearms",
+        "biceps"
+      ],
+      "secondary_muscles": [],
+      "equipment": "ez_bar",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_hammer_curl",
+        "e_barbell_curl"
+      ],
+      "cues": [
+        "오버그립으로 전완 강조"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_wrist_curl",
+      "name_ko": "리스트 컬",
+      "name_en": "Wrist Curl",
+      "movement_pattern": "elbow_flexion",
+      "mechanic": "isolation",
+      "region": "upper",
+      "primary_muscles": [
+        "forearms"
+      ],
+      "secondary_muscles": [],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 15,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_reverse_curl"
+      ],
+      "cues": [
+        "손목만 굽혔다 편다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_farmer_walk",
+      "name_ko": "파머스 워크",
+      "name_en": "Farmer's Walk",
+      "movement_pattern": "horizontal_pull",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "forearms",
+        "upper_back"
+      ],
+      "secondary_muscles": [
+        "abs",
+        "glutes"
+      ],
+      "equipment": "dumbbell",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 20,
+      "default_reps_high": 40,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_shrug"
+      ],
+      "cues": [
+        "어깨를 편 채 걷는다",
+        "코어를 조인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_hanging_leg_raise",
+      "name_ko": "행잉 레그레이즈",
+      "name_en": "Hanging Leg Raise",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_lying_leg_raise",
+        "e_cable_crunch"
+      ],
+      "cues": [
+        "반동 없이 골반을 말아 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_lying_leg_raise",
+      "name_ko": "라잉 레그레이즈",
+      "name_en": "Lying Leg Raise",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_hanging_leg_raise",
+        "e_crunch"
+      ],
+      "cues": [
+        "허리를 바닥에 붙인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_crunch",
+      "name_ko": "크런치",
+      "name_en": "Crunch",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_crunch",
+        "e_lying_leg_raise"
+      ],
+      "cues": [
+        "목이 아니라 복부로 말아 올린다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_ab_wheel",
+      "name_ko": "앱 롤아웃",
+      "name_en": "Ab Wheel Rollout",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques",
+        "lower_back"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "advanced",
+      "metric": "reps",
+      "default_reps_low": 6,
+      "default_reps_high": 15,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_plank",
+        "e_cable_crunch"
+      ],
+      "cues": [
+        "허리가 꺾이지 않게 코어를 조인다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_russian_twist",
+      "name_ko": "러시안 트위스트",
+      "name_en": "Russian Twist",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "obliques"
+      ],
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_cable_woodchop",
+        "e_side_plank"
+      ],
+      "cues": [
+        "상체를 세우고 회전"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_cable_woodchop",
+      "name_ko": "케이블 우드찹",
+      "name_en": "Cable Woodchop",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "obliques"
+      ],
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": "cable",
+      "difficulty": "intermediate",
+      "metric": "reps",
+      "default_reps_low": 12,
+      "default_reps_high": 20,
+      "default_step_kg": 2.5,
+      "unilateral": true,
+      "substitutions": [
+        "e_russian_twist"
+      ],
+      "cues": [
+        "팔이 아니라 몸통 회전으로"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_dead_bug",
+      "name_ko": "데드버그",
+      "name_en": "Dead Bug",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_plank",
+        "e_crunch"
+      ],
+      "cues": [
+        "허리를 바닥에 붙인 채 팔다리를 뻗는다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_bird_dog",
+      "name_ko": "버드독",
+      "name_en": "Bird Dog",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "lower_back",
+        "abs"
+      ],
+      "secondary_muscles": [
+        "glutes"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 10,
+      "default_reps_high": 20,
+      "default_step_kg": null,
+      "unilateral": true,
+      "substitutions": [
+        "e_dead_bug",
+        "e_plank"
+      ],
+      "cues": [
+        "골반이 흔들리지 않게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_side_plank",
+      "name_ko": "사이드 플랭크",
+      "name_en": "Side Plank",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "obliques"
+      ],
+      "secondary_muscles": [
+        "abs"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "beginner",
+      "metric": "time",
+      "default_time_low_sec": 15,
+      "default_time_high_sec": 45,
+      "default_step_kg": null,
+      "unilateral": true,
+      "substitutions": [
+        "e_plank",
+        "e_russian_twist"
+      ],
+      "cues": [
+        "몸을 일직선으로",
+        "골반이 처지지 않게"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
+      "id": "e_hollow_hold",
+      "name_ko": "할로우 홀드",
+      "name_en": "Hollow Hold",
+      "movement_pattern": "core",
+      "mechanic": "isolation",
+      "region": "core",
+      "primary_muscles": [
+        "abs"
+      ],
+      "secondary_muscles": [
+        "obliques"
+      ],
+      "equipment": "bodyweight",
+      "difficulty": "intermediate",
+      "metric": "time",
+      "default_time_low_sec": 15,
+      "default_time_high_sec": 45,
+      "default_step_kg": null,
+      "unilateral": false,
+      "substitutions": [
+        "e_plank",
+        "e_dead_bug"
+      ],
+      "cues": [
+        "허리를 바닥에 붙인 채 버틴다"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
     }
   ]
 }

@@ -1,10 +1,12 @@
 /**
  * 통합 테스트(실제 postgres): GET /exercises · GET /exercises/{exerciseId}.
  *
- * 카탈로그는 참조 데이터(시드 30종)라 사용자 데이터를 만들지 않는다.
+ * 카탈로그는 확장 가능한 참조 데이터라 사용자 데이터를 만들지 않는다.
  * 모든 2xx 응답은 openapi 계약(ajv + 키셋)으로 검증한다 — 계약에 없는 컬럼(default_step_kg 등)이
  * 새면 expectMatchesContract 가 잡는다.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import { PrismaService } from "../src/prisma/prisma.service";
@@ -30,6 +32,16 @@ interface ListBody {
   items: ExerciseItem[];
   next_cursor?: string;
 }
+
+interface SeedExercise {
+  id: string;
+  movement_pattern: string;
+  equipment: string;
+}
+
+const SEED_PATH = path.resolve(__dirname, "..", "..", "..", "docs", "specs", "exercises_seed.json");
+const seedExercises = (JSON.parse(readFileSync(SEED_PATH, "utf8")) as { exercises: SeedExercise[] })
+  .exercises;
 
 describe("운동 카탈로그 API", () => {
   let app: INestApplication;
@@ -71,12 +83,18 @@ describe("운동 카탈로그 API", () => {
     return pages;
   }
 
-  it("시드 30종이 전제다(테스트 자기검증)", () => {
-    expect(seededIds).toHaveLength(30);
+  function expectedIds(where: (exercise: SeedExercise) => boolean): string[] {
+    const matching = new Set(seedExercises.filter(where).map((exercise) => exercise.id));
+    return seededIds.filter((id) => matching.has(id));
+  }
+
+  it("DB 카탈로그가 시드 파일의 ID 전량과 일치한다", () => {
+    expect(seededIds).toHaveLength(seedExercises.length);
+    expect(new Set(seededIds)).toEqual(new Set(seedExercises.map((exercise) => exercise.id)));
   });
 
   describe("GET /exercises (필터 없음)", () => {
-    it("커서 순회로 30종을 전부 돌려준다 — 중복 0 · 누락 0", async () => {
+    it("커서 순회로 시드 전량을 돌려준다 — 중복 0 · 누락 0", async () => {
       const pages = await fetchAllPages();
 
       const ids = pages.flatMap((page) => page.items.map((item) => item.id));
@@ -91,9 +109,17 @@ describe("운동 카탈로그 API", () => {
     it("페이지 크기 20 — 마지막 페이지에서만 next_cursor 가 없다", async () => {
       const pages = await fetchAllPages();
 
-      expect(pages.map((page) => page.items.length)).toEqual([20, 10]);
-      expect(pages[0].next_cursor).toBe(pages[0].items[19].id);
-      expect(pages[1]).not.toHaveProperty("next_cursor");
+      const fullPages = Math.floor(seededIds.length / 20);
+      const remainder = seededIds.length % 20;
+      const expectedSizes = [
+        ...Array.from({ length: fullPages }, () => 20),
+        ...(remainder === 0 ? [] : [remainder]),
+      ];
+      expect(pages.map((page) => page.items.length)).toEqual(expectedSizes);
+      for (const page of pages.slice(0, -1)) {
+        expect(page.next_cursor).toBe(page.items.at(-1)?.id);
+      }
+      expect(pages.at(-1)).not.toHaveProperty("next_cursor");
     });
 
     it("커서는 keyset 이다 — cursor 이후(id 오름차순)만 돌려준다", async () => {
@@ -107,27 +133,43 @@ describe("운동 카탈로그 API", () => {
 
   describe("GET /exercises (필터)", () => {
     it("pattern 으로 거른다", async () => {
-      const page = await fetchPage({ pattern: "horizontal_push" });
+      const items = (await fetchAllPages({ pattern: "horizontal_push" })).flatMap(
+        (page) => page.items,
+      );
 
-      expect(page.items.map((item) => item.id)).toEqual([
-        "e_bench_press",
-        "e_chest_press_machine",
-        "e_dips",
-        "e_incline_db_press",
-      ]);
-      expect(page).not.toHaveProperty("next_cursor");
+      expect(items.map((item) => item.id)).toEqual(
+        expectedIds((exercise) => exercise.movement_pattern === "horizontal_push"),
+      );
+      expect(items.every((item) => item.movement_pattern === "horizontal_push")).toBe(true);
     });
 
     it("equipment 로 거른다", async () => {
-      const page = await fetchPage({ equipment: "bodyweight" });
+      const items = (await fetchAllPages({ equipment: "bodyweight" })).flatMap(
+        (page) => page.items,
+      );
 
-      expect(page.items.map((item) => item.id)).toEqual(["e_dips", "e_plank", "e_pullup"]);
+      expect(items.map((item) => item.id)).toEqual(
+        expectedIds((exercise) => exercise.equipment === "bodyweight"),
+      );
+      expect(items.every((item) => item.equipment === "bodyweight")).toBe(true);
     });
 
     it("pattern + equipment 는 함께 적용된다", async () => {
-      const page = await fetchPage({ pattern: "horizontal_push", equipment: "bodyweight" });
+      const items = (
+        await fetchAllPages({ pattern: "horizontal_push", equipment: "bodyweight" })
+      ).flatMap((page) => page.items);
 
-      expect(page.items.map((item) => item.id)).toEqual(["e_dips"]);
+      expect(items.map((item) => item.id)).toEqual(
+        expectedIds(
+          (exercise) =>
+            exercise.movement_pattern === "horizontal_push" && exercise.equipment === "bodyweight",
+        ),
+      );
+      expect(
+        items.every(
+          (item) => item.movement_pattern === "horizontal_push" && item.equipment === "bodyweight",
+        ),
+      ).toBe(true);
     });
 
     it("필터를 걸어도 커서 순회 결과는 필터 없는 전량의 부분집합이다", async () => {
@@ -135,9 +177,10 @@ describe("운동 카탈로그 API", () => {
         (page) => page.items,
       );
 
-      expect(filtered).toHaveLength(9);
+      const expected = expectedIds((exercise) => exercise.equipment === "dumbbell");
+      expect(filtered.map((item) => item.id)).toEqual(expected);
       expect(filtered.every((item) => item.equipment === "dumbbell")).toBe(true);
-      expect(new Set(filtered.map((item) => item.id)).size).toBe(9);
+      expect(new Set(filtered.map((item) => item.id)).size).toBe(expected.length);
     });
 
     it("enum 밖의 값은 빈 목록이다(계약에 400 이 없다)", async () => {

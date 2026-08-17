@@ -7,6 +7,7 @@
 3. `DATA_MODEL.md` — DB 스키마/엔티티
 4. `API.md` + `specs/openapi.yaml` — API 계약(코드젠·목서버의 원천)
 5. `RECOMMENDATION_ENGINE.md` — 추천 엔진 알고리즘(핵심 IP). `specs/golden_tests.json`이 계약.
+5. `M_ENGINE_EVIDENCE.md` — M-ENGINE′의 RIR·볼륨·디로드 근거와 승인 전 후속 티켓
 6. `RIR_TUTORIAL.md` + `specs/tutorial_program_rir.json` — RIR 캘리브레이션 튜토리얼
 7. `CONVENTIONS.md` — 코딩 컨벤션
 10. `TEST_SCOPE.md` — 테스트 단계 스코프(로그인/결제/법무 보류·dev-user) ★
@@ -17,4 +18,4 @@
 9. `GOLDEN_TESTS.md` — 골든 테스트 사용법(CI 게이트)
 
 원본 상세 docx(PRD/MVP 스펙/기술명세서 v1.1)는 팀 드라이브 참조. 본 `docs/`는 에이전트가 읽기 좋은 요약·계약본입니다.
-`specs/exercises_seed.json` — 운동 시드 30종(로드용).
+`specs/exercises_seed.json` — 운동 시드 105종(로드용).

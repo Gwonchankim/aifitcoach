@@ -353,12 +353,50 @@ evaluator가 "핵심 루프 오프라인 동작 실패"로 상한 70을 적용�
 > Sprint 3 체크포인트 `856ae5f`는 `master`/origin에 fast-forward 병합됐고
 > [CI 31949090369](https://github.com/Gwonchankim/aifitcoach/actions/runs/31949090369) green이다. Sprint 4는
 > `m4-sprint4`에서 화면·전용 계약과 Sprint 5 통합 평가까지 완료했으며 아직 master에 병합하지 않았다.
-> 최신 로컬 게이트: contract 31 · shared 87 · web 300 · api 279 · **E2E 75/75** ·
+> 최신 로컬 게이트: contract 31 · shared 87 · web 300 · api 282 · **E2E 75개(74 pass + 조건부 1 skip)** ·
 > `06-mobile` 14/14 · axe 23화면 0 · verify:contrast 30/30.
 
 ### 로드맵 현재 위치
 
 [테스트격리 ✅] → [M-UIa ✅] → [T-UI-1·2 ✅] → [M-UIb ✅] → [STEP 6 오프라인 동기화·종단 A·B ✅] → [M-4′ ✅] → **M-7′(다음)**
+
+### M-ENGINE′ 근거 접수·운동 DB 확장 실측 (2026-08-17)
+
+- 근거 정본을 `docs/M_ENGINE_EVIDENCE.md`로 보관했다. §5의 실행 제안은 `MENG-DOC-1~3`과
+  `MENG-AUDIT-1` 네 티켓으로 분리 등록했다. 문서 티켓 3건과 엔진 수식·골든·`rules_version`,
+  `RECOMMENDATION_ENGINE.md`/`M4_CONTRACT.md` 정책 개정은 계속 미착수이며, 승인된 안전 결함과
+  주 5일 빈도 결함만 `MENG-AUDIT-1`로 교정했다.
+- **R-25 재판정:** 디로드에서 목표 RIR을 높이는 방식은 근거가 있는 통용 변형이므로
+  **선택적으로 채택할 수 있다.** 다만 기본값은 현행 **볼륨 감소·강도 유지**를 계속 쓴다.
+  선택안을 채택할 때만 별도 승인 아래 골든 케이스 신설과 `rules_version` 상향을 함께 수행한다.
+- 운동 DB는 저장소 정본 30종과 제공 확장본의 공통 항목이 값까지 동일함을 확인한 뒤 75종을 합쳐
+  **105종**으로 확장했다. 저장소 Prisma enum에 없는 `smith_machine` 2종은 `machine`, `kettlebell` 1종은
+  `dumbbell`로 정규화했다. 개발 데이터가 있는 `afc` DB(프로그램 1·세션 10·수행세트 18)에 upsert한 뒤
+  참조 데이터 105종, dangling substitution 0, 기존 사용자 데이터 보존, 적용 migration 12건을 확인했다.
+- 안전 결함은 독립 red proof로 고정했다. 초보 입력에 advanced 운동이 섞이는 케이스와 같은 패턴에서
+  isolation이 compound보다 앞서는 케이스가 각각 실패하는 것을 확인한 뒤, 난이도 상한을 후보 단계의
+  하드 필터로 옮기고 safety stable → compound 우선 → 패턴 순서 → 난이도/ID의 결정론적 comparator를 적용했다.
+  105종·제한 장비를 포함한 기존 **975개** 선택 시나리오를 20개 순열로 재실행한 **19,500회**에서 결정론
+  실패 0, 난이도 위반 0, compound/isolation 순서 위반 0이었다. 하드 필터 때문에 안전한 후보가 없는
+  35개 제한 장비 시나리오는 빈 결과가 되며, 수준 초과 운동으로 채우지 않는다.
+- 30종/105종을 같은 75개 입력 조합으로 다시 비교하면 결과가 달라진 조합은 **71/75**, 선택 고유 종목은
+  **24→42종**으로 늘었다. 안전 필터 적용 전 43종보다 하나 줄었지만 확장 다양성은 유지됐다.
+- §2.3 조치 3은 주 5일만 `upper/lower/upper/lower/upper`로 재설계했다. 전체 목표 3 × 경험수준 3 ×
+  주 2~6일 × 운동시간 5 = **225개 조합**을 재측정했고, 스트렝스 75개 조합 모두에서 주 리프트가 주 2회
+  이상 노출됐다. 주 2·3일 full-body, 주 4일 upper/lower 2회씩, 주 5일 upper 3회·lower 2회,
+  주 6일 push/pull/legs 2회씩이며 실패는 0건이다.
+- 기존 30종 목록·특정 선택 ID에 묶인 API 테스트는 시드 정본의 ID/count와 요청한 부위·장비·난이도
+  불변조건을 검증하도록 재작성했다. 잘못된 장비 종목이 선택되도록 equipment 필터를 제거한 변이에서
+  bodyweight 계약 테스트만 red가 되어 단언이 약해지지 않았음을 확인했다. 최종 API는 **282/282**다.
+- 뮤턴트는 모두 `node scripts/mutate.mjs`로 순차 실행했다. 원본
+  `D670F2A514D0A0269531DE88ADD7F3312DB79AB9523863D7C9FA23D312CB305B`에서 난이도 필터 제거
+  `86ED6CB65B1DBF94C4E58539634D9E2759D0893B8E784055829CE9BD31950ECE`는 beginner 단언만 red,
+  mechanic comparator 무력화 `C83656AF75075E73B3091B89F293383EEE641EF89906E89AF7432233BF1022B7`는 compound 우선
+  단언만 red, equipment 필터 제거 `7AEB1F6F8847B64F9CE630585F8EF60A5D75996108C382F8A5B51DBEAD7A3EE8`는 장비 계약을
+  red로 만들었다. 매 실행 후 restore+verify로 원 SHA 일치와 대상 재통과를 확인하고 mutation 상태를 clear했다.
+- 최종 게이트는 contract **31/31**, shared **87/87**, web **300/300**, api **282/282**,
+  E2E **75개(74 pass + 휴식일 조건부 1 skip)**, `06-mobile` Chromium **7/7** + WebKit **7/7**,
+  axe **23화면 위반 0**, verify:contrast **30/30**이다.
 
 ### STEP 6 종단 워크스루 A·fix-now (2026-08-16)
 

@@ -129,6 +129,19 @@ describe("종료 후 당일 수정 (F6-1)", () => {
       equipment: ["bodyweight"],
     };
 
+    async function controlledBodyweightProgram() {
+      const keep = new Set(["e_dips", "e_plank"]);
+      const avoid_exercises = (
+        await prisma.exercise.findMany({
+          where: { equipment: "bodyweight" },
+          select: { id: true },
+        })
+      )
+        .map((exercise) => exercise.id)
+        .filter((id) => !keep.has(id));
+      return { ...BODYWEIGHT_PROGRAM, avoid_exercises };
+    }
+
     async function nextTargets(sessionId: string) {
       const sets = await prisma.plannedSet.findMany({
         where: { sessionId },
@@ -149,7 +162,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
     }
 
     it("같은 수정을 두 번 해도 다음 세션 목표가 두 번 올라가지 않는다", async () => {
-      const [todayId, tomorrowId] = await twoSessions(BODYWEIGHT_PROGRAM);
+      const [todayId, tomorrowId] = await twoSessions(await controlledBodyweightProgram());
       for (const setNo of [1, 2, 3]) {
         await recordSet(todayId, "e_dips", setNo, { reps: 12 });
       }
@@ -175,7 +188,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
     });
 
     it("수정 후 기록이 바뀌면 그 기록대로 다시 계산된다(재계산이 실제로 돈다)", async () => {
-      const [todayId, tomorrowId] = await twoSessions(BODYWEIGHT_PROGRAM);
+      const [todayId, tomorrowId] = await twoSessions(await controlledBodyweightProgram());
       await recordSet(todayId, "e_dips", 1, { reps: 12 });
       await recordSet(todayId, "e_dips", 2, { reps: 12 });
       await complete(todayId);
@@ -193,7 +206,7 @@ describe("종료 후 당일 수정 (F6-1)", () => {
     });
 
     it("다른 날짜의 종료 세션은 편집이 막히므로 재계산도 돌지 않는다", async () => {
-      const [todayId, tomorrowId] = await twoSessions(BODYWEIGHT_PROGRAM);
+      const [todayId, tomorrowId] = await twoSessions(await controlledBodyweightProgram());
       for (const setNo of [1, 2, 3]) {
         await recordSet(todayId, "e_dips", setNo, { reps: 12 });
       }

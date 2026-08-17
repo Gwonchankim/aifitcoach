@@ -14,7 +14,7 @@ import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
 
 const USER_ID = devUserId();
-/** 주 3일 전신 = 한 세션에 e_dips(맨몸) · e_pullup(맨몸) · e_plank(시간)가 모두 들어간다. */
+/** 맨몸·시간 진행축을 격리하기 위해 세 대표 종목만 허용하는 제어 fixture. */
 const PROGRAM = {
   goal: "hypertrophy",
   days_per_week: 3,
@@ -43,9 +43,25 @@ describe("맨몸·시간 종목 E2E", () => {
     await app?.close();
   });
 
+  async function controlledProgram() {
+    const keep = new Set(["e_dips", "e_plank"]);
+    const avoid_exercises = (
+      await prisma.exercise.findMany({
+        where: { equipment: "bodyweight" },
+        select: { id: true },
+      })
+    )
+      .map((exercise) => exercise.id)
+      .filter((id) => !keep.has(id));
+    return { ...PROGRAM, avoid_exercises };
+  }
+
   beforeEach(async () => {
     await resetUserData(prisma, USER_ID);
-    await request(app.getHttpServer()).post("/v1/programs/generate").send(PROGRAM).expect(201);
+    await request(app.getHttpServer())
+      .post("/v1/programs/generate")
+      .send(await controlledProgram())
+      .expect(201);
     await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   });
 
@@ -108,11 +124,11 @@ describe("맨몸·시간 종목 E2E", () => {
     };
   }
 
-  it("세션에 e_dips·e_pullup·e_plank 가 모두 배정된다", async () => {
+  it("제어 fixture의 e_dips·e_plank가 모두 배정되고 수준 초과 종목은 제외된다", async () => {
     const [first] = await sessions();
 
     expect(new Set(first.plannedSets.map((set) => set.exerciseId))).toEqual(
-      new Set(["e_dips", "e_pullup", "e_plank"]),
+      new Set(["e_dips", "e_plank"]),
     );
   });
 
@@ -144,18 +160,16 @@ describe("맨몸·시간 종목 E2E", () => {
 
   it("맨몸: 하단에 크게 미달 → SUBSTITUTE_TOO_HARD_BODYWEIGHT (무한 하향 대신 대체 제안)", async () => {
     const [first, second] = await sessions();
-    await recordSets(first.id, "e_pullup", [{ reps: 2 }, { reps: 1 }]);
+    await recordSets(first.id, "e_dips", [{ reps: 2 }, { reps: 1 }]);
 
     const body = await complete(first.id);
 
-    expect(body.next_recommendations.find((item) => item.exercise_id === "e_pullup")).toMatchObject(
-      {
-        gate_state: "early",
-        recommendation: null,
-      },
-    );
+    expect(body.next_recommendations.find((item) => item.exercise_id === "e_dips")).toMatchObject({
+      gate_state: "early",
+      recommendation: null,
+    });
     const next = await prisma.plannedSet.findFirstOrThrow({
-      where: { sessionId: second.id, exerciseId: "e_pullup" },
+      where: { sessionId: second.id, exerciseId: "e_dips" },
     });
     expect(next.reasonCode).toBe("SUBSTITUTE_TOO_HARD_BODYWEIGHT");
     expect(next.recommendedWeight).toBeNull();

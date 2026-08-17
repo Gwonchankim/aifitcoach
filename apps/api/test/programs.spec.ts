@@ -11,6 +11,7 @@ import { parse } from "yaml";
 import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { PAIN_AREAS } from "../src/programs/program-rules";
+import { DIFFICULTY_RANK } from "../src/programs/programs.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectErrorMatchesContract, expectMatchesContract } from "./support/openapi-response";
 
@@ -244,6 +245,19 @@ describe("programs", () => {
    * equipment 가 bodyweight 뿐이어도 프로그램이 나와야 한다(400 금지).
    */
   describe("맨몸(자체중량)·시간 종목", () => {
+    async function controlledBodyweightProgram() {
+      const keep = new Set(["e_dips", "e_plank"]);
+      const avoid_exercises = (
+        await prisma.exercise.findMany({
+          where: { equipment: "bodyweight" },
+          select: { id: true },
+        })
+      )
+        .map((exercise) => exercise.id)
+        .filter((id) => !keep.has(id));
+      return { ...BASE, equipment: ["bodyweight"], avoid_exercises };
+    }
+
     it("equipment=[bodyweight] 만으로도 프로그램이 생성된다", async () => {
       const response = await request(app.getHttpServer())
         .post("/v1/programs/generate")
@@ -255,13 +269,21 @@ describe("programs", () => {
         (session: { exercises: { exercise_id: string }[] }) =>
           session.exercises.map((exercise) => exercise.exercise_id),
       );
-      expect(new Set(exerciseIds)).toEqual(new Set(["e_dips", "e_pullup", "e_plank"]));
+      expect(exerciseIds.length).toBeGreaterThan(0);
+      const exercises = await prisma.exercise.findMany({ where: { id: { in: exerciseIds } } });
+      expect(exercises).toHaveLength(new Set(exerciseIds).size);
+      expect(exercises.every((exercise) => exercise.equipment === "bodyweight")).toBe(true);
+      expect(
+        exercises.every(
+          (exercise) => DIFFICULTY_RANK[exercise.difficulty] <= DIFFICULTY_RANK.intermediate,
+        ),
+      ).toBe(true);
     });
 
     it("맨몸 종목의 계획세트는 recommended_weight 가 null 이다(0 이 아니다)", async () => {
       await request(app.getHttpServer())
         .post("/v1/programs/generate")
-        .send({ ...BASE, equipment: ["bodyweight"] })
+        .send(await controlledBodyweightProgram())
         .expect(201);
       await materializeCurrent();
 
@@ -280,7 +302,7 @@ describe("programs", () => {
     it("시간 종목(e_plank)은 반복 대신 목표 유지 시간을 처방한다", async () => {
       const response = await request(app.getHttpServer())
         .post("/v1/programs/generate")
-        .send({ ...BASE, equipment: ["bodyweight"] })
+        .send(await controlledBodyweightProgram())
         .expect(201);
 
       const plank = response.body.sessions
@@ -347,16 +369,24 @@ describe("programs", () => {
 
       expectMatchesContract("post", "/programs/generate", 201, body);
       const excluded = body.excluded_exercises;
-      expect(excluded.map((item: { exercise_id: string }) => item.exercise_id)).toEqual([
-        "e_back_squat",
-        "e_goblet_squat",
-        "e_leg_extension",
-        "e_leg_press",
-        "e_walking_lunge",
-      ]);
-      expect(excluded[0]).toMatchObject({ pain_area: "knee", movement_pattern: "squat" });
+      const expected = await prisma.exercise.findMany({
+        where: { movementPattern: { in: ["squat", "lunge", "knee_extension"] } },
+        select: { id: true },
+      });
+      expect(excluded.map((item: { exercise_id: string }) => item.exercise_id)).toEqual(
+        expected.map((exercise) => exercise.id).sort((a, b) => a.localeCompare(b)),
+      );
+      expect(
+        excluded.every(
+          (item: { pain_area: string; movement_pattern: string }) =>
+            item.pain_area === "knee" &&
+            ["squat", "lunge", "knee_extension"].includes(item.movement_pattern),
+        ),
+      ).toBe(true);
       // 규칙 6: 의료적 조언이 아니라는 안내를 근거 문구에 담는다.
-      expect(excluded[0].reason).toContain("의료적 조언이 아니다");
+      expect(
+        excluded.every((item: { reason: string }) => item.reason.includes("의료적 조언이 아니다")),
+      ).toBe(true);
     });
 
     it("제외가 없으면 excluded_exercises 는 빈 배열이다", async () => {

@@ -12,25 +12,25 @@
           "label": "세트 완료 체크",
           "width": 48,
           "height": 48,
-          "y": 276.03125
+          "y": 226.96875
         },
         {
           "label": "무게 입력",
           "width": 92,
           "height": 44,
-          "y": 268.0625
+          "y": 219
         },
         {
           "label": "횟수 입력",
           "width": 92,
           "height": 44,
-          "y": 268.0625
+          "y": 219
         },
         {
           "label": "RIR 입력",
           "width": 46,
           "height": 44,
-          "y": 268.0625
+          "y": 219
         },
         {
           "label": "운동 메뉴",
@@ -42,7 +42,7 @@
           "label": "운동 추가",
           "width": 361,
           "height": 56,
-          "y": 2395.25
+          "y": 2330.1875
         },
         {
           "label": "운동 종료(하단 고정)",
@@ -55,7 +55,7 @@
         "label": "미완료 세트 행",
         "width": 335,
         "height": 82,
-        "y": 259.0625,
+        "y": 210,
         "columns": [
           16,
           92,
@@ -81,7 +81,7 @@
           "label": "RIR 고르기 셰브론",
           "width": 24,
           "height": 36,
-          "y": 272.0625
+          "y": 223
         },
         {
           "label": "RIR 칩",
@@ -94,7 +94,7 @@
     {
       "screen": "S4-routine-scroll",
       "setCount": 15,
-      "scrollHeight": 2563,
+      "scrollHeight": 2498,
       "rowHeight": 82,
       "doneRowHeight": 62,
       "expandedDoneRowHeight": 82

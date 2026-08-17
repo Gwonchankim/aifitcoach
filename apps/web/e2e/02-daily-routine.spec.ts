@@ -344,7 +344,7 @@ test("종료한 당일 세션에 다시 들어가면 편집 모드다(F6-1)", as
   await expect(
     page.getByText("이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요."),
   ).toBeVisible();
-  expect(await page.getByRole("button", { name: /완료 처리$/ }).count()).toBeGreaterThan(0);
+  await expect(page.getByRole("button", { name: /완료 처리$/ }).first()).toBeVisible();
   expect(await page.getByRole("button", { name: "운동 추가" }).count()).toBe(1);
   // 종료 버튼은 "수정 마치기"로 바뀐다(첫 종료가 아니라는 맥락).
   expect(await page.getByRole("button", { name: "운동 종료" }).count()).toBe(0);

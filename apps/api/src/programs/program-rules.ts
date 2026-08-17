@@ -49,7 +49,7 @@ export type Focus = "full_body" | "upper" | "lower" | "push" | "pull" | "legs";
 
 /**
  * 분할·요일 배치 (해석: 문서에 표가 없다. openapi 는 split_type 예시로 upper_lower 만 준다).
- * 규칙: 2~3일 전신, 4일 상·하체, 5~6일 push/pull/legs. 요일은 회복일을 사이에 두고 고정 배치.
+ * 규칙: 2~3일 전신, 4~5일 상·하체, 6일 push/pull/legs. 요일은 회복일을 사이에 두고 고정 배치.
  */
 const SCHEDULES: Record<number, ScheduledDay[]> = {
   2: [
@@ -68,11 +68,11 @@ const SCHEDULES: Record<number, ScheduledDay[]> = {
     { day: "FRI", focus: "lower" },
   ],
   5: [
-    { day: "MON", focus: "push" },
-    { day: "TUE", focus: "pull" },
-    { day: "WED", focus: "legs" },
-    { day: "FRI", focus: "push" },
-    { day: "SAT", focus: "pull" },
+    { day: "MON", focus: "upper" },
+    { day: "TUE", focus: "lower" },
+    { day: "WED", focus: "upper" },
+    { day: "FRI", focus: "lower" },
+    { day: "SAT", focus: "upper" },
   ],
   6: [
     { day: "MON", focus: "push" },
@@ -94,7 +94,7 @@ export function scheduleFor(daysPerWeek: number): ScheduledDay[] {
 
 export function splitTypeFor(daysPerWeek: number): string {
   if (daysPerWeek <= 3) return "full_body";
-  if (daysPerWeek === 4) return "upper_lower";
+  if (daysPerWeek <= 5) return "upper_lower";
   return "push_pull_legs";
 }
 

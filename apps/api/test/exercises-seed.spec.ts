@@ -16,8 +16,8 @@ describe("exercises 시드", () => {
     await prisma.$disconnect();
   });
 
-  it("시드 30종이 적재된다", async () => {
-    await expect(prisma.exercise.count()).resolves.toBe(30);
+  it("시드 105종이 적재된다", async () => {
+    await expect(prisma.exercise.count()).resolves.toBe(105);
   });
 
   it("substitutions 참조가 모두 존재한다", async () => {

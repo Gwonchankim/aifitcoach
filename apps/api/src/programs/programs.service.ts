@@ -408,11 +408,13 @@ export function selectExercises(
   count: number,
   options: SelectionOptions,
 ): Exercise[] {
+  const eligible = catalog.filter(
+    (exercise) => DIFFICULTY_RANK[exercise.difficulty] <= options.levelRank,
+  );
   const picked: Exercise[] = [];
   const used = new Set<string>();
   for (const pattern of patterns) {
-    if (picked.length >= count) break;
-    const [chosen] = catalog
+    const [chosen] = eligible
       .filter((exercise) => exercise.movementPattern === pattern && !used.has(exercise.id))
       .sort(comparator(options));
     if (!chosen) continue;
@@ -422,7 +424,7 @@ export function selectExercises(
 
   // 규칙 1: 통증 제외로 자리가 비면 같은 근육군의 머신/케이블 종목으로 메운다(안정성 우선).
   if (options.substituteMuscles.size > 0 && picked.length < count) {
-    const substitutes = catalog
+    const substitutes = eligible
       .filter((exercise) => !used.has(exercise.id))
       .sort(
         (a, b) =>
@@ -433,14 +435,24 @@ export function selectExercises(
       .slice(0, count - picked.length);
     picked.push(...substitutes);
   }
-  return picked;
+  const patternOrder = new Map(picked.map((exercise, index) => [exercise.id, index]));
+  return picked.sort(comparator(options, patternOrder)).slice(0, count);
 }
 
-function comparator(options: SelectionOptions): (a: Exercise, b: Exercise) => number {
+function comparator(
+  options: SelectionOptions,
+  patternOrder?: ReadonlyMap<string, number>,
+): (a: Exercise, b: Exercise) => number {
   return (a, b) =>
     (options.preferStable ? stableFirst(a) - stableFirst(b) : 0) ||
+    mechanicFirst(a) - mechanicFirst(b) ||
+    (patternOrder ? patternOrder.get(a.id)! - patternOrder.get(b.id)! : 0) ||
     rank(a, options.levelRank) - rank(b, options.levelRank) ||
     a.id.localeCompare(b.id);
+}
+
+function mechanicFirst(exercise: Exercise): number {
+  return exercise.mechanic === "compound" ? 0 : 1;
 }
 
 function stableFirst(exercise: Exercise): number {
