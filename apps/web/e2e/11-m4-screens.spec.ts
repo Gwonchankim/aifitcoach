@@ -225,6 +225,11 @@ test("M-4 홈은 16px 프레임·7열/4px 리듬·34/1fr/54px 볼륨과 색 역�
   await mockM4(page);
   await page.goto("/");
   await expect(page.getByText("78.5kg")).toBeVisible();
+  await expect(page.locator('[data-m4-card="rhythm"]')).toBeVisible();
+  await expect(page.locator('[data-m4-grid="rhythm"]')).toBeVisible();
+  await expect(page.locator('[data-m4-grid="volume-row"]').first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /운동 시작/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /기록 탭/ })).toBeVisible();
 
   const metrics = await page.evaluate(() => {
     const screen = document.querySelector("main > div") as HTMLElement;
