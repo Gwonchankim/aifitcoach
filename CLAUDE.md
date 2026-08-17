@@ -13,8 +13,8 @@
 ## 확정 스택(웹 우선)
 - 프론트: **Next.js(App Router) + TypeScript + PWA(Service Worker/Workbox) + Tailwind**
 - 상태/오프라인: **TanStack Query + Zustand + IndexedDB(Dexie) + Outbox**
-- 백엔드: **NestJS(TypeScript) + PostgreSQL + Redis** (ORM: Prisma)
-- 인증: 소셜 OAuth 웹 + **httpOnly 세션 쿠키 + CSRF**
+- 백엔드: **NestJS(TypeScript) + PostgreSQL** (ORM: Prisma). Redis는 현재 코드에서 사용하지 않는다.
+- 인증: 단일 소유자 복구 코드 + **httpOnly 세션 쿠키 + CSRF**
 - 결제: **국내 PG 정기결제(PortOne 등) 빌링키 + 웹훅**
 - 배포: Vercel/클라우드(서울 리전), 프리뷰 URL
 자세한 내용·근거는 `docs/ARCHITECTURE.md`.
@@ -34,7 +34,7 @@ scripts/        # 시드 적재 등 유틸
 ### 앱 띄우기 (이 순서 그대로)
 ```
 pnpm install
-pnpm db:up                     # postgres:16 / redis:7 (Docker Desktop 실행 필요). 내리기: pnpm db:down
+pnpm db:up                     # postgres:16 (Docker Desktop 실행 필요). 내리기: pnpm db:down
                                # 개발 DB를 비우려면 pnpm db:reset (볼륨 삭제 → migrate → seed)
 pnpm --filter api start:dev    # :3001, 전역 prefix /v1. 루트 .env 를 자동 로드한다(ADR-36)
 pnpm --filter web dev          # :3000  ← 반드시 3000. API CORS 허용 origin 기본값이다(ADR-34)

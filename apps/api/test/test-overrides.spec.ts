@@ -86,9 +86,9 @@ describe("테스트 오버라이드 경계", () => {
       expect(isoDate(utcToday())).not.toBe(FIXED);
     });
 
-    it("dev-user opt-in 으로도 켤 수 없다", () => {
-      // ALLOW_DEV_USER_AUTH 는 dev-user 인증 대체를 프로덕션에서 켜는 명시적 opt-in 이다(ADR-23).
-      // 시간 오버라이드는 그것과 **별개**로 항상 꺼져 있어야 한다.
+    it("레거시 dev-user opt-in 값이 있어도 켤 수 없다", () => {
+      // ALLOW_DEV_USER_AUTH 는 더 이상 production dev-user를 허용하지 않는다(ADR-66).
+      // 시간 오버라이드는 그 레거시 값과 무관하게 항상 꺼져 있어야 한다.
       const originalOptIn = process.env.ALLOW_DEV_USER_AUTH;
       process.env.ALLOW_DEV_USER_AUTH = "true";
       try {

@@ -4,9 +4,18 @@ PostgreSQL 단일 주 저장소. 관계 무결성 + 유연 필드(JSONB) + 시�
 아래는 요약 DDL. Prisma 스키마로 옮길 때 이 구조를 따른다.
 
 ```
-users(id uuid PK, sex, birth_year int, height_cm num, weight_kg num, body_fat_pct num NULL,
-      goal enum, experience_level enum, constraints jsonb, created_at, updated_at)
+users(id uuid PK, role user|admin DEFAULT user, sex, birth_year int, height_cm num, weight_kg num,
+      body_fat_pct text NULL, goal enum, experience_level enum, constraints jsonb,
+      deleted_at timestamptz NULL, created_at, updated_at)
 consents(id PK, user_id FK, type, version, granted bool, granted_at)
+auth_sessions(id uuid PK, user_id FK, session_token_hash UNIQUE, csrf_token_hash,
+      created_at, last_seen_at, expires_at, revoked_at NULL)
+      -- 원문 sid/CSRF 토큰은 저장하지 않고 해시만 저장한다. DELETE /me·logout은 revoked_at을 기록한다.
+auth_attempts(id uuid PK, scope, bucket_hash, attempt_count, window_started_at,
+      locked_until NULL, updated_at, UNIQUE(scope, bucket_hash))
+      -- bucket_hash = 원문 IP 등의 HMAC. 원문 코드·IP는 보관하지 않는다.
+access_audits(id uuid PK, user_id FK, action, metadata jsonb, occurred_at)
+      -- metadata에는 건강정보·소유자 코드·원문 IP를 넣지 않는다.
 programs(id PK, user_id FK, goal, days_per_week int, minutes_per_day int, split_type,
       rules_version, template jsonb, generation_input jsonb NULL, started_at date,
       total_weeks int DEFAULT 12, status active|completed, excluded_exercises jsonb, created_at, updated_at)
@@ -74,6 +83,11 @@ CREATE INDEX ix_e1rm_user_ex ON estimated_1rm(user_id, exercise_id, computed_at 
 CREATE INDEX ix_mwl_user_week ON muscle_weekly_load(user_id, week_start);
 CREATE UNIQUE INDEX sync_mutations_server_seq_key ON sync_mutations(server_seq);
 CREATE INDEX ix_sync_user_seq ON sync_mutations(user_id, server_seq);
+CREATE UNIQUE INDEX ux_auth_sessions_token_hash ON auth_sessions(session_token_hash);
+CREATE INDEX ix_auth_sessions_user_expires ON auth_sessions(user_id, expires_at);
+CREATE UNIQUE INDEX ux_auth_attempts_scope_bucket ON auth_attempts(scope, bucket_hash);
+CREATE INDEX ix_auth_attempts_locked_until ON auth_attempts(locked_until);
+CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_at DESC);
 ```
 
 ## 데일리 루틴·부분 수행 (FEATURES_UX.md)

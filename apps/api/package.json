@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "jest",
     "analytics:backfill": "tsx src/analytics/backfill-analytics.ts",
-    "db:migrate": "cd ../.. && prisma migrate deploy --schema apps/api/prisma/schema.prisma",
+    "db:migrate": "node ../../scripts/prisma-migrate.mjs",
+    "db:purge-deleted-users": "node ../../scripts/purge-deleted-users.mjs",
     "db:seed": "cd ../.. && tsx scripts/seed-exercises.ts"
   },
   "dependencies": {
@@ -21,7 +22,6 @@
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
     "dotenv": "17.4.2",
-    "ioredis": "6.0.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "shared": "workspace:*"

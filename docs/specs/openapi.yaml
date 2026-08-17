@@ -27,21 +27,36 @@ security:
   - cookieAuth: []
 
 paths:
-  /auth/social/{provider}:
+  /auth/owner/bootstrap:
     post:
       tags: [auth]
-      summary: 소셜 로그인(웹 OAuth) → 세션 쿠키 발급
+      summary: 단일 소유자 최초 등록(프로필·동의·admin·세션을 원자 생성)
       security: []
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string, enum: [kakao, naver, apple, google] }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/SocialLoginRequest' }
+            schema: { $ref: '#/components/schemas/OwnerBootstrapRequest' }
+      responses:
+        '201':
+          description: '등록 성공. Set-Cookie sid=...; HttpOnly; Secure; SameSite=Lax'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/owner/login:
+    post:
+      tags: [auth]
+      summary: 소유자 복구 코드로 재로그인(쿠키 삭제·기기 변경 대응)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OwnerLoginRequest' }
       responses:
         '200':
           description: '로그인 성공. Set-Cookie sid=...; HttpOnly; Secure; SameSite=Lax'
@@ -49,12 +64,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /auth/refresh:
     post:
       tags: [auth]
       summary: 세션 갱신(refresh 회전)
-      security: []
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
       responses:
@@ -105,6 +120,7 @@ paths:
         - $ref: '#/components/parameters/CsrfHeader'
       responses:
         '202': { description: 삭제 요청 접수(비동기 퍼지) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /me/consents:
     post:
@@ -121,24 +137,19 @@ paths:
               items: { $ref: '#/components/schemas/Consent' }
       responses:
         '204': { description: 기록됨 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /me/export:
-    post:
+    get:
       tags: [users]
-      summary: 내 데이터 내보내기(비동기 생성)
-      parameters:
-        - $ref: '#/components/parameters/CsrfHeader'
+      summary: 내 데이터 즉시 JSON 내보내기(기계 판독)
       responses:
-        '202':
-          description: 생성 요청 접수
+        '200':
+          description: 현재 보유한 프로필·동의·운동 기록·파생 지표·접근 감사의 JSON 스냅샷
           content:
             application/json:
-              schema:
-                type: object
-                required: [export_id, status]
-                properties:
-                  export_id: { type: string }
-                  status: { type: string, example: pending }
+              schema: { $ref: '#/components/schemas/DataExport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /me/calibration:
     post:
@@ -719,7 +730,7 @@ components:
       type: apiKey
       in: cookie
       name: sid
-      description: httpOnly 세션 쿠키. 변경 요청에는 X-CSRF-Token 헤더 필요.
+      description: httpOnly·Secure·SameSite=Lax 세션 쿠키. 변경 요청에는 X-CSRF-Token 헤더가 필요하다.
 
   parameters:
     CsrfHeader:
@@ -750,6 +761,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: 현재 상태와 충돌
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
 
   schemas:
     Error:
@@ -764,12 +780,39 @@ components:
             message: { type: string }
             details: { type: object, additionalProperties: true, nullable: true }
 
-    SocialLoginRequest:
+    OwnerLoginRequest:
       type: object
-      required: [id_token]
+      required: [owner_code]
       properties:
-        id_token: { type: string, description: 소셜 OIDC 토큰/인가코드 }
-        device_id: { type: string, nullable: true }
+        owner_code:
+          type: string
+          minLength: 24
+          maxLength: 256
+          description: Secret Manager에만 보관하는 소유자 복구 코드. 요청·응답·DB·로그에 남기지 않는다.
+
+    OwnerProfile:
+      type: object
+      required: [sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level]
+      properties:
+        sex: { type: string, enum: [male, female, other] }
+        birth_year: { type: integer, minimum: 1900, maximum: 2026 }
+        height_cm: { type: number, minimum: 100, maximum: 250 }
+        weight_kg: { type: number, minimum: 30, maximum: 300 }
+        body_fat_pct: { type: number, nullable: true, minimum: 1, maximum: 70 }
+        goal: { type: string, enum: [diet, hypertrophy, strength] }
+        experience_level: { type: string, enum: [beginner, intermediate, advanced] }
+
+    OwnerBootstrapRequest:
+      allOf:
+        - $ref: '#/components/schemas/OwnerLoginRequest'
+        - type: object
+          required: [profile, consents]
+          properties:
+            profile: { $ref: '#/components/schemas/OwnerProfile' }
+            consents:
+              type: array
+              minItems: 1
+              items: { $ref: '#/components/schemas/Consent' }
 
     AuthResult:
       type: object
@@ -780,7 +823,7 @@ components:
           type: object
           required: [id, is_new]
           properties:
-            id: { type: string, example: u_123 }
+            id: { type: string, format: uuid }
             is_new: { type: boolean }
 
     Profile:
@@ -817,6 +860,33 @@ components:
         type: { type: string, example: privacy_policy }
         version: { type: string, example: '2026-07-16' }
         granted: { type: boolean }
+
+    DataExport:
+      type: object
+      required: [exported_at, profile, consents, data]
+      properties:
+        exported_at: { type: string, format: date-time }
+        profile: { $ref: '#/components/schemas/Profile' }
+        consents:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Consent'
+              - type: object
+                required: [granted_at]
+                properties:
+                  granted_at: { type: string, format: date-time }
+        data:
+          type: object
+          required: [programs, sessions, estimated_1rm, muscle_weekly_load, calibration_sets, access_audits]
+          properties:
+            programs: { type: array, items: { type: object, additionalProperties: true } }
+            sessions: { type: array, items: { type: object, additionalProperties: true } }
+            estimated_1rm: { type: array, items: { type: object, additionalProperties: true } }
+            muscle_weekly_load: { type: array, items: { type: object, additionalProperties: true } }
+            rir_calibration: { type: object, nullable: true, additionalProperties: true }
+            calibration_sets: { type: array, items: { type: object, additionalProperties: true } }
+            access_audits: { type: array, items: { type: object, additionalProperties: true } }
 
     GenerateProgramRequest:
       type: object

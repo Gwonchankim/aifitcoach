@@ -1,5 +1,8 @@
 import { Logger, type INestApplication } from "@nestjs/common";
+import { authenticationMode } from "./auth/auth-mode";
+import { AuthService } from "./auth/auth.service";
 import { assertDevUserAuthAllowed, devUserMiddleware } from "./auth/dev-user";
+import { sessionAuthMiddleware } from "./auth/session-auth.middleware";
 import { TEST_TODAY_ENV, isoDate, testTodayOverride } from "./common/date/utc-day";
 import { corsOptions } from "./common/http/cors";
 
@@ -7,8 +10,8 @@ import { corsOptions } from "./common/http/cors";
  * openapi 의 servers[].url 은 `/v1` 을 포함하고 paths 키에는 없다 → 전역 prefix 로 계약과 맞춘다.
  * (전역 pipe/filter 는 AppModule 의 APP_PIPE/APP_FILTER 로 등록되므로 여기서는 prefix 만 둔다.)
  *
- * 인증 이음새: 요청에 user_id 를 넣는 미들웨어를 여기 한 곳에서만 등록한다(docs/TEST_SCOPE.md).
- * 소셜 OAuth + 쿠키 세션 + CSRF 도입 시 이 한 줄을 세션 가드로 교체한다.
+ * 인증 이음새: 요청에 user_id 를 넣는 미들웨어는 여기 한 곳뿐이다.
+ * test/development의 dev-user와 production의 세션 인증이 이 경계를 공유한다.
  * CORS 도 같은 이음새다 — 프론트가 쿠키를 실어 보낼 수 있어야 하므로 여기서 켠다(common/http/cors.ts).
  */
 export const API_PREFIX = "v1";
@@ -26,10 +29,14 @@ function warnOnTestOverrides(): void {
 }
 
 export function configureApp(app: INestApplication): INestApplication {
-  assertDevUserAuthAllowed();
   warnOnTestOverrides();
   app.enableCors(corsOptions());
   app.setGlobalPrefix(API_PREFIX);
-  app.use(devUserMiddleware);
+  if (authenticationMode() === "dev-user") {
+    assertDevUserAuthAllowed();
+    app.use(devUserMiddleware);
+  } else {
+    app.use(sessionAuthMiddleware(app.get(AuthService)));
+  }
   return app;
 }

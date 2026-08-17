@@ -14,6 +14,8 @@ export default async function globalTeardown(): Promise<void> {
   const userId = { in: ids };
   try {
     // FK 는 RESTRICT 라 자식 → 부모 순서로 지운다(SECURITY_PIPA.md 퍼지 순서와 동일).
+    await prisma.accessAudit.deleteMany({ where: { userId } });
+    await prisma.authSession.deleteMany({ where: { userId } });
     await prisma.performedSet.deleteMany({
       where: { plannedSet: { session: { program: { userId } } } },
     });

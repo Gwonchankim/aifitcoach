@@ -10,7 +10,7 @@
 5. `M_ENGINE_EVIDENCE.md` — M-ENGINE′의 RIR·볼륨·디로드 근거와 승인 전 후속 티켓
 6. `RIR_TUTORIAL.md` + `specs/tutorial_program_rir.json` — RIR 캘리브레이션 튜토리얼
 7. `CONVENTIONS.md` — 코딩 컨벤션
-10. `TEST_SCOPE.md` — 테스트 단계 스코프(로그인/결제/법무 보류·dev-user) ★
+10. `TEST_SCOPE.md` — production 세션 인증과 non-production dev-user 테스트 하네스의 경계 ★
 11. `M4_CONTRACT.md` — M-4′ 집계·12주 lazy lifecycle·3세션 서버 게이트 계약 ★ M-4′ 필독
 12. `prototypes/README.md` — 원본 오프라인 프로토타입 7종의 재현 가능한 템플릿·카피·스타일 추출본
 9. `AGENTS_TEAM.md` — 팀(서브에이전트) 오케스트레이션·병렬화·역할

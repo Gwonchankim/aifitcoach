@@ -1,5 +1,5 @@
 import { ExecutionContext, UnauthorizedException, createParamDecorator } from "@nestjs/common";
-import type { RequestWithUser } from "./dev-user";
+import type { RequestWithUser } from "./request-user";
 
 /**
  * 컨트롤러가 인증 주체를 얻는 유일한 통로. 지금은 dev-user 미들웨어가 채우고,

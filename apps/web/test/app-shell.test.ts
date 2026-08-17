@@ -11,9 +11,11 @@ describe("4탭 앱 셸", () => {
     ]);
   });
 
-  it("세션과 온보딩에는 하단 내비게이션을 붙이지 않는다", () => {
+  it("세션·온보딩·인증에는 하단 내비게이션을 붙이지 않는다", () => {
     expect(shouldShowBottomNavigation("/onboarding")).toBe(false);
     expect(shouldShowBottomNavigation("/session/session_1")).toBe(false);
+    expect(shouldShowBottomNavigation("/auth")).toBe(false);
+    expect(shouldShowBottomNavigation("/auth/bootstrap")).toBe(false);
     expect(shouldShowBottomNavigation("/")).toBe(true);
     expect(shouldShowBottomNavigation("/history")).toBe(true);
   });

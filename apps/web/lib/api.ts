@@ -21,6 +21,11 @@ export type SyncResponse = components["schemas"]["SyncResponse"];
 export type E1rmAnalytics = components["schemas"]["E1rmAnalytics"];
 export type VolumeAnalytics = components["schemas"]["VolumeAnalytics"];
 export type CompletionAnalytics = components["schemas"]["CompletionAnalytics"];
+export type Profile = components["schemas"]["Profile"];
+export type AuthResult = components["schemas"]["AuthResult"];
+export type OwnerLoginRequest = components["schemas"]["OwnerLoginRequest"];
+export type OwnerBootstrapRequest = components["schemas"]["OwnerBootstrapRequest"];
+export type DataExport = components["schemas"]["DataExport"];
 export type E1rmAnalyticsQuery = paths["/analytics/e1rm"]["get"]["parameters"]["query"];
 export type VolumeAnalyticsQuery = NonNullable<
   paths["/analytics/volume"]["get"]["parameters"]["query"]
@@ -50,8 +55,30 @@ export class ApiError extends Error {
  * 테스트 단계에는 세션·CSRF 발급이 없어(docs/TEST_SCOPE.md) 자리만 채운다.
  * 인증 도입 시 이 함수만 실제 토큰(쿠키/메타에서 읽기)으로 교체한다.
  */
+let activeCsrfToken: string | null = null;
+
+/** AuthResult의 CSRF 토큰은 메모리에만 둔다. localStorage/sessionStorage에는 쓰지 않는다. */
+export function setCsrfToken(token: string | null): void {
+  activeCsrfToken = token;
+  // DELETE /me revokes the server session before returning. Remove the readable
+  // companion cookie as well; sid remains httpOnly and is rejected server-side.
+  if (!token && typeof document !== "undefined") {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `csrf=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  }
+}
+
 function csrfToken(): string {
-  return "dev";
+  if (typeof document !== "undefined") {
+    const cookie = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith("csrf="))
+      ?.slice("csrf=".length);
+    if (cookie) return cookie;
+  }
+  // dev-user 회귀 스펙은 세션 미들웨어를 타지 않으므로 기존 헤더 모양을 유지한다.
+  return activeCsrfToken ?? "dev";
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -95,6 +122,37 @@ function withQuery(path: string, query: Record<string, string | number | undefin
 }
 
 export const api = {
+  me: () => request<Profile>("/me"),
+
+  ownerLogin: async (body: OwnerLoginRequest) => {
+    const result = await request<AuthResult>("/auth/owner/login", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setCsrfToken(result.csrf_token);
+    return result;
+  },
+
+  ownerBootstrap: async (body: OwnerBootstrapRequest) => {
+    const result = await request<AuthResult>("/auth/owner/bootstrap", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setCsrfToken(result.csrf_token);
+    return result;
+  },
+
+  refreshSession: () => request<void>("/auth/refresh", { method: "POST" }),
+
+  logout: async () => {
+    await request<void>("/auth/logout", { method: "POST" });
+    setCsrfToken(null);
+  },
+
+  exportData: () => request<DataExport>("/me/export"),
+
+  deleteAccount: () => request<void>("/me", { method: "DELETE" }),
+
   sync: (body: SyncRequest, signal?: AbortSignal) =>
     request<SyncResponse>("/sync", { method: "POST", body: JSON.stringify(body), signal }),
 

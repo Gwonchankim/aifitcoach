@@ -14,7 +14,15 @@ import { createHash } from "node:crypto";
 export const RUN_ID_ENV = "AFC_TEST_RUN_ID";
 
 /** teardown 이 지워야 할 사용자 목록. 새 용도를 쓰는 spec 이 생기면 여기에 추가한다. */
-export const TEST_USER_SEEDS = ["dev", "tenancy", "dashboard", "adhoc"] as const;
+export const TEST_USER_SEEDS = [
+  "dev",
+  "tenancy",
+  "dashboard",
+  "adhoc",
+  "auth",
+  "auth-other",
+  "purge",
+] as const;
 export type TestUserSeed = (typeof TEST_USER_SEEDS)[number];
 
 function runId(): string {

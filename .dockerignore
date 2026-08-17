@@ -1,0 +1,15 @@
+.git
+.codex
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/coverage
+apps/web/e2e
+apps/web/test-results
+apps/web/certificates
+*.log
+*.tsbuildinfo

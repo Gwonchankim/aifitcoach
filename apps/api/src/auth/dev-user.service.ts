@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { usesDevUserAuth } from "./auth-mode";
 import { devUserId } from "./dev-user";
 
 /**
@@ -13,6 +14,7 @@ export class DevUserService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
+    if (!usesDevUserAuth()) return;
     await this.prisma.user.upsert({
       where: { id: devUserId() },
       update: {},

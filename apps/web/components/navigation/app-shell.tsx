@@ -11,7 +11,9 @@ export const appNavigation = [
 ] as const;
 
 export function shouldShowBottomNavigation(pathname: string): boolean {
-  return pathname !== "/onboarding" && !pathname.startsWith("/session/");
+  return (
+    pathname !== "/onboarding" && !pathname.startsWith("/session/") && !pathname.startsWith("/auth")
+  );
 }
 
 function isActive(pathname: string, href: string): boolean {

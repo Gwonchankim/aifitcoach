@@ -28,7 +28,7 @@
 ## 공통 규칙
 - 스펙(docs/)이 진실의 원천. Karpathy 4원칙(가정 명시·최소 코드·외과적 변경·성공 기준 검증).
 - 테스트 약화·시크릿 커밋·스펙 외 임의 생성 금지. 골든/보안/데이터손실은 절대 defer 금지.
-- 테스트 단계 스코프(docs/TEST_SCOPE.md): 로그인·결제·법무 보류, dev-user 사용.
+- 테스트 단계 스코프(docs/TEST_SCOPE.md): production은 세션 인증, non-production 회귀 테스트만 dev-user 사용. 결제·법무 검토는 별도 범위다.
 
 ## 로드맵 (Milestone)
 | # | Milestone | 포함(구 STEP) | 개발 Step 병렬 포인트 |

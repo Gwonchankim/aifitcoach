@@ -146,20 +146,18 @@ describe("스텁 엔드포인트", () => {
       expect(response.body.error.code).toBe("VALIDATION_ERROR");
     });
 
-    it("올바른 바디 → 501 (스텁)", async () => {
+    it("올바른 바디 → 204 (동의 이력 기록)", async () => {
       const response = await request(app.getHttpServer())
         .post("/v1/me/consents")
         .send([{ type: "privacy", version: "1.0", granted: true }]);
 
-      expect(response.status).toBe(501);
-      expect(response.body.error.code).toBe("NOT_IMPLEMENTED");
+      expect(response.status).toBe(204);
     });
 
-    it("빈 배열 → 501 (openapi 에 minItems 가 없으므로 계약상 유효)", async () => {
+    it("빈 배열 → 204 (openapi 에 minItems 가 없으므로 유효한 no-op)", async () => {
       const response = await request(app.getHttpServer()).post("/v1/me/consents").send([]);
 
-      expect(response.status).toBe(501);
-      expect(response.body.error.code).toBe("NOT_IMPLEMENTED");
+      expect(response.status).toBe(204);
     });
   });
 });

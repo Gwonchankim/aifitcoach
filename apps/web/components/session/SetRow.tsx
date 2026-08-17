@@ -14,7 +14,7 @@
  */
 "use client";
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PlannedSet } from "../../lib/api";
 import { Badge, CompleteButton, Input, cn } from "../ui";
 import { RirField } from "./RirField";
@@ -168,6 +168,10 @@ export function SetRow({
   );
   const [rir, setRir] = useState<number | null>(draft?.actual_rir ?? null);
   const [missing, setMissing] = useState<"weight" | "reps" | "time" | null>(null);
+  // A delayed mirror/pull update must not replace a value the user has typed but
+  // not yet committed with the completion check. Focus alone is insufficient on
+  // mobile engines because native input helpers may blur between input events.
+  const hasUncommittedInput = useRef(false);
 
   // Pull may create or replace a draft after this row mounted. Keep the controlled inputs in sync
   // without remounting the row (a remount would steal focus while the user edits a completed set).
@@ -175,6 +179,7 @@ export function SetRow({
   // must not replace text the user is currently typing. Its completion write will enter the outbox.
   useEffect(() => {
     if (!draft) return;
+    if (hasUncommittedInput.current && !draft.completed) return;
     if (
       typeof document !== "undefined" &&
       document.activeElement instanceof HTMLInputElement &&
@@ -423,6 +428,7 @@ export function SetRow({
             invalid={missing === "time"}
             aria-describedby={missing === "time" ? errorId : undefined}
             onChange={(event) => {
+              hasUncommittedInput.current = true;
               setTimeText(event.target.value);
               commit(valuesFrom(shownWeight, repsText, event.target.value, rir));
             }}
@@ -443,6 +449,7 @@ export function SetRow({
                 invalid={missing === "weight"}
                 aria-describedby={missing === "weight" ? errorId : undefined}
                 onChange={(event) => {
+                  hasUncommittedInput.current = true;
                   setWeightText(event.target.value);
                   commit(valuesFrom(event.target.value, repsText, timeText, rir));
                 }}
@@ -466,6 +473,7 @@ export function SetRow({
               invalid={missing === "reps"}
               aria-describedby={missing === "reps" ? errorId : undefined}
               onChange={(event) => {
+                hasUncommittedInput.current = true;
                 setRepsText(event.target.value);
                 commit(valuesFrom(shownWeight, event.target.value, timeText, rir));
               }}
@@ -481,6 +489,7 @@ export function SetRow({
                 // 오류 문구가 보조 줄을 차지하는 동안에는 목표 문구가 DOM 에 없다(빈 id 참조 금지).
                 describedById={showRirTarget && !missing ? rirTargetId : undefined}
                 onChange={(next) => {
+                  hasUncommittedInput.current = true;
                   setRir(next);
                   commit(valuesFrom(shownWeight, repsText, timeText, next));
                 }}

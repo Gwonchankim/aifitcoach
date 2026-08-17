@@ -20,14 +20,14 @@
 5. 보안·결제·개인정보 관련 변경은 **사람이 리뷰**합니다(`docs/SECURITY_PIPA.md`).
 
 ## 확정 스택
-Next.js PWA(프론트) · NestJS(백엔드) · PostgreSQL/Redis · IndexedDB(오프라인) · 국내 PG 정기결제 · 쿠키 세션.
+Next.js PWA(프론트) · NestJS(백엔드) · PostgreSQL · IndexedDB(오프라인) · 국내 PG 정기결제 · 쿠키 세션.
 자세한 내용은 `docs/ARCHITECTURE.md`.
 
 ## 실행
 ```
 pnpm install
 cp .env.example .env            # 로컬 값(커밋 금지)
-pnpm db:up                      # postgres:16, redis:7 (scripts/docker-compose.yml)
+pnpm db:up                      # postgres:16 (scripts/docker-compose.yml)
 pnpm --filter web dev           # http://localhost:3000
 pnpm --filter api start:dev     # http://localhost:3001
 pnpm typecheck && pnpm lint && pnpm format:check && pnpm build && pnpm test

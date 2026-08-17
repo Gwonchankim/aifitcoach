@@ -3,8 +3,8 @@
 ## 스택
 - 프론트: Next.js(App Router) + TypeScript + PWA(Service Worker/Workbox) + Tailwind
 - 상태/오프라인: TanStack Query + Zustand + IndexedDB(Dexie) + Outbox
-- 백엔드: NestJS(TypeScript) + PostgreSQL + Redis, ORM Prisma. 모듈러 모놀리스.
-- 인증: 소셜 OAuth 웹 + httpOnly 세션 쿠키 + CSRF
+- 백엔드: NestJS(TypeScript) + PostgreSQL, ORM Prisma. 모듈러 모놀리스. Redis는 현재 연결·실사용 코드가 없어 배포하지 않는다.
+- 인증: 단일 소유자 복구 코드 + httpOnly 세션 쿠키 + CSRF
 - 결제: 국내 PG 정기결제(PortOne 등) 빌링키 + 웹훅
 - 관측: Sentry + OpenTelemetry
 - 배포: Vercel/클라우드(서울), 프리뷰 URL
@@ -30,8 +30,9 @@ scripts/        # 시드 적재, docker-compose 등
 - 보장 경계: IndexedDB commit과 저장소 유지 이후의 reload·앱 종료·재오프라인·응답 유실·다중 탭에서 유실/중복 0을 보장한다. 명시적 사이트 데이터 삭제·OS 축출·디스크 고장은 제외하되 persistent storage를 요청하고 로컬 commit 실패 시 성공 UI를 금지한다.
 
 ## 인증
-- 소셜 OAuth 웹 리다이렉트 → 백엔드가 httpOnly 세션 쿠키(Secure·SameSite) 발급. 변경 요청은 `X-CSRF-Token`.
-- JWT를 localStorage에 저장하지 않음(XSS). 세션 만료·회전, 로그아웃 시 무효화.
+- 단일 사용자 배포에서는 Secret Manager의 **소유자 복구 코드**로 최초 프로필·동의를 원자 생성하고, 같은 코드로 기기 변경/쿠키 삭제 후 재로그인한다. 초대 발송·소셜 OAuth·공개 회원가입은 만들지 않는다.
+- API는 원문 코드·세션·CSRF 토큰을 DB에 저장하지 않는다. httpOnly `sid; Secure; SameSite=Lax` 세션과 `X-CSRF-Token` 검증을 사용하며, 세션 만료·회전·로그아웃·삭제 시 무효화한다. JWT를 localStorage에 저장하지 않는다.
+- `users.role`은 `user|admin`으로 준비하되 소유자 bootstrap만 admin을 만들며, 공개 요청으로 승격하는 경로는 없다.
 
 ## 결제
 - `/billing/checkout`(PG 결제창/빌링키 등록 세션) → `/billing/confirm`(빌링키 확정·첫 결제) → `/webhooks/pg`(갱신·해지·환불 동기화, 서명 검증).
@@ -106,3 +107,7 @@ scripts/        # 시드 적재, docker-compose 등
 | ADR-63 | M-4′ 집계는 수행기록을 원본으로 한 결정적 hybrid projection이다. 같은 projector가 targeted recompute·조회 reconcile·전체 rebuild를 담당하며 e1RM/PR은 저반복 우선+RIR 보정 공식을 공유한다. 표시 게이트는 오직 `packages/shared/display-gate.ts`에 있고 서버가 적용한 결과가 온라인 권위다 | 삽입 순서와 증분/전체 경로에 따라 집계가 달라지거나 API·웹이 각자 3세션을 판정하면 같은 기록에서 숫자·노출이 갈린다. 기존 raw-Epley PR은 전체 rebuild로 교체한다 | **확정**(D-32~D-36·D-39, 2026-08-16) |
 | ADR-64 | 프로그램은 `started_at`·12주·status만 lifecycle로 저장하고 12주 세션을 사전 생성하지 않는다. 가까운 주차만 기존 template/신규 generation input에서 lazy 생성하며 레거시는 복구 불가능한 입력을 추측하지 않고 template snapshot을 쓴다 | 미수행 미래 행 폭증과 목표/일정 변경 시 대량 재생성·편집 세션 혼합을 피한다. 레거시는 template이 반복 가능한 결과라 `started_at` backfill만으로 현재 M-4′ lazy 표시가 가능하다 | **확정**(수정 D-37, 2026-08-16) |
 | ADR-65 | analytics/history 오프라인 read-through는 전체 이력 복제가 아니라 user-scoped·query-scoped 서버 snapshot LRU다. dashboard 1, e1RM 8, volume 4, completion 4, history detail 48로 제한하고 transport failure에서만 `synced_at`과 stale 상태로 복구한다. HTTP 오류·abort·계약 오류는 숨기지 않으며 로컬 outbox를 서버 snapshot에 합성하지 않는다 | 건강 데이터 저장량을 유계로 유지하고 미전송 기록이 권위 집계처럼 보이는 것을 막는다. 온라인 서버 gate가 항상 권위이며 `/v1/**` CacheStorage 제외와 세션 outbox transaction 경계를 유지한다 | **확정**(D-50~D-52, M-4′ Sprint 3, 2026-08-16) |
+| ADR-66 | M-AUTH+DEPLOY 단일 사용자 인증은 초대코드/발송 대신 Secret Manager의 소유자 복구 코드 1개를 사용한다. 최초 등록은 완전한 프로필·동의와 admin 역할을 원자 생성하고, 이후에는 같은 코드로 재로그인한다. `auth_sessions`·`auth_attempts`·`access_audits`와 `users.deleted_at`을 둔다 | 혼자 사용하는 단계에서 운영 UI·이메일·초대 코드 수명주기를 만들지 않으면서, dev-user 공개 배포와 기기 변경 시 계정 상실을 막는다. 코드를 아는 사람은 계정에 접근할 수 있으므로 길고 무작위인 비밀값을 Secret Manager에만 보관하고, 대입 방어를 적용한다 | **확정**(제품 오너 승인 2026-08-17, D-66) |
+| ADR-67 | Vercel은 `/api/v1/*`를 Cloud Run으로 외부 rewrite하여 same-origin을 유지한다. API는 `WEB_ORIGIN` 허용목록 CORS를 보존하되 운영 정상 경로는 프록시를 탄다 | `SameSite=None` 크로스 도메인 쿠키와 넓어진 CSRF 표면을 피하고 ADR-45 LAN 프록시와 같은 경계를 재사용한다 | **확정**(제품 오너 승인 2026-08-17, D-67) |
+| ADR-68 | 계정 삭제는 `deleted_at`으로 즉시 차단하고, `PURGE_BEFORE`를 매번 명시한 별도 Cloud Run Job이 자식→부모 순서로 물리 삭제한다 | 런타임 컨테이너의 동시 시작·암묵적 보존기간·실수로 인한 즉시 영구 삭제를 피한다. 단일 사용자 스테이징의 법무 검토 보류 상태도 운영상 드러난다 | **확정**(제품 오너 승인 2026-08-17, D-68) |
+| ADR-69 | Redis는 현재 배포·로컬 compose·의존성에서 제외한다 | import·연결·실사용 지점이 없고 Cloud Run의 무상태 런타임에 별도 외부 Redis를 추가할 이유가 없다 | **확정**(실측 2026-08-17, D-69) |

@@ -8,7 +8,7 @@
  */
 
 export interface paths {
-  "/auth/social/{provider}": {
+  "/auth/owner/bootstrap": {
     parameters: {
       query?: never;
       header?: never;
@@ -17,19 +17,60 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** 소셜 로그인(웹 OAuth) → 세션 쿠키 발급 */
+    /** 단일 소유자 최초 등록(프로필·동의·admin·세션을 원자 생성) */
     post: {
       parameters: {
         query?: never;
         header?: never;
-        path: {
-          provider: "kakao" | "naver" | "apple" | "google";
-        };
+        path?: never;
         cookie?: never;
       };
       requestBody: {
         content: {
-          "application/json": components["schemas"]["SocialLoginRequest"];
+          "application/json": components["schemas"]["OwnerBootstrapRequest"];
+        };
+      };
+      responses: {
+        /** @description 등록 성공. Set-Cookie sid=...; HttpOnly; Secure; SameSite=Lax */
+        201: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["AuthResult"];
+          };
+        };
+        400: components["responses"]["BadRequest"];
+        401: components["responses"]["Unauthorized"];
+        409: components["responses"]["Conflict"];
+      };
+    };
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/auth/owner/login": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** 소유자 복구 코드로 재로그인(쿠키 삭제·기기 변경 대응) */
+    post: {
+      parameters: {
+        query?: never;
+        header?: never;
+        path?: never;
+        cookie?: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["OwnerLoginRequest"];
         };
       };
       responses: {
@@ -43,6 +84,7 @@ export interface paths {
           };
         };
         400: components["responses"]["BadRequest"];
+        401: components["responses"]["Unauthorized"];
       };
     };
     delete?: never;
@@ -177,6 +219,7 @@ export interface paths {
           };
           content?: never;
         };
+        401: components["responses"]["Unauthorized"];
       };
     };
     options?: never;
@@ -245,6 +288,7 @@ export interface paths {
           };
           content?: never;
         };
+        401: components["responses"]["Unauthorized"];
       };
     };
     delete?: never;
@@ -260,36 +304,30 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    get?: never;
-    put?: never;
-    /** 내 데이터 내보내기(비동기 생성) */
-    post: {
+    /** 내 데이터 즉시 JSON 내보내기(기계 판독) */
+    get: {
       parameters: {
         query?: never;
-        header: {
-          /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
-          "X-CSRF-Token": components["parameters"]["CsrfHeader"];
-        };
+        header?: never;
         path?: never;
         cookie?: never;
       };
       requestBody?: never;
       responses: {
-        /** @description 생성 요청 접수 */
-        202: {
+        /** @description 현재 보유한 프로필·동의·운동 기록·파생 지표·접근 감사의 JSON 스냅샷 */
+        200: {
           headers: {
             [name: string]: unknown;
           };
           content: {
-            "application/json": {
-              export_id: string;
-              /** @example pending */
-              status: string;
-            };
+            "application/json": components["schemas"]["DataExport"];
           };
         };
+        401: components["responses"]["Unauthorized"];
       };
     };
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1446,15 +1484,30 @@ export interface components {
         } | null;
       };
     };
-    SocialLoginRequest: {
-      /** @description 소셜 OIDC 토큰/인가코드 */
-      id_token: string;
-      device_id?: string | null;
+    OwnerLoginRequest: {
+      /** @description Secret Manager에만 보관하는 소유자 복구 코드. 요청·응답·DB·로그에 남기지 않는다. */
+      owner_code: string;
+    };
+    OwnerProfile: {
+      /** @enum {string} */
+      sex: "male" | "female" | "other";
+      birth_year: number;
+      height_cm: number;
+      weight_kg: number;
+      body_fat_pct: number | null;
+      /** @enum {string} */
+      goal: "diet" | "hypertrophy" | "strength";
+      /** @enum {string} */
+      experience_level: "beginner" | "intermediate" | "advanced";
+    };
+    OwnerBootstrapRequest: components["schemas"]["OwnerLoginRequest"] & {
+      profile: components["schemas"]["OwnerProfile"];
+      consents: components["schemas"]["Consent"][];
     };
     AuthResult: {
       csrf_token: string;
       user: {
-        /** @example u_123 */
+        /** Format: uuid */
         id: string;
         is_new: boolean;
       };
@@ -1492,6 +1545,38 @@ export interface components {
       /** @example 2026-07-16 */
       version: string;
       granted: boolean;
+    };
+    DataExport: {
+      /** Format: date-time */
+      exported_at: string;
+      profile: components["schemas"]["Profile"];
+      consents: (components["schemas"]["Consent"] & {
+        /** Format: date-time */
+        granted_at: string;
+      })[];
+      data: {
+        programs: {
+          [key: string]: unknown;
+        }[];
+        sessions: {
+          [key: string]: unknown;
+        }[];
+        estimated_1rm: {
+          [key: string]: unknown;
+        }[];
+        muscle_weekly_load: {
+          [key: string]: unknown;
+        }[];
+        rir_calibration?: {
+          [key: string]: unknown;
+        } | null;
+        calibration_sets: {
+          [key: string]: unknown;
+        }[];
+        access_audits: {
+          [key: string]: unknown;
+        }[];
+      };
     };
     GenerateProgramRequest: {
       /** @enum {string} */
@@ -1923,6 +2008,15 @@ export interface components {
     };
     /** @description 없음 */
     NotFound: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description 현재 상태와 충돌 */
+    Conflict: {
       headers: {
         [name: string]: unknown;
       };

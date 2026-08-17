@@ -18,7 +18,7 @@ export default function ProfilePage() {
         </h2>
         <ProfileScreen />
         <p className="mt-2 text-xs text-fg-muted">
-          읽기 전용 화면이며 민감한 개인 정보와 결제 정보를 다루지 않아요.
+          개인 데이터 처리 안내는 최초 설정에서 확인했고, 여기서 내보내기와 삭제를 요청할 수 있어요.
         </p>
       </section>
     </div>
