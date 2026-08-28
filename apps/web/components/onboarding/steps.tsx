@@ -4,7 +4,7 @@
  * 온보딩 6스텝의 입력 UI (UX_STATES §2.1, §6).
  * 상태는 전부 OnboardingWizard 가 가지고 있고 여기는 표시·이벤트만 한다.
  */
-import { Card, Chip, Input, cn } from "../ui";
+import { Card, Chip, Input } from "../ui";
 import {
   DAYS_OPTIONS,
   EQUIPMENT_OPTIONS,
@@ -21,18 +21,6 @@ export type StepProps = {
   draft: OnboardingDraft;
   onChange: (patch: Partial<OnboardingDraft>) => void;
 };
-
-/**
- * **라디오 카드(목표·경력)만** 소프트다: 면 `primary-bg` + 테두리 `primary` + 글자 `fg`.
- * 프로토타입 `radio(on)` 이 정확히 그렇다 — `border:1px solid #1B4FC4; background:#EFF3FC`.
- *
- * 분절 칩(성별·주당일수·회당시간·장비·통증부위)은 **여기 해당하지 않는다** — 프로토타입 `chipStyle(on)` 이
- * `background:#151A21; color:#fff` 즉 **ink 반전**이라, 이제 `Chip` 기본 선택색이 그 값이다(ADR-52).
- * 그래서 그쪽 오버라이드는 전부 제거했다.
- *
- * `cn` 이 Chip 기본 클래스와 이 오버라이드의 충돌을 해소해 뒤의 역할 클래스를 남긴다.
- */
-const SELECTED_SOFT = "bg-primary-bg text-fg";
 
 /** 단일 선택 칩 묶음. 그룹 이름을 legend 로 주어 스크린리더가 맥락을 읽게 한다. */
 function ChipGroup({
@@ -112,12 +100,9 @@ export function GoalStep({ draft, onChange }: StepProps) {
           key={option.value}
           selected={draft.goal === option.value}
           onClick={() => onChange({ goal: option.value })}
-          className={cn(
-            "w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left",
-            draft.goal === option.value && SELECTED_SOFT,
-          )}
+          className="w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left"
         >
-          <span className="text-base font-semibold">{option.label}</span>
+          <span className="text-base">{option.label}</span>
           {/* 보조 설명은 캡션이다 → `muted`(§2.1). 자식이 자기 색을 가지므로 부모의 `!` 와 다투지 않는다. */}
           <span className="text-xs font-normal text-fg-muted">{option.description}</span>
         </Chip>
@@ -184,12 +169,9 @@ export function ExperienceStep({ draft, onChange }: StepProps) {
             key={option.value}
             selected={draft.experience_level === option.value}
             onClick={() => onChange({ experience_level: option.value })}
-            className={cn(
-              "w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left",
-              draft.experience_level === option.value && SELECTED_SOFT,
-            )}
+            className="w-full flex-col items-start justify-center gap-0.5 rounded-card px-5 py-3 text-left"
           >
-            <span className="text-base font-semibold">{option.label}</span>
+            <span className="text-base">{option.label}</span>
             <span className="text-xs font-normal text-fg-muted">{option.description}</span>
           </Chip>
         ))}

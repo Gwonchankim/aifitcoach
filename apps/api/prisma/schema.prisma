@@ -281,7 +281,7 @@ model Program {
   minutesPerDay     Int           @map("minutes_per_day")
   splitType         String        @map("split_type")
   rulesVersion      String        @map("rules_version")
-  startedAt         DateTime      @default(now()) @map("started_at") @db.Date
+  startedAt         DateTime      @default(dbgenerated("CURRENT_DATE")) @map("started_at") @db.Date
   totalWeeks        Int           @default(12) @map("total_weeks")
   status            ProgramStatus @default(active)
   // 신규 프로그램은 재생성 가능한 입력을 보존한다. 레거시는 복구 불가능한 값을 추측하지 않아 null이다.
@@ -347,8 +347,9 @@ model WorkoutSession {
   sessionFeedback Json?         @map("session_feedback")
   updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  program     Program      @relation(fields: [programId], references: [id])
-  plannedSets PlannedSet[]
+  program      Program        @relation(fields: [programId], references: [id])
+  plannedSets  PlannedSet[]
+  estimated1rm Estimated1rm[]
 
   @@index([programId, scheduledDate], map: "ix_sessions_prog_date")
   @@map("workout_sessions")
@@ -422,8 +423,9 @@ model Estimated1rm {
   method     String
   computedAt DateTime @map("computed_at") @db.Timestamptz(3)
 
-  user     User     @relation(fields: [userId], references: [id])
-  exercise Exercise @relation(fields: [exerciseId], references: [id])
+  user     User           @relation(fields: [userId], references: [id])
+  exercise Exercise       @relation(fields: [exerciseId], references: [id])
+  session  WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@id([userId, exerciseId, sessionId])
   @@index([userId, exerciseId, computedAt(sort: Desc)], map: "ix_e1rm_user_ex")

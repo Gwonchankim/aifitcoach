@@ -240,6 +240,22 @@ describe("programs", () => {
     expect(response.body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("운동 카탈로그가 비었으면 사용자가 고칠 수 없는 503 이다", async () => {
+    const findMany = jest.spyOn(prisma.exercise, "findMany").mockResolvedValueOnce([]);
+    try {
+      const response = await request(app.getHttpServer())
+        .post("/v1/programs/generate")
+        .send({ ...BASE, equipment: ["barbell", "dumbbell", "machine", "cable", "ez_bar"] });
+
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({
+        error: { code: "SERVICE_UNAVAILABLE", message: expect.any(String) },
+      });
+    } finally {
+      findMany.mockRestore();
+    }
+  });
+
   /**
    * 맨몸(step_kg 없음)·시간(metric=time) 종목도 엔진이 처방할 수 있다 →
    * equipment 가 bodyweight 뿐이어도 프로그램이 나와야 한다(400 금지).

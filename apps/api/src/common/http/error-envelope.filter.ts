@@ -12,6 +12,7 @@ const CODE_BY_STATUS: Record<number, string> = {
   404: "NOT_FOUND",
   409: "CONFLICT",
   501: "NOT_IMPLEMENTED",
+  503: "SERVICE_UNAVAILABLE",
 };
 
 /** HttpException 이 아닌 예외(코드 버그·드라이버 오류)에 쓰는 고정 문구. 내부 정보를 담지 않는다. */

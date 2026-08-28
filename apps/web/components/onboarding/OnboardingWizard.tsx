@@ -63,7 +63,7 @@ export function OnboardingWizard() {
   /** hydrated 전에는 저장값을 덮어쓰지 않는다(첫 렌더의 기본값이 저장되는 사고 방지). */
   const [hydrated, setHydrated] = useState(false);
   const [resumeFrom, setResumeFrom] = useState<number | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<{ message: string; step: number } | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   /** 이 화면에서 직접 쌓은 히스토리 항목 수. 0이면 뒤로가기가 온보딩 밖으로 나간다. */
   const pushedRef = useRef(0);
@@ -80,6 +80,7 @@ export function OnboardingWizard() {
 
     const onPopState = () => {
       pushedRef.current = Math.max(0, pushedRef.current - 1);
+      setSubmitError(null);
       setStep(readStepFromHash());
     };
     window.addEventListener("popstate", onPopState);
@@ -99,6 +100,7 @@ export function OnboardingWizard() {
     } else {
       window.history.replaceState(null, "", hash);
     }
+    setSubmitError(null);
     setStep(clamped);
   }, []);
 
@@ -120,20 +122,31 @@ export function OnboardingWizard() {
       clearDraft();
       router.replace("/program");
     },
-    onError: (error) => setSubmitError(toUiError(error, GENERATE_PROGRAM_ERRORS).message),
+    onError: (error) => {
+      const uiError = toUiError(error, GENERATE_PROGRAM_ERRORS);
+      const errorStep = uiError.status === 400 ? 5 : STEP_COUNT - 1;
+      if (errorStep !== step) goToStep(errorStep, "push");
+      setSubmitError({ message: uiError.message, step: errorStep });
+    },
   });
 
   const submit = () => {
     if (mutation.isPending) return;
     setSubmitError(null);
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setSubmitError("인터넷이 연결되면 계획을 만들어 드릴게요. 입력한 내용은 저장해 뒀어요.");
+      setSubmitError({
+        message: "인터넷이 연결되면 계획을 만들어 드릴게요. 입력한 내용은 저장해 뒀어요.",
+        step,
+      });
       return;
     }
     mutation.mutate();
   };
 
-  const patch = (values: Partial<OnboardingDraft>) => setDraft((prev) => ({ ...prev, ...values }));
+  const patch = (values: Partial<OnboardingDraft>) => {
+    setSubmitError(null);
+    setDraft((prev) => ({ ...prev, ...values }));
+  };
 
   if (resumeFrom !== null) {
     return (
@@ -211,9 +224,9 @@ export function OnboardingWizard() {
       {/* 상태 면은 Phase B 배지와 같은 소프트 어법이다 — 면 `danger-bg` + 1px `danger` 테두리.
           `cn` 이 Card 기본 `bg-surface` 와 충돌을 해소해 호출부의 `bg-danger-bg` 를 남긴다.
           본문 글자는 문장이라 `fg` 를 유지한다(danger-bg 위 15.87:1). */}
-      {submitError ? (
+      {submitError?.step === step ? (
         <Card role="alert" className="mt-4 border-danger bg-danger-bg">
-          <p className="text-sm text-fg">{submitError}</p>
+          <p className="text-sm text-fg">{submitError.message}</p>
         </Card>
       ) : null}
 

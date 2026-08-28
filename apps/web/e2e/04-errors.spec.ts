@@ -44,7 +44,9 @@ test.describe("404", () => {
 });
 
 test.describe("400", () => {
-  test("EZ바만 골라 계획을 만들면 장비 안내 배너가 뜬다(E-3, 실제 클릭)", async ({ page }) => {
+  test("EZ바만 골라 계획을 만들면 장비 단계에서만 수정 안내가 뜬다(E-3, 실제 클릭)", async ({
+    page,
+  }) => {
     await page.goto("/onboarding");
     for (let i = 0; i < 5; i += 1) await page.getByRole("button", { name: "다음" }).click();
 
@@ -59,14 +61,47 @@ test.describe("400", () => {
     await page.getByRole("button", { name: "계획 만들기" }).click();
 
     await expect(
-      page.getByText("지금 고른 장비로는 계획을 만들기 어려워요. 장비를 하나 더 선택해 주세요."),
+      page.getByText(
+        "선택한 조건으로 계획을 만들 수 없어요. 이 단계에서 사용할 장비를 다시 확인해 주세요.",
+      ),
     ).toBeVisible();
-    // 입력값이 보존되고 화면은 마지막 스텝에 머문다
     await expect(
-      page.getByRole("heading", { name: "운동할 때 불편한 곳이 있나요?" }),
+      page.getByRole("heading", { name: "쓸 수 있는 장비를 골라 주세요" }),
     ).toBeVisible();
     await assertNoRawServerText(page);
     await shot(page, "32-error-400-generate");
+    await page.getByRole("button", { name: "다음" }).click();
+    await expect(
+      page.getByText(
+        "선택한 조건으로 계획을 만들 수 없어요. 이 단계에서 사용할 장비를 다시 확인해 주세요.",
+      ),
+    ).toHaveCount(0);
+  });
+
+  test("카탈로그 준비 실패는 마지막 단계에서 서버 문제로 안내하고 이동하면 지운다", async ({
+    page,
+  }) => {
+    await page.route("**/v1/programs/generate", (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "SERVICE_UNAVAILABLE", message: "운동 카탈로그가 비어 있다." },
+        }),
+      }),
+    );
+    await page.goto("/onboarding");
+    for (let i = 0; i < 6; i += 1) await page.getByRole("button", { name: "다음" }).click();
+    await page.getByRole("button", { name: "계획 만들기" }).click();
+
+    await expect(
+      page.getByText("운동 계획에 필요한 데이터를 준비하지 못했어요. 잠시 후 다시 시도해 주세요."),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "이전" }).click();
+    await expect(
+      page.getByText("운동 계획에 필요한 데이터를 준비하지 못했어요. 잠시 후 다시 시도해 주세요."),
+    ).toHaveCount(0);
+    await assertNoRawServerText(page);
   });
 });
 

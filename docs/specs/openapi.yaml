@@ -209,6 +209,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Program' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /programs/current:
     get:
@@ -763,6 +764,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     Conflict:
       description: 현재 상태와 충돌
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: 서비스 필수 데이터가 준비되지 않음
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

@@ -32,6 +32,12 @@ RUN pnpm --filter shared build \
 FROM build AS migrate
 CMD ["node", "scripts/prisma-migrate.mjs"]
 
+# Cloud Run seed Job image. The seed file is deliberately absent from the API runtime image;
+# only the explicit one-shot seed target carries the catalog source of truth.
+FROM build AS seed
+COPY docs/specs/exercises_seed.json docs/specs/exercises_seed.json
+CMD ["pnpm", "--filter", "api", "db:seed"]
+
 FROM build AS production-deps
 # `pnpm deploy` reruns postinstall without the API schema source context and leaves Prisma's default stub.
 # Copy the schema-generated client into the runtime package's own resolution path.

@@ -442,6 +442,7 @@ export interface paths {
           };
         };
         400: components["responses"]["BadRequest"];
+        503: components["responses"]["ServiceUnavailable"];
       };
     };
     delete?: never;
@@ -2017,6 +2018,15 @@ export interface components {
     };
     /** @description 현재 상태와 충돌 */
     Conflict: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description 서비스 필수 데이터가 준비되지 않음 */
+    ServiceUnavailable: {
       headers: {
         [name: string]: unknown;
       };

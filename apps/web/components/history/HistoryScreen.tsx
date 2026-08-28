@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Card, cn } from "../ui";
+import { Button, Card, cn, selectionStateClass } from "../ui";
 import { fetchAllExercises } from "../session/exercise-catalog";
 import type { E1rmAnalytics, Exercise, Session } from "../../lib/api";
 import { api } from "../../lib/api";
@@ -277,10 +277,8 @@ export function HistoryScreen({ initialExerciseId }: { initialExerciseId?: strin
                 aria-pressed={selectedId === id}
                 onClick={() => choose(id)}
                 className={cn(
-                  "min-h-tap shrink-0 rounded-control border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
-                  selectedId === id
-                    ? "border-action bg-action text-action-fg"
-                    : "border-border-control bg-surface text-fg",
+                  "min-h-tap shrink-0 rounded-control border px-3 text-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
+                  selectionStateClass(selectedId === id),
                 )}
               >
                 {exercise.name_ko}

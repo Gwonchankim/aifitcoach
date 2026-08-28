@@ -18,6 +18,7 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
 import { cn } from "./cn";
 import { Kicker } from "./Kicker";
+import { NATIVE_CHECKED_SELECTION_CLASS, UNSELECTED_SELECTION_CLASS } from "./selection-state";
 
 export type ScaleGroupProps = {
   /** 그룹 이름(스크린리더 전용). 예: "3세트 남은 반복 수(RIR), 선택 입력" */
@@ -75,8 +76,9 @@ export function ScaleOption({ label, children, className, ...props }: ScaleOptio
         "inline-flex size-tap shrink-0 cursor-pointer touch-manipulation items-center justify-center",
         // 0~10 눈금이라 값은 모노 + tabular-nums 다(§4). "9" 와 "10" 이 같은 폭 원 안에서 흔들리면 안 된다.
         // 테두리는 먹색 유지 — §5 가 "1.6px 체크·라디오·상태 마크"로 분류한 자리다(라디오).
-        "rounded-control border border-border-strong bg-surface font-mono text-base font-semibold tabular-nums text-fg",
-        "has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:text-primary-fg",
+        "rounded-control border font-mono text-base tabular-nums",
+        UNSELECTED_SELECTION_CLASS,
+        NATIVE_CHECKED_SELECTION_CLASS,
         "has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-focus",
         "has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-bg",
         "has-[:disabled]:cursor-not-allowed has-[:disabled]:border-border",

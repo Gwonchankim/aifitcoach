@@ -52,7 +52,10 @@ describe("에러 문구 매핑 (UX_STATES §3)", () => {
     // E-3: UI 가 막지 못하는 유일한 generate 400.
     expect(
       toUiError(new ApiError(400, "VALIDATION_ERROR", "x"), GENERATE_PROGRAM_ERRORS).message,
-    ).toBe("지금 고른 장비로는 계획을 만들기 어려워요. 장비를 하나 더 선택해 주세요.");
+    ).toBe("선택한 조건으로 계획을 만들 수 없어요. 이 단계에서 사용할 장비를 다시 확인해 주세요.");
+    expect(
+      toUiError(new ApiError(503, "SERVICE_UNAVAILABLE", "x"), GENERATE_PROGRAM_ERRORS).message,
+    ).toBe("운동 계획에 필요한 데이터를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.");
     // E-5
     expect(toUiError(new ApiError(404, "NOT_FOUND", "x"), CURRENT_PROGRAM_ERRORS).message).toBe(
       "아직 운동 계획이 없어요. 먼저 계획을 만들어 주세요.",

@@ -5,4 +5,6 @@ steps:
     args: [build, -f, apps/api/Dockerfile, --target, runtime, -t, "${_RUNTIME_IMAGE}", .]
   - name: gcr.io/cloud-builders/docker
     args: [build, -f, apps/api/Dockerfile, --target, migrate, -t, "${_MIGRATE_IMAGE}", .]
-images: ["${_RUNTIME_IMAGE}", "${_MIGRATE_IMAGE}"]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -f, apps/api/Dockerfile, --target, seed, -t, "${_SEED_IMAGE}", .]
+images: ["${_RUNTIME_IMAGE}", "${_MIGRATE_IMAGE}", "${_SEED_IMAGE}"]

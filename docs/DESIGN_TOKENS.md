@@ -155,6 +155,13 @@ D-1 승인 보정(`success #198146`, warn 텍스트는 `warn-ink #8A6100`)을 �
 
 `radius 12/14px` 는 목업 프레임 값이므로 **토큰이 아니다**.
 
+### 5.1 선택 상태
+
+- 선택: `primary-bg` 연한 채움 + `action` 진한 테두리 + `font-semibold`의 **세 신호**를 함께 쓴다.
+- 미선택: `surface` 흰 면 + `border-control` 얇은 회색 테두리 + `font-medium`이다.
+- 칩·탭·라디오 카드·숫자 눈금은 크기와 반경만 달리하고 위 신호 방향은 공유한다. 실행 CTA의 ink 솔리드와 혼용하지 않는다.
+- `aria-pressed`/`aria-selected` 또는 native radio의 checked 상태를 반드시 함께 제공한다. 색만으로 선택을 전달하지 않는다.
+
 ---
 
 ## 6. 치수

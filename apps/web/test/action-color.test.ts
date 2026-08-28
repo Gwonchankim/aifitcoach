@@ -16,17 +16,15 @@ import { describe, expect, it } from "vitest";
 const WEB = path.resolve(import.meta.dirname, "..");
 const read = (rel: string) => fs.readFileSync(path.join(WEB, rel), "utf8");
 
-/** 누를 수 있는 면 = ink 반전. 파랑 면을 쓰면 안 된다. */
+/** 실행 액션 면 = ink 반전. 선택 상태는 selection-state 계약에서 별도로 검사한다. */
 const ACTION_SURFACES: { file: string; what: string }[] = [
   { file: "components/ui/Button.tsx", what: "주 버튼(primary variant)" },
-  { file: "components/ui/Chip.tsx", what: "선택된 분절 칩" },
-  { file: "components/ui/Tabs.tsx", what: "선택된 탭" },
   { file: "components/dashboard/DashboardScreen.tsx", what: "대시보드 주 CTA(LinkAction)" },
   { file: "app/program/ProgramScreen.tsx", what: "프로그램 화면 주 CTA" },
   { file: "components/session/SessionSummary.tsx", what: "요약 화면 주 CTA" },
 ];
 
-describe("액션 면은 ink 다 (ADR-52)", () => {
+describe("실행 액션 면은 ink 다 (ADR-52)", () => {
   it.each(ACTION_SURFACES)("$what 은 bg-action 을 쓴다", ({ file }) => {
     expect(read(file)).toContain("bg-action");
   });
@@ -47,7 +45,6 @@ describe("액션 면은 ink 다 (ADR-52)", () => {
    */
   it("상태·정보 표시는 파랑을 유지한다", () => {
     expect(read("components/ui/Checkbox.tsx"), "체크 표시").toContain("bg-primary");
-    expect(read("components/ui/ScaleGroup.tsx"), "눈금 선택 채움").toContain("bg-primary");
     expect(read("components/ui/ProgressBar.tsx"), "진행 바 채움").toContain("bg-primary");
     expect(read("components/ui/Badge.tsx"), "상태 배지는 소프트 파랑").toContain("bg-primary-bg");
   });

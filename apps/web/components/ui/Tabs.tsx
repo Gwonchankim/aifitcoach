@@ -4,6 +4,7 @@
  */
 import type { ButtonHTMLAttributes, HTMLAttributes } from "react";
 import { cn } from "./cn";
+import { selectionStateClass } from "./selection-state";
 
 export type TabListProps = HTMLAttributes<HTMLDivElement> & {
   /** 탭 그룹의 이름(스크린리더용). 예: "부위" */
@@ -43,11 +44,11 @@ export function Tab({ selected, id, panelId, className, ...props }: TabProps) {
       aria-controls={panelId}
       tabIndex={selected ? 0 : -1}
       className={cn(
-        "min-h-tap-lg shrink-0 touch-manipulation rounded-control px-4 text-base font-semibold",
+        "min-h-tap-lg shrink-0 touch-manipulation rounded-control border px-4 text-base",
         "transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
         "focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "disabled:pointer-events-none disabled:bg-disabled disabled:text-disabled-fg",
-        selected ? "bg-action text-action-fg" : "text-fg-muted hover:bg-surface hover:text-fg",
+        selectionStateClass(selected),
         className,
       )}
       {...props}

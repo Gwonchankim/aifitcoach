@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import type { Exercise, Program } from "@prisma/client";
 import { utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
@@ -76,6 +81,10 @@ export class ProgramsService {
     const schedule = scheduleFor(dto.days_per_week);
     const exerciseCount = exerciseCountFor(dto.minutes_per_day);
     const catalog = await this.prisma.exercise.findMany();
+
+    if (catalog.length === 0) {
+      throw new ServiceUnavailableException("운동 카탈로그가 준비되지 않았습니다.");
+    }
 
     // equipment/avoid_exercises 로 먼저 거르고, 그 위에 통증 부위 제외(안전)를 얹는다.
     const available = catalog.filter(

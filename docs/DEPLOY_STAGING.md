@@ -1,6 +1,6 @@
 # 비공개 스테이징 배포 — M-AUTH+DEPLOY
 
-> 상태: **배포 산출물 준비 중**. 이 문서는 사용자 계정·도메인·시크릿을 만들거나 외부 서비스에 배포하지 않는다.
+> 상태: **비공개 스테이징 배포·검증 중**. 실제 시크릿 값은 이 문서와 저장소에 기록하지 않는다.
 
 구성은 Vercel(웹) → same-origin `/api/v1/*` rewrite → Cloud Run(API) → Neon(PostgreSQL)이다. Redis는 코드에서 사용하지 않으므로 이 구성에 넣지 않는다.
 
@@ -28,26 +28,59 @@
 
 `DIRECT_URL`은 API 서비스에 주입하지 않는다. `OWNER_RECOVERY_CODE`도 migrate Job에는 필요 없다.
 
-## 이미지·마이그레이션·Cloud Run
+## 이미지·마이그레이션·시드·Cloud Run
 
-`cloudbuild.staging.yaml`은 runtime과 migrate target을 각각 만든다. API 시작 시 마이그레이션을 실행하지 않는다. 인스턴스가 동시에 시작할 때 같은 DDL을 실행하는 위험을 피하기 위해 Cloud Run Job을 먼저 한 번 실행한다.
+`cloudbuild.staging.yaml`은 runtime·migrate·seed target을 각각 만든다. API 시작 시 마이그레이션이나 시드를 실행하지 않는다. 인스턴스가 동시에 시작할 때 같은 DDL/시드를 실행하지 않도록 **마이그레이션 → 시드 → 검증 → API 배포**를 명시적 Cloud Run Job 순서로 수행한다.
 
 ```powershell
 gcloud builds submit --config cloudbuild.staging.yaml `
-  --substitutions=_RUNTIME_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api:<TAG>,_MIGRATE_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-migrate:<TAG>
+  --substitutions=_RUNTIME_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api:<TAG>,_MIGRATE_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-migrate:<TAG>,_SEED_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-seed:<TAG>
 
-gcloud run jobs deploy afc-staging-migrate --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-migrate:<TAG> `
-  --region asia-southeast1 --set-secrets DIRECT_URL=afc-direct-url:latest
+# 이미 생성된 Job은 image만 갱신한다. service account·secret 주입·재시도 정책을 다시 선언해
+# 실수로 기존 보안 설정을 덮어쓰지 않는다.
+gcloud run jobs update afc-staging-migrate --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-migrate:<TAG> `
+  --region asia-southeast1
 gcloud run jobs execute afc-staging-migrate --region asia-southeast1 --wait
 
-gcloud run deploy afc-staging-api --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api:<TAG> `
-  --region asia-southeast1 --allow-unauthenticated --port 8080 `
-  --min-instances 0 --max-instances 1 --concurrency 20 --cpu 1 --memory 512Mi `
-  --set-env-vars NODE_ENV=production,AUTH_MODE=session,WEB_ORIGIN=https://<VERCEL-PRODUCTION-HOST> `
-  --set-secrets DATABASE_URL=afc-pooled-url:latest,FIELD_ENCRYPTION_KEY=afc-field-key:latest,OWNER_RECOVERY_CODE=afc-owner-code:latest
+gcloud run jobs update afc-staging-seed --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-seed:<TAG> `
+  --region asia-southeast1
+gcloud run jobs execute afc-staging-seed --region asia-southeast1 --wait
+# 멱등성 live 검증: 한 번 더 실행해도 두 로그 모두 "seeded 105 exercises (table count = 105)"여야 한다.
+gcloud run jobs execute afc-staging-seed --region asia-southeast1 --wait
+
+# 이미 생성된 API 서비스도 image만 갱신한다. 공개 접근·scale 설정·origin·시크릿 주입을
+# 배포 명령에서 재선언해 기존 보안 설정을 실수로 덮어쓰지 않는다.
+gcloud run services update afc-staging-api --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api:<TAG> `
+  --region asia-southeast1
 ```
 
-마이그레이션 Job이 실패하면 API 이미지를 배포하지 않는다. 새 마이그레이션마다 같은 순서로 Job을 실행한다.
+마이그레이션 또는 시드 Job이 실패하면 API 이미지를 배포하지 않는다. `82863e3` 기준 마이그레이션은 13개이며, 이후에는 숫자를 하드코딩하지 않고 `prisma migrate status`의 pending 0과 아래 drift 0을 판정한다.
+
+```powershell
+# DB migration ↔ Prisma datamodel drift 0. 차이가 있으면 exit 2라 배포를 중단한다.
+gcloud run jobs update afc-staging-schema-verify `
+  --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-seed:<TAG> `
+  --region asia-southeast1 `
+  --command pnpm --args=--filter,api,exec,prisma,migrate,diff,--from-schema-datasource=prisma/schema.prisma,--to-schema-datamodel=prisma/schema.prisma,--exit-code
+gcloud run jobs execute afc-staging-schema-verify --region asia-southeast1 --wait
+
+# API 배포 뒤 카탈로그 smoke. 목록은 페이지네이션 전부를 합쳐 count/고유 ID/대체 참조를 확인한다.
+$base = "https://<VERCEL-PRODUCTION-HOST>/api/v1"
+$all = @(); $cursor = $null
+do {
+  $uri = if ($cursor) { "$base/exercises?cursor=$([uri]::EscapeDataString($cursor))" } else { "$base/exercises" }
+  $page = Invoke-RestMethod $uri
+  $all += $page.items
+  $cursor = $page.next_cursor
+} while ($cursor)
+if ($all.Count -ne 105 -or (@($all.id | Sort-Object -Unique)).Count -ne 105) { throw "exercise count/unique mismatch" }
+$ids = @{}; $all.id | ForEach-Object { $ids[$_] = $true }
+$dangling = @($all | ForEach-Object { $_.substitutions } | Where-Object { -not $ids.ContainsKey($_) })
+if ($dangling.Count -ne 0) { throw "dangling substitutions: $($dangling -join ',')" }
+(Invoke-WebRequest "$base/exercises/e_pushup").StatusCode # 200
+```
+
+빈 카탈로그를 사용자 입력 오류로 위장하지 않도록 API는 생성 시 503을 반환한다. Cloud Run의 각 scale-to-zero 기동마다 DB count를 readiness에 넣으면 일시적인 Neon 장애가 새 인스턴스 전체를 불능으로 만들고 콜드 스타트에 DB 왕복을 추가한다. 이 참조 데이터는 배포 때만 바뀌므로 **시드·검증 Job을 release hard gate로 두는 방식을 우선 채택**한다. 시작 경고만 남기는 방식은 트래픽을 막지 못해 부적절하다. 별도 startup probe를 추가하려면 Cloud Run revision 설정까지 한 티켓으로 묶어 실제 cold-start/장애 동작을 검증한다.
 
 계정 삭제의 물리 퍼지는 같은 migration 이미지를 쓰되 별도 Job으로만 실행한다. `PURGE_BEFORE`는 운영자가 그 실행의 보존 기준으로 정한 UTC 시각이며, 누락하면 Job은 실패한다.
 
@@ -65,12 +98,12 @@ gcloud run jobs execute afc-staging-purge --region asia-southeast1 --wait
 
 ## Vercel
 
-Vercel 프로젝트의 Root Directory는 **레포 루트**로 둔다. 그래야 workspace `shared`를 함께 설치·빌드할 수 있다.
+Vercel 프로젝트의 Root Directory는 **`apps/web`**이며, **Include files outside the root directory**를 켠다. install/build 명령에서 레포 루트로 이동해 workspace `shared`를 함께 설치·빌드한다.
 
 | Vercel 설정 | 값 |
 |---|---|
-| Install Command | `pnpm install --frozen-lockfile` |
-| Build Command | `pnpm --filter web build` |
+| Install Command | `cd ../.. && pnpm install --frozen-lockfile` |
+| Build Command | `cd ../.. && pnpm --filter web build` |
 | Production/Preview `NEXT_PUBLIC_API_BASE_URL` | `/api/v1` |
 | Production/Preview `API_PROXY_ORIGIN` | `https://<CLOUD-RUN-SERVICE>.run.app` |
 

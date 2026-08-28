@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { DashboardSummary, E1rmAnalytics, VolumeAnalytics } from "../../lib/api";
 import { focusLabel, formatNumber } from "../../lib/program-labels";
-import { Card, cn } from "../ui";
+import { Card, cn, selectionStateClass } from "../ui";
 
 type RhythmDay = DashboardSummary["weekly_rhythm"][number];
 
@@ -67,9 +67,9 @@ export function WeeklyRhythmCard({ days }: { days: RhythmDay[] }) {
               aria-pressed={selectedDay}
               aria-label={`${shortDate(day.date)} ${copy.label}`}
               className={cn(
-                "flex min-h-tap min-w-0 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-control",
+                "flex min-h-tap min-w-0 touch-manipulation flex-col items-center justify-center gap-0.5 rounded-control border",
                 "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus",
-                selectedDay ? "bg-primary-bg" : "bg-surface",
+                selectionStateClass(selectedDay),
               )}
               onClick={() => setSelectedDate(selectedDay ? null : day.date)}
             >

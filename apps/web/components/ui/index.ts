@@ -26,6 +26,12 @@ export { ProgressBar } from "./ProgressBar";
 export type { ProgressBarProps } from "./ProgressBar";
 export { ScaleGroup, ScaleOption } from "./ScaleGroup";
 export type { ScaleGroupProps, ScaleOptionProps } from "./ScaleGroup";
+export {
+  NATIVE_CHECKED_SELECTION_CLASS,
+  SELECTED_SELECTION_CLASS,
+  UNSELECTED_SELECTION_CLASS,
+  selectionStateClass,
+} from "./selection-state";
 export { Sheet } from "./Sheet";
 export type { SheetProps } from "./Sheet";
 export { Stat } from "./Stat";
