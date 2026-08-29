@@ -57,6 +57,18 @@ function parseNumber(text: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/** 앞 세트 무게는 이 세트를 직접 편집하기 전까지만 표시한다. */
+export function shownWeightText(
+  weightText: string,
+  kind: SetKind,
+  fallbackWeight: number | null,
+  edited: boolean,
+): string {
+  return weightText !== "" || edited || kind !== "unknown_weight" || fallbackWeight == null
+    ? weightText
+    : String(fallbackWeight);
+}
+
 /** 한글·단위는 본문 글꼴로 두고 기록의 숫자 조각만 모노로 렌더한다. */
 function recordContent(draft: SetDraft): ReactNode | null {
   const number = (value: string | number) => (
@@ -172,6 +184,8 @@ export function SetRow({
   // not yet committed with the completion check. Focus alone is insufficient on
   // mobile engines because native input helpers may blur between input events.
   const hasUncommittedInput = useRef(false);
+  // 빈 문자열도 직접 편집 결과일 수 있다. fallback 재적용과 구분해야 마지막 자리까지 지울 수 있다.
+  const weightEdited = useRef(false);
 
   // Pull may create or replace a draft after this row mounted. Keep the controlled inputs in sync
   // without remounting the row (a remount would steal focus while the user edits a completed set).
@@ -225,10 +239,7 @@ export function SetRow({
   }, [editing, primaryId]);
 
   // 무게 미정 세트는 프리필이 없다. 대신 같은 운동의 앞 세트 값을 이어 쓴다(§5.2).
-  const shownWeight =
-    weightText !== "" || kind !== "unknown_weight" || fallbackWeight == null
-      ? weightText
-      : String(fallbackWeight);
+  const shownWeight = shownWeightText(weightText, kind, fallbackWeight, weightEdited.current);
 
   const valuesFrom = (
     weight: string,
@@ -443,6 +454,7 @@ export function SetRow({
                 label={`${setLabel} 무게, 킬로그램`}
                 hideLabel
                 density="compact"
+                type="text"
                 inputMode="decimal"
                 placeholder="무게"
                 value={shownWeight}
@@ -450,6 +462,7 @@ export function SetRow({
                 aria-describedby={missing === "weight" ? errorId : undefined}
                 onChange={(event) => {
                   hasUncommittedInput.current = true;
+                  weightEdited.current = true;
                   setWeightText(event.target.value);
                   commit(valuesFrom(event.target.value, repsText, timeText, rir));
                 }}

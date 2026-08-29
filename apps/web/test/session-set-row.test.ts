@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { Exercise, PlannedSet } from "../lib/api";
 import { ExerciseCard } from "../components/session/ExerciseCard";
-import { SetRow } from "../components/session/SetRow";
+import { SetRow, shownWeightText } from "../components/session/SetRow";
 import type { SetDraft } from "../components/session/session-store";
 
 const BASE: PlannedSet = {
@@ -68,6 +68,25 @@ function row(props: Partial<Parameters<typeof SetRow>[0]> = {}) {
 
 const inputCount = (html: string) => (html.match(/<input/g) ?? []).length;
 const visibleText = (html: string) => html.replace(/<[^>]*>/g, "");
+
+describe("앞 세트 무게 프리필을 직접 수정할 때", () => {
+  it("30을 두 번 지우면 빈 칸이 유지되고 fallback 30이 되살아나지 않는다", () => {
+    expect(shownWeightText("", "unknown_weight", 30, false)).toBe("30");
+    expect(shownWeightText("3", "unknown_weight", 30, true)).toBe("3");
+    expect(shownWeightText("", "unknown_weight", 30, true)).toBe("");
+  });
+
+  it("직접 건드리지 않은 다음 세트는 앞 세트 무게를 계속 이어받는다", () => {
+    expect(shownWeightText("", "unknown_weight", 30, false)).toBe("30");
+    expect(shownWeightText("", "unknown_weight", 40, false)).toBe("40");
+  });
+
+  it("무게 입력은 모바일 숫자 키패드를 요청하는 text input이다", () => {
+    const html = row({ kind: "unknown_weight", fallbackWeight: 30 });
+    expect(html).toContain('type="text"');
+    expect(html).toContain('inputMode="decimal"');
+  });
+});
 
 describe("미완료 세트 행 (주 1줄 + 보조 1줄)", () => {
   it("16px·가변 입력 2칸·46px RIR·48px 체크의 5열 그리드를 쓴다", () => {
