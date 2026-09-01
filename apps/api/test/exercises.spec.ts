@@ -257,6 +257,23 @@ describe("운동 카탈로그 API", () => {
       });
     });
 
+    it("신규 스미스 인클라인도 계약대로 나온다 — 새 필드·새 enum 값 없이", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/v1/exercises/e_smith_incline_bench_press")
+        .expect(200);
+
+      // 계약 검증이 핵심이다. taxonomy 축을 늘렸다면 여기서 계약 위반으로 잡힌다.
+      expectMatchesContract("get", DETAIL_PATH, 200, response.body);
+      expect(response.body).toMatchObject({
+        id: "e_smith_incline_bench_press",
+        movement_pattern: "horizontal_push",
+        equipment: "machine",
+        metric: "reps",
+        rep_range_low: 8,
+        rep_range_high: 12,
+      });
+    });
+
     it("없으면 404 + 에러 엔벨로프", async () => {
       const response = await request(app.getHttpServer()).get("/v1/exercises/e_nope");
 
