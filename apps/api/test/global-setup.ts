@@ -21,8 +21,22 @@ function run(script: string, env: NodeJS.ProcessEnv): void {
   }
 }
 
+/**
+ * migrate/seed child 프로세스가 물려받을 DB 환경. **둘을 같은 test DB 로 강제한다.**
+ *
+ * `prisma-migrate.mjs` 는 DIRECT_URL 을 우선한다. DATABASE_URL 만 test 로 바꾸면
+ * **migration 은 개발 DB 로, seed 는 test DB 로** 가서 스키마가 갈라진다(F-3 에서 실제로 그랬다).
+ * 루트 .env 의 dev DIRECT_URL 이 child env 에 남지 않게 여기서 덮어쓴다.
+ */
+export function applyTestDatabaseEnv(env: NodeJS.ProcessEnv, url: string): NodeJS.ProcessEnv {
+  env.DATABASE_URL = url;
+  env.DIRECT_URL = url;
+  return env;
+}
+
 export default function globalSetup(): void {
-  process.env.DATABASE_URL = testDatabaseUrl();
+  // testDatabaseUrl() 이 루트 .env 를 로드하므로 **그 뒤에** 둘 다 덮어써야 한다.
+  applyTestDatabaseEnv(process.env, testDatabaseUrl());
   // 테스트용 키는 실행할 때마다 새로 만든다(리포에 시크릿을 두지 않는다 — SECURITY_PIPA.md).
   process.env.FIELD_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
   // 실행 단위 신원. **`??=` 로 두면 안 된다** — 바로 위 testDatabaseUrl() 이 루트 .env 를 로드해

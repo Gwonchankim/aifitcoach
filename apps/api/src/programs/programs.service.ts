@@ -8,7 +8,9 @@ import type { Exercise, Program } from "@prisma/client";
 import { utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 import { GenerateProgramDto } from "./dto/generate-program.dto";
-import { PlannedSetFactory, PlannedSetRow } from "./planned-set.factory";
+import { PlannedSetFactory, PlannedSetRow, toPackCandidate } from "./planned-set.factory";
+import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
+import { isV2RulesBundle, packSession } from "shared";
 import {
   Focus,
   MovementPattern,
@@ -20,6 +22,7 @@ import {
   isStableEquipment,
   patternsFor,
   prefersStableEquipment,
+  restSecFor,
   scheduleFor,
   splitTypeFor,
 } from "./program-rules";
@@ -75,54 +78,71 @@ export class ProgramsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plannedSets: PlannedSetFactory,
+    private readonly recommendation: RecommendationService,
   ) {}
 
   async generate(userId: string, dto: GenerateProgramDto): Promise<ProgramResponse> {
+    return this.generateWithRulesVersion(userId, dto, RULES_VERSION);
+  }
+
+  /**
+   * 예약 bundle(2026.09.0) packer 경로를 **테스트가 명시적으로** 호출하기 위한 내부 진입점.
+   * 공개 DTO·상수는 `2026.08.1` 그대로이므로 activation 전 production 은 legacy 만 탄다(V2-PLAN-01).
+   */
+  async generateWithRulesVersion(
+    userId: string,
+    dto: GenerateProgramDto,
+    rulesVersion: string,
+  ): Promise<ProgramResponse> {
     const schedule = scheduleFor(dto.days_per_week);
-    const exerciseCount = exerciseCountFor(dto.minutes_per_day);
     const catalog = await this.prisma.exercise.findMany();
 
     if (catalog.length === 0) {
       throw new ServiceUnavailableException("운동 카탈로그가 준비되지 않았습니다.");
     }
 
-    // equipment/avoid_exercises 로 먼저 거르고, 그 위에 통증 부위 제외(안전)를 얹는다.
-    const available = catalog.filter(
-      (exercise) =>
-        !(dto.avoid_exercises ?? []).includes(exercise.id) &&
-        ((dto.equipment ?? []).length === 0 || dto.equipment!.includes(exercise.equipment)),
-    );
-    const painAreas = dto.pain_areas ?? [];
-    const excludedPatterns = excludedPatternsFor(painAreas);
-    const removed = excludedExercises(available, excludedPatterns);
-    // 저장용: 제외가 0건인 부위(wrist 등)도 항목을 남긴다 — 즉석 세션(F8-1)이 여기서 통증 부위를
-    // 되읽어 머신/케이블 우선을 다시 적용한다(D-2). 응답에서는 toResponse 가 걸러낸다.
-    const excluded = [...removed, ...painAreasWithoutExclusion(painAreas, removed)];
-    const allowed = available.filter(
-      (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
-    );
-    const options: SelectionOptions = {
-      levelRank: DIFFICULTY_RANK[dto.experience_level],
-      preferStable: prefersStableEquipment(painAreas),
-      // 규칙 1: 제외로 부족하면 같은 근육군의 머신/케이블 종목으로 대체한다.
-      substituteMuscles: new Set(removed.flatMap((item) => muscles(available, item.exercise_id))),
-    };
+    // 선택 문맥 조립은 pure helper 가 소유한다 — 테스트가 같은 함수를 써야 갈라지지 않는다.
+    const { allowed, removed, excluded, options } = buildProgramSelectionContext(catalog, dto);
 
     // focus 별 선택은 결정론적이므로 한 번만 계산해 같은 focus 인 날마다 재사용한다.
-    const rowsByFocus = new Map<Focus, PlannedSetRow[]>();
+    // **선택을 먼저 전부 끝낸 뒤** 이력을 한 번 읽는다 — focus 마다 읽으면 focus 수만큼 늘어난다.
+    const plannedByFocus = new Map<Focus, ReturnType<typeof planFocus>>();
     for (const { focus } of schedule) {
-      if (rowsByFocus.has(focus)) continue;
-      const exercises = selectExercises(allowed, patternsFor(focus), exerciseCount, options);
+      if (plannedByFocus.has(focus)) continue;
+      const planned = planFocus(allowed, focus, dto, options, rulesVersion);
       // 통증 제외로 비었다면 에러 대신 축소된(빈) 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
-      if (exercises.length === 0 && removed.length === 0) {
+      if (planned.length === 0 && removed.length === 0) {
         throw new BadRequestException(
           `조건(equipment/avoid_exercises)에 맞는 ${focus} 운동이 없다.`,
         );
       }
+      plannedByFocus.set(focus, planned);
+    }
+
+    // 호출 전체에서 **latest 1 + lifetime 1 + calibration 1** 을 공유한다.
+    const prefetched = await this.recommendation.prefetchHistories(
+      userId,
+      [...plannedByFocus.values()].flat().map((item) => ({
+        exerciseId: item.exercise.id,
+        loadSemantics: item.exercise.loadSemantics,
+      })),
+    );
+    const calibration = await this.recommendation.calibrationFor(userId);
+
+    const rowsByFocus = new Map<Focus, PlannedSetRow[]>();
+    for (const [focus, planned] of plannedByFocus) {
       const rows: PlannedSetRow[] = [];
-      for (const [orderIndex, exercise] of exercises.entries()) {
+      for (const [orderIndex, item] of planned.entries()) {
         rows.push(
-          ...(await this.plannedSets.build({ userId, goal: dto.goal, exercise, orderIndex })),
+          ...(await this.plannedSets.build({
+            userId,
+            goal: dto.goal,
+            exercise: item.exercise,
+            orderIndex,
+            history: requireHistory(prefetched, item.exercise.id),
+            calibration,
+            ...(item.sets === undefined ? {} : { sets: item.sets }),
+          })),
         );
       }
       rowsByFocus.set(focus, rows);
@@ -142,7 +162,7 @@ export class ProgramsService {
           daysPerWeek: dto.days_per_week,
           minutesPerDay: dto.minutes_per_day,
           splitType: splitTypeFor(dto.days_per_week),
-          rulesVersion: RULES_VERSION,
+          rulesVersion,
           startedAt: weekStart,
           totalWeeks: 12,
           status: "active",
@@ -203,14 +223,36 @@ export class ProgramsService {
   private async materializeWeek(userId: string, program: Program, week: number): Promise<void> {
     const template = program.template as unknown as ProgramSessionTemplate[];
     const candidates: { date: Date; focus: string; rows: PlannedSetRow[] }[] = [];
+
+    // **주 전체의 unique spec 을 먼저 모은다.** 세션마다 읽으면 주당 세션 수만큼 늘어난다.
+    const catalog = new Map(
+      (
+        await this.prisma.exercise.findMany({
+          where: {
+            id: {
+              in: [...new Set(template.flatMap((s) => s.exercises.map((e) => e.exercise_id)))],
+            },
+          },
+        })
+      ).map((row) => [row.id, row]),
+    );
+    const prefetched = await this.recommendation.prefetchHistories(
+      userId,
+      [...catalog.values()].map((row) => ({
+        exerciseId: row.id,
+        loadSemantics: row.loadSemantics,
+      })),
+    );
+    const calibration = await this.recommendation.calibrationFor(userId);
+
     for (const session of template) {
       const day = session.day as (typeof WEEKDAYS)[number];
       const date = addDays(program.startedAt, (week - 1) * 7 + WEEKDAYS.indexOf(day));
       const rows: PlannedSetRow[] = [];
       for (const [orderIndex, planned] of session.exercises.entries()) {
-        const exercise = await this.prisma.exercise.findUniqueOrThrow({
-          where: { id: planned.exercise_id },
-        });
+        const exercise = catalog.get(planned.exercise_id);
+        // prefetch map miss 는 **fail closed** 다 — per-exercise fallback 질의를 만들지 않는다.
+        if (!exercise) throw new BadRequestException(`운동을 찾을 수 없다: ${planned.exercise_id}`);
         rows.push(
           ...(await this.plannedSets.build({
             userId,
@@ -218,6 +260,8 @@ export class ProgramsService {
             exercise,
             orderIndex,
             sets: planned.sets,
+            history: requireHistory(prefetched, exercise.id),
+            calibration,
           })),
         );
       }
@@ -398,6 +442,57 @@ function muscles(available: Exercise[], exerciseId: string): string[] {
   return available.find((exercise) => exercise.id === exerciseId)?.primaryMuscles ?? [];
 }
 
+/**
+ * 프로그램 생성의 **선택 문맥**. `generate` 가 조립하던 값을 그대로 옮긴 pure helper 다.
+ *
+ * 테스트가 "packer 에 넘어가기 전 후보"를 알아야 하는데, 그 조립 규칙을 테스트에 복제하면
+ * production 과 조용히 갈라진다. **production 과 테스트가 같은 함수를 쓴다.**
+ */
+export interface ProgramSelectionContext {
+  available: Exercise[];
+  allowed: Exercise[];
+  removed: ReturnType<typeof excludedExercises>;
+  excluded: ReturnType<typeof excludedExercises>;
+  options: SelectionOptions;
+}
+
+export function buildProgramSelectionContext(
+  catalog: Exercise[],
+  dto: GenerateProgramDto,
+): ProgramSelectionContext {
+  // equipment/avoid_exercises 로 먼저 거르고, 그 위에 통증 부위 제외(안전)를 얹는다.
+  const available = catalog.filter(
+    (exercise) =>
+      !(dto.avoid_exercises ?? []).includes(exercise.id) &&
+      ((dto.equipment ?? []).length === 0 || dto.equipment!.includes(exercise.equipment)),
+  );
+  const painAreas = dto.pain_areas ?? [];
+  const excludedPatterns = excludedPatternsFor(painAreas);
+  const removed = excludedExercises(available, excludedPatterns);
+  // 저장용: 제외가 0건인 부위(wrist 등)도 항목을 남긴다 — 즉석 세션(F8-1)이 여기서 통증 부위를
+  // 되읽어 머신/케이블 우선을 다시 적용한다(D-2). 응답에서는 toResponse 가 걸러낸다.
+  const excluded = [...removed, ...painAreasWithoutExclusion(painAreas, removed)];
+  const allowed = available.filter(
+    (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
+  );
+  const options: SelectionOptions = {
+    levelRank: DIFFICULTY_RANK[dto.experience_level],
+    preferStable: prefersStableEquipment(painAreas),
+    // 규칙 1: 제외로 부족하면 같은 근육군의 머신/케이블 종목으로 대체한다.
+    substituteMuscles: new Set(removed.flatMap((item) => muscles(available, item.exercise_id))),
+  };
+  return { available, allowed, removed, excluded, options };
+}
+
+/**
+ * **packer 에 넘어가기 직전** 후보 목록. `planFocus` 의 V2 분기와 **같은 호출**이다.
+ * collector 가 original primary 를 알려면 packed 결과가 아니라 이 목록을 봐야 한다.
+ */
+export function selectPrePackExercises(context: ProgramSelectionContext, focus: Focus): Exercise[] {
+  const patterns = patternsFor(focus);
+  return selectExercises(context.allowed, patterns, patterns.length, context.options);
+}
+
 export interface SelectionOptions {
   levelRank: number;
   /** 통증이 보고되면 궤적이 고정된 머신/케이블을 먼저 고른다(규칙 1·4). */
@@ -487,4 +582,41 @@ function mondayOfWeek(now: Date): Date {
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
+}
+
+/**
+ * focus 한 개의 운동 구성. **legacy(2026.08.1)와 예약 bundle(2026.09.0)의 유일한 분기 지점**이다.
+ *
+ * legacy: 고정 `EXERCISE_COUNT` 표에서 개수만 뽑고 세트 수는 `setCountFor` 가 정한다(V1 결과 보존).
+ * V2:     후보를 자르지 않고 넘겨 role packer 가 시간·cap 안에서 운동 수와 세트 수를 함께 정한다.
+ *
+ * `materializeWeek` 는 저장된 template 의 `sets` 를 그대로 재생하므로 여기만 분기하면 된다.
+ */
+function planFocus(
+  allowed: Exercise[],
+  focus: Focus,
+  dto: GenerateProgramDto,
+  options: SelectionOptions,
+  rulesVersion: string,
+): { exercise: Exercise; sets?: number }[] {
+  const patterns = patternsFor(focus);
+  if (!isV2RulesBundle(rulesVersion)) {
+    const exercises = selectExercises(
+      allowed,
+      patterns,
+      exerciseCountFor(dto.minutes_per_day),
+      options,
+    );
+    return exercises.map((exercise) => ({ exercise }));
+  }
+
+  // 자르지 않은 후보를 packer 에 넘긴다 — 무엇을 뺄지는 시간·cap 이 정한다.
+  // **collector 와 같은 helper**를 쓴다. 갈라지면 테스트가 다른 후보를 보게 된다.
+  const candidates = selectPrePackExercises({ allowed, options } as ProgramSelectionContext, focus);
+  const byId = new Map(candidates.map((exercise) => [exercise.id, exercise]));
+  return packSession({
+    candidates: candidates.map((exercise) => toPackCandidate(dto.goal, exercise)),
+    minutesPerDay: dto.minutes_per_day,
+    restSec: restSecFor(dto.goal),
+  }).map((packed) => ({ exercise: byId.get(packed.candidate.id)!, sets: packed.sets }));
 }

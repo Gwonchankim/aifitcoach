@@ -8,6 +8,11 @@ export type ProjectorSet = {
   weight: number | null;
   reps: number | null;
   rir: number | null;
+  /**
+   * 이 수행 행이 참조하는 **immutable PlannedSet snapshot**. 세트마다 다를 수 있다 —
+   * 같은 운동이라도 과거 행과 새 행의 의미가 다르면 섞어 계산하면 안 된다.
+   */
+  loadSemantics?: "assistance" | "external_load";
 };
 export type ProjectorSession = {
   userId: string;
@@ -18,6 +23,14 @@ export type ProjectorSession = {
     exerciseId: string;
     metric: string;
     hasExternalLoad: boolean;
+    /**
+     * 수행 행이 참조하는 **immutable PlannedSet snapshot**. 카탈로그의 현재 값이 아니다.
+     *
+     * 어시스트 종목의 kg 은 **기계가 덜어주는 무게**다. `hasExternalLoad` 는
+     * `default_step_kg !== null` 이라 어시스트 머신에서도 참이고, 그대로 두면
+     * **도움 20kg 이 20kg 을 들어올린 것으로 e1RM·볼륨에 들어간다**(§F 가 지목한 P0 결함).
+     */
+    loadSemantics?: "assistance" | "external_load";
     primaryMuscles: string[];
     sets: ProjectorSet[];
   }[];
@@ -61,8 +74,13 @@ export function projectFacts(sessions: ProjectorSession[]): {
     if (seenSessions.has(sessionKey)) continue;
     seenSessions.add(sessionKey);
     for (const exercise of session.exercises) {
+      // 도움 kg 은 들어올린 부하가 아니다 — e1RM·kg 볼륨에서 뺀다.
+      // 세트 수(hardSets)와 RIR 평균은 **그대로 센다**: 그 세트는 실제로 수행됐다.
+      const assistedSet = (set: ProjectorSet): boolean =>
+        (set.loadSemantics ?? exercise.loadSemantics) === "assistance";
       if (exercise.metric === "reps" && exercise.hasExternalLoad) {
         const sets: E1rmSet[] = exercise.sets.flatMap((set) =>
+          !assistedSet(set) &&
           set.completed &&
           set.weight !== null &&
           set.weight >= 0 &&
@@ -98,7 +116,7 @@ export function projectFacts(sessions: ProjectorSession[]): {
             rirs: [],
           };
           if (set.rir !== null && set.rir >= 0 && set.rir <= 3) bucket.row.hardSets += 1;
-          bucket.row.volumeLoad += (set.weight ?? 0) * (set.reps ?? 0);
+          if (!assistedSet(set)) bucket.row.volumeLoad += (set.weight ?? 0) * (set.reps ?? 0);
           if (set.rir !== null) bucket.rirs.push(set.rir);
           buckets.set(key, bucket);
         }
@@ -229,10 +247,13 @@ export class AggregationProjector {
             exerciseId,
             metric: exercise.metric,
             hasExternalLoad: exercise.defaultStepKg !== null,
+            // 카탈로그가 아니라 **저장된 planned snapshot** 이 원천이다(§F consumer 열거).
+            loadSemantics: sets[0]!.loadSemantics,
             primaryMuscles: exercise.primaryMuscles,
             sets: sets.flatMap((set) =>
               set.performedSets.map((performed) => ({
                 completed: performed.completed,
+                loadSemantics: set.loadSemantics,
                 weight: performed.actualWeight === null ? null : Number(performed.actualWeight),
                 reps: performed.actualReps,
                 rir: performed.actualRir,

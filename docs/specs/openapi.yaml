@@ -884,7 +884,7 @@ components:
                   granted_at: { type: string, format: date-time }
         data:
           type: object
-          required: [programs, sessions, estimated_1rm, muscle_weekly_load, calibration_sets, access_audits]
+          required: [programs, sessions, estimated_1rm, muscle_weekly_load, calibration_sets, access_audits, assistance_audits]
           properties:
             programs: { type: array, items: { type: object, additionalProperties: true } }
             sessions: { type: array, items: { type: object, additionalProperties: true } }
@@ -893,6 +893,9 @@ components:
             rir_calibration: { type: object, nullable: true, additionalProperties: true }
             calibration_sets: { type: array, items: { type: object, additionalProperties: true } }
             access_audits: { type: array, items: { type: object, additionalProperties: true } }
+            # 어시스트 처방 row 에 매달린 기술 감사 기록. 보존 중인 것만 나오고, planned row 가
+            # 삭제되면 같은 트랜잭션에서 함께 사라진다(SECURITY_PIPA.md 삭제 정책).
+            assistance_audits: { type: array, items: { type: object, additionalProperties: true } }
 
     GenerateProgramRequest:
       type: object
@@ -1059,6 +1062,11 @@ components:
           reason_code,
           confidence,
           rules_version,
+          load_kind,
+          recommendation_state,
+          assistance_provenance,
+          recommended_action,
+          assistance_safety_status,
           recommendation_gate,
           performed_set,
         ]
@@ -1077,6 +1085,33 @@ components:
         reason_code: { type: string, nullable: true, example: WEIGHT_UP_REP_TARGET_MET }
         confidence: { type: number, nullable: true }
         rules_version: { type: string }
+        # 부하 축의 의미. 구조적 사실이라 표시 게이트에 가려지지 않는다.
+        load_kind: { type: string, enum: [external, bodyweight, assistance, not_applicable] }
+        # 게이트가 처방을 가리면 함께 null 이다(처방의 일부다).
+        # nullable + enum 은 목록에 null 을 넣어야 검증기가 통과시킨다(OAS 3.0).
+        recommendation_state:
+          type: string
+          nullable: true
+          enum: [ready, load_calibration_needed, substitution_required, unavailable, null]
+        # non-assisted 는 반드시 null 이다 — 빈 문자열·기본값으로 채우지 않는다(§F).
+        assistance_provenance:
+          type: string
+          nullable: true
+          enum: [native, remediated, legacy_performed, null]
+        # 최소 경계의 종목 전환 제안에만 붙는다. 안전 상태·비어시스트는 null 이다.
+        recommended_action:
+          type: object
+          nullable: true
+          required: [kind, exercise_id]
+          properties:
+            kind: { type: string, enum: [suggest_exercise_swap] }
+            exercise_id: { type: string }
+        # 표시 게이트 적용 **전** raw 행으로 계산한다. 게이트가 값을 가렸다고 안전해지지 않는다.
+        # non-assisted 는 null. 클라이언트는 null·누락·unsafe 를 전부 fail closed 로 다룬다.
+        assistance_safety_status:
+          type: string
+          nullable: true
+          enum: [safe, unsafe, null]
         recommendation_gate: { $ref: '#/components/schemas/DisplayGateState' }
         performed_set:
           allOf:
@@ -1113,10 +1148,26 @@ components:
           confidence,
           explanation,
           rules_version,
+          load_kind,
+          recommendation_state,
+          recommended_action,
         ]
       properties:
         exercise_id: { type: string }
         weight: { type: number, nullable: true }
+        # 부하 축의 의미. assistance 는 숫자가 "기계가 덜어주는 kg" 이라 방향이 반대다 —
+        # weight=null 하나로는 "무게 미정"과 "자체중량"을 구분할 수 없다.
+        load_kind: { type: string, enum: [external, bodyweight, assistance, not_applicable] }
+        recommendation_state:
+          { type: string, enum: [ready, load_calibration_needed, substitution_required, unavailable] }
+        # 최소 경계의 종목 전환 제안에만 쓴다. 안전 상태에서는 항상 null 이다.
+        recommended_action:
+          type: object
+          nullable: true
+          required: [kind, exercise_id]
+          properties:
+            kind: { type: string, enum: [suggest_exercise_swap] }
+            exercise_id: { type: string }
         reps_low: { type: integer, nullable: true }
         reps_high: { type: integer, nullable: true }
         sets: { type: integer }

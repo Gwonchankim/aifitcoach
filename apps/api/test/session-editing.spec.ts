@@ -211,6 +211,7 @@ describe("데일리 루틴 편집 (F5)", () => {
               recommendedReps: 6,
               reasonCode: "BASELINE",
               confidence: 0.5,
+              loadSemantics: "external_load" as const,
               rulesVersion: "2026.08.1",
             },
           }),
@@ -411,6 +412,7 @@ describe("데일리 루틴 편집 (F5)", () => {
               recommendedReps: 10,
               reasonCode: "BASELINE",
               confidence: 0.5,
+              loadSemantics: "external_load" as const,
               rulesVersion: "2026.08.1",
             },
           });

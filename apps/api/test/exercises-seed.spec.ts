@@ -49,6 +49,7 @@ describe("exercises 시드", () => {
       defaultTimeLowSec: null,
       defaultTimeHighSec: null,
       defaultStepKg: 2.5,
+      loadSemantics: "external_load",
       unilateral: false,
       substitutions: ["e_incline_db_press", "e_chest_press_machine", "e_dips"],
       cues: ["견갑을 모으고 고정", "바를 가슴 중앙으로", "발로 바닥을 민다"],

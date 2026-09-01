@@ -1577,6 +1577,9 @@ export interface components {
         access_audits: {
           [key: string]: unknown;
         }[];
+        assistance_audits: {
+          [key: string]: unknown;
+        }[];
       };
     };
     GenerateProgramRequest: {
@@ -1682,6 +1685,20 @@ export interface components {
       reason_code: string | null;
       confidence: number | null;
       rules_version: string;
+      /** @enum {string} */
+      load_kind: "external" | "bodyweight" | "assistance" | "not_applicable";
+      /** @enum {string|null} */
+      recommendation_state:
+        "ready" | "load_calibration_needed" | "substitution_required" | "unavailable" | null;
+      /** @enum {string|null} */
+      assistance_provenance: "native" | "remediated" | "legacy_performed" | null;
+      recommended_action: {
+        /** @enum {string} */
+        kind: "suggest_exercise_swap";
+        exercise_id: string;
+      } | null;
+      /** @enum {string|null} */
+      assistance_safety_status: "safe" | "unsafe" | null;
       recommendation_gate: components["schemas"]["DisplayGateState"];
       performed_set: components["schemas"]["PerformedSetSummary"] | null;
     };
@@ -1701,6 +1718,16 @@ export interface components {
     Recommendation: {
       exercise_id: string;
       weight: number | null;
+      /** @enum {string} */
+      load_kind: "external" | "bodyweight" | "assistance" | "not_applicable";
+      /** @enum {string} */
+      recommendation_state:
+        "ready" | "load_calibration_needed" | "substitution_required" | "unavailable";
+      recommended_action: {
+        /** @enum {string} */
+        kind: "suggest_exercise_swap";
+        exercise_id: string;
+      } | null;
       reps_low: number | null;
       reps_high: number | null;
       sets: number;

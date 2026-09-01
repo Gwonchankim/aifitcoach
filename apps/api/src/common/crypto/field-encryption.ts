@@ -36,19 +36,39 @@ export function encryptField(plaintext: string): string {
   ].join(":");
 }
 
+/**
+ * 복호화 실패 원인. **문구가 아니라 이 코드로 분기한다** —
+ * 메시지 문자열을 파싱하면 문구를 다듬는 순간 조용히 깨진다.
+ */
+export type FieldDecryptionFailure = "format" | "auth" | "nonnumeric";
+
+/** 기존 호출자는 그대로 `Error` 로 잡는다. 코드가 필요한 곳만 이 타입을 본다. */
+export class FieldDecryptionError extends Error {
+  constructor(
+    readonly code: FieldDecryptionFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = "FieldDecryptionError";
+  }
+}
+
 export function decryptField(stored: string): string {
   const parts = stored.split(":");
   if (parts.length !== 4) {
-    throw new Error("encrypted field has invalid format");
+    throw new FieldDecryptionError("format", "encrypted field has invalid format");
   }
   const [version, ivB64, tagB64, ciphertextB64] = parts;
   if (version !== VERSION) {
-    throw new Error(`encrypted field has unsupported version, expected ${VERSION}`);
+    throw new FieldDecryptionError(
+      "format",
+      `encrypted field has unsupported version, expected ${VERSION}`,
+    );
   }
   const iv = Buffer.from(ivB64, "base64");
   const tag = Buffer.from(tagB64, "base64");
   if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) {
-    throw new Error("encrypted field has invalid format");
+    throw new FieldDecryptionError("format", "encrypted field has invalid format");
   }
 
   const decipher = createDecipheriv(ALGORITHM, loadKey(), iv);
@@ -60,7 +80,7 @@ export function decryptField(stored: string): string {
     ]).toString("utf8");
   } catch {
     // GCM 인증 실패 = 키 불일치 또는 변조. 원인 상세(암호문 등)는 노출하지 않는다.
-    throw new Error("encrypted field failed authentication");
+    throw new FieldDecryptionError("auth", "encrypted field failed authentication");
   }
 }
 
@@ -74,7 +94,8 @@ export function decryptNumber(stored: string | null): number | null {
   }
   const value = Number(decryptField(stored));
   if (!Number.isFinite(value)) {
-    throw new Error("decrypted field is not a number");
+    // 평문 값을 메시지에 넣지 않는다.
+    throw new FieldDecryptionError("nonnumeric", "decrypted field is not a number");
   }
   return value;
 }

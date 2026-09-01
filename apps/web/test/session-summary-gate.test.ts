@@ -46,6 +46,9 @@ describe("D-39 서버 권위 recommendation gate", () => {
           explanation: "목표 반복을 달성해 무게를 올렸어요.",
           confidence: 0.8,
           rules_version: "2026.08.1",
+          load_kind: "external",
+          recommendation_state: "ready",
+          recommended_action: null,
         },
       },
     ]);

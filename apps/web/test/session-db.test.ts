@@ -123,12 +123,13 @@ describe("Dexie local mirror and outbox", () => {
   });
 
   it("uses the session mirror as an offline read fallback", async () => {
-    await mirrorSession(DEV_USER_SCOPE, "s-1", { id: "s-1", status: "active" });
+    await mirrorSession(DEV_USER_SCOPE, "s-1", { id: "s-1", status: "active", planned_sets: [] });
     await expect(
       readThroughSession(DEV_USER_SCOPE, "s-1", () => Promise.reject(new Error("offline"))),
     ).resolves.toEqual({
       id: "s-1",
       status: "active",
+      planned_sets: [],
     });
   });
 
@@ -145,9 +146,9 @@ describe("Dexie local mirror and outbox", () => {
     vi.spyOn(sessionDb.sessions, "put").mockRejectedValueOnce(new Error("disk full"));
     await expect(
       readThroughSession(DEV_USER_SCOPE, "s-1", () =>
-        Promise.resolve({ id: "s-1", status: "active" }),
+        Promise.resolve({ id: "s-1", status: "active", planned_sets: [] }),
       ),
-    ).resolves.toEqual({ id: "s-1", status: "active" });
+    ).resolves.toEqual({ id: "s-1", status: "active", planned_sets: [] });
   });
 
   it("commits a routine snapshot and outbox mutation together", async () => {
@@ -167,7 +168,7 @@ describe("Dexie local mirror and outbox", () => {
   });
 
   it("commits session completion mirror state and outbox together", async () => {
-    await mirrorSession(DEV_USER_SCOPE, "s-1", { id: "s-1", status: "active" });
+    await mirrorSession(DEV_USER_SCOPE, "s-1", { id: "s-1", status: "active", planned_sets: [] });
     await commitSessionCompletion(
       DEV_USER_SCOPE,
       "s-1",

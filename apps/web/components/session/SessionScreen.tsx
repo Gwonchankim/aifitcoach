@@ -5,7 +5,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
 import {
   ApiError,
@@ -36,6 +36,7 @@ import {
   DEV_USER_SCOPE,
   mirrorSession,
   readThroughSession,
+  safeMappings,
   type RoutineCorrelation,
 } from "./session-db";
 import {
@@ -53,15 +54,48 @@ type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
 
-function mappedSession(session: Session, mappings: SyncResponse["planned_set_mappings"]): Session {
+/**
+ * 매핑 결과를 화면 캐시에 합성한다. **미러와 같은 fail-closed 경계를 쓴다** —
+ * 여기서 걸러내지 않으면 미러에 못 들어간 처방이 화면에는 그대로 보인다.
+ */
+export function mappedSession(
+  session: Session,
+  mappings: SyncResponse["planned_set_mappings"],
+): Session {
   if (mappings.length === 0) return session;
-  const byCorrelation = new Map(
-    mappings.map((mapping) => [mapping.correlation_id, mapping.planned_set]),
-  );
+  const safe = new Map(safeMappings(mappings).map((mapping) => [mapping.correlation_id, mapping]));
+  const all = new Map(mappings.map((mapping) => [mapping.correlation_id, mapping]));
   return {
     ...session,
-    planned_sets: session.planned_sets.map((set) => byCorrelation.get(set.id) ?? set),
+    planned_sets: session.planned_sets.map((set) => {
+      const mapping = all.get(set.id);
+      if (!mapping) return set;
+      const trusted = safe.get(set.id);
+      // 처방은 안전할 때만 받는다. 안전하지 않아도 **id 는 옮긴다** —
+      // 미러·draft·outbox 가 이미 server id 를 쓰므로 화면만 correlation 에 남으면 기록이 사라진다.
+      return trusted ? trusted.planned_set : { ...set, id: mapping.planned_set_id };
+    }),
   };
+}
+
+/**
+ * 편집 충돌 뒤 authoritative 재조회.
+ *
+ * **`queryClient.fetchQuery` 를 쓰면 안 된다** — 성공 응답을 predicate 보다 **먼저** 캐시에 넣기 때문에
+ * unsafe payload 가 그 순간 화면에 뜬다(독립 재리뷰 P1-1). 그래서 네트워크는 QueryClient 밖에서 받고,
+ * 공통 경계를 통과한 값만 `setQueryData` 로 넣는다.
+ */
+export async function refetchAuthoritativeSession(
+  queryClient: QueryClient,
+  sessionId: string,
+  fetchSession: () => Promise<Session>,
+): Promise<Session | null> {
+  const fetched = await fetchSession().catch(() => null);
+  if (!fetched) return null;
+  // `mirrorSession` 이 경계다 — 거절하면 marker 를 세우고 false 를 준다.
+  if (!(await mirrorSession(DEV_USER_SCOPE, sessionId, fetched).catch(() => false))) return null;
+  queryClient.setQueryData<Session>(["session", sessionId], fetched);
+  return fetched;
 }
 
 export function SessionScreen({ sessionId }: { sessionId: string }) {
@@ -206,10 +240,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    */
   const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
     if (shouldRefetch(error)) {
-      const latest = await queryClient
-        .fetchQuery({ queryKey: ["session", sessionId], queryFn: () => api.session(sessionId) })
-        .catch(() => null);
-      if (latest) await mirrorSession(DEV_USER_SCOPE, sessionId, latest).catch(() => undefined);
+      const latest = await refetchAuthoritativeSession(queryClient, sessionId, () =>
+        api.session(sessionId),
+      );
       if (
         isConflict(error) &&
         latest?.status === "completed" &&
@@ -236,6 +269,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       new Date().toISOString(),
       correlations,
       next,
+      // **출처는 호출 context 가 알려준다** — payload 에 표시를 심지 않는다(재리뷰 P2-1).
+      new Set(correlations.map((item) => item.correlation_id)),
     );
     // The local transaction is the offline success boundary. When the browser knows it is online,
     // wait for this mutation's acknowledgement so a server conflict can keep the editor open.
@@ -254,10 +289,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       throw new ApiError(409, "SYNC_CONFLICT", "routine sync conflict");
     if (synced?.applied.includes(clientId)) {
       const authoritative = await api.session(sessionId).catch(() => null);
-      if (authoritative) {
-        await mirrorSession(DEV_USER_SCOPE, sessionId, authoritative).catch(() => undefined);
+      // **미러가 거절한 payload 는 화면에도 올리지 않는다.** `mirrorSession` 이 marker 를 세웠으므로
+      // 다음 읽기가 authoritative refetch 를 강제한다. 그때까지는 방금 만든 로컬 스냅샷을 쓴다.
+      if (
+        authoritative &&
+        (await mirrorSession(DEV_USER_SCOPE, sessionId, authoritative).catch(() => false))
+      )
         return authoritative;
-      }
     }
     return next;
   };
@@ -270,11 +308,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       exercise_id: exerciseId,
       set_no: index + 1,
     }));
+    // **로컬이 만든 임시 행임을 스스로 밝힌다**(로컬 전용 표시, 서버로 보내지 않는다).
+    // 이 표시가 없으면 fail-closed 경계가 "서버가 `load_kind` 를 빠뜨린 행"과 구분하지 못해
+    // 오프라인 추가가 통째로 막힌다.
     const sets = buildProvisionalRoutineSets(
       session!.goal,
       exercise,
       correlations.map((item) => item.correlation_id),
-    ) as PlannedSet[];
+    ) as unknown as PlannedSet[];
     return { sets, correlations };
   };
 

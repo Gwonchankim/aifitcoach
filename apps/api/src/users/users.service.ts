@@ -95,6 +95,13 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException("사용자를 찾을 수 없다.");
 
+    // 어시스트 audit 는 user 가 아니라 planned row 에 매달려 있어 include 로는 못 따라온다.
+    // 사용자의 처방 row 에 연결된 개인정보이므로 `access_audits` 와 같게 열람·이동권 범위에 넣는다.
+    const assistanceAudits = await this.prisma.assistanceAudit.findMany({
+      where: { plannedSet: { session: { program: { userId } } } },
+      orderBy: { occurredAt: "asc" },
+    });
+
     const profile = this.profile(user);
     const sessions = user.programs.flatMap((program) =>
       program.sessions.map((session) => ({
@@ -127,6 +134,7 @@ export class UsersService {
         rir_calibration: user.rirCalibration,
         calibration_sets: user.calibrationSets,
         access_audits: user.accessAudits,
+        assistance_audits: assistanceAudits,
       },
     };
   }

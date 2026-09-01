@@ -1,7 +1,12 @@
 import { recommendNextSet } from "./recommend";
+import { RULES_BUNDLE_V1 } from "./rules-version";
 import type { ExerciseType, Goal, Metric, Region } from "./types";
 
-export const ROUTINE_RULES_VERSION = "2026.08.1";
+/**
+ * **활성 bundle 포인터.** activation 티켓에서 이 한 줄만 `RULES_BUNDLE_V2` 로 옮긴다
+ * (PLAN B+C·S/C/H·packer 완료 후). 그 전까지 엔진의 V2 경로는 골든에서만 실행된다.
+ */
+export const ROUTINE_RULES_VERSION: string = RULES_BUNDLE_V1;
 
 const REPS: Record<Goal, Record<ExerciseType, { low: number; high: number }>> = {
   hypertrophy: { compound: { low: 6, high: 12 }, isolation: { low: 10, high: 20 } },

@@ -7,11 +7,29 @@ import {
 import { Prisma } from "@prisma/client";
 import type { PlannedSet } from "@prisma/client";
 import { applyDisplayGate, displayGateState } from "shared";
-import type { DisplayGateState, Goal } from "shared";
+import type {
+  AssistanceProvenance,
+  DisplayGateState,
+  Goal,
+  LoadKind,
+  RecommendationState,
+  RecommendedAction,
+} from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 import { AggregationProjector } from "../analytics/aggregation.projector";
+import {
+  classifySourceCohort,
+  classifyTargetCohort,
+  loadKindForSnapshot,
+  rawAssistanceSafetyStatus,
+  recommendedActionFor,
+  stateForReasonCode,
+  toRawTargetRow,
+} from "../programs/assistance-migration";
+import type { AssistanceSafetyStatus } from "../programs/assistance-migration";
+import type { AssistanceTargetRow } from "../programs/assistance-migration";
 import { PlannedSetFactory, PlannedSetRow } from "../programs/planned-set.factory";
 import {
   MovementPattern,
@@ -25,8 +43,10 @@ import {
   ApiRecommendation,
   EngineTarget,
   RecommendationService,
+  requireHistory,
   toHistory,
 } from "../recommendation/recommendation.service";
+import type { ExerciseHistory } from "../recommendation/recommendation.service";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
@@ -50,6 +70,22 @@ export interface PlannedSetResponse {
   reason_code: string | null;
   confidence: number | null;
   rules_version: string;
+  /**
+   * 부하 축의 의미 — **구조적 사실이라 표시 게이트에 가려지지 않는다.**
+   * 클라이언트 predicate 가 "이 행을 어시스트로 렌더해야 하는가"를 이걸로 판정한다.
+   */
+  load_kind: LoadKind;
+  /** 게이트가 처방을 가리면 함께 null 이다(처방의 일부다). */
+  recommendation_state: RecommendationState | null;
+  /** non-assisted 는 **반드시 null** — 기본값으로 채우지 않는다(§F). */
+  assistance_provenance: AssistanceProvenance | null;
+  /** 최소 경계의 종목 전환 제안에만 붙는다. 안전 상태·비어시스트는 null. */
+  recommended_action: RecommendedAction | null;
+  /**
+   * **표시 게이트 적용 전 raw 행**으로 계산한 안전 판정. 게이트가 값을 가렸다고 안전해지지
+   * 않는다. non-assisted 는 null 이고, 클라이언트는 null·누락·unsafe 를 전부 fail closed 로 본다.
+   */
+  assistance_safety_status: AssistanceSafetyStatus | null;
   recommendation_gate: DisplayGateState;
   performed_set: {
     actual_weight: number | null;
@@ -84,6 +120,38 @@ export interface GatedRecommendation {
   recommendation: ApiRecommendation | null;
 }
 
+/**
+ * 저장 snapshot 이 말하는 부하 의미. 행이 없으면 external 로 본다(빈 cohort 는 이미 unsafe 다).
+ * 섞여 있으면 cohort 판정이 먼저 unsafe 로 잡으므로 여기서는 첫 행이면 충분하다.
+ */
+/**
+ * cohort 판정 입력. **server-applied performed fact** 를 행마다 붙인다 —
+ * 로컬 pending outbox 는 아직 사실이 아니므로 여기 포함되지 않는다.
+ * 사실 집합은 호출 전에 **한 번** 읽는다(종목마다 읽으면 N+1 이다).
+ */
+function toTargetRows(
+  targetSets: PlannedSet[],
+  performedFacts: Set<string>,
+): AssistanceTargetRow[] {
+  return targetSets.map((set) => ({
+    loadSemantics: set.loadSemantics,
+    assistanceStepKg: set.assistanceStepKg,
+    assistanceProvenance: set.assistanceProvenance,
+    rulesVersion: set.rulesVersion,
+    reasonCode: set.reasonCode,
+    recommendedWeight: set.recommendedWeight,
+    confidence: set.confidence,
+    hasServerAppliedPerformedFact: performedFacts.has(set.id),
+  }));
+}
+
+/** recompute 1차 패스가 찾아 둔 다음 세션. */
+type NextSession = { id: string; plannedSets: PlannedSet[] };
+
+function semanticsOf(rows: PlannedSet[]): "assistance" | "external_load" {
+  return rows[0]?.loadSemantics ?? "external_load";
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
@@ -95,6 +163,23 @@ export class SessionsService {
     private readonly projector: AggregationProjector,
     private readonly programs: ProgramsService,
   ) {}
+
+  /**
+   * 단일 종목 편집(추가·교체·sync routine)의 prefetch. loop 가 아니라 **한 종목뿐**이라
+   * batch 와 같은 경로를 쓰되 호출은 1회다 — factory 안에서 읽지 않는 것이 핵심이다.
+   */
+  async prefetchOne(
+    userId: string,
+    exercise: { id: string; loadSemantics: "assistance" | "external_load" },
+  ): Promise<{ history: ExerciseHistory; calibration: { rir_bias: number } | undefined }> {
+    const [prefetched, calibration] = await Promise.all([
+      this.recommendation.prefetchHistories(userId, [
+        { exerciseId: exercise.id, loadSemantics: exercise.loadSemantics },
+      ]),
+      this.recommendation.calibrationFor(userId),
+    ]);
+    return { history: requireHistory(prefetched, exercise.id), calibration };
+  }
 
   async detail(userId: string, sessionId: string): Promise<SessionResponse> {
     return this.toResponse(userId, await this.load(userId, sessionId));
@@ -179,9 +264,19 @@ export class SessionsService {
       performedByExercise.set(row.plannedSet.exerciseId, rows);
     }
 
-    const next_recommendations: ApiRecommendation[] = [];
-    for (const [exerciseId, rows] of performedByExercise) {
-      const exercise = await this.prisma.exercise.findUniqueOrThrow({ where: { id: exerciseId } });
+    // **루프 전에 한 번** 읽는다. semantics 는 방금 수행한 세션의 저장 snapshot 이 원천이다.
+    const specs = [...performedByExercise.keys()].flatMap((exerciseId) => {
+      const row = session.plannedSets.find((set) => set.exerciseId === exerciseId);
+      return row ? [{ exerciseId, loadSemantics: row.loadSemantics }] : [];
+    });
+    const prefetched = await this.recommendation.prefetchHistories(userId, specs);
+
+    // **1차 패스**: target 을 먼저 전부 찾는다(수행 사실 조회 없이).
+    const targets = new Map<
+      string,
+      { nextSession: NextSession | null; targetSets: PlannedSet[] }
+    >();
+    for (const exerciseId of performedByExercise.keys()) {
       const nextSession = await this.prisma.workoutSession.findFirst({
         where: {
           programId: session.programId,
@@ -193,20 +288,81 @@ export class SessionsService {
         orderBy: { scheduledDate: "asc" },
         include: { plannedSets: { where: { exerciseId }, orderBy: { setNo: "asc" } } },
       });
-      const targetSets =
-        nextSession?.plannedSets ??
-        session.plannedSets.filter((set) => set.exerciseId === exerciseId);
+      targets.set(exerciseId, {
+        nextSession,
+        targetSets:
+          nextSession?.plannedSets ??
+          session.plannedSets.filter((set) => set.exerciseId === exerciseId),
+      });
+    }
+
+    // cohort 판정에 필요한 **서버 적용 수행 사실도 한 번에** 읽는다 —
+    // 종목마다 읽으면 그것만으로 N+1 이 된다.
+    const cohortIds = [
+      ...new Set([
+        ...session.plannedSets.map((set) => set.id),
+        ...[...targets.values()].flatMap((item) => item.targetSets.map((set) => set.id)),
+      ]),
+    ];
+    const performedFacts = new Set(
+      (
+        await this.prisma.performedSet.findMany({
+          where: { plannedSetId: { in: cohortIds }, completed: true },
+          select: { plannedSetId: true },
+        })
+      ).map((row) => row.plannedSetId),
+    );
+
+    const next_recommendations: ApiRecommendation[] = [];
+    for (const [exerciseId, rows] of performedByExercise) {
+      const exercise = await this.prisma.exercise.findUniqueOrThrow({ where: { id: exerciseId } });
+      const { nextSession, targetSets } = targets.get(exerciseId)!;
       // 목표는 **방금 수행한 세션**의 계획세트에서 읽는다 — 사용자가 실제로 겨눈 값이고,
       // 다음 세션의 값을 읽으면 맨몸 REPS_UP_BODYWEIGHT/TIME_UP 처럼 목표 자체가 움직이는 종목에서
       // 아웃박스 재전송(재완료)이 두 번 진행돼 버린다.
       const performedTarget = session.plannedSets.find((set) => set.exerciseId === exerciseId);
       if (!performedTarget) continue;
 
+      // **분류가 엔진 호출보다 먼저다.** 카탈로그의 현재 loadSemantics 는 저장 뒤에 바뀔 수 있어
+      // 과거 행의 의미를 덮을 수 없다 — source·target 둘 다 저장 snapshot 이 원천이다.
+      const sourceSets = session.plannedSets.filter((set) => set.exerciseId === exerciseId);
+      const sourceCohort = classifySourceCohort(toTargetRows(sourceSets, performedFacts));
+      const targetCohort = classifyTargetCohort(toTargetRows(targetSets, performedFacts));
+      // legacy·혼합·불명, 그리고 **source 와 target 의 의미가 다르면** 갱신도 응답도 하지 않는다.
+      // 일부만 갱신하면 저장 행과 응답이 갈라지고, 의미가 다른 두 행을 한 계산에 섞으면
+      // 도움 kg 을 부하로(또는 그 반대로) 읽는다. 응답이 배열이라 부재는 그대로 표현된다 —
+      // display-gate 의 null 의미를 빌리지 않고, complete 는 500 이 아니라 정상 200 이다.
+      if (sourceCohort === "unsafe" || targetCohort === "unsafe") continue;
+      if (semanticsOf(sourceSets) !== semanticsOf(targetSets)) continue;
+
+      // 최근 세션(progression)과 **전체 이력(graduation)은 서로 다른 질의**다. 여기서 후자를
+      // 안 붙이면 이미 관문을 넘은 사용자가 매번 캘리브레이션으로 되돌아간다.
+      // 최신 세션 세트는 **방금 수행한 것**이라 그대로 쓰고, lifetime 근거만 prefetch 에서 꺼낸다.
+      // 여기서 per-exercise 질의를 하면 종목 수만큼 늘어난다(prefetch miss 는 fail closed).
+      // prefetch miss 는 **invariant error** 다 — `?.` 로 흘려보내면 이미 관문을 넘은 사용자가
+      // 조용히 "근거 없음"으로 계산돼 캘리브레이션으로 되돌아간다. 화면엔 아무 에러도 안 뜬다.
+      const prefetchedHistory = requireHistory(prefetched, exerciseId);
+      const history = toHistory(rows);
+      if (targetCohort === "assistance_safe") {
+        history.assistance = {
+          has_valid_positive_assistance:
+            prefetchedHistory.assistance?.has_valid_positive_assistance === true,
+        };
+      }
+
       const recommendation = this.recommendation.recommend({
         goal: session.program.goal,
-        exercise,
+        // semantics 는 **저장 snapshot 이 override 한다.** 카탈로그는 metric·mechanic 같은
+        // metadata 용이고, 과거 행의 부하 의미·step·bundle 을 결정하지 않는다.
+        exercise: { ...exercise, loadSemantics: semanticsOf(targetSets) },
+        // step·bundle 도 **대상 행의 snapshot** 이 원천이다. 카탈로그·전역 포인터로 재구성하면
+        // 카탈로그가 바뀐 뒤 과거 행이 다른 단위로 계산되고 `.09` 행이 `.08.2` 로 강등된다.
+        snapshot: {
+          stepKg: targetSets[0].assistanceStepKg,
+          rulesVersion: targetSets[0].rulesVersion,
+        },
         target: toEngineTarget(performedTarget),
-        history: toHistory(rows),
+        history,
         ...(calibration ? { calibration } : {}),
       });
 
@@ -227,6 +383,7 @@ export class SessionsService {
           },
         });
       }
+      // 저장 행과 응답이 **같은 mapper 결과**다 — 둘 다 이 recommendation 하나에서 나온다.
       next_recommendations.push(
         this.recommendation.toApi(exerciseId, targetSets.length, recommendation),
       );
@@ -275,10 +432,23 @@ export class SessionsService {
       },
     );
 
+    // 루프 전에 한 번 — 종목마다 읽으면 즉석 세션도 N+1 이 된다.
+    const prefetched = await this.recommendation.prefetchHistories(
+      userId,
+      exercises.map((item) => ({ exerciseId: item.id, loadSemantics: item.loadSemantics })),
+    );
+    const calibration = await this.recommendation.calibrationFor(userId);
     const rows: PlannedSetRow[] = [];
     for (const [orderIndex, exercise] of exercises.entries()) {
       rows.push(
-        ...(await this.plannedSets.build({ userId, goal: program.goal, exercise, orderIndex })),
+        ...(await this.plannedSets.build({
+          userId,
+          goal: program.goal,
+          exercise,
+          orderIndex,
+          history: requireHistory(prefetched, exercise.id),
+          calibration,
+        })),
       );
     }
 
@@ -345,6 +515,7 @@ export class SessionsService {
       goal: session.program.goal,
       exercise,
       orderIndex,
+      ...(await this.prefetchOne(userId, exercise)),
       ...(dto.sets === undefined || dto.sets === null ? {} : { sets: dto.sets }),
     });
 
@@ -375,7 +546,12 @@ export class SessionsService {
     const session = await this.load(userId, sessionId);
     assertEditable(session);
     const ids = await this.removableSetIds(session.plannedSets, exerciseId);
-    await this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } });
+    // audit 는 planned row 에 매달린 기술 기록이고 FK 가 RESTRICT 다 — 같은 트랜잭션에서
+    // 먼저 지우지 않으면 정상 편집이 FK 위반으로 실패한다(F-3 fixup).
+    await this.prisma.$transaction([
+      this.deleteAssistanceAudits(ids),
+      this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } }),
+    ]);
     return this.afterEdit(userId, sessionId);
   }
 
@@ -407,10 +583,12 @@ export class SessionsService {
       exercise: target,
       orderIndex,
       sets: replaced.length,
+      ...(await this.prefetchOne(userId, target)),
     });
 
     await this.writeAtomically(
       [
+        this.deleteAssistanceAudits(ids),
         this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } }),
         this.createPlannedSets(session.id, rows),
       ],
@@ -461,6 +639,16 @@ export class SessionsService {
   ): Prisma.PrismaPromise<unknown> {
     return this.prisma.plannedSet.createMany({
       data: rows.map((row) => ({ ...row, sessionId })),
+    });
+  }
+
+  /**
+   * planned row 를 지우기 전에 붙어 있는 assistance audit 를 먼저 지운다.
+   * FK 가 `ON DELETE RESTRICT` 라 순서가 계약이다(SECURITY_PIPA.md 퍼지 순서와 같은 방향).
+   */
+  private deleteAssistanceAudits(plannedSetIds: string[]): Prisma.PrismaPromise<unknown> {
+    return this.prisma.assistanceAudit.deleteMany({
+      where: { plannedSetId: { in: plannedSetIds } },
     });
   }
 
@@ -688,6 +876,19 @@ function toSessionResponse(
         reason_code: applyDisplayGate(sampleCount, set.reasonCode),
         confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
         rules_version: set.rulesVersion,
+        // raw 값으로 판정한다 — 게이트된 weight 를 보면 external 행이 bodyweight 로 뒤바뀐다.
+        load_kind: loadKindForSnapshot(set),
+        recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
+        assistance_provenance: set.assistanceProvenance,
+        // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
+        recommended_action: applyDisplayGate(sampleCount, recommendedActionFor(set.reasonCode)),
+        // 게이트 **이전** raw 값으로 판정한다 — 가려진 legacy 처방도 unsafe 로 잡아야 한다.
+        assistance_safety_status: rawAssistanceSafetyStatus(
+          toRawTargetRow(
+            set,
+            set.performedSets.some((row) => row.completed),
+          ),
+        ),
         recommendation_gate: displayGateState(sampleCount),
         performed_set: performed
           ? {

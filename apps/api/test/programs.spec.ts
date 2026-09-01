@@ -150,7 +150,7 @@ describe("programs", () => {
     await materializeCurrent();
 
     const plannedSets = await prisma.plannedSet.findMany({
-      where: { session: { program: { userId: USER_ID } } },
+      where: { session: { program: { userId: USER_ID } }, loadSemantics: "external_load" },
     });
     expect(plannedSets.length).toBeGreaterThan(0);
     for (const set of plannedSets) {
@@ -158,6 +158,27 @@ describe("programs", () => {
       expect(Number(set.recommendedWeight)).toBe(0);
       expect(set.recommendedReps).toBe(set.targetRepsLow);
       expect(set.rulesVersion).toBe("2026.08.1");
+    }
+  });
+
+  /**
+   * 어시스트 행은 위 계약을 **일부러** 따르지 않는다 — `2026.08.1` 엔진은 도움 kg 의 의미를
+   * 몰라서 BASELINE 0kg 을 "0kg 부하"로 쓰는데, 어시스트에서 그건 도움 0(= 맨몸 풀업)이다.
+   * 실제 mapper 는 F-4a 가 소유하고, 그전까지는 무게 미정 fail-safe 다(F-3 fixup).
+   */
+  it("어시스트 계획세트만 fail-safe(.08.2 · 무게 미정)로 갈라진다", async () => {
+    await request(app.getHttpServer()).post("/v1/programs/generate").send(BASE).expect(201);
+    await materializeCurrent();
+
+    const assisted = await prisma.plannedSet.findMany({
+      where: { session: { program: { userId: USER_ID } }, loadSemantics: "assistance" },
+    });
+    expect(assisted.length).toBeGreaterThan(0);
+    for (const set of assisted) {
+      expect(set.reasonCode).toBe("ASSISTANCE_CALIBRATION_NEEDED");
+      expect(set.recommendedWeight).toBeNull();
+      expect(set.rulesVersion).toBe("2026.08.2");
+      expect(set.assistanceProvenance).toBe("native");
     }
   });
 

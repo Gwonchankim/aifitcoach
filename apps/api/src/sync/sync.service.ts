@@ -6,12 +6,26 @@ import {
 } from "@nestjs/common";
 import { Prisma, type PlannedSet, type SyncEntityType, type SyncOp } from "@prisma/client";
 import { applyDisplayGate, displayGateState } from "shared";
+import {
+  loadKindForSnapshot,
+  rawAssistanceSafetyStatus,
+  recommendedActionFor,
+  stateForReasonCode,
+  toRawTargetRow,
+} from "../programs/assistance-migration";
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
 import { SessionsService } from "../sessions/sessions.service";
+import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
 import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
+
+/**
+ * **최초 시도를 포함한 총 시도 횟수**다. 유한해야 한다 — 무한 재시도는 장애를 지연시킬 뿐이다.
+ * "재시도 횟수"로 읽으면 실제 시도가 하나 더 늘어난다(off-by-one).
+ */
+const SERIALIZATION_ATTEMPTS = 5;
 
 type Conflict = { client_id: string; entity_id: string; reason: string };
 type Change = {
@@ -33,6 +47,7 @@ export class SyncService {
     private readonly prisma: PrismaService,
     private readonly plannedSets: PlannedSetFactory,
     private readonly sessions: SessionsService,
+    private readonly recommendation: RecommendationService,
   ) {}
 
   async sync(userId: string, dto: SyncRequestDto) {
@@ -169,44 +184,81 @@ export class SyncService {
     });
   }
 
+  /**
+   * RepeatableRead 는 동시 쓰기를 **직렬화 실패(P2034)** 로 거절한다 — 그게 이 격리 수준의 계약이다.
+   * 호출자가 재시도해야 하고, 재시도하지 않으면 정상 동시성이 500 으로 새어 나간다.
+   * 같은 mutation 은 멱등(client_id 로 판정)이라 재시도해도 두 번 적용되지 않는다.
+   */
   private async apply(
+    userId: string,
+    mutation: MutationDto,
+  ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.applyOnce(userId, mutation);
+      } catch (error) {
+        // P2034 = 직렬화 실패. P2002 = RepeatableRead 의 stale 스냅샷 때문에 사전 검사(findUnique)가
+        // 이미 커밋된 행을 못 보고 지나쳐 생긴 unique 충돌이다. **재시도하면 새 스냅샷이 그 행을 보고**
+        // 멱등 경로(적용됨/conflict)로 정상 응답한다 — 둘 다 사용자 오류가 아니다.
+        const retryable =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === "P2034" || error.code === "P2002");
+        if (!retryable || attempt >= SERIALIZATION_ATTEMPTS - 1) throw error;
+      }
+    }
+  }
+
+  private async applyOnce(
     userId: string,
     mutation: MutationDto,
   ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
     validateMutation(mutation);
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        await this.lockMutation(tx, userId, mutation);
-        const existing = await tx.syncMutation.findUnique({ where: { id: mutation.client_id } });
-        if (existing) {
-          if (existing.userId !== userId)
-            return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
-          if (!sameMutation(existing, mutation))
-            return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
-          return existing.status === "applied"
-            ? { applied: true, sessionId: await this.sessionFor(userId, mutation) }
-            : { applied: false, conflict: conflictOf(mutation, "stale_update") };
-        }
-        const latest = await tx.syncMutation.findFirst({
-          where: {
-            userId,
-            entityType: mutation.entity,
-            entityId: mutation.entity_id,
-            status: "applied",
-          },
-          orderBy: [{ clientUpdatedAt: "desc" }, { id: "desc" }],
-        });
-        if (latest && compare(mutation, latest) <= 0) {
-          await tx.syncMutation.create({ data: mutationRow(userId, mutation, "conflict") });
-          return { applied: false, conflict: conflictOf(mutation, "stale_update") };
-        }
-        const sessionId = await this.sessionFor(userId, mutation);
-        if (mutation.entity === "performed_set") await this.applyPerformed(tx, userId, mutation);
-        if (mutation.entity === "session_routine") await this.applyRoutine(tx, userId, mutation);
-        if (mutation.entity === "session") await this.applySession(tx, userId, mutation);
-        await tx.syncMutation.create({ data: mutationRow(userId, mutation, "applied") });
-        return { applied: true, sessionId };
-      });
+      return await this.prisma.$transaction(
+        async (tx) => {
+          await this.lockMutation(tx, userId, mutation);
+          const existing = await tx.syncMutation.findUnique({ where: { id: mutation.client_id } });
+          if (existing) {
+            if (existing.userId !== userId)
+              return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
+            if (!sameMutation(existing, mutation))
+              return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
+            return existing.status === "applied"
+              ? { applied: true, sessionId: await this.sessionFor(userId, mutation) }
+              : { applied: false, conflict: conflictOf(mutation, "stale_update") };
+          }
+          const latest = await tx.syncMutation.findFirst({
+            where: {
+              userId,
+              entityType: mutation.entity,
+              entityId: mutation.entity_id,
+              status: "applied",
+            },
+            orderBy: [{ clientUpdatedAt: "desc" }, { id: "desc" }],
+          });
+          if (latest && compare(mutation, latest) <= 0) {
+            await tx.syncMutation.create({ data: mutationRow(userId, mutation, "conflict") });
+            return { applied: false, conflict: conflictOf(mutation, "stale_update") };
+          }
+          const sessionId = await this.sessionFor(userId, mutation);
+          if (mutation.entity === "performed_set") await this.applyPerformed(tx, userId, mutation);
+          if (mutation.entity === "session_routine") await this.applyRoutine(tx, userId, mutation);
+          if (mutation.entity === "session") await this.applySession(tx, userId, mutation);
+          await tx.syncMutation.create({ data: mutationRow(userId, mutation, "applied") });
+          return { applied: true, sessionId };
+        },
+        {
+          /**
+           * routine apply 는 **읽고(이력·correlation) 쓰는(계획세트) 한 덩어리**다.
+           * 기본 Read Committed 에서는 같은 트랜잭션 안의 두 읽기가 서로 다른 스냅샷을 볼 수 있어
+           * "읽을 때는 없던 correlation 이 쓸 때는 있는" 상태가 된다.
+           *
+           * **주장하는 것은 스냅샷 안정성뿐이다** — 행 잠금이나 직렬화는 주장하지 않는다.
+           * 동시 삽입은 여전히 DB unique 제약이 막고, 그건 사용자에게 409 로 나간다.
+           */
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        },
+      );
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -344,7 +396,43 @@ export class SyncService {
       (await tx.performedSet.count({ where: { plannedSetId: { in: removed } } }))
     )
       throw new ConflictException("이미 수행 기록이 있는 운동은 루틴에서 뺄 수 없다.");
+    // assistance_audits 는 FK 가 RESTRICT 라 planned row 보다 먼저 지운다(F-3 fixup).
+    await tx.assistanceAudit.deleteMany({ where: { plannedSetId: { in: removed } } });
     await tx.plannedSet.deleteMany({ where: { id: { in: removed } } });
+
+    // **새로 들어오는 종목만** 모아 루프 전에 한 번 읽는다. 종목마다 읽으면 그 자체로 N+1 이다.
+    //
+    // TOCTOU 경계: 이 prefetch 는 **같은 트랜잭션(`tx`)** 에서 읽는다. 바깥 클라이언트로 읽으면
+    // 이 트랜잭션이 방금 지운 행이 아직 보이거나(스냅샷 차이) 잠금 밖에서 읽어 결과가 흔들린다.
+    // 읽는 대상은 **다른 완료 세션의 수행 기록**이라 이 트랜잭션의 쓰기와 겹치지 않는다.
+    const newExerciseIds = exerciseIds.filter((id) => !current.has(id));
+    const newCatalog = new Map(
+      (await tx.exercise.findMany({ where: { id: { in: newExerciseIds } } })).map((row) => [
+        row.id,
+        row,
+      ]),
+    );
+    const prefetched = await this.recommendation.prefetchHistories(
+      userId,
+      [...newCatalog.values()].map((row) => ({
+        exerciseId: row.id,
+        loadSemantics: row.loadSemantics,
+      })),
+      tx,
+    );
+    const calibration = await this.recommendation.calibrationFor(userId, tx);
+
+    // correlation 중복 검사도 **루프 전에 한 번**이다. 종목마다 세면 그것만으로 N+1 이 된다.
+    const newCorrelationIds = newExerciseIds.flatMap((id) =>
+      (byExercise.get(id) ?? []).map((item) => item.correlation_id),
+    );
+    // 요청 내부 중복은 **DTO 검증이 유일한 owner** 다(도달 불가한 중복 방어를 두지 않는다).
+    if (
+      newCorrelationIds.length &&
+      (await tx.plannedSet.count({ where: { clientCorrelationId: { in: newCorrelationIds } } }))
+    )
+      throw new ConflictException("이미 다른 planned set이 사용 중인 correlation이다.");
+
     for (const [orderIndex, exerciseId] of exerciseIds.entries()) {
       const existing = current.get(exerciseId);
       const requested = [...(byExercise.get(exerciseId) ?? [])].sort((a, b) => a.set_no - b.set_no);
@@ -370,13 +458,8 @@ export class SyncService {
           throw new BadRequestException(
             "planned set correlation의 set_no는 1부터 연속이어야 한다.",
           );
-        if (
-          await tx.plannedSet.count({
-            where: { clientCorrelationId: { in: requested.map((item) => item.correlation_id) } },
-          })
-        )
-          throw new ConflictException("이미 다른 planned set이 사용 중인 correlation이다.");
-        const exercise = await tx.exercise.findUnique({ where: { id: exerciseId } });
+        // 카탈로그·이력 모두 루프 전에 읽었다. map miss 는 **fail closed** 다.
+        const exercise = newCatalog.get(exerciseId);
         if (!exercise) throw new BadRequestException(`운동을 찾을 수 없다: ${exerciseId}`);
         const rows = await this.plannedSets.build({
           userId,
@@ -384,6 +467,9 @@ export class SyncService {
           exercise,
           orderIndex,
           sets: requested.length,
+          // factory 안에서 읽지 않는다 — 여기서 명시적으로 넘긴다.
+          history: requireHistory(prefetched, exerciseId),
+          calibration,
         });
         await tx.plannedSet.createMany({
           data: rows.map((row) => ({
@@ -632,7 +718,7 @@ function correlationsOf(mutation: MutationDto): PlannedSetCorrelation[] {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function plannedSetResponse(set: PlannedSet, sampleCount: number) {
+export function plannedSetResponse(set: PlannedSet, sampleCount: number) {
   return {
     id: set.id,
     exercise_id: set.exerciseId,
@@ -651,6 +737,14 @@ function plannedSetResponse(set: PlannedSet, sampleCount: number) {
     reason_code: applyDisplayGate(sampleCount, set.reasonCode),
     confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
     rules_version: set.rulesVersion,
+    // 오프라인 미러도 같은 축을 받아야 predicate 를 돌릴 수 있다(F-4a, server-first 경계).
+    load_kind: loadKindForSnapshot(set),
+    recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
+    assistance_provenance: set.assistanceProvenance,
+    // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
+    recommended_action: applyDisplayGate(sampleCount, recommendedActionFor(set.reasonCode)),
+    // sync 로 만들어진 행은 아직 수행 사실이 없다(방금 생성된 planned row 의 매핑이다).
+    assistance_safety_status: rawAssistanceSafetyStatus(toRawTargetRow(set, false)),
     recommendation_gate: displayGateState(sampleCount),
     performed_set: null,
   };

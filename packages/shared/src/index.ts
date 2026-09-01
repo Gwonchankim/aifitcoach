@@ -1,5 +1,10 @@
 export * from "./types";
+export * from "./assistance";
+export * from "./assistance-safety";
+export * from "./safety";
 export * from "./display-gate";
+export * from "./rules-version";
+export * from "./session-plan";
 export { correctedRir, estimateE1rm, recommendNextSet } from "./recommend";
 export type { E1rmSet } from "./recommend";
 export * from "./routine-plan";

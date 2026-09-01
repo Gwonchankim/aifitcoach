@@ -35,6 +35,9 @@ function analytics(gate_state: E1rmAnalytics["gate_state"]): E1rmAnalytics {
       confidence: 0.8,
       explanation: "42.5kg 추천",
       rules_version: "v1",
+      load_kind: "external",
+      recommendation_state: "ready",
+      recommended_action: null,
     },
   };
 }

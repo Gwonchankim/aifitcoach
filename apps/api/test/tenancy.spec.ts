@@ -65,6 +65,7 @@ describe("테넌시 격리 (user_id)", () => {
       recommendedReps: 6,
       reasonCode: "BASELINE",
       confidence: 0.5,
+      loadSemantics: "external_load" as const,
       rulesVersion: "2026.07.1",
     }));
   }

@@ -23,9 +23,11 @@ import {
   formatKg,
   hasWeightInput,
   missingField,
+  nonNegativeWeight,
   resolveValues,
   setPrefill,
   targetLabel,
+  weightAxisLabel,
   type SetKind,
   type SetValues,
 } from "./set-rules";
@@ -55,6 +57,24 @@ function parseNumber(text: string): number | null {
   if (trimmed === "") return null;
   const value = Number(trimmed);
   return Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 무게 미정 세트는 앞 세트 무게를 **건드리기 전까지만** 이어받는다.
+ *
+ * 직접 편집한 뒤 빈 문자열이 된 상태를 다시 fallback 으로 해석하면 `30 → 3 → ""` 삭제의
+ * 마지막 단계에서 30이 되살아난다. 모바일에서는 controlled value 재적용 때문에 캐럿이 튄 것처럼
+ * 보인다. `edited`는 빈 값도 사용자의 최신 의도임을 구분한다.
+ */
+export function shownWeightText(
+  weightText: string,
+  kind: SetKind,
+  fallbackWeight: number | null,
+  edited: boolean,
+): string {
+  return weightText !== "" || edited || kind !== "unknown_weight" || fallbackWeight == null
+    ? weightText
+    : String(fallbackWeight);
 }
 
 /** 한글·단위는 본문 글꼴로 두고 기록의 숫자 조각만 모노로 렌더한다. */
@@ -172,6 +192,8 @@ export function SetRow({
   // not yet committed with the completion check. Focus alone is insufficient on
   // mobile engines because native input helpers may blur between input events.
   const hasUncommittedInput = useRef(false);
+  // 빈 문자열도 직접 편집 결과일 수 있다. fallback 재적용과 구분해야 마지막 자리까지 지울 수 있다.
+  const weightEdited = useRef(false);
 
   // Pull may create or replace a draft after this row mounted. Keep the controlled inputs in sync
   // without remounting the row (a remount would steal focus while the user edits a completed set).
@@ -225,10 +247,7 @@ export function SetRow({
   }, [editing, primaryId]);
 
   // 무게 미정 세트는 프리필이 없다. 대신 같은 운동의 앞 세트 값을 이어 쓴다(§5.2).
-  const shownWeight =
-    weightText !== "" || kind !== "unknown_weight" || fallbackWeight == null
-      ? weightText
-      : String(fallbackWeight);
+  const shownWeight = shownWeightText(weightText, kind, fallbackWeight, weightEdited.current);
 
   const valuesFrom = (
     weight: string,
@@ -236,7 +255,7 @@ export function SetRow({
     time: string,
     rirValue: number | null,
   ): SetValues => ({
-    weight: hasWeightInput(kind) ? parseNumber(weight) : null,
+    weight: hasWeightInput(kind) ? nonNegativeWeight(parseNumber(weight)) : null,
     reps: kind === "time" ? null : parseNumber(reps),
     rir: asksRir(kind) ? rirValue : null,
     timeSec: kind === "time" ? parseNumber(time) : null,
@@ -440,16 +459,18 @@ export function SetRow({
             <div className="col-start-2 row-start-1 min-w-0">
               <Input
                 id={`set-${set.id}-weight`}
-                label={`${setLabel} 무게, 킬로그램`}
+                label={`${setLabel} ${weightAxisLabel(set)}, 킬로그램`}
                 hideLabel
                 density="compact"
+                type="text"
                 inputMode="decimal"
-                placeholder="무게"
+                placeholder={weightAxisLabel(set)}
                 value={shownWeight}
                 invalid={missing === "weight"}
                 aria-describedby={missing === "weight" ? errorId : undefined}
                 onChange={(event) => {
                   hasUncommittedInput.current = true;
+                  weightEdited.current = true;
                   setWeightText(event.target.value);
                   commit(valuesFrom(event.target.value, repsText, timeText, rir));
                 }}

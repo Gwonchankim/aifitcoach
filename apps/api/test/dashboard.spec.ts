@@ -120,6 +120,7 @@ describe("GET /dashboard (F8 대시보드)", () => {
           restSec: 120,
           reasonCode: "BASELINE",
           confidence: 0.5,
+          loadSemantics: "external_load" as const,
           rulesVersion: "2026.08.1",
         })),
       });

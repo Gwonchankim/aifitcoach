@@ -158,12 +158,15 @@ export class DashboardService {
       select: {
         actualWeight: true,
         actualReps: true,
-        plannedSet: { select: { exerciseId: true } },
+        plannedSet: { select: { exerciseId: true, loadSemantics: true } },
       },
     });
 
     let volume = 0;
     for (const set of performed) {
+      // 어시스트 kg 은 **기계가 덜어준 무게**다 — 들어올린 볼륨이 아니다(§F).
+      // 맨몸·시간 종목과 같은 취급: 볼륨에서 빼고 완료 세트 수에는 그대로 센다.
+      if (set.plannedSet.loadSemantics === "assistance") continue;
       if (set.actualWeight === null || set.actualReps === null) continue;
       const weight = Number(set.actualWeight);
       volume += weight * set.actualReps;

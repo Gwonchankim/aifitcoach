@@ -19,6 +19,9 @@ export default async function globalTeardown(): Promise<void> {
     await prisma.performedSet.deleteMany({
       where: { plannedSet: { session: { program: { userId } } } },
     });
+    await prisma.assistanceAudit.deleteMany({
+      where: { plannedSet: { session: { program: { userId } } } },
+    });
     await prisma.plannedSet.deleteMany({ where: { session: { program: { userId } } } });
     await prisma.workoutSession.deleteMany({ where: { program: { userId } } });
     await prisma.program.deleteMany({ where: { userId } });

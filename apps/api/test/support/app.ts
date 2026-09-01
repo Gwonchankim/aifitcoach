@@ -25,6 +25,10 @@ export async function resetUserData(prisma: PrismaService, ...userIds: string[])
   await prisma.performedSet.deleteMany({
     where: { plannedSet: { session: { program: { userId } } } },
   });
+  // assistance_audits 는 ON DELETE RESTRICT 라 planned_sets 보다 먼저 지워야 한다(F-3).
+  await prisma.assistanceAudit.deleteMany({
+    where: { plannedSet: { session: { program: { userId } } } },
+  });
   await prisma.plannedSet.deleteMany({ where: { session: { program: { userId } } } });
   await prisma.workoutSession.deleteMany({ where: { program: { userId } } });
   await prisma.program.deleteMany({ where: { userId } });

@@ -34,6 +34,7 @@ function exercise(
     defaultTimeLowSec: null,
     defaultTimeHighSec: null,
     defaultStepKg: null,
+    loadSemantics: "external_load" as const,
     unilateral: false,
     substitutions: [],
     cues: [],

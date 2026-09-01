@@ -12,6 +12,9 @@
 7. `CONVENTIONS.md` — 코딩 컨벤션
 10. `TEST_SCOPE.md` — production 세션 인증과 non-production dev-user 테스트 하네스의 경계 ★
 11. `M4_CONTRACT.md` — M-4′ 집계·12주 lazy lifecycle·3세션 서버 게이트 계약 ★ M-4′ 필독
+11. `PROGRAM_V2_CONTRACT.md` — 운동 프로그램 V2 계약(게이트 두 축 분리·S/C/H 생성·RPE 척도) ★ V2 필독.
+    **ADR-70이 M4_CONTRACT §4와 UX_STATES §2.3·§11의 3세션 게이트를 대체한다** — V2 작업 전 이 문서를 먼저 읽는다.
+11. `PROGRAM_V1_INVENTORY.md` — 현행 프로그램 생성 규칙 실측(ADR-71 1단계). **값이 아니라 사실 기록이다.**
 12. `prototypes/README.md` — 원본 오프라인 프로토타입 7종의 재현 가능한 템플릿·카피·스타일 추출본
 9. `AGENTS_TEAM.md` — 팀(서브에이전트) 오케스트레이션·병렬화·역할
 8. `SECURITY_PIPA.md` — 보안·개인정보 필수 준수(사람 검토 필수)

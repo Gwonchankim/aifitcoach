@@ -31,6 +31,11 @@ function plannedSet(overrides: Partial<PlannedSet> = {}): PlannedSet {
     confidence: 0.85,
     rules_version: "2026.08.1",
     ...overrides,
+    load_kind: "external",
+    recommendation_state: "ready",
+    assistance_provenance: null,
+    recommended_action: null,
+    assistance_safety_status: null,
     recommendation_gate: overrides.recommendation_gate ?? "ready",
     performed_set: overrides.performed_set ?? null,
   };
@@ -77,6 +82,31 @@ describe("setKind (판별 순서 §5.1)", () => {
 
   it("그 외는 일반(가중·반복)이다", () => {
     expect(setKind(plannedSet(), "reps")).toBe("weighted");
+  });
+});
+
+/**
+ * V2-REASON-01 호환 회귀. runtime union 에서 제거한 코드가 저장된 행에 남아 있을 수 있다.
+ * 그 코드가 오면 근거 영역을 숨긴다(AC-E-6) — 영문 코드를 노출하지 않는다.
+ * 일반 unknown 테스트로 대신하지 않고 **제거한 6종을 직접** 밟는다(map 잔존 회귀를 잡기 위해).
+ */
+describe("제거된 reason_code 의 렌더 호환", () => {
+  const REMOVED = [
+    "VOLUME_SPIKE_CAP",
+    "DELOAD_SUGGESTED",
+    "RIR_ON_TARGET_HOLD",
+    "CALIBRATION_NEEDED",
+    "CALIBRATION_GRADUATED",
+    "CALIBRATION_STALE",
+  ];
+
+  it.each(REMOVED)("%s 는 근거 영역을 숨긴다(map 잔존 시 실패)", (code) => {
+    expect(reasonLabel(code)).toBeNull();
+    expect(reasonLabel(code, "weighted")).toBeNull();
+  });
+
+  it("살아 있는 코드는 여전히 문구가 나온다(전부 숨기는 회귀를 막는다)", () => {
+    expect(reasonLabel("WEIGHT_UP_REP_TARGET_MET", "weighted")).not.toBeNull();
   });
 });
 

@@ -2,7 +2,18 @@
 
 import { useEffect } from "react";
 import { api, type SyncRequest, type SyncResponse } from "../../lib/api";
-import { DEV_USER_SCOPE, sessionDb, type OutboxMutation } from "./session-db";
+import {
+  COMPLETION_DRAIN_PENDING,
+  DEV_USER_SCOPE,
+  MARKER_PREFIX,
+  markerKeyFor,
+  markRemediationPending,
+  processRemediationMarkers,
+  remediationStateOf,
+  safeMappings,
+  sessionDb,
+  type OutboxMutation,
+} from "./session-db";
 
 const LEASE_NAME = "foreground-sync";
 const LEASE_MS = 15_000;
@@ -21,6 +32,8 @@ export type SyncCoordinatorOptions = {
   beforeLocalCommit?: () => Promise<void> | void;
   /** Test-only fault point inside the mapping transaction after draft keys changed. */
   duringMappingCommit?: () => Promise<void> | void;
+  /** marker refetch 의 network seam. production 기본값은 `api.session` 이다. */
+  fetchSession?: (sessionId: string) => Promise<unknown>;
 };
 
 function ownerId(): string {
@@ -35,6 +48,7 @@ export class SyncCoordinator {
   private readonly transport: SyncTransport;
   private readonly beforeLocalCommit?: () => Promise<void> | void;
   private readonly duringMappingCommit?: () => Promise<void> | void;
+  private readonly fetchSession: (sessionId: string) => Promise<unknown>;
   private running: Promise<SyncResponse | null> | null = null;
   private rerunRequested = false;
 
@@ -45,6 +59,7 @@ export class SyncCoordinator {
     this.transport = options.transport ?? defaultTransport;
     this.beforeLocalCommit = options.beforeLocalCommit;
     this.duringMappingCommit = options.duringMappingCommit;
+    this.fetchSession = options.fetchSession ?? ((sessionId) => api.session(sessionId));
   }
 
   request(ensureLatest = false): Promise<SyncResponse | null> {
@@ -160,6 +175,12 @@ export class SyncCoordinator {
         );
       if (draftsChanged && typeof window !== "undefined")
         window.dispatchEvent(new CustomEvent(SYNC_RESPONSE_EVENT, { detail: response }));
+      /**
+       * **"다음 sync 에서 authoritative refetch" 를 실제로 수행하는 곳이다.**
+       * 트랜잭션 밖에서 돈다 — 네트워크 왕복을 IDB 트랜잭션 안에 넣으면 트랜잭션이 죽는다.
+       * 실패해도 sync 자체를 실패시키지 않는다(marker 는 남아 다음 기회에 다시 시도한다).
+       */
+      await processRemediationMarkers(this.userId, this.fetchSession).catch(() => undefined);
       return response;
     } finally {
       stopHeartbeat();
@@ -178,6 +199,7 @@ export class SyncCoordinator {
         sessionDb.drafts,
         sessionDb.sessions,
         sessionDb.routines,
+        sessionDb.readModels,
         sessionDb.leases,
       ],
       async () => {
@@ -193,6 +215,8 @@ export class SyncCoordinator {
           response.conflicts.map((conflict) => [conflict.client_id, conflict]),
         );
         await this.applyPlannedSetMappings(response.planned_set_mappings);
+        /** server 가 적용한 세션 종료. 여기가 governing §F 의 "server 성공 + outbox drain" 지점이다. */
+        const completedSessions = new Set<string>();
         for (const clientId of [...applied, ...conflicts.keys()]) {
           const row = await sessionDb.outbox.get(clientId);
           if (!row || row.user_id !== this.userId) continue;
@@ -203,9 +227,12 @@ export class SyncCoordinator {
               kind: conflicts.get(clientId)!.reason,
               payload: row,
             });
+          } else if (row.entity === "session") {
+            completedSessions.add(row.entity_id);
           }
           await sessionDb.outbox.delete(clientId);
         }
+        await this.cleanupCompletedRemediation(completedSessions);
 
         for (const change of response.changes) {
           if (await this.applyChange(change)) draftsChanged = true;
@@ -218,6 +245,88 @@ export class SyncCoordinator {
       },
     );
     return draftsChanged;
+  }
+
+  /**
+   * governing §F: `session complete/abandon → server 성공 + outbox drain 뒤 marker·cache cleanup`.
+   *
+   * **marker 만 지우면 안 된다** — 미러에 남은 unsafe 처방이 그대로 다시 노출된다.
+   * 그래서 marker 와 session·routine·read-model 캐시를 **같은 트랜잭션에서 함께** 지운다.
+   * 종료 당일 재진입은 authoritative `GET` 이 복원한다.
+   *
+   * **remediation 대기 중인 세션에만 적용한다.** marker 가 없는 평범한 종료까지 캐시를 지우면
+   * 오프라인에서 방금 끝낸 세션을 못 여는 새 회귀가 생긴다(governing 표는 marker lifecycle 표다).
+   */
+  /**
+   * 이 세션에 속한 미전송 mutation 이 남아 있는가.
+   *
+   * **`entity_id === sessionId` 만 세면 안 된다.** production `performed_set` mutation 의
+   * `entity_id` 는 세션 id 가 아니라 **`planned_set_id`** 다(`mutationFor()` 가 그렇게 만든다).
+   * 세션 id 로만 세면 기록 mutation 이 잔뜩 남아 있어도 0 이 나와 캐시를 조기에 지운다
+   * (독립 재리뷰 P1-2). 그래서 이 세션의 planned-set identity 와 상관시킨다.
+   */
+  private async hasPendingForSession(sessionId: string): Promise<boolean> {
+    const rows = await sessionDb.outbox.where("user_id").equals(this.userId).toArray();
+    if (rows.length === 0) return false;
+    // 이 세션의 planned-set id: 로컬 draft 와 미러 스냅샷 양쪽에서 모은다.
+    const planned = new Set<string>();
+    for (const draft of await sessionDb.drafts
+      .where("[user_id+session_id]")
+      .equals([this.userId, sessionId])
+      .toArray())
+      planned.add(draft.planned_set_id);
+    const mirror = await sessionDb.sessions.get([this.userId, sessionId]);
+    if (isObject(mirror?.session) && Array.isArray(mirror.session.planned_sets)) {
+      for (const set of mirror.session.planned_sets)
+        if (isObject(set) && typeof set.id === "string") planned.add(set.id);
+    }
+    return rows.some((row) => row.entity_id === sessionId || planned.has(row.entity_id));
+  }
+
+  /**
+   * completion cleanup 을 **sync 를 넘어 살아남게** 한다.
+   *
+   * 이번 response 에서 종료가 ack 됐는데 그 세션의 performed-set outbox 가 남아 있으면,
+   * 보류 사실을 메모리 `Set` 이 아니라 **`syncMeta` 값**(`pending_completion_drain`)으로 굳힌다.
+   * 그러지 않으면 다음 sync 에는 후보가 없고, 그 사이 일반 refetch 가 marker 를 지워
+   * **cleanup 이 영영 다시 시도되지 않는다**(독립 재리뷰 P1).
+   *
+   * 그리고 매 response 마다 **durable 후보 전체를 다시 스캔**해 drain 을 재평가한다 —
+   * 마지막 performed-set 이 이번에 ack 됐다면 completion response 가 없어도 여기서 끝난다.
+   */
+  private async cleanupCompletedRemediation(ackedCompletions: Set<string>): Promise<void> {
+    // ① 이번에 ack 된 종료를 durable 후보로 승격한다(이미 marker 가 있던 세션만 — 기존 범위 유지).
+    for (const sessionId of ackedCompletions) {
+      const key = [this.userId, markerKeyFor(sessionId)] as [string, string];
+      const state = remediationStateOf((await sessionDb.syncMeta.get(key))?.value);
+      if (state !== "refetch" && state !== "completion") continue;
+      await sessionDb.syncMeta.put({
+        user_id: this.userId,
+        key: markerKeyFor(sessionId),
+        value: COMPLETION_DRAIN_PENDING,
+      });
+    }
+
+    // ② durable 후보 전체를 다시 본다. 이번 response 에 종료가 없어도 재시도된다.
+    const candidates = (await sessionDb.syncMeta.where("user_id").equals(this.userId).toArray())
+      .filter((row) => remediationStateOf(row.value) === "completion")
+      .map((row) => row.key.slice(MARKER_PREFIX.length));
+
+    for (const sessionId of candidates) {
+      // drain 이 끝나지 않았으면 정리하지 않는다 — 보낼 게 남았는데 캐시를 지우면 화면이 먼저 빈다.
+      if (await this.hasPendingForSession(sessionId)) continue;
+      await sessionDb.sessions.delete([this.userId, sessionId]);
+      await sessionDb.routines.delete([this.userId, sessionId]);
+      const models = await sessionDb.readModels
+        .where("[user_id+kind]")
+        .equals([this.userId, "history-session"])
+        .toArray();
+      for (const model of models) {
+        if (model.cache_key.endsWith(`:${sessionId}`))
+          await sessionDb.readModels.delete([model.user_id, model.cache_key]);
+      }
+      await sessionDb.syncMeta.delete([this.userId, markerKeyFor(sessionId)]);
+    }
   }
 
   private async applyPlannedSetMappings(
@@ -247,23 +356,52 @@ export class SyncCoordinator {
       if (mapping) await sessionDb.outbox.put({ ...row, entity_id: mapping.planned_set_id });
     }
 
+    /**
+     * **매핑도 미러 쓰기다 — 같은 fail-closed 경계를 지나야 한다.**
+     * 위의 draft·outbox remap 은 이미 끝났다(그건 사용자의 기록이라 무조건 보존한다).
+     * 여기서 거르는 것은 **처방 행**뿐이다: 안전하지 않은 매핑을 미러에 심으면
+     * v4 가 지운 세션이 sync 경로로 되살아난다.
+     */
+    const safeById = new Map(
+      safeMappings([...byCorrelation.values()]).map((mapping) => [mapping.correlation_id, mapping]),
+    );
     const mirrors = await sessionDb.sessions.where("user_id").equals(this.userId).toArray();
     for (const mirror of mirrors) {
       if (!isObject(mirror.session) || !Array.isArray(mirror.session.planned_sets)) continue;
       let changed = false;
+      let blocked = false;
+      const localIds = new Set(mirror.local_ids ?? []);
       const planned_sets = mirror.session.planned_sets.map((set) => {
         if (!isObject(set) || typeof set.id !== "string") return set;
         const mapping = byCorrelation.get(set.id);
         if (!mapping) return set;
+        const safe = safeById.get(set.id);
+        if (!safe) {
+          /**
+           * 처방은 못 받지만 **identity 는 받는다.**
+           *
+           * draft·outbox 는 위에서 이미 server id 로 옮겼다. 여기서 행 id 를 correlation 으로
+           *남겨 두면 `ExerciseCard` 가 `drafts[set.id]` 로 기록을 찾지 못해 **사용자가 방금 적은
+           * 기록이 화면에서 사라진다**(독립 재리뷰 P1-2). 그래서 처방 필드는 로컬 baseline 그대로 두고
+           * **id 만 원자적으로 바꾼다** — 네 소비자가 항상 같은 ID 를 본다.
+           */
+          blocked = true;
+          changed = true;
+          if (localIds.delete(set.id)) localIds.add(mapping.planned_set_id);
+          return { ...set, id: mapping.planned_set_id };
+        }
         changed = true;
-        return mapping.planned_set;
+        localIds.delete(set.id);
+        return safe.planned_set;
       });
       if (changed)
         await sessionDb.sessions.put({
           ...mirror,
           session: { ...mirror.session, planned_sets },
           updated_at: new Date(this.clock.now()).toISOString(),
+          ...(localIds.size > 0 ? { local_ids: [...localIds] } : { local_ids: undefined }),
         });
+      if (blocked) await markRemediationPending(this.userId, mirror.session_id);
     }
 
     const routines = await sessionDb.routines.where("user_id").equals(this.userId).toArray();

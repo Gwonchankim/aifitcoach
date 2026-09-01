@@ -235,6 +235,11 @@
 | 오프라인 | 캐시 없음 | 전체 빈 상태 | "인터넷이 연결되면 요약을 보여드릴게요." |
 | 부분 수행 | 오늘 일부만 완료했고 아직 운동 종료 전(`today.status = workout`이지만 로컬에 완료 세트 있음) | 오늘 카드에 진행 배지 | "진행 중 · {완료}/{전체} 세트" / [이어서 하기] |
 
+> **V2 예정 — 빈 ④ 행은 ADR-70이 대체한다(현재 코드는 아직 V1).** V2에서는 analysis 축이 e1RM 값·선·추세와
+> `confidence` 숫자만 막는다. **external 첫 세션에도 target reps와 calibration reason은 표시한다 — load 값만
+> 미준비다.** 무게는 `recommendation_state=load_calibration_needed`인 동안에만 비고, 반복 목표와 근거 문구는
+> 첫 세션부터 있다. 계약은 `docs/PROGRAM_V2_CONTRACT.md` §1·§1.1, 실제 교체는 V2-GATE-01에서 코드와 함께 한다.
+
 - **AC-S3-1** `today.status`가 `done`일 때 [운동 시작] CTA가 보이지 않는다.
 - **AC-S3-2** 지표 카드 하나가 실패해도 다른 카드는 정상 렌더된다(전체 화면 에러 금지).
 - **AC-S3-3** 오프라인 배지가 있을 때 표시 중인 수치의 기준 시각이 함께 보인다.
@@ -771,13 +776,11 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 | `reason_code` | 화면 문구 |
 |---|---|
 | `BASELINE` | 첫 세션이라 무게를 직접 정해요 |
-| `SIMILAR_INIT` | 비슷한 운동 기록으로 잡은 시작 무게예요 |
 | `WEIGHT_UP_REP_TARGET_MET` | 지난번 목표 반복을 모두 채워서 무게를 올렸어요 |
 | `ADD_ONE_REP` | 무게는 그대로, 반복을 1회 늘려요 |
 | `HOLD_RIR_LOW` | 지난번이 힘들어 보여 무게를 유지해요 |
 | `TOO_HARD` | 지난번이 버거워서 무게를 조금 낮췄어요 |
 | `RIR_TOO_EASY_INCREASE` | 여유가 있어 보여 무게를 올렸어요 |
-| `RIR_ON_TARGET_HOLD` | 강도가 목표에 잘 맞아요 |
 | `RIR_TOO_HARD_REDUCE` | 강도가 높아 보여 부담을 줄였어요 |
 | `REPS_UP_BODYWEIGHT` | 자체중량이라 반복 목표를 늘려요 |
 | `PROGRESSION_CAP_BODYWEIGHT` | 반복이 충분히 늘어서 난도를 올릴 때예요 |
@@ -786,12 +789,30 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 | `TIME_HOLD` | 이번엔 같은 시간으로 유지해요 |
 | `TIME_DOWN` | 목표 시간을 조금 낮췄어요 |
 | `SUBSTITUTE_PAIN` | 통증이 기록돼서 다른 운동을 권해요 (+ 의료 조언 아님 고지) |
-| `VOLUME_SPIKE_CAP` | 갑작스러운 운동량 증가를 막기 위해 조절했어요 |
-| `DELOAD_SUGGESTED` | 회복을 위해 이번 주는 가볍게 가요 |
-| `CALIBRATION_NEEDED` / `CALIBRATION_STALE` | 강도 감각을 맞추면 추천이 더 정확해져요 |
-| `CALIBRATION_GRADUATED` | 강도 감각 측정이 끝나 추천에 반영했어요 |
 | `INVALID_INPUT` | (표시하지 않는다 — 근거 영역 숨김) |
 | 목록 밖 값 | **근거 영역을 숨긴다.** 코드 원문 노출 금지 |
+
+> **V2-REASON-01(2026-08-23)에서 6종을 이 표에서 뺐다.** 엔진이 emit하지 않는 코드를 사용자 문구 맵에
+> 두면 소비자가 "가능한 응답"으로 처리하게 된다.
+>
+> - `RIR_ON_TARGET_HOLD` — **완전 제거.** on-target은 별도 reason 없이 더블 프로그레션으로 넘긴다는 것이 설계다.
+> - `VOLUME_SPIKE_CAP`·`DELOAD_SUGGESTED`·`CALIBRATION_STALE` — **예약**(`RESERVED_REASON_CODES`).
+>   기능 티켓에서 입력·emit·테스트와 함께 되살릴 때 문구도 같이 정한다.
+> - `CALIBRATION_NEEDED`·`CALIBRATION_GRADUATED` — **추천 근거가 아니라 튜토리얼 상태다.**
+>   UI 문구가 필요하면 `CalibrationStatus`(`not_started|in_progress|graduated|stale`) 기반으로 설계한다(`V2-RIR-01`).
+>
+> 저장된 구형 행에 이 코드가 남아 있어도 **목록 밖 값 규칙**이 그대로 적용돼 근거 영역이 비고 영문 코드는 노출되지 않는다.
+
+**V2 추가 (ADR-70, 소유 티켓 V2-GATE-01)** — `LOAD_CALIBRATION_NEEDED`의 확정 문구:
+
+> 첫 운동이라 추천 무게를 정하는 중이에요. 가벼운 무게부터 시작해 목표 반복을 3~4회 여유 있게 할 수 있는 무게를 입력해 주세요.
+
+- **weight axis 전용**이다. `target reps`는 계속 표시한다 — 이 상태는 무게만 미정이라는 뜻이다.
+- analysis·e1RM 근거로 취급하지 않는다(`analysis_gate`와 무관하게 첫 세션부터 표시).
+- 목록 밖 값 숨김 규칙(AC-E-6)은 그대로 적용된다.
+- 소유 분담: **V2-ENGINE-01**이 reason을 생성하고 골든으로 고정한다.
+  **V2-GATE-01**이 이 표·웹 `REASON_TEXT`·단위 테스트·E2E를 갱신한다.
+  V2-ENGINE-01 시점에는 이 문구가 아직 화면에 없다.
 
 - **AC-E-6** 알 수 없는 `reason_code`가 와도 화면에 영문 코드가 노출되지 않는다.
 
@@ -1085,6 +1106,10 @@ Enter로 [휴식 종료] → 다음 세트 입력칸에 포커스 → … → [�
   도착하면 provisional 전체를 서버 snapshot으로 교체한다(D-39·D-52).
 - `early`(종목별 완료 세션 1~2회)는 날짜 점과 “N회 기록됨. 세 세션부터 추이를 보여드립니다.”를
   표시하되 e1RM 숫자·연결선·다음 추천·추천 근거를 DOM에 두지 않는다.
+  > **V2 예정(ADR-70) — 현재 코드는 아직 V1.** V2의 `early`는 e1RM 숫자·연결선·`confidence`만 DOM에서 빼고
+  > **다음 추천과 추천 근거는 첫 세션부터 DOM에 둔다.** external 첫 세션은 무게만 비고 target reps와
+  > `LOAD_CALIBRATION_NEEDED` 근거는 그대로 표시한다 — load 값만 미준비라는 뜻이다.
+  > `docs/PROGRAM_V2_CONTRACT.md` §1·§1.1. 실제 교체는 V2-GATE-01에서 코드와 함께 한다.
 - 주간 프로그램의 미래 lazy 주차는 `예정`으로 표시하고 session ID나 저장된 세션인 것처럼 행동하지 않는다.
 - 계획 충돌·볼륨 범위 이탈은 읽기 전용 안내다. 일정 재배치 CTA를 만들지 않는다(ADR-24/D-42).
 - 기록 상세는 계획 대비 실제를 읽기 전용으로 보여준다. 과거 날짜 수행값을 수정·추가하는 UI는 만들지 않는다.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recommendNextSet } from "shared";
+import { recommendNextSet, ROUTINE_RULES_VERSION } from "shared";
 import type { RecommendationInput } from "shared";
 
 /**
@@ -17,7 +17,7 @@ describe("shared 추천 엔진 배선", () => {
         { w: 60, reps: 12, rir: 2 },
         { w: 60, reps: 12, rir: 2 },
       ],
-      rules_version: "2026.07.1",
+      rules_version: ROUTINE_RULES_VERSION,
     };
 
     const out = recommendNextSet(input);

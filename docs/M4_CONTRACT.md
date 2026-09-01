@@ -48,6 +48,17 @@
 
 ## 4. 3세션 표시 게이트
 
+> **V2에서 대체된다 — ADR-70. 아래는 현재 코드가 실제로 하는 동작이다(V1).**
+> V2는 게이트를 두 축으로 쪼갠다. `recommendation_state`
+> (`ready|load_calibration_needed|substitution_required|unavailable`)는 **처방 적용 가능성**을 제어하고,
+> analysis 축(기존 `gate_state`·`recommendation_gate` 필드를 이름 그대로 유지하되 의미를 좁힌 것)이
+> e1RM·points·`confidence`를 제어한다. 네 값 중 **`load_calibration_needed`만이 external weight `null`을
+> 제어하는 load substate**이고, `substitution_required`·`unavailable`은 처방 수행 자체를 막는 safety/error
+> 상태다. 즉 `early`에서도 **`recommended_reps`와 `reason_code`는 응답에 남는다** —
+> external 첫 세션은 무게만 `null`이고 target reps와 `LOAD_CALIBRATION_NEEDED` reason은 반환한다.
+> 응답별 required/nullable 매트릭스는 `docs/PROGRAM_V2_CONTRACT.md` §1.1이다.
+> 이 절의 교체는 V2-GATE-01에서 코드와 함께 한다. 그 전까지 이 문서를 V2 기준으로 읽지 않는다.
+
 - 단위: 종목별 **distinct 완료 세션**, 임계값 3. 세트 수가 아니다.
 - `no_history`: observation 0, e1RM 추이와 다음 추천 없음.
 - `early`: observation 1~2, 날짜 observation만 제공하고 e1RM 수치/선/다음 추천/추천 근거는 서버 응답에서 제거한다.

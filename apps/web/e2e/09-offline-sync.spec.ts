@@ -372,3 +372,80 @@ test("@chromium-only two tabs resolve the same planned set by later real-clock w
   await finish(other);
   await assertAuthoritativeSummary(request, 1, 700);
 });
+
+/**
+ * **실패 관측성 장치 — 상시 유지한다.**
+ *
+ * loss-0 은 이 앱의 핵심 계약이라 실패가 한 번 나면 그 실행의 로컬 상태를 반드시 봐야 한다.
+ * 실제로 한 번 놓쳤다: WebKit 에서 간헐 실패가 났는데 다음 실행이 `.artifacts` 를 비워
+ * trace 가 사라졌고, 그래서 draft 소실인지 ID 불일치인지 hydration timing 인지 가르지 못했다.
+ *
+ * **이것은 flake 은폐가 아니다.** 재시도하지도, 실패를 통과로 만들지도 않는다 —
+ * 실패는 그대로 실패다. 실패했을 때 **무엇을 볼 수 있는지**만 늘린다.
+ *
+ * 비용 0 보장: `testInfo.status === "failed"` 일 때만 실행되므로 통과 경로에는 어떤 지연도 없다.
+ * 지연을 넣으면 그 자체가 race 를 가려 버린다.
+ *
+ * 데이터 경계: 이 스위트는 **E2E 전용 synthetic 데이터**만 다룬다(공개 API 로 만든 계획 세트).
+ * 그래도 담는 값은 손실 판정에 필요한 최소치로 제한한다 — 통증 점수·client id·쿠키·토큰은 넣지 않는다.
+ */
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status !== "failed" || page.isClosed()) return;
+  const dump = await page
+    .evaluate(async () => {
+      const open = indexedDB.open("afc-session-v1");
+      const db: IDBDatabase = await new Promise((resolve, reject) => {
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      const read = (store: string) =>
+        new Promise<Record<string, unknown>[]>((resolve) => {
+          if (!db.objectStoreNames.contains(store)) return resolve([]);
+          const request = db.transaction(store, "readonly").objectStore(store).getAll();
+          request.onsuccess = () => resolve(request.result as Record<string, unknown>[]);
+          request.onerror = () => resolve([]);
+        });
+      const [drafts, outbox, sessions, syncMeta] = await Promise.all([
+        read("drafts"),
+        read("outbox"),
+        read("sessions"),
+        read("syncMeta"),
+      ]);
+      return {
+        // ① draft row 가 남아 있는가(소실 여부)
+        drafts: drafts.map((row) => ({
+          session_id: row.session_id,
+          planned_set_id: row.planned_set_id,
+          actual_weight: row.actual_weight,
+          completed: row.completed,
+        })),
+        outbox: outbox.map((row) => ({
+          entity: row.entity,
+          entity_id: row.entity_id,
+          op: row.op,
+        })),
+        // ② 화면 행 id 와 draft 키가 같은가(ID 불일치 여부)
+        sessions: sessions.map((row) => ({
+          session_id: row.session_id,
+          local_ids: row.local_ids ?? null,
+          planned_set_ids: Array.isArray((row.session as { planned_sets?: unknown })?.planned_sets)
+            ? (row.session as { planned_sets: Record<string, unknown>[] }).planned_sets.map(
+                (set) => set.id,
+              )
+            : null,
+        })),
+        // ③ remediation marker/candidate 가 실제로 있었는가(durable completion 경로 실행 여부)
+        syncMeta: syncMeta.map((row) => ({ key: row.key, value: row.value })),
+        inputs: [...document.querySelectorAll("input[id$='-weight']")].map((node) => ({
+          id: (node as HTMLInputElement).id,
+          value: (node as HTMLInputElement).value,
+          label: (node as HTMLInputElement).getAttribute("aria-label") ?? "",
+        })),
+      };
+    })
+    .catch((error) => ({ dumpError: String(error) }));
+  await testInfo.attach("idb-dump.json", {
+    body: JSON.stringify(dump, null, 2),
+    contentType: "application/json",
+  });
+});

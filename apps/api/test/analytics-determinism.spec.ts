@@ -89,6 +89,7 @@ describe("M-4′ analytics 결정론", () => {
               recommendedReps: 6,
               reasonCode: "BASELINE",
               confidence: 0.5,
+              loadSemantics: "external_load" as const,
               rulesVersion: "2026.08.1",
               performedSets: {
                 create: {

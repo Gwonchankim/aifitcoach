@@ -7,7 +7,7 @@
 import type { Exercise, PlannedSet } from "../../lib/api";
 import { Badge, Card } from "../ui";
 import { ExerciseMenu } from "./ExerciseMenu";
-import { reasonLabel, setKind, weightBadge, type SetValues } from "./set-rules";
+import { assistanceBadge, reasonLabel, setKind, weightBadge, type SetValues } from "./set-rules";
 import { SetRow } from "./SetRow";
 import type { SetDraft } from "./session-store";
 
@@ -59,8 +59,9 @@ export function ExerciseCard({
   const completedCount = sets.filter((set) => drafts[set.id]?.completed).length;
   const kinds = sets.map((set) => setKind(set, exercise?.metric, exercise?.step_kg));
   // 근거·무게 배지는 카드 단위다 → 이 종목의 축(시간/자체중량/무게)에 맞는 문구만 남긴다.
-  const reason = reasonLabel(sets[0]?.reason_code ?? "", kinds[0]);
-  const badge = weightBadge(kinds[0] ?? "weighted");
+  const reason = reasonLabel(sets[0]?.reason_code ?? "", kinds[0], sets[0]);
+  // 어시스트는 "덜어주는 kg" 이라 무게 배지 자리에 도움 배지가 온다(F-4b).
+  const badge = (sets[0] ? assistanceBadge(sets[0]) : null) ?? weightBadge(kinds[0] ?? "weighted");
   const showBaselineNote = kinds.some((kind) => kind === "unknown_weight");
   const menuId = `exercise-${sets[0]?.exercise_id ?? "unknown"}-menu`;
   const lockedReasonId = `${menuId}-locked-reason`;

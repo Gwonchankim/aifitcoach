@@ -22,6 +22,11 @@ const SET: PlannedSet = {
   reason_code: "WEIGHT_UP_REP_TARGET_MET",
   confidence: 0.85,
   rules_version: "2026.08.1",
+  load_kind: "external",
+  recommendation_state: "ready",
+  assistance_provenance: null,
+  recommended_action: null,
+  assistance_safety_status: null,
   recommendation_gate: "ready",
   performed_set: null,
 };

@@ -28,6 +28,13 @@ const VALID_SESSION = {
       reason_code: "BASELINE",
       confidence: 0.5,
       rules_version: "2026.07.1",
+      load_kind: "external",
+      recommendation_state: "ready",
+      // non-assisted 는 provenance·action·verdict 가 **전부 null** 이다 — 이 fixture 가 그 계약을
+      // 함께 잠근다(§F). 기본값·빈 문자열로 채우면 클라이언트가 어시스트 행으로 오인한다.
+      assistance_provenance: null,
+      recommended_action: null,
+      assistance_safety_status: null,
       recommendation_gate: "no_history",
       performed_set: null,
     },
@@ -167,12 +174,18 @@ describe("openapi 응답 검증기", () => {
                 confidence: 0.5,
                 explanation: "기록이 없다",
                 rules_version: "2026.07.1",
-                debug_history: [{ w: 60 }],
+                load_kind: "external",
+                recommendation_state: "ready",
+                recommended_action: null,
+                // **테스트 전용 sentinel.** 제품 필드 이름을 쓰면 그 필드가 정식 계약이 되는 날
+                // 이 테스트의 의미가 조용히 뒤집힌다(실제로 load_kind 를 쓰다 그렇게 됐다).
+                // 이 이름은 production schema 에 절대 추가하지 않는다.
+                unexpected_contract_field: "leak",
               },
             },
           ],
         }),
-      ).toThrow(/\$\.next_recommendations\[0\]\.recommendation\.debug_history/);
+      ).toThrow(/\$\.next_recommendations\[0\]\.recommendation\.unexpected_contract_field/);
     });
   });
 

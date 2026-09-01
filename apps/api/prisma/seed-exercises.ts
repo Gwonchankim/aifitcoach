@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { $Enums, Prisma, PrismaClient } from "@prisma/client";
+import { loadSemanticsFor } from "../src/programs/assistance-migration";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const SEED_FILE = path.join(REPO_ROOT, "docs", "specs", "exercises_seed.json");
@@ -120,6 +121,7 @@ type ExerciseSeed = {
   defaultTimeHighSec: number | null;
   defaultStepKg: number | null;
   unilateral: boolean;
+  loadSemantics: "assistance" | "external_load";
   substitutions: string[];
   cues: string[];
   media: Prisma.InputJsonValue;
@@ -176,6 +178,8 @@ function toExerciseInput(raw: unknown, index: number): ExerciseSeed {
     defaultTimeHighSec,
     defaultStepKg: numOrNull(row, "default_step_kg", where),
     unilateral: bool(row, "unilateral", where),
+    // canonical — 시드 파일이 값을 갖지 않아도 목록이 결정한다(F-3 guard).
+    loadSemantics: loadSemanticsFor(String(row.id)),
     substitutions: strArray(row, "substitutions", where),
     cues: strArray(row, "cues", where),
     media: media as Prisma.InputJsonValue,

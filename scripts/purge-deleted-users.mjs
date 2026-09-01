@@ -47,6 +47,9 @@ async function purgeUser(userId) {
     await tx.performedSet.deleteMany({
       where: { plannedSet: { session: { program: { userId } } } },
     });
+    await tx.assistanceAudit.deleteMany({
+      where: { plannedSet: { session: { program: { userId } } } },
+    });
     await tx.plannedSet.deleteMany({ where: { session: { program: { userId } } } });
     await tx.workoutSession.deleteMany({ where: { program: { userId } } });
     await tx.program.deleteMany({ where: { userId } });
