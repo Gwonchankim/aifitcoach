@@ -4,7 +4,7 @@
  */
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
 import {
@@ -16,6 +16,7 @@ import {
   type SyncResponse,
 } from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
+import { restTimerStore } from "./rest-timer-store";
 import { isUtcToday } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
@@ -178,6 +179,29 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const session = sessionQuery.data;
+
+  /**
+   * 저장된 휴식 타이머 복구. **authoritative 세션이 준비된 뒤 한 번만** 시도한다.
+   *
+   * 만료된 타이머도 그대로 올린다 — 0 으로 보여 주고 자동으로 닫지 않는 것이 계약이다(§4.7).
+   * 그 세트가 지금 세션에 없으면(운동 삭제·교체) 올릴 자리가 없으므로 기록째 버린다.
+   */
+  const restoreAttempted = useRef(false);
+  useEffect(() => {
+    if (!session || restoreAttempted.current) return;
+    restoreAttempted.current = true;
+
+    void restTimerStore.load(sessionId, Date.now()).then((stored) => {
+      if (!stored) return;
+      if (!(session.planned_sets ?? []).some((set) => set.id === stored.plannedSetId)) {
+        void restTimerStore.clear(sessionId);
+        return;
+      }
+      // 복구를 기다리는 사이 사용자가 새 세트를 끝냈으면 그쪽이 최신이다 — 덮지 않는다.
+      setRest((previous) => previous ?? stored);
+    });
+  }, [session, sessionId]);
+
   const catalog = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
   const catalogById = useMemo(
     () => new Map(catalog.map((exercise) => [exercise.id, exercise])),
@@ -429,6 +453,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setFinishOpen(false);
       setFinishError(null);
       setSummary(data as CompleteResponse);
+      // 세션이 끝났으면 그 세션의 휴식은 더 없다.
+      setRest(null);
+      void restTimerStore.clear(sessionId);
       if ((data as { offline?: boolean }).offline)
         setNotice("운동을 기기에 저장했어요. 온라인이 되면 동기화돼요.");
       // 종료(또는 재종료)로 상태·추천이 바뀐다 → 세션 캐시를 응답으로 갱신하고 대시보드는 다시 받는다.
@@ -446,11 +473,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       return;
     }
     setNotice(`${set.set_no}세트 완료`);
-    setRest({
+    const next: RestState = {
       plannedSetId: set.id,
       title: `${exerciseName} ${set.set_no}세트 후 휴식`,
       timer: startRest(set.rest_sec, Date.now()),
-    });
+    };
+    setRest(next);
+    // 지속은 부가 기능이다 — 실패해도 기록은 이미 끝났고 화면도 그대로 간다.
+    void restTimerStore.save(sessionId, next.plannedSetId, next.title, next.timer);
   };
 
   const handleUncomplete = async (set: PlannedSet) => {
@@ -460,8 +490,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
       return;
     }
-    // 해제한 세트의 타이머가 떠 있으면 함께 닫는다.
-    setRest((previous) => (previous?.plannedSetId === set.id ? null : previous));
+    // 해제한 세트의 타이머가 떠 있으면 함께 닫는다(저장된 것도 같이 지운다).
+    if (rest?.plannedSetId === set.id) {
+      setRest(null);
+      void restTimerStore.clear(sessionId);
+    }
     setExpandedSetId((previous) => (previous === set.id ? null : previous));
   };
 
@@ -481,6 +514,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const closeRest = () => {
     const from = rest?.plannedSetId;
     setRest(null);
+    void restTimerStore.clear(sessionId);
     if (!from) return;
 
     const index = orderedSets.findIndex((set) => set.id === from);
@@ -717,7 +751,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           open
           title={rest.title}
           timer={rest.timer}
-          onChange={(timer) => setRest({ ...rest, timer })}
+          onChange={(timer) => {
+            setRest({ ...rest, timer });
+            // +초로 종료 시각이 바뀌었다 — 저장된 값도 새 endsAt 으로 맞춘다.
+            void restTimerStore.save(sessionId, rest.plannedSetId, rest.title, timer);
+          }}
           onClose={closeRest}
         />
       ) : null}
