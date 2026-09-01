@@ -16,6 +16,11 @@ import {
   remainingSec,
   type RestTimer,
 } from "../../lib/rest-timer";
+import {
+  createRestCompletionSignal,
+  emitRestCompleteFeedback,
+  type RestCompletionSignal,
+} from "../../lib/rest-feedback";
 import { useModal } from "./useModal";
 
 const SHEET_ID = "rest-timer";
@@ -42,6 +47,8 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
   const [announcement, setAnnouncement] = useState("");
   const announcedRef = useRef<Set<number>>(new Set());
   const addAnnounceRef = useRef<number | undefined>(undefined);
+  const signalRef = useRef<RestCompletionSignal | null>(null);
+  signalRef.current ??= createRestCompletionSignal(emitRestCompleteFeedback);
 
   useModal(open, SHEET_ID, onClose, END_BUTTON_ID);
 
@@ -86,6 +93,13 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
     announcedRef.current.add(remaining);
     setAnnouncement(milestone);
   }, [open, remaining]);
+
+  // 종료 신호(비프·진동). 중복 방지는 게이트가 하므로 여기서는 관측한 상태를 그대로 넘긴다.
+  // 화면은 건드리지 않는다 — 타이머는 0에서 멈추고 시트는 열린 채로 남는다(§4.7).
+  useEffect(() => {
+    if (!open) return;
+    signalRef.current?.(finished, timer.endsAt);
+  }, [open, finished, timer.endsAt]);
 
   const handleAdd = (delta: number) => {
     if (atCap) {
