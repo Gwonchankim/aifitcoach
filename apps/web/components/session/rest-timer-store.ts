@@ -34,6 +34,39 @@ export const REST_TIMER_RECORD_VERSION = 1;
  */
 export const REST_TIMER_STALE_AFTER_MS = REST_MAX_SEC * 1000;
 
+/**
+ * **세션별 쓰기 큐.** 같은 세션의 save/clear 를 부른 순서대로 커밋한다.
+ *
+ * 없으면 이런 일이 난다: 사용자가 휴식을 닫는 순간 저장이 아직 날아가는 중이면, 늦게 도착한
+ * save 가 방금 지운 레코드를 **되살린다.** 그러면 닫은 타이머가 stale 창 동안 reload 마다
+ * 다시 뜬다. 실측으로 재현된다 — IndexedDB 가 부른 순서대로 커밋해 줄 거라고 가정하면 안 된다.
+ *
+ * 세션마다 독립이라 한 세션의 느린 쓰기가 다른 세션을 막지 않는다.
+ */
+const writeQueues = new Map<string, Promise<unknown>>();
+
+function enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(key) ?? Promise.resolve();
+  const run = previous.then(operation);
+
+  // **실패 격리는 여기가 전부다.** 큐에 남기는 것은 `run` 이 아니라 두 결말을 모두 삼킨
+  // `settled` 라, 앞 작업이 실패해도 다음 작업은 정상적으로 이어진다. 실패 하나가 이후 clear 를
+  // 영영 막으면 그게 곧 지우지 못한 타이머다.
+  const settled: Promise<void> = run.then(forget, forget);
+  function forget() {
+    // 찌꺼기 정리: 내가 꼬리일 때만 지운다. 뒤에 누가 붙었으면 그쪽이 꼬리다.
+    if (writeQueues.get(key) === settled) writeQueues.delete(key);
+  }
+
+  writeQueues.set(key, settled);
+  return run;
+}
+
+/** 큐에 남은 세션 수. **찌꺼기가 쌓이지 않는다**는 것을 테스트가 확인하는 창구다. */
+export function restTimerQueueDepth(): number {
+  return writeQueues.size;
+}
+
 /** `syncMeta.value` 에 JSON 으로 들어가는 모양. 화면 복구에 필요한 최소치만 담는다. */
 export type StoredRestTimer = {
   v: number;
@@ -124,25 +157,29 @@ export async function saveRestTimer(
     total_sec: timer.totalSec,
     ends_at: timer.endsAt,
   };
-  try {
-    await sessionDb.syncMeta.put({
-      user_id: userId,
-      key: restTimerKeyFor(sessionId),
-      value: JSON.stringify(record),
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return enqueue(restTimerKeyFor(sessionId), async () => {
+    try {
+      await sessionDb.syncMeta.put({
+        user_id: userId,
+        key: restTimerKeyFor(sessionId),
+        value: JSON.stringify(record),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** 타이머 기록을 지운다. 실패는 삼킨다 — 남더라도 만료·검증 단계가 다시 걸러낸다. */
 export async function clearRestTimer(userId: string, sessionId: string): Promise<void> {
-  try {
-    await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);
-  } catch {
-    // 다음 복구 시도에서 stale 로 걸린다.
-  }
+  await enqueue(restTimerKeyFor(sessionId), async () => {
+    try {
+      await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);
+    } catch {
+      // 다음 복구 시도에서 stale 로 걸린다.
+    }
+  });
 }
 
 export type RehydratedRestTimer = {
@@ -181,6 +218,60 @@ export async function loadRestTimer(
     title: record.title,
     timer: { totalSec: record.total_sec, endsAt: record.ends_at },
   };
+}
+
+/**
+ * **복구 시도의 정체성.** 어느 세션을 복구하려 했는지 기억한다.
+ *
+ * 단순 `useRef(false)` 로는 안 된다. 같은 컴포넌트가 세션 A 에서 B 로 옮겨 가면 그 플래그는
+ * 이미 참이라 **B 를 영영 복구하지 않는다.** 반대로 아무 방어가 없으면 A 의 읽기가 늦게 끝나
+ * **B 화면에 A 의 타이머가 올라온다.** closure 만으로는 뒤엣것을 막을 수 없다 — 늦게 온 결과가
+ * "지금 무엇을 보고 있는지" 를 물어볼 곳이 있어야 한다.
+ */
+export type RestoreCoordinator = {
+  /** 이 세션을 아직 시도하지 않았으면 `true` 를 주고 시도했다고 표시한다. */
+  begin: (sessionId: string) => boolean;
+  /** 늦게 도착한 결과가 **지금** 보고 있는 세션 것인지. */
+  isCurrent: (sessionId: string) => boolean;
+};
+
+export function createRestoreCoordinator(): RestoreCoordinator {
+  let attemptedFor: string | null = null;
+  return {
+    begin(sessionId) {
+      if (attemptedFor === sessionId) return false;
+      attemptedFor = sessionId;
+      return true;
+    },
+    isCurrent(sessionId) {
+      return attemptedFor === sessionId;
+    },
+  };
+}
+
+/**
+ * 복구 한 번의 전체 판단. 화면은 이 함수를 부르고 `apply` 로 받기만 한다
+ * (jsdom 없이도 A→B 경합까지 테스트할 수 있게 순수부를 분리했다).
+ *
+ * @param plannedSetIds 지금 세션의 계획 세트 id. 여기 없는 세트의 타이머는 올릴 자리가 없다.
+ */
+export async function restoreRestTimer(
+  coordinator: RestoreCoordinator,
+  sessionId: string,
+  plannedSetIds: readonly string[],
+  now: number,
+  apply: (restored: RehydratedRestTimer) => void,
+): Promise<void> {
+  const stored = await restTimerStore.load(sessionId, now);
+  // 읽는 사이에 다른 세션으로 옮겨 갔으면 이 결과는 남의 것이다.
+  if (!coordinator.isCurrent(sessionId) || !stored) return;
+
+  if (!plannedSetIds.includes(stored.plannedSetId)) {
+    // 운동이 삭제·교체돼 그 세트가 사라졌다 — 기록째 버린다.
+    void restTimerStore.clear(sessionId);
+    return;
+  }
+  apply(stored);
 }
 
 /** 화면이 쓰는 기본 스코프 바인딩. 사용자 스코프는 앱 전체에서 하나다. */

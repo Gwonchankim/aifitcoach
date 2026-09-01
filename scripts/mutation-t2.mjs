@@ -120,10 +120,13 @@ const MUTATIONS = [
     file: STORE,
     what: "저장 실패 격리 제거 — 세트 기록이 막힌다",
     edits: [
-      ["  try {\n    await sessionDb.syncMeta.put({", "  {\n    await sessionDb.syncMeta.put({"],
       [
-        "    return true;\n  } catch {\n    return false;\n  }",
-        "    return true;\n  }\n  return false;",
+        "    try {\n      await sessionDb.syncMeta.put({",
+        "    {\n      await sessionDb.syncMeta.put({",
+      ],
+      [
+        "      return true;\n    } catch {\n      return false;\n    }",
+        "      return true;\n    }\n    return false;",
       ],
     ],
     oracle: "test",
@@ -217,6 +220,87 @@ const MUTATIONS = [
     to: "  }, [open]);",
     oracle: "lint",
   },
+
+  /* ---- fixup P1-1: 세션별 쓰기 직렬화 ---- */
+  {
+    id: 22,
+    file: STORE,
+    what: "save 를 큐 밖으로 — 늦은 save 가 clear 를 앞지른다",
+    edits: [
+      [
+        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    try {",
+        "  return (async () => {\n    try {",
+      ],
+      ["      return false;\n    }\n  });\n}", "      return false;\n    }\n  })();\n}"],
+    ],
+    oracle: "test",
+  },
+  {
+    id: 23,
+    file: STORE,
+    what: "clear 를 큐 밖으로",
+    edits: [
+      [
+        "  await enqueue(restTimerKeyFor(sessionId), async () => {\n    try {",
+        "  await (async () => {\n    try {",
+      ],
+      [
+        "      // 다음 복구 시도에서 stale 로 걸린다.\n    }\n  });\n}",
+        "      // 다음 복구 시도에서 stale 로 걸린다.\n    }\n  })();\n}",
+      ],
+    ],
+    oracle: "test",
+  },
+  {
+    id: 24,
+    file: STORE,
+    what: "큐를 전역 하나로 — 다른 세션이 서로를 막는다",
+    from: "const previous = writeQueues.get(key) ?? Promise.resolve();",
+    to: 'const previous = writeQueues.get("all") ?? Promise.resolve();',
+    oracle: "test",
+  },
+  {
+    id: 25,
+    file: STORE,
+    what: "실패 격리 제거 — 실패한 작업이 큐를 영영 막는다",
+    from: "  const settled: Promise<void> = run.then(forget, forget);",
+    to: "  const settled: Promise<void> = run.then(forget);",
+    oracle: "test",
+  },
+  {
+    id: 26,
+    file: STORE,
+    what: "큐 찌꺼기 정리 제거 — 세션마다 항목이 쌓인다",
+    from: "    if (writeQueues.get(key) === settled) writeQueues.delete(key);",
+    to: "    /* 정리하지 않는다 */",
+    oracle: "test",
+  },
+
+  /* ---- fixup P1-2: 복구 정체성 ---- */
+  {
+    id: 27,
+    file: STORE,
+    what: "begin 을 세션 무관 1회 플래그로 — 다음 세션을 영구 skip",
+    from: "      if (attemptedFor === sessionId) return false;",
+    to: "      if (attemptedFor !== null) return false;",
+    oracle: "test",
+  },
+  {
+    id: 28,
+    file: STORE,
+    what: "늦게 온 결과의 세션 확인 제거 — B 화면에 A 타이머를 얹는다",
+    from: "  if (!coordinator.isCurrent(sessionId) || !stored) return;",
+    to: "  if (!stored) return;",
+    oracle: "test",
+  },
+  {
+    id: 29,
+    file: STORE,
+    what: "복구 시 계획 세트 대조 제거",
+    from: "  if (!plannedSetIds.includes(stored.plannedSetId)) {",
+    to: "  if (false) {",
+    oracle: "test",
+  },
 ];
 
 /**
@@ -227,6 +311,11 @@ const MUTATIONS = [
  */
 const KNOWN_EQUIVALENT = new Map([
   [17, "showNotification 이 없으면 호출이 TypeError → 바깥 catch 가 삼켜 false. 관측 결과 동일"],
+  [
+    25,
+    "save·clear 둘 다 내부 try/catch 라 operation 이 reject 할 수 없다 → settled 도 reject 하지 않는다. " +
+      "현 호출부로는 도달 불가. 미래 호출부를 위한 가드로 남긴다(제거하면 큐가 영구히 막힌다)",
+  ],
 ]);
 
 const VITEST_ENTRY = join(
@@ -259,7 +348,13 @@ function run(args, cwd) {
 
 const runTests = () =>
   run(
-    [VITEST_ENTRY, "run", "test/rest-timer-persistence.test.ts", "test/rest-notification.test.ts"],
+    [
+      VITEST_ENTRY,
+      "run",
+      "test/rest-timer-persistence.test.ts",
+      "test/rest-notification.test.ts",
+      "test/rest-timer-ordering.test.ts",
+    ],
     WEB_DIR,
   );
 const runLint = () => run([ESLINT_ENTRY, "apps/web/components/session/RestTimerSheet.tsx"], ROOT);

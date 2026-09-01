@@ -16,7 +16,12 @@ import {
   type SyncResponse,
 } from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
-import { restTimerStore } from "./rest-timer-store";
+import {
+  createRestoreCoordinator,
+  restTimerStore,
+  restoreRestTimer,
+  type RestoreCoordinator,
+} from "./rest-timer-store";
 import { isUtcToday } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
@@ -180,23 +185,27 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const session = sessionQuery.data;
 
+  /** 세션이 바뀌면 앞 세션의 타이머를 화면에서 내린다 — 남의 휴식을 보여 주지 않는다. */
+  useEffect(() => {
+    setRest(null);
+  }, [sessionId]);
+
   /**
-   * 저장된 휴식 타이머 복구. **authoritative 세션이 준비된 뒤 한 번만** 시도한다.
+   * 저장된 휴식 타이머 복구. **authoritative 세션이 준비된 뒤 세션마다 한 번씩** 시도한다.
    *
    * 만료된 타이머도 그대로 올린다 — 0 으로 보여 주고 자동으로 닫지 않는 것이 계약이다(§4.7).
-   * 그 세트가 지금 세션에 없으면(운동 삭제·교체) 올릴 자리가 없으므로 기록째 버린다.
+   * 시도 여부와 "늦게 온 결과가 지금 세션 것인가"는 둘 다 `coordinator` 가 판정한다.
    */
-  const restoreAttempted = useRef(false);
+  const restoreRef = useRef<RestoreCoordinator | null>(null);
+  restoreRef.current ??= createRestoreCoordinator();
   useEffect(() => {
-    if (!session || restoreAttempted.current) return;
-    restoreAttempted.current = true;
+    const coordinator = restoreRef.current;
+    // 세션 데이터가 지금 보고 있는 세션 것인지 먼저 확인한다(prop 이 앞서 바뀔 수 있다).
+    if (!coordinator || !session || session.id !== sessionId) return;
+    if (!coordinator.begin(sessionId)) return;
 
-    void restTimerStore.load(sessionId, Date.now()).then((stored) => {
-      if (!stored) return;
-      if (!(session.planned_sets ?? []).some((set) => set.id === stored.plannedSetId)) {
-        void restTimerStore.clear(sessionId);
-        return;
-      }
+    const plannedSetIds = (session.planned_sets ?? []).map((set) => set.id);
+    void restoreRestTimer(coordinator, sessionId, plannedSetIds, Date.now(), (stored) => {
       // 복구를 기다리는 사이 사용자가 새 세트를 끝냈으면 그쪽이 최신이다 — 덮지 않는다.
       setRest((previous) => previous ?? stored);
     });
