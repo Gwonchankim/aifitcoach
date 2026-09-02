@@ -492,6 +492,12 @@ const MUTATIONS = [
  */
 const KNOWN_EQUIVALENT = new Map([
   [
+    32,
+    "표가 미결인 창은 begin 과 load resolve 사이뿐이고, 그 창에서 시트를 여는 유일한 경로인 " +
+      "handleComplete 가 이미 invalidate 한다(begin 은 세션당 1회라 두 번째 복구가 없다). " +
+      "→ 닫기의 invalidate 는 관측 결과를 바꾸지 않는 이중 방어다",
+  ],
+  [
     40,
     "setRest(previous => previous ?? stored) 가 이미 덮어쓰기를 막고, rest 를 null 로 만드는 모든 경로" +
       "(닫기·완료취소·세션종료·세션전환)가 저마다 invalidate 한다 → 저장 시점의 invalidate 는 " +
