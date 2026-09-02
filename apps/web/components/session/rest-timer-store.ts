@@ -65,6 +65,49 @@ function enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/**
+ * **승격 별칭 — correlation id 에서 서버 id 로.**
+ *
+ * 트랜잭션은 그 순간 **존재하는** 레코드만 옮길 수 있다. 그런데 세트 완료 클릭은
+ * ① 업무 쓰기를 기다리고 ② 그 다음에 타이머를 저장한다. 그 사이에 sync 매핑이 커밋되면,
+ * 뒤늦게 도착한 저장이 **이미 폐기된 correlation id 를 다시 쓴다.** 트랜잭션은 이미 지나갔고
+ * 화면 listener 는 unmount 됐을 수 있으니 durable 하게 고칠 수단이 없다.
+ *
+ * 그래서 저장 경로가 **쓰기 직전에** 별칭을 해석한다. 순서와 무관하게 항상 canonical id 가
+ * 남는다 — 저장이 먼저면 트랜잭션이 옮기고, 매핑이 먼저면 별칭이 옮긴다.
+ *
+ * 별칭은 **커밋이 성공한 뒤에만** 등록한다(롤백되면 승격 자체가 없던 일이다).
+ * 프로세스가 죽으면 진행 중이던 저장도 함께 사라지므로 메모리 유지로 충분하다.
+ */
+const plannedSetAliases = new Map<string, string>();
+
+/** 커밋이 성공한 뒤 호출한다. 이후의 저장은 canonical id 를 쓴다. */
+export function commitRestTimerAliases(
+  mappings: readonly { correlation_id: string; planned_set_id: string }[],
+): void {
+  for (const mapping of mappings) {
+    if (mapping.correlation_id === mapping.planned_set_id) continue;
+    plannedSetAliases.set(mapping.correlation_id, mapping.planned_set_id);
+  }
+}
+
+/** 별칭을 끝까지 따라간다(연쇄 승격도 canonical 로 수렴). */
+export function canonicalPlannedSetId(plannedSetId: string): string {
+  let current = plannedSetId;
+  // 별칭은 단조롭게 서버 id 로만 향하지만, 순환이 생겨도 멈추도록 상한을 둔다.
+  for (let hop = 0; hop < 8; hop += 1) {
+    const next = plannedSetAliases.get(current);
+    if (next === undefined || next === current) break;
+    current = next;
+  }
+  return current;
+}
+
+/** 테스트 격리용. 별칭은 프로세스 수명 동안만 유효하다. */
+export function resetRestTimerAliases(): void {
+  plannedSetAliases.clear();
+}
+
 /** 큐에 남은 세션 수. **찌꺼기가 쌓이지 않는다**는 것을 테스트가 확인하는 창구다. */
 export function restTimerQueueDepth(): number {
   return writeQueues.size;
@@ -129,6 +172,7 @@ export function hasImpossibleSpan(record: StoredRestTimer): boolean {
 export function parseStoredRestTimer(
   raw: string | undefined,
   sessionId: string,
+  now: number = Date.now(),
 ): StoredRestTimer | null {
   if (raw === undefined) return null;
 
@@ -162,6 +206,24 @@ export function parseStoredRestTimer(
   };
   // 두 값을 각각 통과해도 **조합이 불가능**하면 손상이다.
   if (hasImpossibleSpan(parsedRecord)) return null;
+  /**
+   * **저장 시각이 미래면 버린다 — 관용 0.**
+   *
+   * `saved_at` 이 미래면 관계 검증이 무력해진다: `{total:1, ends:T+1년, saved:T+1년-1초}` 는
+   * 시작 시각이 저장 시점과 같아 통과하고, 남은 시간은 1초로 clamp 되며 stale 도 1년 뒤라
+   * **"1초" 오버레이가 1년 동안 되살아난다.**
+   *
+   * 관용치를 두면 그 폭만큼 좀비가 살 수 있고, 그 숫자를 정당화할 원천이 없다(임의값 금지).
+   * 그래서 **정책을 하나로 잠근다: 읽는 시점의 시계가 저장 시각보다 뒤면 그 레코드를 버린다.**
+   *
+   * 무제한 시계-되돌림 관용과 좀비 차단은 동시에 만족할 수 없다. 둘 중 저장분 폐기를 택한 이유는
+   * 비용 비대칭이다 — 잃는 것은 최대 10분짜리 타이머 하나이고 다음 세트에서 새로 생긴다.
+   * 반대쪽은 사용자가 지울 수 없는 오버레이가 화면을 가린다.
+   *
+   * **진행 중인(메모리) 타이머의 시계 되돌림은 이 규칙과 무관하다** — 그건 저장분을 읽지 않고
+   * `remainingSec` 의 `totalSec` clamp 가 표시만 보정한다(UX_STATES §4.8).
+   */
+  if (parsedRecord.saved_at > now) return null;
   return parsedRecord;
 }
 
@@ -182,16 +244,17 @@ export async function saveRestTimer(
   timer: RestTimer,
   savedAt: number = Date.now(),
 ): Promise<boolean> {
-  const record: StoredRestTimer = {
-    v: REST_TIMER_RECORD_VERSION,
-    session_id: sessionId,
-    planned_set_id: plannedSetId,
-    title,
-    total_sec: timer.totalSec,
-    ends_at: timer.endsAt,
-    saved_at: savedAt,
-  };
   return enqueue(restTimerKeyFor(sessionId), async () => {
+    // **쓰기 직전에** 해석한다 — 큐에서 기다리는 동안 매핑이 커밋됐을 수 있다.
+    const record: StoredRestTimer = {
+      v: REST_TIMER_RECORD_VERSION,
+      session_id: sessionId,
+      planned_set_id: canonicalPlannedSetId(plannedSetId),
+      title,
+      total_sec: timer.totalSec,
+      ends_at: timer.endsAt,
+      saved_at: savedAt,
+    };
     try {
       await sessionDb.syncMeta.put({
         user_id: userId,
@@ -314,7 +377,7 @@ export async function loadRestTimer(
     const raw = await rawRead(userId, sessionId);
     if (raw === undefined) return null;
 
-    const record = parseStoredRestTimer(raw, sessionId);
+    const record = parseStoredRestTimer(raw, sessionId, now);
     if (!record || isStaleRestTimer(record, now)) {
       // 내가 본 그 값일 때만 지운다.
       if ((await rawRead(userId, sessionId)) === raw) await rawDelete(userId, sessionId);
@@ -337,6 +400,42 @@ export async function loadRestTimer(
  * **B 화면에 A 의 타이머가 올라온다.** closure 만으로는 뒤엣것을 막을 수 없다 — 늦게 온 결과가
  * "지금 무엇을 보고 있는지" 를 물어볼 곳이 있어야 한다.
  */
+/**
+ * **복구해도 되는 세트의 목록.** 존재하는 id 전부가 아니다.
+ *
+ * 휴식 타이머는 "세트를 완료했다"의 결과물이다. 그러니 그 사실이 사라지면 타이머도 없어야 한다.
+ * 존재 여부만 보면 이런 일이 난다 — 완료를 취소했는데 저장분 삭제가 실패하면, 다음 진입에서
+ * **취소한 세트의 휴식이 다시 떠서** 기록 편집을 가린다. 종료한 세션도 마찬가지다.
+ *
+ * 그래서 **서버가 준 사실**만 본다: 세션이 아직 진행 중이고(`completed` 아님) 그 planned set 에
+ * `performed_set` 이 실제로 달려 있을 때만 복구한다. 화면의 낙관적 draft 상태는 쓰지 않는다 —
+ * 그건 아직 서버가 모르는 값이라 "취소했다"를 증명하지 못한다.
+ */
+export type RestoreEligibility = {
+  /** 세션이 종료됐으면 어떤 타이머도 복구하지 않는다. */
+  sessionCompleted: boolean;
+  /** 서버가 완료로 인정한 planned set 들. */
+  completedPlannedSetIds: ReadonlySet<string>;
+};
+
+export function isRestorable(eligibility: RestoreEligibility, plannedSetId: string): boolean {
+  if (eligibility.sessionCompleted) return false;
+  return eligibility.completedPlannedSetIds.has(plannedSetId);
+}
+
+/** wire 의 세션 payload 에서 자격을 뽑는다. 추정하지 않고 있는 사실만 읽는다. */
+export function restoreEligibilityOf(session: {
+  status?: unknown;
+  planned_sets?: readonly { id?: unknown; performed_set?: unknown }[] | null;
+}): RestoreEligibility {
+  const completed = new Set<string>();
+  for (const set of session.planned_sets ?? []) {
+    // `performed_set` 이 있다는 것이 곧 "서버가 아는 완료"다.
+    if (typeof set?.id === "string" && set.performed_set != null) completed.add(set.id);
+  }
+  return { sessionCompleted: session.status === "completed", completedPlannedSetIds: completed };
+}
+
 /** 복구 한 번을 가리키는 표. 세션 문자열만으로는 A→B→A 재진입을 구분하지 못한다. */
 export type RestoreToken = { sessionId: string; generation: number };
 
@@ -392,7 +491,7 @@ export function createRestoreCoordinator(): RestoreCoordinator {
 export async function restoreRestTimer(
   coordinator: RestoreCoordinator,
   token: RestoreToken,
-  plannedSetIds: readonly string[],
+  eligibility: RestoreEligibility,
   now: number,
   apply: (restored: RehydratedRestTimer) => void,
 ): Promise<void> {
@@ -400,8 +499,8 @@ export async function restoreRestTimer(
   // 읽는 사이에 세션이 바뀌었거나 사용자가 무언가 했으면 이 결과는 낡았다.
   if (!coordinator.isCurrent(token) || !stored) return;
 
-  if (!plannedSetIds.includes(stored.plannedSetId)) {
-    // 운동이 삭제·교체돼 그 세트가 사라졌다 — 그 세트의 기록만 버린다.
+  if (!isRestorable(eligibility, stored.plannedSetId)) {
+    // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.
     void restTimerStore.clearForPlannedSet(token.sessionId, stored.plannedSetId);
     return;
   }

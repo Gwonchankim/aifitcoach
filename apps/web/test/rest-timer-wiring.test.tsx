@@ -31,7 +31,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function plannedSet(id: string, setNo: number): PlannedSet {
+function plannedSet(id: string, setNo: number, performed: boolean = false): PlannedSet {
   return {
     id,
     exercise_id: "e_bench_press",
@@ -51,7 +51,8 @@ function plannedSet(id: string, setNo: number): PlannedSet {
     recommended_action: null,
     assistance_safety_status: null,
     recommendation_gate: "ready",
-    performed_set: null,
+    // 서버가 아는 완료 사실. 복구 자격의 단일 원천이다.
+    performed_set: performed ? { actual_weight: 60, actual_reps: 8 } : null,
   } as unknown as PlannedSet;
 }
 
@@ -151,11 +152,17 @@ beforeEach(async () => {
   await sessionDb.delete();
   await sessionDb.open();
   useSessionLog.setState({ drafts: {}, sessionId: null });
+  /**
+   * 기본 payload 는 **두 세트 모두 서버가 완료로 아는** 상태다. 복구 자격이 완료 사실을 보므로,
+   * "복구된다"를 확인하는 테스트들이 이 전제 위에 선다. 완료가 아닌 상태는 각 테스트가 따로 만든다.
+   */
   sessionResponses.set(SESSION_A, () =>
-    Promise.resolve(sessionPayload(SESSION_A, [plannedSet(SET_1, 1), plannedSet(SET_2, 2)])),
+    Promise.resolve(
+      sessionPayload(SESSION_A, [plannedSet(SET_1, 1, true), plannedSet(SET_2, 2, true)]),
+    ),
   );
   sessionResponses.set(SESSION_B, () =>
-    Promise.resolve(sessionPayload(SESSION_B, [plannedSet(SET_1, 1)])),
+    Promise.resolve(sessionPayload(SESSION_B, [plannedSet(SET_1, 1, true)])),
   );
 });
 
@@ -456,6 +463,100 @@ describe("배선 — 세션 종료의 정리 실패", () => {
   });
 });
 
+/**
+ * **clear 실패 뒤 재진입에서도 되살아나지 않는다.**
+ *
+ * 안내만으로는 부족하다 — 사용자가 새로고침하면 저장분은 그대로다. 그래서 복구 자격을
+ * **서버가 아는 완료 사실**로 좁혔다: 완료를 취소했으면 그 세트는 더는 완료가 아니고,
+ * 종료된 세션은 아예 복구 대상이 아니다.
+ */
+describe("배선 — 정리 실패 뒤 재진입", () => {
+  it("완료 취소 clear 가 실패해도 **다시 마운트하면 오버레이 0**", async () => {
+    // 저장분은 남아 있다(삭제가 실패한 상태를 그대로 만든다).
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    expect(await storedTimer(SESSION_A)).not.toBeNull();
+
+    // 서버가 아는 사실: 1세트는 **완료가 아니다**(취소됨). 2세트만 완료다.
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, false), plannedSet(SET_2, 2, true)]),
+      ),
+    );
+
+    renderSession(SESSION_A);
+    await screen.findByRole("heading", { name: "벤치프레스" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();
+    // 자격 없는 레코드는 그 자리에서 정리된다.
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).toBeNull());
+  });
+
+  it("세션 종료 clear 가 실패해도 **재진입에서 오버레이 0**", async () => {
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    // 완료된 세션 — 세트가 완료여도 복구하지 않는다.
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve({
+        ...sessionPayload(SESSION_A, [plannedSet(SET_1, 1, true)]),
+        status: "completed",
+      } as never),
+    );
+
+    renderSession(SESSION_A);
+    await screen.findByRole("heading", { name: "벤치프레스" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();
+  });
+
+  it("**정상 진행 중 세션의 완료 세트는 계속 복구된다** — 자격이 기능을 죽이지 않는다", async () => {
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, true), plannedSet(SET_2, 2, false)]),
+      ),
+    );
+
+    renderSession(SESSION_A);
+
+    expect(await screen.findByRole("dialog", { name: /1세트 후 휴식/ })).toBeTruthy();
+  });
+
+  it("다른 세트의 타이머와 업무 기록은 보존된다", async () => {
+    await sessionDb.drafts.put({
+      user_id: USER,
+      session_id: SESSION_A,
+      planned_set_id: SET_2,
+      completed: true,
+    } as never);
+    const draftsBefore = JSON.stringify(await sessionDb.drafts.toArray());
+    await store.saveRestTimer(USER, SESSION_A, SET_2, "벤치프레스 2세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, false), plannedSet(SET_2, 2, true)]),
+      ),
+    );
+
+    renderSession(SESSION_A);
+    await screen.findByRole("dialog", { name: /2세트 후 휴식/ });
+
+    expect((await storedTimer(SESSION_A))!.plannedSetId).toBe(SET_2);
+    expect(JSON.stringify(await sessionDb.drafts.toArray())).toBe(draftsBefore);
+  });
+});
+
 describe("배선 — 복구", () => {
   it("저장된 타이머가 있으면 마운트 후 휴식 시트가 뜬다", async () => {
     await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
@@ -514,7 +615,9 @@ describe("배선 — A→B 라우트 전환 경합 (질의 지연)", () => {
 
     // 이제야 A 응답이 도착한다.
     await act(async () => {
-      gate.resolve(sessionPayload(SESSION_A, [plannedSet(SET_1, 1), plannedSet(SET_2, 2)]));
+      gate.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, true), plannedSet(SET_2, 2, true)]),
+      );
       await Promise.resolve();
     });
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -670,7 +773,7 @@ describe("배선 — 오프라인 세트 id 승격", () => {
   beforeEach(() => {
     sessionResponses.set(SESSION_A, () =>
       Promise.resolve(
-        sessionPayload(SESSION_A, [plannedSet(CORRELATION, 1), plannedSet(SET_2, 2)]),
+        sessionPayload(SESSION_A, [plannedSet(CORRELATION, 1, true), plannedSet(SET_2, 2, true)]),
       ),
     );
   });

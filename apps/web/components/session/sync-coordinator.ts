@@ -14,7 +14,7 @@ import {
   sessionDb,
   type OutboxMutation,
 } from "./session-db";
-import { remapRestTimersInTransaction } from "./rest-timer-store";
+import { commitRestTimerAliases, remapRestTimersInTransaction } from "./rest-timer-store";
 
 const LEASE_NAME = "foreground-sync";
 const LEASE_MS = 15_000;
@@ -168,6 +168,12 @@ export class SyncCoordinator {
       });
       await this.beforeLocalCommit?.();
       const draftsChanged = await this.commitResponse(response);
+      /**
+       * **커밋이 성공한 뒤에만** 별칭을 연다. 롤백되면 승격 자체가 없던 일이므로 등록하지 않는다.
+       * 이 뒤로 도착하는 늦은 저장은 correlation id 대신 서버 id 를 쓴다 — 트랜잭션이 이미
+       * 지나가 손댈 수 없는 창을 이 한 줄이 덮는다.
+       */
+      commitRestTimerAliases(response.planned_set_mappings);
       if (response.planned_set_mappings.length > 0 && typeof window !== "undefined")
         window.dispatchEvent(
           new CustomEvent(PLANNED_SET_MAPPING_EVENT, {

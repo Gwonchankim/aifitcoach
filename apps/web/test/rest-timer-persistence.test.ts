@@ -98,7 +98,7 @@ describe("네임스페이스 — F-4b marker 와 섞이지 않는다", () => {
       value: REMEDIATION_PENDING,
     });
 
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     expect(await remediationStateFor(USER, SESSION)).toBe("refetch");
     expect(await sessionDb.syncMeta.count()).toBe(2);
@@ -110,7 +110,7 @@ describe("네임스페이스 — F-4b marker 와 섞이지 않는다", () => {
       key: markerKeyFor(SESSION),
       value: REMEDIATION_PENDING,
     });
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     await clearRestTimer(USER, SESSION);
 
@@ -121,7 +121,7 @@ describe("네임스페이스 — F-4b marker 와 섞이지 않는다", () => {
 
 describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
   it("40초 뒤에 복구하면 남은 시간이 정확히 40초 줄어 있다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     const restored = await loadRestTimer(USER, SESSION, T0 + 40_000);
 
@@ -134,7 +134,7 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
   });
 
   it("만료된 타이머도 0 으로 복구한다 — 버리지 않는다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     const restored = await loadRestTimer(USER, SESSION, T0 + 120_000);
 
@@ -143,8 +143,8 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
   });
 
   it("+초로 늘린 뒤 저장하면 새 endsAt 으로 복구한다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
-    await saveRestTimer(USER, SESSION, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 });
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
+    await saveRestTimer(USER, SESSION, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 }, T0);
 
     const restored = await loadRestTimer(USER, SESSION, T0 + 40_000);
 
@@ -170,7 +170,7 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
     expect(extended.timer.totalSec).toBe(700);
     expect(remainingSec(extended.timer, T0 + 100_000)).toBe(REST_MAX_SEC);
 
-    await saveRestTimer(USER, SESSION, SET, TITLE, extended.timer);
+    await saveRestTimer(USER, SESSION, SET, TITLE, extended.timer, T0 + 100_000);
 
     sessionDb.close();
     const reopened = new Dexie("afc-session-v1");
@@ -193,7 +193,7 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
     }
     expect(timer.totalSec).toBeGreaterThan(REST_MAX_SEC);
 
-    await saveRestTimer(USER, SESSION, SET, TITLE, timer);
+    await saveRestTimer(USER, SESSION, SET, TITLE, timer, T0 + 900_000);
 
     expect((await loadRestTimer(USER, SESSION, T0 + 900_000))!.timer).toEqual(timer);
   });
@@ -224,32 +224,52 @@ describe("시간 관계 — 불가능한 조합은 거절한다", () => {
   it("1초짜리인데 1년 뒤에 끝나는 좀비를 거절한다", () => {
     const oneYear = 365 * 24 * 60 * 60 * 1000;
     expect(
-      parseStoredRestTimer(record({ total_sec: 1, ends_at: T0 + oneYear }), SESSION),
+      parseStoredRestTimer(
+        record({ total_sec: 1, ends_at: T0 + oneYear }),
+        SESSION,
+        T0 + 1_000_000,
+      ),
     ).toBeNull();
   });
 
   it("시작 시각이 저장 시점보다 미래면 거절한다", () => {
     // 저장할 때 이미 "아직 시작도 안 한" 타이머 — 있을 수 없다.
     expect(
-      parseStoredRestTimer(record({ total_sec: 60, ends_at: T0 + 120_000 }), SESSION),
+      parseStoredRestTimer(
+        record({ total_sec: 60, ends_at: T0 + 120_000 }),
+        SESSION,
+        T0 + 1_000_000,
+      ),
     ).toBeNull();
   });
 
   it("시작 시각이 epoch 이전이면 거절한다 — total 이 터무니없다", () => {
     expect(
-      parseStoredRestTimer(record({ total_sec: 2_000_000_000, ends_at: T0 + 1_000 }), SESSION),
+      parseStoredRestTimer(
+        record({ total_sec: 2_000_000_000, ends_at: T0 + 1_000 }),
+        SESSION,
+        T0 + 1_000_000,
+      ),
     ).toBeNull();
   });
 
   it("경계: 시작 시각이 저장 시점과 같으면 통과한다", () => {
     expect(
-      parseStoredRestTimer(record({ total_sec: 90, ends_at: T0 + 90_000 }), SESSION),
+      parseStoredRestTimer(
+        record({ total_sec: 90, ends_at: T0 + 90_000 }),
+        SESSION,
+        T0 + 1_000_000,
+      ),
     ).not.toBeNull();
   });
 
   it("경계: 1ms 라도 미래면 거절한다", () => {
     expect(
-      parseStoredRestTimer(record({ total_sec: 90, ends_at: T0 + 90_001 }), SESSION),
+      parseStoredRestTimer(
+        record({ total_sec: 90, ends_at: T0 + 90_001 }),
+        SESSION,
+        T0 + 1_000_000,
+      ),
     ).toBeNull();
   });
 
@@ -278,22 +298,78 @@ describe("시간 관계 — 불가능한 조합은 거절한다", () => {
     ).not.toBeNull();
   });
 
-  it("저장 뒤 시계가 되돌아간 것은 **거절하지 않는다** — 표시만 clamp 한다", async () => {
-    // 저장은 정상이었다. 읽는 시점의 시계만 과거로 갔다.
+  it("**읽는 시점의 시계가 저장보다 뒤면 버린다** — 관용 0", async () => {
     await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
-    const restored = await loadRestTimer(USER, SESSION, T0 - 60_000);
+    // 기기 시계가 1분 뒤로 갔다. 이 레코드는 더는 신뢰할 수 없다.
+    expect(await loadRestTimer(USER, SESSION, T0 - 60_000)).toBeNull();
+    // 그 자리에서 지운다 — 시계가 돌아와도 되살아나지 않는다.
+    expect(await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)])).toBeUndefined();
+  });
 
-    expect(restored).not.toBeNull();
-    // remainingSec 이 totalSec 으로 잘라 준다(§4.8).
-    expect(remainingSec(restored!.timer, T0 - 60_000)).toBe(90);
+  it("경계: saved_at === now 는 통과, now+1 은 거절, now-1 은 통과", () => {
+    const at = (savedAt: number) =>
+      parseStoredRestTimer(
+        JSON.stringify({
+          v: REST_TIMER_RECORD_VERSION,
+          session_id: SESSION,
+          planned_set_id: SET,
+          title: TITLE,
+          total_sec: 90,
+          ends_at: savedAt + 90_000,
+          saved_at: savedAt,
+        }),
+        SESSION,
+        T0,
+      );
+
+    expect(at(T0)).not.toBeNull();
+    expect(at(T0 - 1)).not.toBeNull();
+    expect(at(T0 + 1)).toBeNull();
+  });
+
+  it("saved_at 이 미래인 좀비를 거절한다 — 관계만으로는 통과하는 값", () => {
+    const oneYear = 365 * 24 * 60 * 60 * 1000;
+    // startedAt === saved_at 이라 관계 검증은 통과한다. future 가드만이 잡는다.
+    expect(
+      parseStoredRestTimer(
+        JSON.stringify({
+          v: REST_TIMER_RECORD_VERSION,
+          session_id: SESSION,
+          planned_set_id: SET,
+          title: TITLE,
+          total_sec: 1,
+          ends_at: T0 + oneYear,
+          saved_at: T0 + oneYear - 1_000,
+        }),
+        SESSION,
+        T0,
+      ),
+    ).toBeNull();
+  });
+
+  it("legacy v1 레코드는 읽지 않는다(버전 불일치) — 숨기지 않고 계약으로 둔다", () => {
+    expect(
+      parseStoredRestTimer(
+        JSON.stringify({
+          v: 1,
+          session_id: SESSION,
+          planned_set_id: SET,
+          title: TITLE,
+          total_sec: 90,
+          ends_at: T0 + 90_000,
+        }),
+        SESSION,
+        T0,
+      ),
+    ).toBeNull();
   });
 });
 
 describe("강제 종료 모사 — 새 Dexie 인스턴스", () => {
   it("DB 를 닫았다 다시 열어도 타이머가 살아 있고, 기록은 한 바이트도 안 바뀐다", async () => {
     await seedUserData();
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(180, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(180, T0), T0);
     const before = await userDataBytes();
 
     // OS 가 프로세스를 죽인 상황: 열려 있던 연결이 사라지고 새 연결이 열린다.
@@ -315,7 +391,7 @@ describe("강제 종료 모사 — 새 Dexie 인스턴스", () => {
     await seedUserData();
     const before = await userDataBytes();
 
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
     await loadRestTimer(USER, SESSION, T0 + 10_000);
     await clearRestTimer(USER, SESSION);
 
@@ -328,7 +404,7 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
     sessionDb.syncMeta.put({ user_id: USER, key, value });
 
   it("다른 세션의 기록은 가져오지 않는다", async () => {
-    await saveRestTimer(USER, OTHER_SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, OTHER_SESSION, SET, TITLE, startRest(90, T0), T0);
 
     expect(await loadRestTimer(USER, SESSION, T0 + 10_000)).toBeNull();
     // 남의 세션 기록을 지우지도 않는다.
@@ -399,7 +475,7 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
       saved_at: T0,
       ...override,
     };
-    expect(parseStoredRestTimer(JSON.stringify(record), SESSION)).toBeNull();
+    expect(parseStoredRestTimer(JSON.stringify(record), SESSION, T0 + 1_000_000)).toBeNull();
   });
 
   it("거절한 기록은 그 자리에서 지운다 — 다음 마운트에서 또 만나지 않는다", async () => {
@@ -433,7 +509,7 @@ describe("stale — 너무 오래된 기록은 복구하지 않는다", () => {
   });
 
   it("어제 닫다 만 타이머는 복구하지 않고 지운다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     expect(await loadRestTimer(USER, SESSION, T0 + 86_400_000)).toBeNull();
     expect(await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)])).toBeUndefined();
@@ -442,7 +518,7 @@ describe("stale — 너무 오래된 기록은 복구하지 않는다", () => {
 
 describe("정리 — 닫기·완료 취소·세션 종료", () => {
   it("지우면 복구되지 않는다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
 
     await clearRestTimer(USER, SESSION);
 
@@ -455,8 +531,8 @@ describe("정리 — 닫기·완료 취소·세션 종료", () => {
   });
 
   it("한 세션을 지워도 다른 세션 타이머는 남는다", async () => {
-    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0));
-    await saveRestTimer(USER, OTHER_SESSION, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
+    await saveRestTimer(USER, OTHER_SESSION, SET, TITLE, startRest(90, T0), T0);
 
     await clearRestTimer(USER, SESSION);
 
@@ -468,7 +544,9 @@ describe("저장 실패는 기록을 막지 않는다", () => {
   it("syncMeta 쓰기가 던져도 false 를 돌려줄 뿐이다", async () => {
     sessionDb.close();
 
-    await expect(saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0))).resolves.toBe(false);
+    await expect(saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0)).resolves.toBe(
+      false,
+    );
 
     await sessionDb.open();
   });

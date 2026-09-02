@@ -19,6 +19,7 @@ import { startRest, type RestTimer } from "../../lib/rest-timer";
 import {
   createRestoreCoordinator,
   restTimerStore,
+  restoreEligibilityOf,
   restoreRestTimer,
   type RestoreCoordinator,
 } from "./rest-timer-store";
@@ -248,8 +249,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     const token = coordinator.begin(sessionId);
     if (!token) return;
 
-    const plannedSetIds = (session.planned_sets ?? []).map((set) => set.id);
-    void restoreRestTimer(coordinator, token, plannedSetIds, Date.now(), (stored) => {
+    /**
+     * **자격은 authoritative payload 가 정한다.** 세트가 목록에 있다는 것만으로는 부족하다 —
+     * 완료를 취소했는데 저장분 삭제가 실패했다면 그 세트의 휴식은 다시 뜨면 안 되고,
+     * 종료된 세션은 어떤 타이머도 올리지 않는다. 화면의 낙관적 draft 는 쓰지 않는다.
+     */
+    const eligibility = restoreEligibilityOf(session);
+    void restoreRestTimer(coordinator, token, eligibility, Date.now(), (stored) => {
       // 복구를 기다리는 사이 사용자가 새 세트를 끝냈으면 그쪽이 최신이다 — 덮지 않는다.
       setRest((previous) => previous ?? stored);
     });

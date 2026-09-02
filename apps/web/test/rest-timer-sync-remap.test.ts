@@ -14,6 +14,7 @@ import { DEV_USER_SCOPE, sessionDb } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
 import {
   loadRestTimer,
+  resetRestTimerAliases,
   restTimerKeyFor,
   saveRestTimer,
 } from "../components/session/rest-timer-store";
@@ -94,6 +95,7 @@ const userDataBytes = async () =>
   ]);
 
 beforeEach(async () => {
+  resetRestTimerAliases();
   await sessionDb.delete();
   await sessionDb.open();
 });
@@ -102,6 +104,14 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await sessionDb.delete();
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 const runSync = (response: SyncResponse, options: Record<string, unknown> = {}) =>
   new SyncCoordinator({ transport: () => Promise.resolve(response), ...options }).request();
@@ -255,5 +265,101 @@ describe("전역 커밋 — 트랜잭션 경계", () => {
     expect((await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]))!.value).toBe(
       "not json",
     );
+  });
+});
+
+/**
+ * **늦은 저장이 폐기된 correlation id 를 되살리는 경합.**
+ *
+ * 세트 완료 클릭은 ① 업무 쓰기를 기다리고 ② 그 다음 타이머를 저장한다. 그 사이에 매핑이
+ * 커밋되면 트랜잭션은 아직 없는 레코드를 옮길 수 없고, 화면 listener 는 unmount 됐을 수 있다.
+ * 그래서 저장 경로가 쓰기 직전에 **별칭**을 해석한다 — 순서와 무관하게 canonical id 만 남는다.
+ */
+describe("늦은 저장 ↔ 매핑 커밋 경합", () => {
+  it("저장이 큐에서 대기하는 사이 매핑이 커밋되면 **서버 id 로 저장된다**", async () => {
+    // 앞선 쓰기를 붙잡아 correlation 저장을 큐에 세워 둔다.
+    const gate = deferred<void>();
+    const realPut = sessionDb.syncMeta.put.bind(sessionDb.syncMeta);
+    let held = false;
+    vi.spyOn(sessionDb.syncMeta, "put").mockImplementation((async (row: never) => {
+      const key = (row as { key: string }).key;
+      if (!held && key.startsWith("rest-timer:")) {
+        held = true;
+        await gate.promise;
+      }
+      return realPut(row);
+    }) as never);
+
+    const blocker = saveRestTimer(USER, SESSION, "blocker", TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    // 사용자가 correlation 세트를 끝내 저장을 큐에 넣는다(아직 실행되지 않는다).
+    const queued = saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    // 화면 없이 sync 가 매핑을 커밋한다.
+    await runSync(mappingResponse());
+
+    gate.resolve();
+    await Promise.all([blocker, queued]);
+
+    const saved = await loadRestTimer(USER, SESSION, Date.now());
+    expect(saved!.plannedSetId).toBe(SERVER_SET);
+    // 폐기된 correlation id 가 durable row 로 남지 않는다.
+    expect((await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]))!.value).not.toContain(
+      CORRELATION,
+    );
+  });
+
+  it("매핑 **뒤에** 시작한 저장도 서버 id 를 쓴다", async () => {
+    await runSync(mappingResponse());
+
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(SERVER_SET);
+  });
+
+  it("**롤백되면 별칭도 열리지 않는다** — 다음 sync 가 다시 옮길 수 있어야 한다", async () => {
+    await expect(
+      runSync(mappingResponse(), {
+        duringMappingCommit: () => Promise.reject(new Error("commit failed")),
+      }),
+    ).rejects.toThrow();
+
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(CORRELATION);
+  });
+
+  it("매핑과 무관한 세트의 저장은 그대로 제 id 를 쓴다", async () => {
+    await runSync(mappingResponse());
+
+    await saveRestTimer(USER, OTHER_SESSION, "unrelated", TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    expect((await loadRestTimer(USER, OTHER_SESSION, Date.now()))!.plannedSetId).toBe("unrelated");
+  });
+
+  it("같은 매핑이 두 번 와도 결과가 같다", async () => {
+    await runSync(mappingResponse());
+    await runSync(mappingResponse());
+
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(SERVER_SET);
   });
 });

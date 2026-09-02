@@ -14,6 +14,8 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEV_USER_SCOPE, sessionDb } from "../components/session/session-db";
 import {
+  restoreEligibilityOf,
+  isRestorable,
   clearRestTimer,
   clearRestTimerForPlannedSet,
   remapRestTimerPlannedSet,
@@ -66,7 +68,7 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
       return realPut(row);
     }) as never);
 
-    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     const clearing = clearRestTimer(USER, A);
     await flush();
 
@@ -103,8 +105,8 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
     }) as never);
 
     const ops = [
-      saveRestTimer(USER, A, SET, TITLE, { totalSec: 90, endsAt: T0 + 90_000 }),
-      saveRestTimer(USER, A, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 }),
+      saveRestTimer(USER, A, SET, TITLE, { totalSec: 90, endsAt: T0 + 90_000 }, T0),
+      saveRestTimer(USER, A, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 }, T0),
       clearRestTimer(USER, A),
     ];
     await flush();
@@ -120,7 +122,7 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
       () => Promise.reject(new Error("QuotaExceeded")) as never,
     );
 
-    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     const clearing = clearRestTimer(USER, A);
 
     await expect(saving).resolves.toBe(false);
@@ -129,12 +131,12 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
 
     // 실패한 save 가 큐를 막지 않았다 — 그 뒤 정상 저장도 된다.
     vi.restoreAllMocks();
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     expect(await loadRestTimer(USER, A, T0)).not.toBeNull();
   });
 
   it("clear 가 실패해도 그 다음 clear 는 실행된다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     vi.spyOn(sessionDb.syncMeta, "delete").mockImplementationOnce(
       () => Promise.reject(new Error("TransactionInactive")) as never,
     );
@@ -153,9 +155,9 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
       return realPut(row);
     }) as never);
 
-    const blocked = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    const blocked = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     // B 는 A 가 붙잡혀 있어도 제 갈 길을 간다 — 큐는 세션마다 따로다.
-    await saveRestTimer(USER, B, SET, TITLE, startRest(60, T0));
+    await saveRestTimer(USER, B, SET, TITLE, startRest(60, T0), T0);
 
     // B 의 읽기도 A 에 막히지 않는다.
     expect(await loadRestTimer(USER, B, T0)).not.toBeNull();
@@ -168,8 +170,8 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
   });
 
   it("모든 작업이 끝나면 큐 찌꺼기가 남지 않는다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
-    await saveRestTimer(USER, B, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
+    await saveRestTimer(USER, B, SET, TITLE, startRest(90, T0), T0);
     await clearRestTimer(USER, A);
     await clearRestTimer(USER, B);
     await flush();
@@ -191,9 +193,9 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
     ]);
 
     await Promise.all([
-      saveRestTimer(USER, A, SET, TITLE, startRest(90, T0)),
+      saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0),
       clearRestTimer(USER, A),
-      saveRestTimer(USER, A, SET, TITLE, startRest(30, T0)),
+      saveRestTimer(USER, A, SET, TITLE, startRest(30, T0), T0),
       clearRestTimer(USER, A),
     ]);
 
@@ -210,7 +212,7 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
 describe("P2 stale load vs 새 save — 낡은 판정이 새 타이머를 지우지 못한다", () => {
   it("낡은 레코드를 읽는 도중 저장된 정상 타이머가 살아남는다", async () => {
     // 이미 stale 인 레코드(어제 것)를 심어 둔다. 복구는 이걸 지우려 할 것이다.
-    await saveRestTimer(USER, A, SET, TITLE, { totalSec: 90, endsAt: T0 - 86_400_000 });
+    await saveRestTimer(USER, A, SET, TITLE, { totalSec: 90, endsAt: T0 - 86_400_000 }, T0);
 
     const gate = deferred<void>();
     const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
@@ -223,7 +225,7 @@ describe("P2 stale load vs 새 save — 낡은 판정이 새 타이머를 지우
 
     const loading = loadRestTimer(USER, A, T0);
     // 그 사이 사용자가 새 세트를 끝내 정상 타이머를 저장한다.
-    const saving = saveRestTimer(USER, A, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 });
+    const saving = saveRestTimer(USER, A, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 }, T0);
     gate.resolve();
 
     expect(await loading).toBeNull();
@@ -248,7 +250,7 @@ describe("P2 stale load vs 새 save — 낡은 판정이 새 타이머를 지우
     }) as never);
 
     const loading = loadRestTimer(USER, A, T0);
-    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     gate.resolve();
 
     expect(await loading).toBeNull();
@@ -260,7 +262,7 @@ describe("P2 stale load vs 새 save — 낡은 판정이 새 타이머를 지우
 
 describe("P2 완료 취소 — 그 세트만 지운다", () => {
   it("일치하는 세트면 지운다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
 
     await clearRestTimerForPlannedSet(USER, A, SET);
 
@@ -268,7 +270,7 @@ describe("P2 완료 취소 — 그 세트만 지운다", () => {
   });
 
   it("다른 세트면 남긴다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
 
     await clearRestTimerForPlannedSet(USER, A, "ps-other");
 
@@ -282,7 +284,7 @@ describe("P2 완료 취소 — 그 세트만 지운다", () => {
 
 describe("P1-3 세트 id 승격 — 저장된 타이머도 따라간다", () => {
   it("일치하는 세트를 서버 id 로 옮긴다", async () => {
-    await saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0), T0);
 
     await expect(remapRestTimerPlannedSet(USER, A, "corr-1", "server-1")).resolves.toBe(true);
 
@@ -294,7 +296,7 @@ describe("P1-3 세트 id 승격 — 저장된 타이머도 따라간다", () => 
   });
 
   it("다른 세트의 타이머는 건드리지 않는다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
 
     await expect(remapRestTimerPlannedSet(USER, A, "corr-1", "server-1")).resolves.toBe(false);
 
@@ -306,7 +308,7 @@ describe("P1-3 세트 id 승격 — 저장된 타이머도 따라간다", () => 
   });
 
   it("같은 id 로의 승격은 무시한다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
 
     await expect(remapRestTimerPlannedSet(USER, A, SET, SET)).resolves.toBe(false);
   });
@@ -319,7 +321,7 @@ describe("P1-3 세트 id 승격 — 저장된 타이머도 따라간다", () => 
       return realPut(row);
     }) as never);
 
-    const saving = saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0));
+    const saving = saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0), T0);
     const remapping = remapRestTimerPlannedSet(USER, A, "corr-1", "server-1");
     gate.resolve();
     await saving;
@@ -393,10 +395,14 @@ describe("P1-2 정체성 — 단조 세대로 판정한다", () => {
 });
 
 describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않는다", () => {
-  const setsOf = (ids: string[]) => ids;
+  /** 자격: 세션이 진행 중이고 그 세트들이 **서버가 아는 완료**일 때만 복구한다. */
+  const setsOf = (ids: string[]) => ({
+    sessionCompleted: false,
+    completedPlannedSetIds: new Set(ids),
+  });
 
   it("A 로드가 늦게 끝나고 그 사이 B 로 옮겨 갔으면 버린다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     const coordinator = createRestoreCoordinator();
     const applied: string[] = [];
 
@@ -421,7 +427,7 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
   });
 
   it("B 는 제 타이머로 정확히 복구된다", async () => {
-    await saveRestTimer(USER, B, SET, TITLE, startRest(120, T0));
+    await saveRestTimer(USER, B, SET, TITLE, startRest(120, T0), T0);
     const coordinator = createRestoreCoordinator();
     const applied: { plannedSetId: string; endsAt: number }[] = [];
 
@@ -434,7 +440,7 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
   });
 
   it("그 세트가 지금 세션에 없으면 올리지 않고 지운다", async () => {
-    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
     const coordinator = createRestoreCoordinator();
     const applied: string[] = [];
     const token = coordinator.begin(A)!;
@@ -453,5 +459,71 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
     await restoreRestTimer(coordinator, token, setsOf([SET]), T0, () => applied.push("x"));
 
     expect(applied).toEqual([]);
+  });
+});
+
+/**
+ * **복구 자격은 서버가 아는 사실이다.**
+ *
+ * 세트가 목록에 있다는 것만으로 복구하면, 완료를 취소했는데 저장분 삭제가 실패한 경우
+ * 취소한 세트의 휴식이 다시 떠서 기록 편집을 가린다. 종료한 세션도 마찬가지다.
+ */
+describe("복구 자격 — 완료 사실과 세션 상태", () => {
+  const activeSession = {
+    status: "in_progress",
+    planned_sets: [
+      { id: "done-1", performed_set: { actual_reps: 8 } },
+      { id: "not-done", performed_set: null },
+    ],
+  };
+
+  it("완료된 세트만 자격이 있다", () => {
+    const eligibility = restoreEligibilityOf(activeSession);
+    expect(isRestorable(eligibility, "done-1")).toBe(true);
+    // 완료를 취소한 세트 — 서버가 더는 완료로 알지 않는다.
+    expect(isRestorable(eligibility, "not-done")).toBe(false);
+    // 목록에 아예 없는 세트.
+    expect(isRestorable(eligibility, "gone")).toBe(false);
+  });
+
+  it("**종료된 세션은 어떤 타이머도 복구하지 않는다**", () => {
+    const eligibility = restoreEligibilityOf({ ...activeSession, status: "completed" });
+    expect(isRestorable(eligibility, "done-1")).toBe(false);
+  });
+
+  it("정상 진행 중 세션의 완료 세트는 계속 복구된다 — 자격이 기능을 죽이지 않는다", async () => {
+    await saveRestTimer(USER, A, "done-1", TITLE, startRest(90, T0), T0);
+    const coordinator = createRestoreCoordinator();
+    const token = coordinator.begin(A)!;
+    const applied: string[] = [];
+
+    await restoreRestTimer(
+      coordinator,
+      token,
+      restoreEligibilityOf(activeSession),
+      T0,
+      (restored) => applied.push(restored.plannedSetId),
+    );
+
+    expect(applied).toEqual(["done-1"]);
+  });
+
+  it("완료가 취소된 세트의 저장분은 복구되지 않고 지워진다", async () => {
+    await saveRestTimer(USER, A, "not-done", TITLE, startRest(90, T0), T0);
+    const coordinator = createRestoreCoordinator();
+    const token = coordinator.begin(A)!;
+    const applied: string[] = [];
+
+    await restoreRestTimer(coordinator, token, restoreEligibilityOf(activeSession), T0, () =>
+      applied.push("x"),
+    );
+
+    expect(applied).toEqual([]);
+    expect(await loadRestTimer(USER, A, T0)).toBeNull();
+  });
+
+  it("payload 가 비어 있어도 던지지 않는다", () => {
+    expect(restoreEligibilityOf({}).completedPlannedSetIds.size).toBe(0);
+    expect(restoreEligibilityOf({ planned_sets: null }).sessionCompleted).toBe(false);
   });
 });
