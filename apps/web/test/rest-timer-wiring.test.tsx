@@ -11,7 +11,7 @@
 import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
+import { StrictMode, createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlannedSet, Session } from "../lib/api";
 
@@ -128,6 +128,21 @@ function wrapper(children: ReactNode) {
 const renderSession = (sessionId: string) =>
   render(wrapper(createElement(SessionScreen, { sessionId })));
 
+/**
+ * **타이머 레코드 읽기만** 붙잡는다. `syncMeta.get` 을 통째로 막으면 세션 미러 읽기까지
+ * 멈춰 화면이 렌더되지 않는다(실측) — 그러면 경합을 재현하기도 전에 테스트가 죽는다.
+ */
+function gateTimerRead(sessionId: string) {
+  const gate = deferred<void>();
+  const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
+  const timerKey = store.restTimerKeyFor(sessionId);
+  vi.spyOn(sessionDb.syncMeta, "get").mockImplementation((async (key: never) => {
+    if (Array.isArray(key) && key[1] === timerKey) await gate.promise;
+    return realGet(key);
+  }) as never);
+  return gate;
+}
+
 /** 저장된 타이머 레코드(있으면). */
 const storedTimer = (sessionId: string) => store.loadRestTimer(USER, sessionId, Date.now());
 
@@ -223,10 +238,17 @@ describe("배선 — 완료 취소는 화면에 타이머가 없어도 저장분
       },
     });
 
+    // **복구를 붙잡아 둔다.** 그래야 화면 state 가 비어 있는 진짜 상황이 된다 —
+    // 복구가 먼저 끝나 rest 가 채워지면 "화면에 있을 때만 지운다"는 옛 코드도 통과해 버린다.
+    const restoreGate = gateTimerRead(SESSION_A);
+
     renderSession(SESSION_A);
     const { fireEvent } = await import("@testing-library/dom");
     const undo = await screen.findByRole("button", { name: "벤치프레스 1세트 완료 취소" });
+    // 시트가 아직 뜨지 않았다 = 화면에 타이머가 없다.
+    expect(screen.queryByRole("dialog", { name: /휴식/ })).toBeNull();
     fireEvent.click(undo);
+    restoreGate.resolve();
 
     await waitFor(async () => expect(await storedTimer(SESSION_A)).toBeNull());
   });
@@ -266,8 +288,9 @@ describe("배선 — 세션 종료", () => {
     await completeFirstSet();
     await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
 
+    // **휴식 시트를 닫지 않고** 종료한다 — 닫으면 그쪽 clear 가 대신 지워 이 경로를 못 본다.
     const { fireEvent } = await import("@testing-library/dom");
-    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
     const dialog = await screen.findByRole("dialog", { name: "운동 종료" });
     fireEvent.click(within(dialog).getByRole("button", { name: /종료$/ }));
@@ -360,6 +383,40 @@ describe("배선 — A→B 라우트 전환 경합 (질의 지연)", () => {
   });
 });
 
+describe("배선 — 늦게 온 복구가 새 타이머를 덮지 않는다", () => {
+  it("복구를 기다리는 사이 다른 세트를 끝내면 **새 타이머가 유지된다**", async () => {
+    // 1세트의 낡은 타이머가 저장돼 있다. 복구는 이걸 올리려 한다.
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    const restoreGate = gateTimerRead(SESSION_A);
+
+    renderSession(SESSION_A);
+    const { fireEvent } = await import("@testing-library/dom");
+
+    // 복구가 아직 안 끝난 사이 사용자가 **2세트**를 끝낸다.
+    const weight = await screen.findByLabelText("벤치프레스 2세트 무게, 킬로그램");
+    fireEvent.change(weight, { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText("벤치프레스 2세트 횟수, 회"), {
+      target: { value: "8" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "벤치프레스 2세트 완료 처리" }));
+    await screen.findByRole("dialog", { name: /2세트 후 휴식/ });
+
+    // 이제야 1세트 복구가 끝난다. 무효화가 없으면 이게 화면을 덮는다.
+    await act(async () => {
+      restoreGate.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(screen.queryByRole("dialog", { name: /1세트 후 휴식/ })).toBeNull();
+    expect(screen.getByRole("dialog", { name: /2세트 후 휴식/ })).toBeTruthy();
+    const saved = await storedTimer(SESSION_A);
+    expect(saved!.plannedSetId).toBe(SET_2);
+  });
+});
+
 describe("배선 — 숨김 상태 알림은 한 타이머당 한 번", () => {
   /** 숨겨진 탭 + 사전 허용 + 서비스워커 등록을 갖춘 환경. */
   function grantedHiddenEnvironment() {
@@ -408,6 +465,26 @@ describe("배선 — 숨김 상태 알림은 한 타이머당 한 번", () => {
         await new Promise((resolve) => setTimeout(resolve, 15));
       });
     }
+
+    expect(shown).toEqual(["휴식이 끝났어요"]);
+  });
+
+  it("**StrictMode 이중 이펙트**에서도 한 번이다", async () => {
+    const shown = grantedHiddenEnvironment();
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() - 1_000,
+    });
+
+    // 개발 모드처럼 이펙트가 두 번 돈다. 의존성이 그대로라 재실행을 막을 수 없으므로
+    // **중복 방지 ref 만이** 두 번째 알림을 막는다.
+    render(
+      wrapper(
+        createElement(StrictMode, null, createElement(SessionScreen, { sessionId: SESSION_A })),
+      ),
+    );
+    await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
+    await new Promise((resolve) => setTimeout(resolve, 80));
 
     expect(shown).toEqual(["휴식이 끝났어요"]);
   });

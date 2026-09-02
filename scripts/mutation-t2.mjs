@@ -168,8 +168,8 @@ const MUTATIONS = [
         "  return (async () => {\n    const raw = await rawRead(userId, sessionId);\n    if (raw === undefined) return null;",
       ],
       [
-        "      endsAt: record.ends_at,\n    };\n  });\n}",
-        "      endsAt: record.ends_at,\n    };\n  })();\n}",
+        "      timer: { totalSec: record.total_sec, endsAt: record.ends_at },\n    };\n  });\n}",
+        "      timer: { totalSec: record.total_sec, endsAt: record.ends_at },\n    };\n  })();\n}",
       ],
     ],
   },
@@ -376,7 +376,18 @@ const MUTATIONS = [
  * **등가 뮤턴트.** 관측 동작이 원본과 같아 어떤 테스트로도 죽일 수 없는 것들.
  * 이유는 하나다 — fail-soft `try/catch` 가 그 분기를 이미 삼킨다. 숨기지 않고 표에 남긴다.
  */
-const KNOWN_EQUIVALENT = new Map();
+const KNOWN_EQUIVALENT = new Map([
+  [
+    16,
+    "읽기·판정·삭제가 한 큐 안에 있어 그 사이 다른 쓰기가 끼어들 수 없다 → 원문 대조는 " +
+      "큐가 깨질 때를 대비한 이중 방어이고 현 구조에서는 관측 결과가 같다",
+  ],
+  [
+    21,
+    "isCurrent 가 current !== null 을 먼저 보므로 invalidate 는 세대를 올리지 않아도 표를 무효화한다. " +
+      "다음 begin 이 어차피 세대를 올려 옛 표와 갈린다 → 관측 결과 동일",
+  ],
+]);
 
 const VITEST_ENTRY = join(
   dirname(createRequire(join(WEB_DIR, "package.json")).resolve("vitest/package.json")),
