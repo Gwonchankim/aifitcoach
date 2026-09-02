@@ -135,8 +135,8 @@ describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
     const emit = vi.fn();
     const signal = createRestCompletionSignal(emit);
 
-    signal(false, T0 + 90_000);
-    signal(false, T0 + 90_000);
+    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
+    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
 
     expect(emit).not.toHaveBeenCalled();
   });
@@ -146,8 +146,8 @@ describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
     const emit = vi.fn();
     const signal = createRestCompletionSignal(emit);
 
-    signal(false, T0 + 90_000);
-    signal(true, T0 + 90_000);
+    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
+    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
 
     expect(emit).toHaveBeenCalledTimes(1);
   });
@@ -156,27 +156,14 @@ describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
     const { createRestCompletionSignal } = await freshModule();
     const emit = vi.fn();
     const signal = createRestCompletionSignal(emit);
-    const endsAt = T0 + 90_000;
+    const seen = { finished: true, endsAt: T0 + 90_000, visibleSince: T0 };
 
-    signal(true, endsAt); // 종료 감지
-    signal(true, endsAt); // 200ms 틱
-    signal(true, endsAt); // visibilitychange
-    signal(true, endsAt); // focus
-    signal(true, endsAt); // pageshow
-    signal(true, endsAt); // StrictMode 이펙트 재실행
-
-    expect(emit).toHaveBeenCalledTimes(1);
-  });
-
-  it("백그라운드에서 끝난 뒤 복귀해 처음 관측해도 정확히 한 번이다(0 경계)", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-    const endsAt = T0 + 90_000;
-
-    // 숨어 있는 동안은 아무 관측도 없다. 복귀 tick 이 곧바로 0 을 본다.
-    signal(true, endsAt);
-    signal(true, endsAt);
+    signal(seen); // 종료 감지
+    signal(seen); // 200ms 틱
+    signal(seen); // visibilitychange
+    signal(seen); // focus
+    signal(seen); // pageshow
+    signal(seen); // StrictMode 이펙트 재실행
 
     expect(emit).toHaveBeenCalledTimes(1);
   });
@@ -186,9 +173,9 @@ describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
     const emit = vi.fn();
     const signal = createRestCompletionSignal(emit);
 
-    signal(true, T0 + 90_000);
-    signal(false, T0 + 120_000); // +30초 → 다시 진행 중
-    signal(true, T0 + 120_000);
+    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
+    signal({ finished: false, endsAt: T0 + 120_000, visibleSince: T0 }); // +30초 → 다시 진행 중
+    signal({ finished: true, endsAt: T0 + 120_000, visibleSince: T0 });
 
     expect(emit).toHaveBeenCalledTimes(2);
   });
@@ -198,11 +185,72 @@ describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
     const emit = vi.fn();
     const signal = createRestCompletionSignal(emit);
 
-    signal(true, T0 + 90_000);
-    signal(true, T0 + 90_000);
-    signal(true, T0 + 300_000); // 2세트 완료 → 새 타이머
+    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
+    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
+    signal({ finished: true, endsAt: T0 + 300_000, visibleSince: T0 }); // 2세트 완료 → 새 타이머
 
     expect(emit).toHaveBeenCalledTimes(2);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 전경에서 끝났을 때만 — UX_STATES §4.7 "알림 조건".
+ * ------------------------------------------------------------------ */
+
+describe("전경 관측만 재생한다", () => {
+  const endsAt = T0 + 90_000;
+
+  it("보는 중에 끝났으면 낸다", async () => {
+    const { createRestCompletionSignal } = await freshModule();
+    const emit = vi.fn();
+
+    // 타이머가 끝나기 전부터 계속 보고 있었다.
+    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: T0 });
+
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("숨어 있는 동안 끝났으면 복귀해도 내지 않는다 — 늦은 비프 금지", async () => {
+    const { createRestCompletionSignal } = await freshModule();
+    const emit = vi.fn();
+
+    // 복귀 시각(endsAt 이후)이 전경 시작점이다 → 이 휴식은 숨어 있는 동안 끝났다.
+    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: endsAt + 5_000 });
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("숨은 채로 관측해도 내지 않는다", async () => {
+    const { createRestCompletionSignal } = await freshModule();
+    const emit = vi.fn();
+
+    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: null });
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("**억제해도 정체성은 소비한다** — 그 뒤 전경이 돼도 늦게 울리지 않는다", async () => {
+    const { createRestCompletionSignal } = await freshModule();
+    const emit = vi.fn();
+    const signal = createRestCompletionSignal(emit);
+
+    signal({ finished: true, endsAt, visibleSince: null }); // 숨은 채 첫 관측
+    signal({ finished: true, endsAt, visibleSince: endsAt + 1_000 }); // 복귀 후 재관측
+    signal({ finished: true, endsAt, visibleSince: T0 }); // focus 로 또 한 번
+
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("복귀 뒤 시작한 다음 휴식은 정상적으로 울린다 — 억제가 영구가 아니다", async () => {
+    const { createRestCompletionSignal } = await freshModule();
+    const emit = vi.fn();
+    const signal = createRestCompletionSignal(emit);
+    const backAt = endsAt + 5_000;
+
+    signal({ finished: true, endsAt, visibleSince: backAt }); // 백그라운드에서 끝난 휴식 → 억제
+    signal({ finished: true, endsAt: backAt + 90_000, visibleSince: backAt }); // 다음 세트
+
+    expect(emit).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -307,6 +355,60 @@ describe("emit — 비프", () => {
     expect(oscillator.stop).toHaveBeenCalledWith(context.currentTime + 0.12);
     expect(oscillator.connect).toHaveBeenCalledWith(gain);
     expect(gain.connect).toHaveBeenCalledWith(context.destination);
+  });
+
+  it("**suspended 면 음원을 만들지 않는다** — resume 이 거부된 뒤 종료를 관측해도 0개", async () => {
+    const stub = audioStub("suspended");
+    stub.resume.mockImplementation(() => Promise.reject(new Error("NotAllowedError")));
+    setAudioContext(stub.FakeAudioContext);
+    const { unlockRestFeedback, emitRestCompleteFeedback } = await freshModule();
+
+    unlockRestFeedback(); // 제스처에서 열었지만 resume 이 거부됐다
+    await Promise.resolve();
+    emitRestCompleteFeedback(); // 타이머 종료
+
+    expect(stub.context.createOscillator).not.toHaveBeenCalled();
+    expect(stub.oscillator.start).not.toHaveBeenCalled();
+  });
+
+  it("**나중에 resume 에 성공해도 지난 비프가 되살아나지 않는다** — 늦은 재생 금지", async () => {
+    const stub = audioStub("suspended");
+    stub.resume.mockImplementation(() => Promise.reject(new Error("NotAllowedError")));
+    setAudioContext(stub.FakeAudioContext);
+    const { unlockRestFeedback, emitRestCompleteFeedback } = await freshModule();
+
+    // 1) 제스처 → resume 거부. 2) 1세트 휴식 종료 관측.
+    unlockRestFeedback();
+    await Promise.resolve();
+    emitRestCompleteFeedback();
+
+    // 3) 다음 세트 완료 제스처에서 resume 이 성공한다.
+    stub.resume.mockImplementation(() => Promise.resolve());
+    stub.context.state = "running";
+    unlockRestFeedback();
+    await Promise.resolve();
+
+    // suspended 동안 **예약된 source 가 없어야** 지난 휴식의 비프가 지금 울리지 않는다.
+    expect(stub.context.createOscillator).not.toHaveBeenCalled();
+    expect(stub.oscillator.start).not.toHaveBeenCalled();
+
+    // 그리고 지금 휴식이 끝나면 정상적으로 한 번 울린다 — 기능이 죽은 게 아니다.
+    emitRestCompleteFeedback();
+    expect(stub.oscillator.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("진동은 suspended 와 무관하게 울린다 — 오디오 정책이 진동을 막지 않는다", async () => {
+    const stub = audioStub("suspended");
+    setAudioContext(stub.FakeAudioContext);
+    const vibrate = vi.fn(() => true);
+    setVibrate(vibrate);
+    const { unlockRestFeedback, emitRestCompleteFeedback } = await freshModule();
+
+    unlockRestFeedback();
+    emitRestCompleteFeedback();
+
+    expect(stub.context.createOscillator).not.toHaveBeenCalled();
+    expect(vibrate).toHaveBeenCalledTimes(1);
   });
 
   it("unlock 하지 않았으면 소리를 만들지 않는다 — 그래도 던지지 않는다", async () => {

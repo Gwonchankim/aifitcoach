@@ -49,6 +49,7 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
   const addAnnounceRef = useRef<number | undefined>(undefined);
   const signalRef = useRef<RestCompletionSignal | null>(null);
   signalRef.current ??= createRestCompletionSignal(emitRestCompleteFeedback);
+  const visibleSinceRef = useRef<number | null>(null);
 
   useModal(open, SHEET_ID, onClose, END_BUTTON_ID);
 
@@ -57,7 +58,13 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
   useEffect(() => {
     if (!open) return;
 
-    const tick = () => setNow(Date.now());
+    // 전경이 된 시각을 같이 따라간다. 숨는 순간 잊고, 다시 보일 때 새로 찍는다 —
+    // 그래야 "백그라운드에서 끝난 휴식"과 "보는 중에 끝난 휴식"이 구분된다(§4.7 알림 조건).
+    const tick = () => {
+      visibleSinceRef.current =
+        document.visibilityState === "visible" ? (visibleSinceRef.current ?? Date.now()) : null;
+      setNow(Date.now());
+    };
     tick();
     const interval = window.setInterval(tick, 200);
     document.addEventListener("visibilitychange", tick);
@@ -98,7 +105,11 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
   // 화면은 건드리지 않는다 — 타이머는 0에서 멈추고 시트는 열린 채로 남는다(§4.7).
   useEffect(() => {
     if (!open) return;
-    signalRef.current?.(finished, timer.endsAt);
+    signalRef.current?.({
+      finished,
+      endsAt: timer.endsAt,
+      visibleSince: visibleSinceRef.current,
+    });
   }, [open, finished, timer.endsAt]);
 
   const handleAdd = (delta: number) => {

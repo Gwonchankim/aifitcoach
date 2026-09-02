@@ -46,7 +46,10 @@ export function unlockRestFeedback(): void {
 }
 
 function beep(): void {
-  if (!context) return;
+  // **`running` 이 아니면 아무것도 만들지 않는다.** suspended 컨텍스트는 렌더링 시간이 흐르지 않아
+  // 여기서 예약한 source 가 **지금 소리 나지 않고 다음 resume 때 울린다** — 다음 세트를 시작하는
+  // 순간에 지난 휴식의 비프가 나온다. "종료 시 한 번"이라는 시간 의미가 깨지므로 무음으로 떨어진다.
+  if (!context || context.state !== "running") return;
   try {
     const oscillator = context.createOscillator();
     const gain = context.createGain();
@@ -81,24 +84,41 @@ export function emitRestCompleteFeedback(): void {
   vibrate();
 }
 
-export type RestCompletionSignal = (finished: boolean, endsAt: number) => void;
+export type RestCompletionObservation = {
+  finished: boolean;
+  /** 이 휴식의 끝나는 시각(epoch ms). 타이머의 정체성이다. */
+  endsAt: number;
+  /**
+   * 페이지가 **마지막으로 전경이 된** 시각(epoch ms). 지금 숨어 있으면 `null`.
+   *
+   * 관측 순간의 `visibilityState` 만으로는 부족하다 — 탭이 숨으면 타이머 틱이 스로틀돼서,
+   * 백그라운드에서 끝난 휴식도 **복귀 직후에 처음** 관측된다. 그때 "지금 보인다"만 보면
+   * 늦은 비프가 그대로 울린다. 끝난 시각이 전경 복귀보다 앞서는지 비교해야 구분된다.
+   */
+  visibleSince: number | null;
+};
+
+export type RestCompletionSignal = (observation: RestCompletionObservation) => void;
 
 /**
- * **타이머 하나당 한 번만** 내보내는 게이트.
+ * **타이머 하나당 한 번만**, 그리고 **전경에서 끝났을 때만** 내보내는 게이트.
  *
- * 이게 필요한 이유는 종료가 이벤트가 아니라 **상태**이기 때문이다. 남은 시간은 200ms 틱과
+ * 한 번만이어야 하는 이유는 종료가 이벤트가 아니라 **상태**이기 때문이다. 남은 시간은 200ms 틱과
  * `visibilitychange`·`focus`·`pageshow` 에서 다시 계산되고 StrictMode 는 이펙트를 두 번 돌린다.
  * 그때마다 "0 이다"가 참이므로, 관측 횟수로 울리면 한 번의 휴식이 여러 번 울린다.
+ * 그래서 **끝난 시각(`endsAt`)을 타이머의 정체성으로 삼는다.** 휴식을 더하거나(새 `endsAt`)
+ * 다음 세트로 넘어가면 다른 휴식이다.
  *
- * 그래서 **끝난 시각(`endsAt`)을 타이머의 정체성으로 삼는다.** 같은 값이면 이미 알린 그 휴식이고,
- * 휴식을 더하거나(새 `endsAt`) 다음 세트로 넘어가면 다른 휴식이다.
+ * 억제한 경우에도 정체성은 **소비한다**(UX_STATES §4.7 "알림 조건"). 남겨 두면 다음 관측에서
+ * 늦게 울려, 백그라운드에서 끝난 휴식을 복귀 시 재생하지 않는다는 계약이 깨진다.
  */
 export function createRestCompletionSignal(emit: () => void): RestCompletionSignal {
   let signaledEndsAt: number | null = null;
 
-  return (finished, endsAt) => {
+  return ({ finished, endsAt, visibleSince }) => {
     if (!finished || signaledEndsAt === endsAt) return;
     signaledEndsAt = endsAt;
+    if (visibleSince === null || endsAt < visibleSince) return;
     emit();
   };
 }
