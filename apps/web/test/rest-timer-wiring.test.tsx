@@ -285,13 +285,19 @@ describe("배선 — 완료 취소는 화면에 타이머가 없어도 저장분
 describe("배선 — 세션 종료", () => {
   it("운동을 종료하면 저장된 타이머가 정리된다", async () => {
     renderSession(SESSION_A);
-    await completeFirstSet();
-    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+    await screen.findByRole("heading", { name: "벤치프레스" });
 
-    // **휴식 시트를 닫지 않고** 종료한다 — 닫으면 그쪽 clear 가 대신 지워 이 경로를 못 본다.
+    // **시트를 띄우지 않고** 레코드만 만든다. 시트를 열면 종료 전에 닫아야 하고,
+    // 닫기(Esc 포함)가 이미 clear 를 하므로 종료 경로가 유일한 정리 주체가 되지 못한다.
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    expect(await storedTimer(SESSION_A)).not.toBeNull();
+    expect(screen.queryByRole("dialog", { name: /휴식/ })).toBeNull();
+
     const { fireEvent } = await import("@testing-library/dom");
-    fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+    fireEvent.click(screen.getByRole("button", { name: "운동 종료" }));
     const dialog = await screen.findByRole("dialog", { name: "운동 종료" });
     fireEvent.click(within(dialog).getByRole("button", { name: /종료$/ }));
 

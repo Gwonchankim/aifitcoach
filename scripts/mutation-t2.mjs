@@ -378,6 +378,12 @@ const MUTATIONS = [
  */
 const KNOWN_EQUIVALENT = new Map([
   [
+    40,
+    "setRest(previous => previous ?? stored) 가 이미 덮어쓰기를 막고, rest 를 null 로 만드는 모든 경로" +
+      "(닫기·완료취소·세션종료·세션전환)가 저마다 invalidate 한다 → 저장 시점의 invalidate 는 " +
+      "관측 결과를 바꾸지 않는 이중 방어다",
+  ],
+  [
     16,
     "읽기·판정·삭제가 한 큐 안에 있어 그 사이 다른 쓰기가 끼어들 수 없다 → 원문 대조는 " +
       "큐가 깨질 때를 대비한 이중 방어이고 현 구조에서는 관측 결과가 같다",
