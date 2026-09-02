@@ -18,13 +18,17 @@
  *    두 번째 판이 `try` 만 남기고 `catch` 를 지워 3건을 그렇게 틀렸다. 이제 무효로 분류한다.
  * 3. **주입 전 트리가 이미 빨갰을 때.** 그러면 무엇을 주입해도 RED 라 표 전체가 의미를 잃는다.
  *    그래서 쓰는 오라클마다 **clean baseline 을 먼저 green 으로 확인**하고 시작한다.
+ * 4. **"복원했다"를 대상 파일 하나로만 주장했을 때.** E2E 오라클은 추적 산출물
+ *    `axe-results.jsonl` 을 지운다. 대상 SHA 만 맞추고 끝내니 성공 종료 후에도 `D` 가 남았다.
+ *    이제 오라클의 부수효과까지 바이트로 되돌리고, 끝에 `git status` 전후 동일까지 단언한다.
  *
- * 복원은 `try/finally` 로 보장하고 매번 원본 sha256 과 대조한다. `--self-test` 가 그 보장을
- * 실제로 증명한다 — 오라클이 중간에 던지도록 만들어 놓고 파일이 원본으로 돌아오는지 본다.
+ * 복원은 예외를 붙잡아 두었다가 되돌린 뒤 다시 던지는 방식이다 — `finally` 에서 던지면
+ * 오라클이 낸 진짜 실패가 가려진다. 매번 원본 sha256 과 대조하고, `--self-test` 가 그 보장을
+ * 실제로 증명한다: 오라클이 중간에 던지면서 추적 산출물까지 지우게 해 놓고 전부 돌아오는지 본다.
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +44,64 @@ const ESC = String.fromCharCode(27);
 const ANSI = new RegExp(ESC + "\\[[0-9;]*m", "g");
 const stripAnsi = (text) => text.replace(ANSI, "");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+
+/* ------------------------------------------------------------------ *
+ * 오라클의 부수효과 — 뮤테이션 대상만 되돌리면 부족하다
+ * ------------------------------------------------------------------ */
+
+function git(args) {
+  return execFileSync("git", args, { cwd: ROOT, encoding: "utf8", shell: false });
+}
+
+/** 워킹트리 전체 상태. 실행 전후가 **문자 단위로 같아야** residue 0 이다. */
+const gitStatus = () => git(["status", "--porcelain"]);
+
+/**
+ * E2E 오라클이 덮어쓰거나 지우는 **추적 산출물**.
+ *
+ * `e2e/global-setup.ts` 는 실행을 시작할 때마다 `axe-results.jsonl` 을 지우는데 그걸 다시 만드는 건
+ * `05-a11y` 뿐이다. 우리는 spec 하나만 오라클로 돌리므로 **성공해도 삭제된 채로 남는다**
+ * (실측: 오라클 4 passed 직후 `D apps/web/e2e/axe-results.jsonl`). 스크린샷도 같은 부류다.
+ *
+ * 그래서 대상 소스뿐 아니라 이 산출물들도 **바이트 그대로** 되돌린다.
+ */
+function e2eOutputScope() {
+  return git(["ls-files", "--", "apps/web/e2e/axe-results.jsonl", "apps/web/e2e/screenshots"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((relativePath) => join(ROOT, relativePath));
+}
+
+/**
+ * 현재 바이트를 그대로 담는다. **`git checkout` 을 쓰지 않는다** — 그러면 다른 작업자의
+ * 미커밋 변경을 커밋 버전으로 덮어쓴다. 지금 있는 그대로를 되돌리는 것이 목적이다.
+ * 파일이 **없는 상태**도 값(`null`)으로 기록해 그대로 복원한다.
+ */
+function snapshotFiles(paths) {
+  return new Map(paths.map((path) => [path, existsSync(path) ? readFileSync(path) : null]));
+}
+
+/** 스냅샷과 달라진 것만 되돌린다. 되돌린 경로를 반환한다(보고용). */
+function restoreFiles(snapshot) {
+  const restored = [];
+  for (const [path, bytes] of snapshot) {
+    const current = existsSync(path) ? readFileSync(path) : null;
+    if (bytes === null) {
+      if (current !== null) {
+        rmSync(path);
+        restored.push(path);
+      }
+      continue;
+    }
+    if (current === null || !current.equals(bytes)) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+      restored.push(path);
+    }
+  }
+  return restored;
+}
 
 /* ------------------------------------------------------------------ *
  * 오라클
@@ -103,6 +165,8 @@ const ORACLES = {
   },
   e2e: {
     label: "e2e",
+    // 이 오라클은 추적 산출물을 지우거나 덮어쓴다. 회차마다 바이트 그대로 되돌린다.
+    sideEffects: e2eOutputScope(),
     run: () =>
       spawn(
         [
@@ -388,12 +452,17 @@ function applyEdits(source, edits) {
  * 한 회차. **오라클이 던지든 통과하든 원본으로 되돌리고**, 돌아온 내용이 sha256 까지 같은지
  * 확인한 뒤에야 다음으로 넘어간다.
  *
+ * 되돌리는 대상은 **주입한 파일만이 아니다.** 오라클이 지우거나 덮어쓴 추적 산출물까지 함께
+ * 복원한다 — 대상 SHA 만 맞춰 놓고 저장소에 `D` 를 남기면 "복원됐다"가 거짓말이 된다.
+ *
  * 복원과 검증을 `finally` 에 같이 넣지 않는다 — 거기서 던지면 오라클이 낸 **진짜 실패가 가려진다**
  * (`no-unsafe-finally`). 그래서 예외를 일단 붙잡아 두고, 복원·검증을 마친 뒤 그대로 다시 던진다.
  */
 function runOnce(file, mutated, oracle) {
   const original = readFileSync(file, "utf8");
   const originalSha = sha256(original);
+  // 오라클이 실제로 건드리는 산출물만 스냅샷한다(E2E 가 아니면 빈 목록이라 비용 0).
+  const sideEffects = snapshotFiles(oracle.sideEffects ?? []);
   let result;
   let failure = null;
   try {
@@ -405,19 +474,32 @@ function runOnce(file, mutated, oracle) {
 
   writeFileSync(file, original);
   const restoredSha = sha256(readFileSync(file, "utf8"));
+  const restoredSideEffects = restoreFiles(sideEffects);
   if (restoredSha !== originalSha) {
     throw new Error(`복원 실패: ${relative(ROOT, file)} sha ${restoredSha} != ${originalSha}`);
   }
   if (failure) throw failure;
-  return result;
+  return { ...result, restoredSideEffects };
 }
 
-/** 주입 전 트리가 green 인지 확인한다. 이미 빨간 트리에서는 표 전체가 의미가 없다. */
+/**
+ * 주입 전 트리가 green 인지 확인한다. 이미 빨간 트리에서는 표 전체가 의미가 없다.
+ * baseline 실행도 오라클의 부수효과를 남기므로 회차와 **같은 방식으로** 되돌린다.
+ */
 function preflight(names) {
   for (const name of names) {
     const oracle = ORACLES[name];
     process.stdout.write(`baseline ${oracle.label} … `);
-    const result = oracle.run();
+    const sideEffects = snapshotFiles(oracle.sideEffects ?? []);
+    let result;
+    let failure = null;
+    try {
+      result = oracle.run();
+    } catch (error) {
+      failure = error;
+    }
+    restoreFiles(sideEffects);
+    if (failure) throw failure;
     if (result.failed) {
       console.log("실패");
       console.log(result.output.split("\n").slice(-25).join("\n"));
@@ -428,33 +510,56 @@ function preflight(names) {
 }
 
 /**
- * **복원 보장 자체 검증.** 오라클이 실행 도중 던지도록 만들어 놓고, 파일이 원본으로 돌아오고
- * sha256 이 일치하는지 본다. 이 경로가 깨져 있으면 표가 아니라 워킹트리가 오염된다.
+ * **복원 보장 자체 검증(fault injection).**
+ *
+ * 오라클이 실행 도중 던지도록 만들어 놓고 세 가지를 본다: 주입한 파일이 바이트로 돌아오는가,
+ * **오라클이 지운 추적 산출물이 되살아나는가**, 그리고 `git status --porcelain` 이 실행 전과
+ * 문자 단위로 같은가. 마지막 하나가 없으면 "복원됐다"를 대상 파일 하나로만 주장하게 된다 —
+ * 실제로 그 착각 때문에 성공 종료 후 `D axe-results.jsonl` 이 남았다.
  */
 function selfTest() {
+  const statusBefore = gitStatus();
   const original = readFileSync(FEEDBACK, "utf8");
   const originalSha = sha256(original);
+  const scope = e2eOutputScope();
+  const victim = scope.find((path) => path.endsWith("axe-results.jsonl")) ?? scope[0];
+  const victimBytes = existsSync(victim) ? readFileSync(victim) : null;
   const boom = new Error("주입된 오라클 실패");
   let caught = null;
+
   try {
     runOnce(FEEDBACK, original + "\n// fault injection\n", {
+      sideEffects: scope,
       run: () => {
-        // 오라클이 실행 중 파일이 확실히 변형돼 있는지 먼저 확인한다.
         if (readFileSync(FEEDBACK, "utf8") === original) throw new Error("변형이 적용되지 않았다");
+        // 실제 E2E global-setup 이 하는 짓을 그대로 흉내 낸다: 추적 산출물을 지운다.
+        if (existsSync(victim)) rmSync(victim);
         throw boom;
       },
     });
   } catch (error) {
     caught = error;
   }
+
   const after = readFileSync(FEEDBACK, "utf8");
-  const ok = caught === boom && after === original && sha256(after) === originalSha;
-  console.log(
-    ok
-      ? "self-test: 오라클이 던져도 원본이 복원됐고 sha256 이 일치한다 ✔"
-      : `self-test 실패 — caught=${caught?.message} restored=${after === original}`,
-  );
-  if (!ok) process.exitCode = 1;
+  const victimAfter = existsSync(victim) ? readFileSync(victim) : null;
+  const victimRestored =
+    victimBytes === null ? victimAfter === null : (victimAfter?.equals(victimBytes) ?? false);
+  const statusAfter = gitStatus();
+  const checks = {
+    "주입 예외를 그대로 전달": caught === boom,
+    "대상 파일 바이트 복원": after === original && sha256(after) === originalSha,
+    "오라클이 지운 추적 산출물 복원": victimRestored,
+    "git status 실행 전과 동일": statusAfter === statusBefore,
+  };
+
+  for (const [label, ok] of Object.entries(checks)) console.log(`  ${ok ? "✔" : "✘"} ${label}`);
+  const allOk = Object.values(checks).every(Boolean);
+  console.log(allOk ? "self-test 통과" : "self-test 실패");
+  if (!allOk) {
+    console.log(`--- status before ---\n${statusBefore}--- after ---\n${statusAfter}`);
+    process.exitCode = 1;
+  }
 }
 
 function main() {
@@ -462,6 +567,8 @@ function main() {
   if (process.argv.includes("--self-test")) return selfTest();
 
   const selected = MUTATIONS.filter((m) => !unitOnly || m.oracle !== "e2e");
+  // 실행 **전** 상태를 잡아 둔다. 끝나고 이것과 문자 단위로 같지 않으면 residue 0 이 아니다.
+  const statusBefore = gitStatus();
   preflight([...new Set(selected.map((m) => m.oracle))]);
 
   console.log("\n| # | 파일 | 주입한 결함 | 오라클 | 결과 | 잡아낸 근거 |");
@@ -509,7 +616,20 @@ function main() {
   console.log(
     `\n${selected.length}건 중 RED ${red} · 등가 ${KNOWN_EQUIVALENT.size} · 무효 ${invalid} · **미방어 생존 ${survivors}**.`,
   );
-  if (survivors > 0 || invalid > 0) process.exitCode = 1;
+
+  // **residue 0 을 주장하려면 저장소 전체를 봐야 한다.** 대상 파일 SHA 만 맞추고 끝내면
+  // 오라클이 지운 추적 산출물이 그대로 남는다(이 러너가 실제로 그랬다).
+  const statusAfter = gitStatus();
+  const clean = statusAfter === statusBefore;
+  console.log(
+    clean
+      ? "residue 0 — `git status --porcelain` 이 실행 전과 동일하다."
+      : "**residue 발견** — 실행 전후 `git status` 가 다르다.",
+  );
+  if (!clean) {
+    console.log(`--- before ---\n${statusBefore}--- after ---\n${statusAfter}`);
+  }
+  if (survivors > 0 || invalid > 0 || !clean) process.exitCode = 1;
 }
 
 main();
