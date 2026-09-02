@@ -9,7 +9,14 @@ import {
 } from "../src/programs/programs.service";
 import type { GenerateProgramDto } from "../src/programs/dto/generate-program.dto";
 import { loadSemanticsFor } from "../src/programs/assistance-migration";
-import { patternsFor, scheduleFor, splitTypeFor } from "../src/programs/program-rules";
+import {
+  exerciseCountFor,
+  type Focus,
+  PAIN_AREAS,
+  patternsFor,
+  scheduleFor,
+  splitTypeFor,
+} from "../src/programs/program-rules";
 
 const BEGINNER_OPTIONS: SelectionOptions = {
   levelRank: DIFFICULTY_RANK.beginner,
@@ -139,30 +146,42 @@ function dto(overrides: Partial<GenerateProgramDto> = {}): GenerateProgramDto {
   } as unknown as GenerateProgramDto;
 }
 
-/** 한 focus 의 선택 결과 id 목록. `planFocus` 의 legacy 경로와 같은 호출이다. */
-function selectFor(catalog: Exercise[], input: GenerateProgramDto, focus: "upper" | "full_body") {
+/**
+ * 한 focus 의 선택 결과 id 목록.
+ *
+ * **개수는 `exerciseCountFor(minutes_per_day)` 다** — active V1(`planFocus` legacy 분기)이 넘기는
+ * 바로 그 값이고, production 이 export 하는 같은 helper 를 쓴다. 여기서 `patterns.length` 같은
+ * 테스트 전용 개수를 쓰면 화면에 실제로 나오지 않는 계획을 검증하게 된다(독립 리뷰 P1-1).
+ */
+function selectFor(catalog: Exercise[], input: GenerateProgramDto, focus: Focus) {
   const context = buildProgramSelectionContext(catalog, input);
-  const patterns = patternsFor(focus);
-  return selectExercises(context.allowed, patterns, patterns.length, context.options).map(
-    (exercise) => exercise.id,
-  );
+  return selectExercises(
+    context.allowed,
+    patternsFor(focus),
+    exerciseCountFor(input.minutes_per_day),
+    context.options,
+  ).map((exercise) => exercise.id);
 }
 
-/** 주간 계획 전체를 문자열로 — 전수 비교용. */
+/** 프로그램 생성 입력의 전수 격자 225개(goal 3 × days 5 × minutes 5 × level 3). */
+function* BASE_INPUTS(painAreas?: string[]): Generator<GenerateProgramDto> {
+  for (const goal of ["diet", "hypertrophy", "strength"] as const)
+    for (const days of [2, 3, 4, 5, 6])
+      for (const minutes of [30, 45, 60, 75, 90] as const)
+        for (const level of ["beginner", "intermediate", "advanced"] as const)
+          yield dto({
+            goal,
+            days_per_week: days,
+            minutes_per_day: minutes,
+            experience_level: level,
+            ...(painAreas ? { pain_areas: painAreas } : {}),
+          });
+}
+
+/** 주간 계획 전체를 문자열로 — 전수 비교용. 개수 계약은 `selectFor` 와 같다. */
 function planOf(catalog: Exercise[], input: GenerateProgramDto): string {
-  const context = buildProgramSelectionContext(catalog, input);
   return scheduleFor(input.days_per_week)
-    .map(({ focus }) => {
-      const patterns = patternsFor(focus);
-      return `${focus}:${selectExercises(
-        context.allowed,
-        patterns,
-        patterns.length,
-        context.options,
-      )
-        .map((exercise) => exercise.id)
-        .join(",")}`;
-    })
+    .map(({ focus }) => `${focus}:${selectFor(catalog, input, focus).join(",")}`)
     .join(" | ");
 }
 
@@ -177,24 +196,55 @@ describe("스미스 인클라인 추가의 선택 영향", () => {
     const changed: string[] = [];
     let compared = 0;
 
-    for (const goal of ["diet", "hypertrophy", "strength"] as const)
-      for (const days of [2, 3, 4, 5, 6])
-        for (const minutes of [30, 45, 60, 75, 90] as const)
-          for (const level of ["beginner", "intermediate", "advanced"] as const) {
-            const input = dto({
-              goal,
-              days_per_week: days,
-              minutes_per_day: minutes,
-              experience_level: level,
-            });
-            compared += 1;
-            if (planOf(CATALOG, input) !== planOf(CATALOG_BEFORE, input))
-              changed.push(`${goal}/${days}d/${minutes}m/${level}`);
-          }
+    for (const input of BASE_INPUTS()) {
+      compared += 1;
+      if (planOf(CATALOG, input) !== planOf(CATALOG_BEFORE, input))
+        changed.push(`${input.goal}/${input.days_per_week}d/${input.minutes_per_day}m`);
+    }
 
     // 전수라는 사실 자체를 못박는다 — 표본이 줄면 이 단언이 먼저 깨진다.
     expect(compared).toBe(225);
     expect(changed).toEqual([]);
+  });
+
+  /**
+   * **영향 범위 전수.** 통증 목록은 손으로 적지 않고 계약 원천(`PAIN_AREAS`)에서 가져온다 —
+   * 임의로 고른 시나리오로 세면 총 조합 수부터 틀린다(독립 리뷰 P1-1 에서 실제로 그랬다).
+   */
+  it("통증 enum 전수에서 달라지는 조합은 목 통증뿐이고, 시간대별 분포까지 고정된다", () => {
+    expect(PAIN_AREAS).toEqual([
+      "knee",
+      "lower_back",
+      "shoulder",
+      "elbow",
+      "wrist",
+      "hip",
+      "neck",
+      "ankle",
+    ]);
+
+    const scenarios: (string[] | undefined)[] = [undefined, ...PAIN_AREAS.map((area) => [area])];
+    const changedByPain: Record<string, number> = {};
+    const changedByMinutes: Record<number, number> = {};
+    let compared = 0;
+
+    for (const pain of scenarios)
+      for (const input of BASE_INPUTS(pain)) {
+        compared += 1;
+        if (planOf(CATALOG, input) === planOf(CATALOG_BEFORE, input)) continue;
+        const key = pain?.[0] ?? "(통증 없음)";
+        changedByPain[key] = (changedByPain[key] ?? 0) + 1;
+        changedByMinutes[input.minutes_per_day] =
+          (changedByMinutes[input.minutes_per_day] ?? 0) + 1;
+      }
+
+    // 225 조합 × (통증 없음 + 8부위) = 2,025.
+    expect(compared).toBe(225 * (PAIN_AREAS.length + 1));
+    expect(compared).toBe(2025);
+
+    // 목 통증에서만, 그리고 시간이 넉넉해 대체 자리가 생기는 시간대에서만 달라진다.
+    expect(changedByPain).toEqual({ neck: 81 });
+    expect(changedByMinutes).toEqual({ 60: 9, 75: 27, 90: 45 });
   });
 
   it("통증이 없으면 신규 종목은 아예 선택되지 않는다 — 기존 후보가 모두 앞선다", () => {
@@ -215,9 +265,14 @@ describe("스미스 인클라인 추가의 선택 영향", () => {
     const input = dto({
       goal: "diet",
       days_per_week: 2,
-      minutes_per_day: 45,
+      // **대체가 실제로 일어나는 시간대여야 한다.** 30·45분은 V1 개수가 3·4라 대체 자리 자체가
+      // 생기지 않는다 — 그런 입력으로 고정하면 통과해도 아무것도 보증하지 않는다(P1-1).
+      minutes_per_day: 90,
       pain_areas: ["neck"],
     });
+
+    // 이 fixture 가 밟는 개수가 active V1 의 값이라는 것을 명시한다.
+    expect(exerciseCountFor(90)).toBe(7);
 
     const after = selectFor(CATALOG, input, "full_body");
     const before = selectFor(CATALOG_BEFORE, input, "full_body");
