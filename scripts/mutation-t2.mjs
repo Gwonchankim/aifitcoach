@@ -477,6 +477,80 @@ const MUTATIONS = [
     from: "      const timerCleared = await restTimerStore.clear(sessionId);",
     to: "      const timerCleared = true;\n      void restTimerStore.clear(sessionId);",
   },
+  /* ---- 후속 재리뷰: 복구 자격 · 별칭 · future saved_at ---- */
+  {
+    id: 55,
+    file: STORE,
+    what: "**완료 사실 확인 제거** — 취소한 세트의 타이머가 되살아난다",
+    from: "  return eligibility.completedPlannedSetIds.has(plannedSetId);",
+    to: "  return true;",
+  },
+  {
+    id: 56,
+    file: STORE,
+    what: "**종료된 세션 차단 제거** — 끝난 세션에서도 복구한다",
+    from: "  if (eligibility.sessionCompleted) return false;",
+    to: "  if (false) return false;",
+  },
+  {
+    id: 57,
+    file: STORE,
+    what: "자격 추출이 완료 여부를 무시하고 모든 세트를 담는다",
+    from: '    if (typeof set?.id === "string" && set.performed_set != null) completed.add(set.id);',
+    to: '    if (typeof set?.id === "string") completed.add(set.id);',
+  },
+  {
+    id: 58,
+    file: STORE,
+    what: "세션 status 판정을 뒤집는다",
+    from: '  return { sessionCompleted: session.status === "completed", completedPlannedSetIds: completed };',
+    to: "  return { sessionCompleted: false, completedPlannedSetIds: completed };",
+  },
+  {
+    id: 59,
+    file: STORE,
+    what: "**future saved_at 가드 제거** — 시계 되돌림 좀비가 산다",
+    from: "  if (parsedRecord.saved_at > now) return null;",
+    to: "  if (false) return null;",
+  },
+  {
+    id: 60,
+    file: STORE,
+    what: "future 가드를 관용치로 느슨하게(임의 5분)",
+    from: "  if (parsedRecord.saved_at > now) return null;",
+    to: "  if (parsedRecord.saved_at > now + 300_000) return null;",
+  },
+  {
+    id: 61,
+    file: STORE,
+    what: "**별칭 해석 제거** — 늦은 저장이 correlation id 를 되살린다",
+    from: "      planned_set_id: canonicalPlannedSetId(plannedSetId),",
+    to: "      planned_set_id: plannedSetId,",
+  },
+  {
+    id: 62,
+    file: COORDINATOR,
+    what: "**커밋 뒤 별칭 등록 제거**",
+    from: "      commitRestTimerAliases(response.planned_set_mappings);",
+    to: "      void 0;",
+  },
+  {
+    id: 63,
+    file: COORDINATOR,
+    what: "별칭을 커밋 **전에** 등록 — 롤백돼도 남는다",
+    edits: [
+      [
+        "      const draftsChanged = await this.commitResponse(response);",
+        "      commitRestTimerAliases(response.planned_set_mappings);\n" +
+          "      const draftsChanged = await this.commitResponse(response);",
+      ],
+      [
+        "      commitRestTimerAliases(response.planned_set_mappings);\n" +
+          "      if (response.planned_set_mappings.length > 0",
+        "      if (response.planned_set_mappings.length > 0",
+      ],
+    ],
+  },
   {
     id: 54,
     file: STORE,
