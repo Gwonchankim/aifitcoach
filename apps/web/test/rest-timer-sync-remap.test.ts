@@ -463,7 +463,9 @@ describe("durable 별칭 — 트랜잭션 순서", () => {
       value: JSON.stringify({ v: 1, to: "a", at: now }),
     });
 
-    await saveRestTimer(USER, SESSION, "a", TITLE, { totalSec: 90, endsAt: now + 60_000 });
+    // 저장 시각을 명시한다 — 기본값(Date.now())을 쓰면 아래 load 의 now 보다 미래가 되어
+    // future 가드에 걸린다(관용 0). 그건 계약이 맞고 fixture 가 틀린 것이다.
+    await saveRestTimer(USER, SESSION, "a", TITLE, { totalSec: 90, endsAt: now + 60_000 }, now);
 
     expect(["a", "b"]).toContain((await loadRestTimer(USER, SESSION, now))!.plannedSetId);
   });
