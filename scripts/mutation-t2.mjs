@@ -133,8 +133,8 @@ const MUTATIONS = [
     what: "save 를 큐 밖으로 — 늦은 save 가 clear 를 앞지른다",
     edits: [
       [
-        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    try {",
-        "  return (async () => {\n    try {",
+        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    // **쓰기 직전에**",
+        "  return (async () => {\n    // **쓰기 직전에**",
       ],
       ["      return false;\n    }\n  });\n}", "      return false;\n    }\n  })();\n}"],
     ],
@@ -243,9 +243,9 @@ const MUTATIONS = [
   {
     id: 24,
     file: STORE,
-    what: "복구 시 계획 세트 대조 제거",
-    from: "  if (!plannedSetIds.includes(stored.plannedSetId)) {",
-    to: "  if (stored.plannedSetId === undefined) {",
+    what: "복구 시 자격 확인 제거 — 무엇이든 올린다",
+    from: "  if (!isRestorable(eligibility, stored.plannedSetId)) {",
+    to: "  if (false) {",
   },
 
   /* ---- 알림 ---- */
@@ -565,6 +565,11 @@ const MUTATIONS = [
  * 이유는 하나다 — fail-soft `try/catch` 가 그 분기를 이미 삼킨다. 숨기지 않고 표에 남긴다.
  */
 const KNOWN_EQUIVALENT = new Map([
+  [
+    45,
+    "안전정수를 벗어난 정수는 2^53(서기 28만년) 이상이라, ends_at·saved_at 이면 관계/미래 가드가 " +
+      "먼저 잡고 total_sec 이면 span 의 isSafeInteger 가 잡는다 → 구분 가능한 입력이 없다",
+  ],
   [
     32,
     "표가 미결인 창은 begin 과 load resolve 사이뿐이고, 그 창에서 시트를 여는 유일한 경로인 " +
