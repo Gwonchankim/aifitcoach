@@ -557,6 +557,112 @@ describe("배선 — 정리 실패 뒤 재진입", () => {
   });
 });
 
+/**
+ * **sync 를 붙잡은 채 실제 클릭.** 서버·미러는 stale 그대로 두고, durable local intent 만으로
+ * 자격이 결정되는지 본다. 응답 fixture 를 미리 원하는 `performed_set` 으로 바꾸지 않는다 —
+ * 그렇게 하면 실패 조건 자체가 사라져 비공허하지 않다.
+ */
+describe("배선 — sync 보류 상태의 로컬 의사", () => {
+  /** 서버는 두 세트 모두 **미완료**로 안다(오프라인이라 아직 모른다). */
+  function staleServerPayload() {
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, false), plannedSet(SET_2, 2, false)]),
+      ),
+    );
+  }
+
+  it("오프라인 완료 → 즉시 재마운트에서 **타이머가 복구된다**", async () => {
+    staleServerPayload();
+    const view = renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+
+    // 새로고침처럼 화면을 새로 띄운다. 서버 payload 는 여전히 performed_set: null 이다.
+    view.unmount();
+    cleanup();
+    renderSession(SESSION_A);
+
+    // 로컬 durable 의사(drafts.completed = true)가 서버 사실을 덮는다.
+    expect(await screen.findByRole("dialog", { name: /1세트 후 휴식/ })).toBeTruthy();
+  });
+
+  it("오프라인 완료 취소 + clear 실패 → 즉시 재마운트에서 **오버레이 0**", async () => {
+    // 서버는 1세트를 **완료로** 안다(취소가 아직 전달되지 않았다).
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, true), plannedSet(SET_2, 2, false)]),
+      ),
+    );
+    const view = renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+
+    // 타이머 키 삭제만 실패시킨 채 완료를 취소한다.
+    const realDelete = sessionDb.syncMeta.delete.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "delete").mockImplementation((async (key: never) => {
+      if (Array.isArray(key) && String(key[1]).startsWith("rest-timer:"))
+        throw new Error("TransactionInactive");
+      return realDelete(key);
+    }) as never);
+    const { fireEvent } = await import("@testing-library/dom");
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    await screen.findByText("휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요.");
+    fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 취소" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" })).toBeTruthy(),
+    );
+    // 저장분은 지워지지 않았다 — 이게 이 테스트의 전제다.
+    expect(await storedTimer(SESSION_A)).not.toBeNull();
+
+    view.unmount();
+    cleanup();
+    vi.restoreAllMocks();
+    renderSession(SESSION_A);
+    await screen.findByRole("heading", { name: "벤치프레스" });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // 서버는 여전히 완료로 알지만 로컬 durable 의사가 취소다.
+    expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();
+  });
+
+  it("로컬 의사가 없는 세트는 서버 사실로 수렴한다", async () => {
+    // drafts 없음 + 서버가 완료로 아는 세트 → 복구된다.
+    await store.saveRestTimer(USER, SESSION_A, SET_2, "벤치프레스 2세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    sessionResponses.set(SESSION_A, () =>
+      Promise.resolve(
+        sessionPayload(SESSION_A, [plannedSet(SET_1, 1, false), plannedSet(SET_2, 2, true)]),
+      ),
+    );
+
+    renderSession(SESSION_A);
+
+    expect(await screen.findByRole("dialog", { name: /2세트 후 휴식/ })).toBeTruthy();
+  });
+
+  it("로컬 의사 overlay 가 drafts/outbox 를 바꾸지 않는다", async () => {
+    staleServerPayload();
+    renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+    const before = JSON.stringify([
+      await sessionDb.drafts.toArray(),
+      await sessionDb.outbox.toArray(),
+    ]);
+
+    cleanup();
+    renderSession(SESSION_A);
+    await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
+
+    expect(
+      JSON.stringify([await sessionDb.drafts.toArray(), await sessionDb.outbox.toArray()]),
+    ).toBe(before);
+  });
+});
+
 describe("배선 — 복구", () => {
   it("저장된 타이머가 있으면 마운트 후 휴식 시트가 뜬다", async () => {
     await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {

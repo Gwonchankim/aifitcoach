@@ -395,10 +395,10 @@ describe("P1-2 정체성 — 단조 세대로 판정한다", () => {
 });
 
 describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않는다", () => {
-  /** 자격: 세션이 진행 중이고 그 세트들이 **서버가 아는 완료**일 때만 복구한다. */
+  /** 진행 중 세션에서 그 세트들이 **서버가 아는 완료**인 payload. */
   const setsOf = (ids: string[]) => ({
-    sessionCompleted: false,
-    completedPlannedSetIds: new Set(ids),
+    status: "in_progress",
+    planned_sets: ids.map((id) => ({ id, performed_set: { actual_reps: 8 } })),
   });
 
   it("A 로드가 늦게 끝나고 그 사이 B 로 옮겨 갔으면 버린다", async () => {
@@ -497,12 +497,8 @@ describe("복구 자격 — 완료 사실과 세션 상태", () => {
     const token = coordinator.begin(A)!;
     const applied: string[] = [];
 
-    await restoreRestTimer(
-      coordinator,
-      token,
-      restoreEligibilityOf(activeSession),
-      T0,
-      (restored) => applied.push(restored.plannedSetId),
+    await restoreRestTimer(coordinator, token, activeSession, T0, (restored) =>
+      applied.push(restored.plannedSetId),
     );
 
     expect(applied).toEqual(["done-1"]);
@@ -514,9 +510,7 @@ describe("복구 자격 — 완료 사실과 세션 상태", () => {
     const token = coordinator.begin(A)!;
     const applied: string[] = [];
 
-    await restoreRestTimer(coordinator, token, restoreEligibilityOf(activeSession), T0, () =>
-      applied.push("x"),
-    );
+    await restoreRestTimer(coordinator, token, activeSession, T0, () => applied.push("x"));
 
     expect(applied).toEqual([]);
     expect(await loadRestTimer(USER, A, T0)).toBeNull();

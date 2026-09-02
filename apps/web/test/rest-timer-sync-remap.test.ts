@@ -14,7 +14,6 @@ import { DEV_USER_SCOPE, sessionDb } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
 import {
   loadRestTimer,
-  resetRestTimerAliases,
   restTimerKeyFor,
   saveRestTimer,
 } from "../components/session/rest-timer-store";
@@ -95,7 +94,6 @@ const userDataBytes = async () =>
   ]);
 
 beforeEach(async () => {
-  resetRestTimerAliases();
   await sessionDb.delete();
   await sessionDb.open();
 });
@@ -361,5 +359,146 @@ describe("늦은 저장 ↔ 매핑 커밋 경합", () => {
     });
 
     expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(SERVER_SET);
+  });
+});
+
+/**
+ * **리뷰가 지목한 정확한 순서.** 매핑 트랜잭션이 *열린 뒤* 저장이 옛 id 를 해석하고 put 을
+ * 요청한다. 메모리 별칭으로는 이 창을 못 덮었다 — 별칭은 커밋 뒤에 열리는데 레코드는 이미
+ * 옛 id 로 확정돼 있었다. durable 별칭 + 같은 트랜잭션 조회가 두 순서를 모두 덮는다.
+ */
+describe("durable 별칭 — 트랜잭션 순서", () => {
+  const aliasKey = `rest-timer-alias:${CORRELATION}`;
+  const durableRow = () => sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]);
+
+  it("**매핑 tx 를 연 채 저장을 시작**해도 최종 행은 서버 id 다", async () => {
+    const hold = deferred<void>();
+    const saving: Promise<boolean>[] = [];
+
+    // 매핑 트랜잭션 한가운데서 저장을 시작한다. 이 저장의 put 은 매핑 뒤에 줄을 선다.
+    await runSync(mappingResponse(), {
+      duringMappingCommit: () => {
+        saving.push(
+          saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+            totalSec: 90,
+            endsAt: Date.now() + 60_000,
+          }),
+        );
+        hold.resolve();
+        return hold.promise;
+      },
+    });
+    await Promise.all(saving);
+
+    const row = await durableRow();
+    expect(row).toBeDefined();
+    // durable 행에 폐기된 correlation 문자열이 남으면 안 된다.
+    expect(row!.value).not.toContain(CORRELATION);
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(SERVER_SET);
+  });
+
+  it("**다른 Dexie 인스턴스**에서 저장해도 별칭을 읽는다 — 메모리 fence 없이 성립", async () => {
+    await runSync(mappingResponse());
+
+    // 별칭이 durable 하므로 새 연결도 같은 답을 얻는다.
+    sessionDb.close();
+    await sessionDb.open();
+
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(SERVER_SET);
+  });
+
+  it("별칭은 커밋 트랜잭션에 함께 쓰인다", async () => {
+    await runSync(mappingResponse());
+
+    const alias = await sessionDb.syncMeta.get([USER, aliasKey]);
+    expect(alias).toBeDefined();
+    expect(JSON.parse(alias!.value)).toMatchObject({ v: 1, to: SERVER_SET });
+  });
+
+  it("**롤백되면 별칭도 없다**", async () => {
+    await expect(
+      runSync(mappingResponse(), {
+        duringMappingCommit: () => Promise.reject(new Error("commit failed")),
+      }),
+    ).rejects.toThrow();
+
+    expect(await sessionDb.syncMeta.get([USER, aliasKey])).toBeUndefined();
+  });
+
+  it("손상·모르는 버전 별칭은 무시한다 — 원래 id 를 쓴다(fail-closed)", async () => {
+    await sessionDb.syncMeta.put({ user_id: USER, key: aliasKey, value: "not json" });
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(CORRELATION);
+
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: aliasKey,
+      value: JSON.stringify({ v: 99, to: SERVER_SET, at: Date.now() }),
+    });
+    await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(CORRELATION);
+  });
+
+  it("별칭 순환이 있어도 멈추고 결정론적으로 끝난다", async () => {
+    const now = Date.now();
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: `rest-timer-alias:a`,
+      value: JSON.stringify({ v: 1, to: "b", at: now }),
+    });
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: `rest-timer-alias:b`,
+      value: JSON.stringify({ v: 1, to: "a", at: now }),
+    });
+
+    await saveRestTimer(USER, SESSION, "a", TITLE, { totalSec: 90, endsAt: now + 60_000 });
+
+    expect(["a", "b"]).toContain((await loadRestTimer(USER, SESSION, now))!.plannedSetId);
+  });
+
+  it("보존 기간이 지난 별칭은 다음 매핑에서 정리된다", async () => {
+    const stale = Date.now() - 11 * 60 * 1000;
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: `rest-timer-alias:old`,
+      value: JSON.stringify({ v: 1, to: "server-old", at: stale }),
+    });
+
+    await runSync(mappingResponse());
+
+    expect(await sessionDb.syncMeta.get([USER, `rest-timer-alias:old`])).toBeUndefined();
+    // 방금 쓴 별칭은 남는다.
+    expect(await sessionDb.syncMeta.get([USER, aliasKey])).toBeDefined();
+  });
+
+  it("F-4b marker 와 타이머 레코드는 별칭 정리에 영향받지 않는다", async () => {
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: `assistance-remediation:${SESSION}`,
+      value: "pending_refetch",
+    });
+    await saveRestTimer(USER, OTHER_SESSION, "keep", TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    await runSync(mappingResponse());
+
+    expect((await sessionDb.syncMeta.get([USER, `assistance-remediation:${SESSION}`]))!.value).toBe(
+      "pending_refetch",
+    );
+    expect((await loadRestTimer(USER, OTHER_SESSION, Date.now()))!.plannedSetId).toBe("keep");
   });
 });

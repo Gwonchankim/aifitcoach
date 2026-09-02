@@ -66,46 +66,69 @@ function enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
 }
 
 /**
- * **승격 별칭 — correlation id 에서 서버 id 로.**
+ * **승격 별칭 — correlation id 에서 서버 id 로. `syncMeta` 에 durable 하게 둔다.**
  *
- * 트랜잭션은 그 순간 **존재하는** 레코드만 옮길 수 있다. 그런데 세트 완료 클릭은
- * ① 업무 쓰기를 기다리고 ② 그 다음에 타이머를 저장한다. 그 사이에 sync 매핑이 커밋되면,
- * 뒤늦게 도착한 저장이 **이미 폐기된 correlation id 를 다시 쓴다.** 트랜잭션은 이미 지나갔고
- * 화면 listener 는 unmount 됐을 수 있으니 durable 하게 고칠 수단이 없다.
+ * 메모리 맵으로는 부족했다. 매핑 트랜잭션이 **열린 뒤** 저장이 옛 id 를 확정하고 put 을 요청하면,
+ * 매핑은 아직 없는 행을 못 옮기고 커밋하고, 그 뒤 옛 id 로 만들어진 저장이 커밋한다.
+ * 메모리 별칭은 그 사이에 열리지만 이미 확정된 레코드를 되돌리지 못한다.
  *
- * 그래서 저장 경로가 **쓰기 직전에** 별칭을 해석한다. 순서와 무관하게 항상 canonical id 가
- * 남는다 — 저장이 먼저면 트랜잭션이 옮기고, 매핑이 먼저면 별칭이 옮긴다.
+ * 그래서 별칭을 **같은 `syncMeta` 에 durable 하게** 쓰고, 저장이 **자기 쓰기 트랜잭션 안에서**
+ * 읽는다. IndexedDB 의 트랜잭션 직렬화가 두 순서를 모두 보장한다.
+ *  A) 저장 tx 가 먼저 커밋 → 매핑 tx 가 그 행을 옮기고 별칭을 쓴다.
+ *  B) 매핑 tx 가 먼저 커밋 → 뒤이은 저장 tx 가 별칭을 읽어 서버 id 로 쓴다.
  *
- * 별칭은 **커밋이 성공한 뒤에만** 등록한다(롤백되면 승격 자체가 없던 일이다).
- * 프로세스가 죽으면 진행 중이던 저장도 함께 사라지므로 메모리 유지로 충분하다.
+ * 새 store·스키마 버전을 만들지 않는다. 접두사가 달라 타이머·F-4b marker 와 겹치지 않는다.
  */
-const plannedSetAliases = new Map<string, string>();
+export const REST_TIMER_ALIAS_PREFIX = "rest-timer-alias:";
 
-/** 커밋이 성공한 뒤 호출한다. 이후의 저장은 canonical id 를 쓴다. */
-export function commitRestTimerAliases(
-  mappings: readonly { correlation_id: string; planned_set_id: string }[],
-): void {
-  for (const mapping of mappings) {
-    if (mapping.correlation_id === mapping.planned_set_id) continue;
-    plannedSetAliases.set(mapping.correlation_id, mapping.planned_set_id);
+/** 별칭 레코드도 버전을 갖는다 — 모르는 모양은 읽지 않는다. */
+export const REST_TIMER_ALIAS_VERSION = 1;
+
+/**
+ * 별칭 보존 기간. 늦은 저장은 **살아 있는 프로세스 안에서만** 발생하고, 그 저장이 만드는
+ * 레코드는 이 시간이 지나면 어차피 stale 로 걸러진다. 그래서 같은 상한을 쓴다 —
+ * 새 숫자를 만들지 않는다. 정리는 매핑 트랜잭션 안에서 함께 한다.
+ */
+export const REST_TIMER_ALIAS_RETENTION_MS = REST_TIMER_STALE_AFTER_MS;
+
+const aliasKeyFor = (plannedSetId: string): string => `${REST_TIMER_ALIAS_PREFIX}${plannedSetId}`;
+
+/** 별칭 값. 손상·모르는 버전이면 없는 것으로 본다(fail-closed: 원래 id 를 쓴다). */
+function parseAlias(raw: string): { to: string; at: number } | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const record = parsed as Record<string, unknown>;
+    if (record.v !== REST_TIMER_ALIAS_VERSION) return null;
+    if (typeof record.to !== "string" || record.to.length === 0) return null;
+    const at = record.at;
+    if (typeof at !== "number" || !Number.isSafeInteger(at) || at <= 0) return null;
+    return { to: record.to, at };
+  } catch {
+    return null;
   }
 }
 
-/** 별칭을 끝까지 따라간다(연쇄 승격도 canonical 로 수렴). */
-export function canonicalPlannedSetId(plannedSetId: string): string {
+/**
+ * 별칭을 따라 canonical id 를 구한다. **호출자의 트랜잭션 안에서 돈다.**
+ *
+ * 실제 매핑은 correlation→server 1단계지만, 연쇄·순환이 들어와도 멈추도록 상한을 둔다
+ * (상한에 닿으면 마지막 값을 쓴다 — 결정론적이고 원래 id 보다 나쁘지 않다).
+ */
+export async function resolveCanonicalPlannedSetId(
+  userId: string,
+  plannedSetId: string,
+): Promise<string> {
   let current = plannedSetId;
-  // 별칭은 단조롭게 서버 id 로만 향하지만, 순환이 생겨도 멈추도록 상한을 둔다.
+  const seen = new Set([current]);
   for (let hop = 0; hop < 8; hop += 1) {
-    const next = plannedSetAliases.get(current);
-    if (next === undefined || next === current) break;
-    current = next;
+    const row = await sessionDb.syncMeta.get([userId, aliasKeyFor(current)]);
+    const alias = row === undefined ? null : parseAlias(row.value);
+    if (alias === null || alias.to === current || seen.has(alias.to)) break;
+    seen.add(alias.to);
+    current = alias.to;
   }
   return current;
-}
-
-/** 테스트 격리용. 별칭은 프로세스 수명 동안만 유효하다. */
-export function resetRestTimerAliases(): void {
-  plannedSetAliases.clear();
 }
 
 /** 큐에 남은 세션 수. **찌꺼기가 쌓이지 않는다**는 것을 테스트가 확인하는 창구다. */
@@ -245,21 +268,28 @@ export async function saveRestTimer(
   savedAt: number = Date.now(),
 ): Promise<boolean> {
   return enqueue(restTimerKeyFor(sessionId), async () => {
-    // **쓰기 직전에** 해석한다 — 큐에서 기다리는 동안 매핑이 커밋됐을 수 있다.
-    const record: StoredRestTimer = {
-      v: REST_TIMER_RECORD_VERSION,
-      session_id: sessionId,
-      planned_set_id: canonicalPlannedSetId(plannedSetId),
-      title,
-      total_sec: timer.totalSec,
-      ends_at: timer.endsAt,
-      saved_at: savedAt,
-    };
     try {
-      await sessionDb.syncMeta.put({
-        user_id: userId,
-        key: restTimerKeyFor(sessionId),
-        value: JSON.stringify(record),
+      /**
+       * **별칭 조회와 쓰기가 한 트랜잭션 안에 있다.** 밖에서 조회하면 매핑 tx 가 그 사이 커밋될 때
+       * 이미 확정한 옛 id 로 쓰게 된다 — 실제로 그 창이 남아 있었다. 한 트랜잭션으로 묶으면
+       * IndexedDB 직렬화가 두 순서를 모두 보장한다.
+       */
+      await sessionDb.transaction("rw", sessionDb.syncMeta, async () => {
+        const canonical = await resolveCanonicalPlannedSetId(userId, plannedSetId);
+        const record: StoredRestTimer = {
+          v: REST_TIMER_RECORD_VERSION,
+          session_id: sessionId,
+          planned_set_id: canonical,
+          title,
+          total_sec: timer.totalSec,
+          ends_at: timer.endsAt,
+          saved_at: savedAt,
+        };
+        await sessionDb.syncMeta.put({
+          user_id: userId,
+          key: restTimerKeyFor(sessionId),
+          value: JSON.stringify(record),
+        });
       });
       return true;
     } catch {
@@ -416,24 +446,68 @@ export type RestoreEligibility = {
   sessionCompleted: boolean;
   /** 서버가 완료로 인정한 planned set 들. */
   completedPlannedSetIds: ReadonlySet<string>;
+  /** 로컬 durable 의사(`drafts.completed`). 있으면 서버 사실보다 우선한다. */
+  localCompleted: ReadonlyMap<string, boolean>;
 };
 
 export function isRestorable(eligibility: RestoreEligibility, plannedSetId: string): boolean {
   if (eligibility.sessionCompleted) return false;
+  /**
+   * **로컬 durable 의사가 서버 사실을 덮는다.**
+   *
+   * `drafts` 는 낙관적 화면 상태가 아니라 `commitDraftBatch` 가 `outbox` 와 **같은 IndexedDB
+   * 트랜잭션**에 커밋한 durable 기록이다(`session-db.ts`). 반면 `sessions` 미러의
+   * `performed_set` 은 sync 가 끝날 때까지 옛 값을 유지한다.
+   *
+   * 그래서 서버 사실만 보면 정반대로 움직인다 — 오프라인에서 완료한 세트의 정상 타이머를
+   * 자격 없음으로 지우고, 오프라인에서 취소한 세트의 타이머를 다시 올린다.
+   * 로컬 기록이 있으면 그쪽이 최신이다.
+   */
+  const local = eligibility.localCompleted.get(plannedSetId);
+  if (local !== undefined) return local;
   return eligibility.completedPlannedSetIds.has(plannedSetId);
 }
 
+/**
+ * 세션의 durable 로컬 완료 의사. `drafts.completed` 가 그 자체로 의사다 —
+ * 완료면 `true`, 완료 취소면 `false`, 손댄 적 없으면 행이 없다(그때는 서버 사실을 쓴다).
+ *
+ * `outbox` 는 같은 사실의 전송 큐일 뿐이라 따로 읽지 않는다. 둘은 한 트랜잭션에서 함께 쓰인다.
+ */
+export async function localCompletionIntent(
+  userId: string,
+  sessionId: string,
+): Promise<Map<string, boolean>> {
+  try {
+    const rows = await sessionDb.drafts
+      .where("[user_id+session_id]")
+      .equals([userId, sessionId])
+      .toArray();
+    return new Map(rows.map((row) => [row.planned_set_id, row.completed === true]));
+  } catch {
+    // 읽지 못하면 로컬 의사를 주장하지 않는다 — 서버 사실만 쓴다.
+    return new Map();
+  }
+}
+
 /** wire 의 세션 payload 에서 자격을 뽑는다. 추정하지 않고 있는 사실만 읽는다. */
-export function restoreEligibilityOf(session: {
-  status?: unknown;
-  planned_sets?: readonly { id?: unknown; performed_set?: unknown }[] | null;
-}): RestoreEligibility {
+export function restoreEligibilityOf(
+  session: {
+    status?: unknown;
+    planned_sets?: readonly { id?: unknown; performed_set?: unknown }[] | null;
+  },
+  localCompleted: ReadonlyMap<string, boolean> = new Map(),
+): RestoreEligibility {
   const completed = new Set<string>();
   for (const set of session.planned_sets ?? []) {
     // `performed_set` 이 있다는 것이 곧 "서버가 아는 완료"다.
     if (typeof set?.id === "string" && set.performed_set != null) completed.add(set.id);
   }
-  return { sessionCompleted: session.status === "completed", completedPlannedSetIds: completed };
+  return {
+    sessionCompleted: session.status === "completed",
+    completedPlannedSetIds: completed,
+    localCompleted,
+  };
 }
 
 /** 복구 한 번을 가리키는 표. 세션 문자열만으로는 A→B→A 재진입을 구분하지 못한다. */
@@ -491,10 +565,18 @@ export function createRestoreCoordinator(): RestoreCoordinator {
 export async function restoreRestTimer(
   coordinator: RestoreCoordinator,
   token: RestoreToken,
-  eligibility: RestoreEligibility,
+  session: Parameters<typeof restoreEligibilityOf>[0],
   now: number,
   apply: (restored: RehydratedRestTimer) => void,
 ): Promise<void> {
+  /**
+   * 로컬 의사는 **타이머를 읽는 것과 같은 시점**에 읽는다. 화면에서 미리 계산해 넘기면
+   * 그 사이의 complete/uncomplete 를 놓친다(그보다 뒤의 클릭은 세대 무효화가 막는다).
+   */
+  const eligibility = restoreEligibilityOf(
+    session,
+    await localCompletionIntent(DEV_USER_SCOPE, token.sessionId),
+  );
   const stored = await restTimerStore.load(token.sessionId, now);
   // 읽는 사이에 세션이 바뀌었거나 사용자가 무언가 했으면 이 결과는 낡았다.
   if (!coordinator.isCurrent(token) || !stored) return;
@@ -523,11 +605,41 @@ export async function restoreRestTimer(
 export async function remapRestTimersInTransaction(
   userId: string,
   mappings: readonly { correlation_id: string; planned_set_id: string }[],
+  now: number = Date.now(),
 ): Promise<number> {
   if (mappings.length === 0) return 0;
   const byCorrelation = new Map(mappings.map((mapping) => [mapping.correlation_id, mapping]));
 
   const rows = await sessionDb.syncMeta.where("user_id").equals(userId).toArray();
+
+  /**
+   * **별칭을 같은 트랜잭션에 durable 하게 쓴다.** 이 뒤에 열리는 저장 tx 가 이걸 읽어
+   * 서버 id 로 쓴다. 롤백되면 별칭도 함께 사라진다.
+   */
+  for (const mapping of mappings) {
+    if (mapping.correlation_id === mapping.planned_set_id) continue;
+    await sessionDb.syncMeta.put({
+      user_id: userId,
+      key: aliasKeyFor(mapping.correlation_id),
+      value: JSON.stringify({
+        v: REST_TIMER_ALIAS_VERSION,
+        to: mapping.planned_set_id,
+        at: now,
+      }),
+    });
+  }
+
+  /**
+   * 보존 기간이 지난 별칭은 여기서 정리한다 — 무한정 쌓이지 않게. 늦은 저장은 살아 있는
+   * 프로세스 안에서만 생기고, 그 저장이 만드는 레코드는 이 시간이 지나면 stale 로 걸러진다.
+   */
+  for (const row of rows) {
+    if (!row.key.startsWith(REST_TIMER_ALIAS_PREFIX)) continue;
+    const alias = parseAlias(row.value);
+    if (alias !== null && now - alias.at < REST_TIMER_ALIAS_RETENTION_MS) continue;
+    await sessionDb.syncMeta.delete([userId, row.key]);
+  }
+
   let moved = 0;
   for (const row of rows) {
     if (!row.key.startsWith(REST_TIMER_PREFIX)) continue;
