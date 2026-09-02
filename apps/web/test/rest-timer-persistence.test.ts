@@ -30,7 +30,7 @@ import {
   restTimerKeyFor,
   saveRestTimer,
 } from "../components/session/rest-timer-store";
-import { remainingSec, startRest } from "../lib/rest-timer";
+import { REST_MAX_SEC, addRest, remainingSec, startRest } from "../lib/rest-timer";
 
 const USER = DEV_USER_SCOPE;
 const SESSION = "s-1";
@@ -155,6 +155,48 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
   it("저장된 것이 없으면 null 이다", async () => {
     expect(await loadRestTimer(USER, SESSION, T0)).toBeNull();
   });
+
+  /**
+   * **연장 누적은 남은 시간 상한을 넘는다.** `addRest` 는 `totalSec = elapsed + nextRemaining`
+   * 이므로 600초 휴식에서 100초를 보낸 뒤 300초를 더하면 남은 시간 600 · 총시간 **700** 이다
+   * (`session-rest-timer.test.ts` 가 이미 고정한 계약).
+   *
+   * 첫 판은 `total_sec > 600` 을 손상으로 보고 **정상 타이머를 지웠다.** 그래서 이 왕복이
+   * 새 Dexie 인스턴스까지 살아남는지 본다.
+   */
+  it("600초에서 100초 경과 후 +300 한 700초 타이머가 새 DB 인스턴스에서 그대로 복구된다", async () => {
+    const started = startRest(REST_MAX_SEC, T0);
+    const extended = addRest(started, 300, T0 + 100_000);
+    expect(extended.timer.totalSec).toBe(700);
+    expect(remainingSec(extended.timer, T0 + 100_000)).toBe(REST_MAX_SEC);
+
+    await saveRestTimer(USER, SESSION, SET, TITLE, extended.timer);
+
+    sessionDb.close();
+    const reopened = new Dexie("afc-session-v1");
+    await reopened.open();
+    reopened.close();
+    await sessionDb.open();
+
+    const restored = await loadRestTimer(USER, SESSION, T0 + 200_000);
+    expect(restored).not.toBeNull();
+    expect(restored!.timer).toEqual(extended.timer);
+    expect(remainingSec(restored!.timer, T0 + 200_000)).toBe(500);
+    // 지워지지 않았다.
+    expect(await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)])).toBeDefined();
+  });
+
+  it("연장을 여러 번 누적해도(총 1500초) 거절하지 않는다", async () => {
+    let timer = startRest(REST_MAX_SEC, T0);
+    for (let step = 1; step <= 3; step += 1) {
+      timer = addRest(timer, 300, T0 + step * 300_000).timer;
+    }
+    expect(timer.totalSec).toBeGreaterThan(REST_MAX_SEC);
+
+    await saveRestTimer(USER, SESSION, SET, TITLE, timer);
+
+    expect((await loadRestTimer(USER, SESSION, T0 + 900_000))!.timer).toEqual(timer);
+  });
 });
 
 describe("강제 종료 모사 — 새 Dexie 인스턴스", () => {
@@ -237,8 +279,12 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
     ["ends_at 이 문자열", { ends_at: "later" }],
     ["ends_at 이 0", { ends_at: 0 }],
     ["total_sec 음수", { total_sec: -1 }],
-    ["total_sec 이 상한 초과", { total_sec: 601 }],
     ["total_sec 이 소수", { total_sec: 1.5 }],
+    ["total_sec 이 NaN", { total_sec: Number.NaN }],
+    ["total_sec 이 Infinity", { total_sec: Number.POSITIVE_INFINITY }],
+    ["ends_at 이 NaN", { ends_at: Number.NaN }],
+    ["ends_at 이 음수", { ends_at: -1 }],
+    ["ends_at 이 안전정수 초과", { ends_at: Number.MAX_SAFE_INTEGER + 2 }],
   ])("%s 인 레코드는 거절한다", async (_label, override) => {
     const record: Record<string, unknown> = {
       v: REST_TIMER_RECORD_VERSION,

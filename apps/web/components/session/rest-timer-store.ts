@@ -83,7 +83,21 @@ export function restTimerKeyFor(sessionId: string): string {
 }
 
 const isPositiveInt = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value > 0;
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+
+/**
+ * 누적 총시간의 계약.
+ *
+ * **남은 시간 상한(600초)을 여기에 적용하면 안 된다.** `addRest` 는
+ * `totalSec = elapsed + nextRemaining` 으로 누적하므로, 600초 휴식에서 100초를 보낸 뒤 300초를
+ * 더하면 남은 시간은 600(상한)이고 **총시간은 700**이다. 이건 정상 경로다
+ * (`test/session-rest-timer.test.ts` 가 이미 고정하고 있다).
+ *
+ * 처음 판에서 `> REST_MAX_SEC` 를 거절했더니 그 정상 타이머가 reload 에서 손상 레코드로 판정돼
+ * **삭제됐다.** 그래서 여기서는 새 상한을 만들지 않고 안전한 정수·비음수만 본다.
+ */
+const isSafeTotalSec = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
@@ -114,14 +128,8 @@ export function parseStoredRestTimer(
   if (!isNonEmptyString(record.planned_set_id)) return null;
   if (!isNonEmptyString(record.title)) return null;
   if (!isPositiveInt(record.ends_at)) return null;
-  // 총시간은 0 이 될 수 있다(rest_sec 0). 상한을 넘는 값은 저장된 적이 없어야 한다.
-  if (
-    typeof record.total_sec !== "number" ||
-    !Number.isInteger(record.total_sec) ||
-    record.total_sec < 0 ||
-    record.total_sec > REST_MAX_SEC
-  )
-    return null;
+  // 총시간은 0 일 수도(rest_sec 0), 600 을 넘을 수도(연장 누적) 있다. 상한을 두지 않는다.
+  if (!isSafeTotalSec(record.total_sec)) return null;
 
   return {
     v: record.v,
@@ -173,11 +181,77 @@ export async function saveRestTimer(
 
 /** 타이머 기록을 지운다. 실패는 삼킨다 — 남더라도 만료·검증 단계가 다시 걸러낸다. */
 export async function clearRestTimer(userId: string, sessionId: string): Promise<void> {
+  await enqueue(restTimerKeyFor(sessionId), () => rawDelete(userId, sessionId));
+}
+
+async function rawDelete(userId: string, sessionId: string): Promise<void> {
+  try {
+    await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);
+  } catch {
+    // 다음 복구 시도에서 stale 로 걸린다.
+  }
+}
+
+async function rawRead(userId: string, sessionId: string): Promise<string | undefined> {
+  try {
+    return (await sessionDb.syncMeta.get([userId, restTimerKeyFor(sessionId)]))?.value;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 그 세트의 타이머일 때만 지운다.
+ *
+ * 완료 취소는 화면에 타이머가 떠 있든 아니든 **저장된 것까지** 정리해야 한다 — 복구가 아직
+ * 대기 중이거나 읽기가 잠깐 실패했으면 화면 state 는 비어 있어도 레코드는 남아 있다.
+ * 그렇다고 통째로 지우면 **다른 세트의 정상 타이머**를 죽이므로 세트를 대조한다.
+ */
+export async function clearRestTimerForPlannedSet(
+  userId: string,
+  sessionId: string,
+  plannedSetId: string,
+): Promise<void> {
   await enqueue(restTimerKeyFor(sessionId), async () => {
+    const raw = await rawRead(userId, sessionId);
+    if (raw === undefined) return;
+    const record = parseStoredRestTimer(raw, sessionId);
+    // 파싱되지 않는 값은 어차피 복구되지 않는다. 여기서는 **남의 세트를 지우지 않는 것**만 본다.
+    if (record !== null && record.planned_set_id !== plannedSetId) return;
+    await rawDelete(userId, sessionId);
+  });
+}
+
+/**
+ * 오프라인에서 만든 임시 세트 id 가 서버 id 로 승격될 때 저장된 타이머도 함께 옮긴다.
+ *
+ * 옮기지 않으면 복구가 authoritative 세트 목록과 대조하다 못 찾고 **타이머를 지운다.**
+ * 같은 세션 큐 안에서 읽고 쓰므로 그 사이 다른 저장이 끼어들 수 없다.
+ *
+ * @returns 실제로 옮겼는지
+ */
+export async function remapRestTimerPlannedSet(
+  userId: string,
+  sessionId: string,
+  fromPlannedSetId: string,
+  toPlannedSetId: string,
+): Promise<boolean> {
+  if (fromPlannedSetId === toPlannedSetId) return false;
+  return enqueue(restTimerKeyFor(sessionId), async () => {
+    const raw = await rawRead(userId, sessionId);
+    if (raw === undefined) return false;
+    const record = parseStoredRestTimer(raw, sessionId);
+    // 다른 세트의 타이머는 건드리지 않는다.
+    if (record === null || record.planned_set_id !== fromPlannedSetId) return false;
     try {
-      await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);
+      await sessionDb.syncMeta.put({
+        user_id: userId,
+        key: restTimerKeyFor(sessionId),
+        value: JSON.stringify({ ...record, planned_set_id: toPlannedSetId }),
+      });
+      return true;
     } catch {
-      // 다음 복구 시도에서 stale 로 걸린다.
+      return false;
     }
   });
 }
@@ -193,31 +267,33 @@ export type RehydratedRestTimer = {
  *
  * 만료된 타이머도 **그대로** 돌려준다 — 화면이 0 으로 표시하고 자동으로 닫지 않는 것이 계약이다.
  * 거절한 기록(다른 세션·손상·모르는 버전·너무 오래됨)은 그 자리에서 지운다.
+ *
+ * 읽기·판정·조건부 삭제를 **같은 세션 큐 안**에서 한다. 밖에서 하면 읽은 뒤 삭제를 큐에 넣는
+ * 사이에 새 저장이 끼어들어, 뒤늦은 삭제가 **방금 저장된 정상 타이머를 지운다.**
+ * 그래도 남는 틈(읽기 실패 후 재시도 등)은 `clearIfUnchanged` 의 원문 대조가 막는다.
  */
 export async function loadRestTimer(
   userId: string,
   sessionId: string,
   now: number,
 ): Promise<RehydratedRestTimer | null> {
-  let raw: string | undefined;
-  try {
-    raw = (await sessionDb.syncMeta.get([userId, restTimerKeyFor(sessionId)]))?.value;
-  } catch {
-    return null;
-  }
-  if (raw === undefined) return null;
+  return enqueue(restTimerKeyFor(sessionId), async () => {
+    const raw = await rawRead(userId, sessionId);
+    if (raw === undefined) return null;
 
-  const record = parseStoredRestTimer(raw, sessionId);
-  if (!record || isStaleRestTimer(record, now)) {
-    await clearRestTimer(userId, sessionId);
-    return null;
-  }
+    const record = parseStoredRestTimer(raw, sessionId);
+    if (!record || isStaleRestTimer(record, now)) {
+      // 내가 본 그 값일 때만 지운다.
+      if ((await rawRead(userId, sessionId)) === raw) await rawDelete(userId, sessionId);
+      return null;
+    }
 
-  return {
-    plannedSetId: record.planned_set_id,
-    title: record.title,
-    timer: { totalSec: record.total_sec, endsAt: record.ends_at },
-  };
+    return {
+      plannedSetId: record.planned_set_id,
+      title: record.title,
+      timer: { totalSec: record.total_sec, endsAt: record.ends_at },
+    };
+  });
 }
 
 /**
@@ -228,47 +304,72 @@ export async function loadRestTimer(
  * **B 화면에 A 의 타이머가 올라온다.** closure 만으로는 뒤엣것을 막을 수 없다 — 늦게 온 결과가
  * "지금 무엇을 보고 있는지" 를 물어볼 곳이 있어야 한다.
  */
+/** 복구 한 번을 가리키는 표. 세션 문자열만으로는 A→B→A 재진입을 구분하지 못한다. */
+export type RestoreToken = { sessionId: string; generation: number };
+
 export type RestoreCoordinator = {
-  /** 이 세션을 아직 시도하지 않았으면 `true` 를 주고 시도했다고 표시한다. */
-  begin: (sessionId: string) => boolean;
-  /** 늦게 도착한 결과가 **지금** 보고 있는 세션 것인지. */
-  isCurrent: (sessionId: string) => boolean;
+  /**
+   * 진행 중인 복구를 전부 무효로 만든다. **세션 전환·언마운트·사용자 동작**(새 타이머 저장,
+   * 연장, 닫기, 완료 취소, 세션 종료)에서 부른다. 늦게 도착할 결과가 화면에 닿지 못한다.
+   */
+  invalidate: () => void;
+  /** 이 세션 복구를 시작하고 표를 받는다. 이미 이 세대에서 같은 세션을 시작했으면 `null`. */
+  begin: (sessionId: string) => RestoreToken | null;
+  /** 이 표가 아직 유효한가. 세대가 하나라도 올라갔으면 아니다. */
+  isCurrent: (token: RestoreToken) => boolean;
 };
 
+/**
+ * **복구 시도의 정체성 — 단조 증가 세대로 판정한다.**
+ *
+ * 세션 문자열 하나만 기억하면 두 가지가 깨진다. ① A→B 로 옮기는 동안 B 의 authoritative
+ * 질의가 아직 안 끝났으면 조정자는 여전히 A 를 current 로 보고, 늦게 온 A 결과가 **B 화면에**
+ * 올라간다. ② A→B→A 로 돌아오면 **처음 A 요청까지 다시 current** 가 된다.
+ *
+ * 세대는 되돌아가지 않으므로 한 번 무효가 된 표는 영원히 무효다. 같은 세션을 다시 복구하려면
+ * 새 표를 받으면 된다.
+ */
 export function createRestoreCoordinator(): RestoreCoordinator {
-  let attemptedFor: string | null = null;
+  let generation = 0;
+  let current: RestoreToken | null = null;
+
   return {
-    begin(sessionId) {
-      if (attemptedFor === sessionId) return false;
-      attemptedFor = sessionId;
-      return true;
+    invalidate() {
+      generation += 1;
+      current = null;
     },
-    isCurrent(sessionId) {
-      return attemptedFor === sessionId;
+    begin(sessionId) {
+      if (current !== null && current.sessionId === sessionId) return null;
+      generation += 1;
+      current = { sessionId, generation };
+      return current;
+    },
+    isCurrent(token) {
+      return current !== null && current.generation === token.generation;
     },
   };
 }
 
 /**
- * 복구 한 번의 전체 판단. 화면은 이 함수를 부르고 `apply` 로 받기만 한다
- * (jsdom 없이도 A→B 경합까지 테스트할 수 있게 순수부를 분리했다).
+ * 복구 한 번의 전체 판단. 화면은 이 함수를 부르고 `apply` 로 받기만 한다.
  *
+ * @param token `begin` 이 준 표. 결과를 적용하기 **직전에** 다시 확인한다.
  * @param plannedSetIds 지금 세션의 계획 세트 id. 여기 없는 세트의 타이머는 올릴 자리가 없다.
  */
 export async function restoreRestTimer(
   coordinator: RestoreCoordinator,
-  sessionId: string,
+  token: RestoreToken,
   plannedSetIds: readonly string[],
   now: number,
   apply: (restored: RehydratedRestTimer) => void,
 ): Promise<void> {
-  const stored = await restTimerStore.load(sessionId, now);
-  // 읽는 사이에 다른 세션으로 옮겨 갔으면 이 결과는 남의 것이다.
-  if (!coordinator.isCurrent(sessionId) || !stored) return;
+  const stored = await restTimerStore.load(token.sessionId, now);
+  // 읽는 사이에 세션이 바뀌었거나 사용자가 무언가 했으면 이 결과는 낡았다.
+  if (!coordinator.isCurrent(token) || !stored) return;
 
   if (!plannedSetIds.includes(stored.plannedSetId)) {
-    // 운동이 삭제·교체돼 그 세트가 사라졌다 — 기록째 버린다.
-    void restTimerStore.clear(sessionId);
+    // 운동이 삭제·교체돼 그 세트가 사라졌다 — 그 세트의 기록만 버린다.
+    void restTimerStore.clearForPlannedSet(token.sessionId, stored.plannedSetId);
     return;
   }
   apply(stored);
@@ -279,5 +380,9 @@ export const restTimerStore = {
   save: (sessionId: string, plannedSetId: string, title: string, timer: RestTimer) =>
     saveRestTimer(DEV_USER_SCOPE, sessionId, plannedSetId, title, timer),
   clear: (sessionId: string) => clearRestTimer(DEV_USER_SCOPE, sessionId),
+  clearForPlannedSet: (sessionId: string, plannedSetId: string) =>
+    clearRestTimerForPlannedSet(DEV_USER_SCOPE, sessionId, plannedSetId),
+  remap: (sessionId: string, fromPlannedSetId: string, toPlannedSetId: string) =>
+    remapRestTimerPlannedSet(DEV_USER_SCOPE, sessionId, fromPlannedSetId, toPlannedSetId),
   load: (sessionId: string, now: number) => loadRestTimer(DEV_USER_SCOPE, sessionId, now),
 };

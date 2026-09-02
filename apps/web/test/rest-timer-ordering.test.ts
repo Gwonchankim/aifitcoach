@@ -15,6 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEV_USER_SCOPE, sessionDb } from "../components/session/session-db";
 import {
   clearRestTimer,
+  clearRestTimerForPlannedSet,
+  remapRestTimerPlannedSet,
+  restTimerKeyFor,
   createRestoreCoordinator,
   loadRestTimer,
   restTimerQueueDepth,
@@ -153,9 +156,10 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
     // B 는 A 가 붙잡혀 있어도 제 갈 길을 간다 — 큐는 세션마다 따로다.
     await saveRestTimer(USER, B, SET, TITLE, startRest(60, T0));
 
+    // B 의 읽기도 A 에 막히지 않는다.
     expect(await loadRestTimer(USER, B, T0)).not.toBeNull();
-    // A 는 아직 붙잡혀 있다.
-    expect(await loadRestTimer(USER, A, T0)).toBeNull();
+    // A 는 아직 커밋되지 않았다(큐 밖에서 직접 확인 — 같은 세션 읽기는 큐 뒤로 줄을 선다).
+    expect(await sessionDb.syncMeta.get([USER, restTimerKeyFor(A)])).toBeUndefined();
 
     gate.resolve();
     await blocked;
@@ -202,39 +206,188 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
   });
 });
 
-describe("P1-2 정체성 — 복구는 지금 보고 있는 세션 것만", () => {
-  it("같은 세션은 한 번만 시도한다", () => {
-    const coordinator = createRestoreCoordinator();
+describe("P2 stale load vs 새 save — 낡은 판정이 새 타이머를 지우지 못한다", () => {
+  it("낡은 레코드를 읽는 도중 저장된 정상 타이머가 살아남는다", async () => {
+    // 이미 stale 인 레코드(어제 것)를 심어 둔다. 복구는 이걸 지우려 할 것이다.
+    await saveRestTimer(USER, A, SET, TITLE, { totalSec: 90, endsAt: T0 - 86_400_000 });
 
-    expect(coordinator.begin(A)).toBe(true);
-    expect(coordinator.begin(A)).toBe(false);
-    expect(coordinator.begin(A)).toBe(false);
+    const gate = deferred<void>();
+    const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
+    // 첫 읽기를 붙잡아 둔다 — 판정과 삭제 사이에 새 저장이 끼어들 틈을 만든다.
+    vi.spyOn(sessionDb.syncMeta, "get").mockImplementationOnce((async (key: never) => {
+      const value = await realGet(key);
+      await gate.promise;
+      return value;
+    }) as never);
+
+    const loading = loadRestTimer(USER, A, T0);
+    // 그 사이 사용자가 새 세트를 끝내 정상 타이머를 저장한다.
+    const saving = saveRestTimer(USER, A, SET, TITLE, { totalSec: 120, endsAt: T0 + 120_000 });
+    gate.resolve();
+
+    expect(await loading).toBeNull();
+    await saving;
+
+    // **새 타이머가 남아 있어야 한다.** 낡은 판정의 삭제가 이걸 지우면 사용자가 방금 시작한
+    // 휴식이 사라진다.
+    const after = await loadRestTimer(USER, A, T0 + 1_000);
+    expect(after).not.toBeNull();
+    expect(after!.timer.endsAt).toBe(T0 + 120_000);
   });
 
-  it("세션이 바뀌면 다시 시도한다 — 영구 skip 하지 않는다", () => {
-    const coordinator = createRestoreCoordinator();
+  it("손상 레코드도 마찬가지다 — 그 사이 저장된 정상값을 지우지 않는다", async () => {
+    await sessionDb.syncMeta.put({ user_id: USER, key: restTimerKeyFor(A), value: "not json" });
 
-    expect(coordinator.begin(A)).toBe(true);
-    expect(coordinator.begin(B)).toBe(true);
+    const gate = deferred<void>();
+    const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "get").mockImplementationOnce((async (key: never) => {
+      const value = await realGet(key);
+      await gate.promise;
+      return value;
+    }) as never);
+
+    const loading = loadRestTimer(USER, A, T0);
+    const saving = saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+    gate.resolve();
+
+    expect(await loading).toBeNull();
+    await saving;
+
+    expect(await loadRestTimer(USER, A, T0 + 1_000)).not.toBeNull();
+  });
+});
+
+describe("P2 완료 취소 — 그 세트만 지운다", () => {
+  it("일치하는 세트면 지운다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+
+    await clearRestTimerForPlannedSet(USER, A, SET);
+
+    expect(await loadRestTimer(USER, A, T0)).toBeNull();
   });
 
-  it("A 로 돌아오면 다시 시도한다", () => {
+  it("다른 세트면 남긴다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+
+    await clearRestTimerForPlannedSet(USER, A, "ps-other");
+
+    expect(await loadRestTimer(USER, A, T0)).not.toBeNull();
+  });
+
+  it("저장된 것이 없어도 던지지 않는다", async () => {
+    await expect(clearRestTimerForPlannedSet(USER, A, SET)).resolves.toBeUndefined();
+  });
+});
+
+describe("P1-3 세트 id 승격 — 저장된 타이머도 따라간다", () => {
+  it("일치하는 세트를 서버 id 로 옮긴다", async () => {
+    await saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0));
+
+    await expect(remapRestTimerPlannedSet(USER, A, "corr-1", "server-1")).resolves.toBe(true);
+
+    const moved = await loadRestTimer(USER, A, T0);
+    expect(moved!.plannedSetId).toBe("server-1");
+    // 나머지는 그대로다.
+    expect(moved!.timer).toEqual({ totalSec: 90, endsAt: T0 + 90_000 });
+    expect(moved!.title).toBe(TITLE);
+  });
+
+  it("다른 세트의 타이머는 건드리지 않는다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+
+    await expect(remapRestTimerPlannedSet(USER, A, "corr-1", "server-1")).resolves.toBe(false);
+
+    expect((await loadRestTimer(USER, A, T0))!.plannedSetId).toBe(SET);
+  });
+
+  it("저장된 것이 없으면 아무 일도 없다", async () => {
+    await expect(remapRestTimerPlannedSet(USER, A, "corr-1", "server-1")).resolves.toBe(false);
+  });
+
+  it("같은 id 로의 승격은 무시한다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
+
+    await expect(remapRestTimerPlannedSet(USER, A, SET, SET)).resolves.toBe(false);
+  });
+
+  it("승격은 세션 큐 안에서 일어난다 — 앞선 저장 뒤에 적용된다", async () => {
+    const gate = deferred<void>();
+    const realPut = sessionDb.syncMeta.put.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "put").mockImplementationOnce((async (row: never) => {
+      await gate.promise;
+      return realPut(row);
+    }) as never);
+
+    const saving = saveRestTimer(USER, A, "corr-1", TITLE, startRest(90, T0));
+    const remapping = remapRestTimerPlannedSet(USER, A, "corr-1", "server-1");
+    gate.resolve();
+    await saving;
+
+    // 승격이 저장보다 먼저 돌았다면 읽을 레코드가 없어 false 였을 것이다.
+    await expect(remapping).resolves.toBe(true);
+    expect((await loadRestTimer(USER, A, T0))!.plannedSetId).toBe("server-1");
+  });
+});
+
+describe("P1-2 정체성 — 단조 세대로 판정한다", () => {
+  it("같은 세션은 한 번만 시작한다", () => {
     const coordinator = createRestoreCoordinator();
 
-    coordinator.begin(A);
+    expect(coordinator.begin(A)).not.toBeNull();
+    expect(coordinator.begin(A)).toBeNull();
+  });
+
+  it("세션이 바뀌면 다시 시작한다 — 영구 skip 하지 않는다", () => {
+    const coordinator = createRestoreCoordinator();
+
+    expect(coordinator.begin(A)).not.toBeNull();
+    expect(coordinator.begin(B)).not.toBeNull();
+  });
+
+  it("A→B→A 재진입에서 **첫 A 표는 되살아나지 않는다**", () => {
+    const coordinator = createRestoreCoordinator();
+
+    const firstA = coordinator.begin(A)!;
     coordinator.begin(B);
-    expect(coordinator.begin(A)).toBe(true);
+    const secondA = coordinator.begin(A)!;
+
+    // 세션 문자열만 보면 둘 다 A 라 통과해 버린다. 세대가 그걸 가른다.
+    expect(coordinator.isCurrent(firstA)).toBe(false);
+    expect(coordinator.isCurrent(secondA)).toBe(true);
+    expect(secondA.generation).toBeGreaterThan(firstA.generation);
   });
 
-  it("현재 세션 판정은 마지막으로 시작한 것을 따른다", () => {
+  it("invalidate 하면 진행 중인 표가 전부 무효다", () => {
     const coordinator = createRestoreCoordinator();
+    const token = coordinator.begin(A)!;
 
-    coordinator.begin(A);
-    expect(coordinator.isCurrent(A)).toBe(true);
+    coordinator.invalidate();
 
-    coordinator.begin(B);
-    expect(coordinator.isCurrent(A)).toBe(false);
-    expect(coordinator.isCurrent(B)).toBe(true);
+    expect(coordinator.isCurrent(token)).toBe(false);
+  });
+
+  it("invalidate 뒤에는 같은 세션도 새 표로 다시 시작할 수 있다", () => {
+    const coordinator = createRestoreCoordinator();
+    const first = coordinator.begin(A)!;
+    coordinator.invalidate();
+
+    const second = coordinator.begin(A);
+
+    expect(second).not.toBeNull();
+    expect(coordinator.isCurrent(second!)).toBe(true);
+    expect(coordinator.isCurrent(first)).toBe(false);
+  });
+
+  it("세대는 되돌아가지 않는다", () => {
+    const coordinator = createRestoreCoordinator();
+    const seen: number[] = [];
+
+    for (const id of [A, B, A, B]) seen.push(coordinator.begin(id)!.generation);
+    coordinator.invalidate();
+    seen.push(coordinator.begin(A)!.generation);
+
+    expect(seen).toEqual([...seen].sort((x, y) => x - y));
+    expect(new Set(seen).size).toBe(seen.length);
   });
 });
 
@@ -253,7 +406,8 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
       return realGet(key);
     }) as never);
 
-    const restoringA = restoreRestTimer(coordinator, A, setsOf([SET]), T0, (restored) =>
+    const tokenA = coordinator.begin(A)!;
+    const restoringA = restoreRestTimer(coordinator, tokenA, setsOf([SET]), T0, (restored) =>
       applied.push(`A:${restored.plannedSetId}`),
     );
 
@@ -270,8 +424,8 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
     const coordinator = createRestoreCoordinator();
     const applied: { plannedSetId: string; endsAt: number }[] = [];
 
-    expect(coordinator.begin(B)).toBe(true);
-    await restoreRestTimer(coordinator, B, setsOf([SET]), T0 + 40_000, (restored) =>
+    const tokenB = coordinator.begin(B)!;
+    await restoreRestTimer(coordinator, tokenB, setsOf([SET]), T0 + 40_000, (restored) =>
       applied.push({ plannedSetId: restored.plannedSetId, endsAt: restored.timer.endsAt }),
     );
 
@@ -282,9 +436,9 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
     await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0));
     const coordinator = createRestoreCoordinator();
     const applied: string[] = [];
-    coordinator.begin(A);
+    const token = coordinator.begin(A)!;
 
-    await restoreRestTimer(coordinator, A, setsOf(["ps-other"]), T0, () => applied.push("x"));
+    await restoreRestTimer(coordinator, token, setsOf(["ps-other"]), T0, () => applied.push("x"));
 
     expect(applied).toEqual([]);
     expect(await loadRestTimer(USER, A, T0)).toBeNull();
@@ -293,9 +447,9 @@ describe("P1-2 stale async — 늦게 온 A 의 결과를 B 화면에 얹지 않
   it("저장된 것이 없으면 아무것도 하지 않는다", async () => {
     const coordinator = createRestoreCoordinator();
     const applied: string[] = [];
-    coordinator.begin(A);
+    const token = coordinator.begin(A)!;
 
-    await restoreRestTimer(coordinator, A, setsOf([SET]), T0, () => applied.push("x"));
+    await restoreRestTimer(coordinator, token, setsOf([SET]), T0, () => applied.push("x"));
 
     expect(applied).toEqual([]);
   });

@@ -4,7 +4,7 @@
  */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
 import {
@@ -135,6 +135,27 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       const mappings = (event as CustomEvent<SyncResponse["planned_set_mappings"]>).detail;
       if (!Array.isArray(mappings) || mappings.length === 0) return;
       remapPlannedSetsInStore(mappings);
+
+      /**
+       * **타이머의 세트 정체성도 함께 승격한다.**
+       *
+       * 오프라인에서 추가한 세트는 correlation id 를 그대로 planned-set id 로 쓴다. `/sync` 가
+       * 서버 id 를 주면 draft·캐시는 옮겨 가는데 타이머만 옛 id 를 들고 있으면 ① reload 때
+       * authoritative 세트 목록과 안 맞아 **타이머가 지워지고** ② 휴식을 닫을 때 다음 세트를
+       * 찾지 못해 포커스가 어긋나고 ③ 서버 id 로 완료를 취소해도 같은 세트로 인식하지 못한다.
+       *
+       * 저장된 레코드는 세션 큐 안에서 원자적으로 옮기고(다른 세트 것은 store 가 대조해 보존),
+       * 화면의 것은 여기서 옮긴다.
+       */
+      for (const mapping of mappings) {
+        void restTimerStore.remap(sessionId, mapping.correlation_id, mapping.planned_set_id);
+      }
+      setRest((previous) => {
+        if (!previous) return previous;
+        const moved = mappings.find((mapping) => mapping.correlation_id === previous.plannedSetId);
+        return moved ? { ...previous, plannedSetId: moved.planned_set_id } : previous;
+      });
+
       void (async () => {
         const queryKey = ["session", sessionId] as const;
         // A reconnect read can have captured the pre-mapping routine before /sync commits.
@@ -185,27 +206,44 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const session = sessionQuery.data;
 
-  /** 세션이 바뀌면 앞 세션의 타이머를 화면에서 내린다 — 남의 휴식을 보여 주지 않는다. */
-  useEffect(() => {
+  const restoreRef = useRef<RestoreCoordinator | null>(null);
+  restoreRef.current ??= createRestoreCoordinator();
+
+  /**
+   * **진행 중인 복구를 무효화하고 화면 타이머를 내린다.** 사용자가 무언가 한 순간마다 부른다.
+   *
+   * 이게 없으면 늦게 도착한 복구가 "화면이 비어 있으니 올려도 되겠다"고 판단해 **사용자가 방금
+   * 닫았거나 취소한 타이머를 되살린다.**
+   */
+  const dropRest = useCallback(() => {
+    restoreRef.current?.invalidate();
     setRest(null);
-  }, [sessionId]);
+  }, []);
+
+  /**
+   * 세션 전환은 **authoritative 질의보다 먼저** 세대를 올린다. 질의가 끝나기를 기다리면
+   * 그 사이에 도착한 앞 세션의 복구 결과가 새 화면에 얹힌다.
+   * 언마운트도 같다 — 사라진 화면에 결과를 밀어 넣지 않는다.
+   */
+  useEffect(() => {
+    dropRest();
+    return () => restoreRef.current?.invalidate();
+  }, [sessionId, dropRest]);
 
   /**
    * 저장된 휴식 타이머 복구. **authoritative 세션이 준비된 뒤 세션마다 한 번씩** 시도한다.
    *
    * 만료된 타이머도 그대로 올린다 — 0 으로 보여 주고 자동으로 닫지 않는 것이 계약이다(§4.7).
-   * 시도 여부와 "늦게 온 결과가 지금 세션 것인가"는 둘 다 `coordinator` 가 판정한다.
    */
-  const restoreRef = useRef<RestoreCoordinator | null>(null);
-  restoreRef.current ??= createRestoreCoordinator();
   useEffect(() => {
     const coordinator = restoreRef.current;
     // 세션 데이터가 지금 보고 있는 세션 것인지 먼저 확인한다(prop 이 앞서 바뀔 수 있다).
     if (!coordinator || !session || session.id !== sessionId) return;
-    if (!coordinator.begin(sessionId)) return;
+    const token = coordinator.begin(sessionId);
+    if (!token) return;
 
     const plannedSetIds = (session.planned_sets ?? []).map((set) => set.id);
-    void restoreRestTimer(coordinator, sessionId, plannedSetIds, Date.now(), (stored) => {
+    void restoreRestTimer(coordinator, token, plannedSetIds, Date.now(), (stored) => {
       // 복구를 기다리는 사이 사용자가 새 세트를 끝냈으면 그쪽이 최신이다 — 덮지 않는다.
       setRest((previous) => previous ?? stored);
     });
@@ -462,8 +500,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setFinishOpen(false);
       setFinishError(null);
       setSummary(data as CompleteResponse);
-      // 세션이 끝났으면 그 세션의 휴식은 더 없다.
-      setRest(null);
+      // 세션이 끝났으면 그 세션의 휴식은 더 없다. 대기 중인 복구도 함께 무효로 만든다.
+      dropRest();
       void restTimerStore.clear(sessionId);
       if ((data as { offline?: boolean }).offline)
         setNotice("운동을 기기에 저장했어요. 온라인이 되면 동기화돼요.");
@@ -487,6 +525,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       title: `${exerciseName} ${set.set_no}세트 후 휴식`,
       timer: startRest(set.rest_sec, Date.now()),
     };
+    // 새 타이머가 최신이다 — 아직 날아오는 복구 결과가 이걸 덮지 못하게 세대를 올린다.
+    restoreRef.current?.invalidate();
     setRest(next);
     // 지속은 부가 기능이다 — 실패해도 기록은 이미 끝났고 화면도 그대로 간다.
     void restTimerStore.save(sessionId, next.plannedSetId, next.title, next.timer);
@@ -499,11 +539,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
       return;
     }
-    // 해제한 세트의 타이머가 떠 있으면 함께 닫는다(저장된 것도 같이 지운다).
-    if (rest?.plannedSetId === set.id) {
-      setRest(null);
-      void restTimerStore.clear(sessionId);
-    }
+    // **화면에 떠 있든 아니든** 그 세트의 저장된 타이머를 지운다. 복구가 아직 대기 중이거나
+    // 읽기가 잠깐 실패했으면 화면 state 는 비어 있어도 레코드는 남아 있고, 그대로 두면
+    // 취소한 세트의 휴식이 다시 올라온다. 다른 세트의 타이머는 store 가 대조해 보존한다.
+    restoreRef.current?.invalidate();
+    if (rest?.plannedSetId === set.id) setRest(null);
+    void restTimerStore.clearForPlannedSet(sessionId, set.id);
     setExpandedSetId((previous) => (previous === set.id ? null : previous));
   };
 
@@ -522,7 +563,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
   const closeRest = () => {
     const from = rest?.plannedSetId;
-    setRest(null);
+    // 닫는 것은 사용자의 최종 의사다 — 뒤늦은 복구가 되살리지 못하게 세대를 올린다.
+    dropRest();
     void restTimerStore.clear(sessionId);
     if (!from) return;
 
@@ -761,8 +803,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           title={rest.title}
           timer={rest.timer}
           onChange={(timer) => {
+            // 연장도 사용자의 최신 의사다. 세대를 올린 뒤 화면과 저장을 새 endsAt 으로 맞춘다.
+            restoreRef.current?.invalidate();
             setRest({ ...rest, timer });
-            // +초로 종료 시각이 바뀌었다 — 저장된 값도 새 endsAt 으로 맞춘다.
             void restTimerStore.save(sessionId, rest.plannedSetId, rest.title, timer);
           }}
           onClose={closeRest}
