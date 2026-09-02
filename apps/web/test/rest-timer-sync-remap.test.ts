@@ -450,6 +450,26 @@ describe("durable 별칭 — 트랜잭션 순서", () => {
     expect((await loadRestTimer(USER, SESSION, Date.now()))!.plannedSetId).toBe(CORRELATION);
   });
 
+  it("**순환은 방문 집합이 잡는다** — 홉 상한에 기대지 않는다", async () => {
+    const now = Date.now();
+    // a→b→a 순환. 방문 집합이 없으면 상한(8회)까지 돌아 짝수 홉이라 'a' 로 끝난다.
+    // 방문 집합이 있으면 두 번째 홉에서 멈춰 'b' 로 끝난다 — 그 차이를 못박는다.
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: "rest-timer-alias:a",
+      value: JSON.stringify({ v: 1, to: "b", at: now }),
+    });
+    await sessionDb.syncMeta.put({
+      user_id: USER,
+      key: "rest-timer-alias:b",
+      value: JSON.stringify({ v: 1, to: "a", at: now }),
+    });
+
+    await saveRestTimer(USER, SESSION, "a", TITLE, { totalSec: 90, endsAt: now + 60_000 }, now);
+
+    expect((await loadRestTimer(USER, SESSION, now))!.plannedSetId).toBe("b");
+  });
+
   it("별칭 순환이 있어도 멈추고 결정론적으로 끝난다", async () => {
     const now = Date.now();
     await sessionDb.syncMeta.put({

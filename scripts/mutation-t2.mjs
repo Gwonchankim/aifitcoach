@@ -133,8 +133,8 @@ const MUTATIONS = [
     what: "save 를 큐 밖으로 — 늦은 save 가 clear 를 앞지른다",
     edits: [
       [
-        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    // **쓰기 직전에**",
-        "  return (async () => {\n    // **쓰기 직전에**",
+        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    try {\n      /**",
+        "  return (async () => {\n    try {\n      /**",
       ],
       ["      return false;\n    }\n  });\n}", "      return false;\n    }\n  })();\n}"],
     ],
