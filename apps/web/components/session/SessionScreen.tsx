@@ -58,6 +58,12 @@ type CompleteResponse = {
 
 type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 
+/**
+ * 저장분을 지우지 못했을 때의 안내. **조용히 넘어가면 안 된다** — 새로고침에서 닫은 타이머가
+ * 다시 열려 화면을 가린다(실제 Chromium E2E 에서 재현됐다).
+ */
+const CLEAR_FAILED_NOTICE = "휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요.";
+
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
 
 /**
@@ -484,7 +490,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       );
       const recommendations = (change?.data as { next_recommendations?: unknown } | undefined)
         ?.next_recommendations;
+      /**
+       * **세션 종료도 terminal intent 다.** 요약 화면으로 넘어가기 전에 저장분이 실제로
+       * 지워졌는지 확인한다 — 여기서 기다리지 않으면 재진입 때 그 타이머가 되살아난다.
+       * 종료 자체는 이미 로컬 커밋이 끝났으므로 **되돌리지 않는다**. 실패는 알리기만 한다.
+       */
+      const timerCleared = await restTimerStore.clear(sessionId);
+
       return {
+        timerCleared,
         session: {
           ...(sessionQuery.data ?? ({ id: sessionId } as Session)),
           status: "completed",
@@ -502,8 +516,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setSummary(data as CompleteResponse);
       // 세션이 끝났으면 그 세션의 휴식은 더 없다. 대기 중인 복구도 함께 무효로 만든다.
       dropRest();
-      void restTimerStore.clear(sessionId);
-      if ((data as { offline?: boolean }).offline)
+      if (!(data as { timerCleared?: boolean }).timerCleared) setNotice(CLEAR_FAILED_NOTICE);
+      else if ((data as { offline?: boolean }).offline)
         setNotice("운동을 기기에 저장했어요. 온라인이 되면 동기화돼요.");
       // 종료(또는 재종료)로 상태·추천이 바뀐다 → 세션 캐시를 응답으로 갱신하고 대시보드는 다시 받는다.
       queryClient.setQueryData(["session", sessionId], data.session);
@@ -544,7 +558,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     // 취소한 세트의 휴식이 다시 올라온다. 다른 세트의 타이머는 store 가 대조해 보존한다.
     restoreRef.current?.invalidate();
     if (rest?.plannedSetId === set.id) setRest(null);
-    void restTimerStore.clearForPlannedSet(sessionId, set.id);
+    /**
+     * 완료 취소 자체는 이미 성공했다(기록은 되돌리지 않는다). 하지만 저장분을 못 지웠다면
+     * 다음 진입에서 그 타이머가 되살아나므로 **조용히 넘기지 않고** 알린다.
+     */
+    if (!(await restTimerStore.clearForPlannedSet(sessionId, set.id)))
+      setNotice(CLEAR_FAILED_NOTICE);
     setExpandedSetId((previous) => (previous === set.id ? null : previous));
   };
 
@@ -561,11 +580,22 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   };
 
   /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
-  const closeRest = () => {
+  const closeRest = async () => {
     const from = rest?.plannedSetId;
-    // 닫는 것은 사용자의 최종 의사다 — 뒤늦은 복구가 되살리지 못하게 세대를 올린다.
-    dropRest();
-    void restTimerStore.clear(sessionId);
+    // 닫는 것은 사용자의 최종 의사다 — 뒤늦은 복구가 되살리지 못하게 먼저 세대를 올린다.
+    restoreRef.current?.invalidate();
+
+    /**
+     * **지워진 것을 확인한 뒤에야 닫는다.** fire-and-forget 으로 두면 사용자가 삭제 커밋 전에
+     * 새로고침·탭 종료를 할 때 미완료 삭제가 프로세스와 함께 사라지고, 닫았던 타이머가
+     * 다시 열려 기록 편집을 가린다. 실패하면 시트를 그대로 두고 다시 시도하게 한다 —
+     * 여기서 닫아 주면 "성공한 척"이 되어 같은 유령 타이머를 만든다.
+     */
+    if (!(await restTimerStore.clear(sessionId))) {
+      setNotice(CLEAR_FAILED_NOTICE);
+      return;
+    }
+    setRest(null);
     if (!from) return;
 
     const index = orderedSets.findIndex((set) => set.id === from);
@@ -808,7 +838,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             setRest({ ...rest, timer });
             void restTimerStore.save(sessionId, rest.plannedSetId, rest.title, timer);
           }}
-          onClose={closeRest}
+          onClose={() => void closeRest()}
         />
       ) : null}
 

@@ -217,6 +217,96 @@ describe("배선 — 세트 완료가 타이머를 저장한다", () => {
   });
 });
 
+/**
+ * **terminal intent 는 저장분이 지워진 뒤에야 인정된다.**
+ *
+ * fire-and-forget 으로 두면 사용자가 삭제 커밋 전에 새로고침·탭 종료를 할 때 미완료 삭제가
+ * 프로세스와 함께 사라지고, 닫았던 타이머가 다시 열려 기록 편집을 가린다.
+ * 실제 Chromium E2E 에서 재현된 결함이다.
+ */
+describe("배선 — terminal clear 를 기다린다", () => {
+  /** 삭제를 붙잡아 두고, 그 사이 화면이 terminal 로 넘어가지 않는지 본다. */
+  function gateTimerDelete() {
+    const gate = deferred<void>();
+    const realDelete = sessionDb.syncMeta.delete.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "delete").mockImplementation((async (key: never) => {
+      if (Array.isArray(key) && String(key[1]).startsWith("rest-timer:")) await gate.promise;
+      return realDelete(key);
+    }) as never);
+    return gate;
+  }
+
+  it("삭제가 끝나기 전에는 시트가 닫히지 않는다", async () => {
+    renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+
+    const gate = gateTimerDelete();
+    const { fireEvent } = await import("@testing-library/dom");
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // 아직 삭제가 커밋되지 않았다 → 화면도 아직 닫지 않는다.
+    expect(screen.queryByRole("dialog", { name: /1세트 후 휴식/ })).toBeTruthy();
+
+    await act(async () => {
+      gate.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+
+    expect(screen.queryByRole("dialog", { name: /1세트 후 휴식/ })).toBeNull();
+    expect(await storedTimer(SESSION_A)).toBeNull();
+  });
+
+  it("삭제가 실패하면 **닫지 않고** 다시 시도하도록 알린다", async () => {
+    renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+
+    vi.spyOn(sessionDb.syncMeta, "delete").mockImplementationOnce(
+      () => Promise.reject(new Error("TransactionInactive")) as never,
+    );
+    const { fireEvent } = await import("@testing-library/dom");
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+
+    // 성공한 척하고 닫으면 새로고침에서 유령 타이머가 된다.
+    expect(
+      await screen.findByText("휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /1세트 후 휴식/ })).toBeTruthy();
+    expect(await storedTimer(SESSION_A)).not.toBeNull();
+
+    // 다시 누르면 정상적으로 닫힌다.
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).toBeNull());
+  });
+
+  it("완료 취소의 삭제가 실패하면 알린다 — 기록은 되돌리지 않는다", async () => {
+    renderSession(SESSION_A);
+    await completeFirstSet();
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+    const { fireEvent } = await import("@testing-library/dom");
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    await waitFor(async () => expect(await storedTimer(SESSION_A)).toBeNull());
+
+    // 다시 타이머를 만든 뒤 삭제를 실패시킨다.
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    vi.spyOn(sessionDb.syncMeta, "delete").mockImplementationOnce(
+      () => Promise.reject(new Error("TransactionInactive")) as never,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 취소" }));
+
+    expect(
+      await screen.findByText("휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요."),
+    ).toBeTruthy();
+    // 완료 취소 자체는 되돌아가지 않았다 — 다시 완료할 수 있는 상태다.
+    expect(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" })).toBeTruthy();
+  });
+});
+
 describe("배선 — 완료 취소는 화면에 타이머가 없어도 저장분을 지운다", () => {
   it("복구가 끝나기 전에 완료를 취소해도 그 세트 레코드가 남지 않는다", async () => {
     // 화면 state 가 비어 있는 상태를 만든다: 레코드만 미리 심고 렌더한다.

@@ -124,7 +124,8 @@ describe("P1-1 순서 — 같은 세션의 save/clear 는 호출 순서대로 �
     const clearing = clearRestTimer(USER, A);
 
     await expect(saving).resolves.toBe(false);
-    await expect(clearing).resolves.toBeUndefined();
+    // 앞 save 가 실패해도 clear 는 돌았고 성공을 보고한다.
+    await expect(clearing).resolves.toBe(true);
 
     // 실패한 save 가 큐를 막지 않았다 — 그 뒤 정상 저장도 된다.
     vi.restoreAllMocks();
@@ -275,7 +276,7 @@ describe("P2 완료 취소 — 그 세트만 지운다", () => {
   });
 
   it("저장된 것이 없어도 던지지 않는다", async () => {
-    await expect(clearRestTimerForPlannedSet(USER, A, SET)).resolves.toBeUndefined();
+    await expect(clearRestTimerForPlannedSet(USER, A, SET)).resolves.toBe(true);
   });
 });
 

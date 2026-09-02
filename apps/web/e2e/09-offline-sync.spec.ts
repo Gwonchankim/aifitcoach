@@ -53,6 +53,9 @@ async function completeWeightedSet(
   const rest = page.getByRole("dialog", { name: new RegExp(`${name} ${setNo}세트 후 휴식`) });
   await expect(rest).toBeVisible();
   await rest.getByRole("button", { name: "휴식 종료" }).click();
+  // **닫힌 것을 확인하고 넘어간다.** 화면이 닫혔다는 것은 저장분도 지워졌다는 뜻이다 —
+  // 그 전에 다음 세트로 넘어가면, 새로고침 때 되살아난 타이머가 오버레이로 화면을 가린다.
+  await expect(rest).toBeHidden();
 }
 
 async function finish(page: Page) {
@@ -178,6 +181,56 @@ test("loss 0: offline add/swap/immediate logging survives reload and a closed ta
   await resumed.bringToFront();
   await finish(resumed);
   await assertAuthoritativeSummary(request, 4, 1900);
+});
+
+/**
+ * **닫은 휴식 타이머는 새로고침에서 되살아나지 않는다.**
+ *
+ * 삭제를 fire-and-forget 으로 두면 사용자가 커밋 전에 새로고침할 때 미완료 삭제가 프로세스와
+ * 함께 사라지고, 닫았던 타이머가 다시 열려 기록 편집을 가린다. 독립 재리뷰가 이 경로를 실제
+ * Chromium 에서 두 번 연속 재현했다. 여기서는 그 경계를 그대로 밟는다.
+ */
+test("@chromium-only 휴식을 닫고 곧바로 새로고침해도 타이머가 되살아나지 않는다", async ({
+  page,
+  request,
+}) => {
+  await seedProgram(request);
+  const sessionId = await todaySession(request);
+  await openSession(page, sessionId);
+  const name = await firstExercise(page);
+
+  await completeWeightedSet(page, name, 1, 50, 10);
+  // 닫자마자 — 지연이나 추가 조작 없이 — 새로고침한다.
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  // 유령 타이머가 없어야 기록 편집을 열 수 있다.
+  await expect(page.getByRole("dialog", { name: /후 휴식/ })).toHaveCount(0);
+  await page
+    .getByRole("button", { name: `${name} 1세트 기록, 50킬로그램 10회, 완료. 수정하려면 누르세요` })
+    .click();
+  await expect(page.getByLabel(`${name} 1세트 무게, 킬로그램`)).toHaveValue("50");
+});
+
+/**
+ * 완료 취소와 세션 종료도 같은 terminal intent 다 — 재진입에서 되살아나면 안 된다.
+ */
+test("@chromium-only 완료 취소 뒤 새로고침해도 그 세트 타이머가 없다", async ({
+  page,
+  request,
+}) => {
+  await seedProgram(request);
+  const sessionId = await todaySession(request);
+  await openSession(page, sessionId);
+  const name = await firstExercise(page);
+
+  await completeWeightedSet(page, name, 1, 50, 10);
+  await page.getByRole("button", { name: `${name} 1세트 완료 취소` }).click();
+  await expect(page.getByRole("button", { name: `${name} 1세트 완료 처리` })).toBeVisible();
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: /후 휴식/ })).toHaveCount(0);
 });
 
 test("@chromium-only a stale reconnect read cannot overwrite an applied routine mapping", async ({

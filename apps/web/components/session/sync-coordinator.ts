@@ -14,6 +14,7 @@ import {
   sessionDb,
   type OutboxMutation,
 } from "./session-db";
+import { remapRestTimersInTransaction } from "./rest-timer-store";
 
 const LEASE_NAME = "foreground-sync";
 const LEASE_MS = 15_000;
@@ -346,6 +347,15 @@ export class SyncCoordinator {
         await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
       }
     }
+
+    /**
+     * **휴식 타이머의 세트 정체성도 여기서 옮긴다.**
+     *
+     * 화면 이벤트에 맡기면 세션 화면이 없을 때 승격이 통째로 빠진다 — foreground sync 는
+     * 전역에서 돌기 때문이다. 그러면 저장된 타이머가 correlation id 에 남고 다음 복구가
+     * 그걸 "세션에 없는 세트"로 보고 지운다. 이 줄이 durable 경계다(롤백되면 함께 되돌아간다).
+     */
+    await remapRestTimersInTransaction(this.userId, mappings);
 
     // This hook proves Dexie rolls the already rewritten draft keys back if any later table fails.
     await this.duringMappingCommit?.();

@@ -19,8 +19,11 @@ export const REST_TIMER_PREFIX = "rest-timer:";
 /**
  * 레코드 모양의 버전. 모양을 바꿀 일이 생기면 이 값을 올리고, **모르는 버전은 읽지 않는다**
  * (fail closed). 스키마 버전이 아니라 값 안의 버전이라 Dexie migration 이 필요 없다.
+ *
+ * v2 에서 `saved_at`(저장 시점)을 더했다. 이유는 아래 시간 관계 검증에 있다.
+ * v1 레코드는 읽지 않는다 — 최대 10분짜리 값이라 잃어도 다음 세트에서 새로 생긴다.
  */
-export const REST_TIMER_RECORD_VERSION = 1;
+export const REST_TIMER_RECORD_VERSION = 2;
 
 /**
  * 이 시간이 더 지난 기록은 복구하지 않는다.
@@ -76,6 +79,14 @@ export type StoredRestTimer = {
   title: string;
   total_sec: number;
   ends_at: number;
+  /**
+   * 저장한 시각(epoch ms). **시간 관계 검증의 기준점**이다.
+   *
+   * 이게 없으면 "손상된 값"과 "저장 뒤에 시계가 되돌아간 것"을 구분할 수 없다. 둘은 정반대로
+   * 다뤄야 한다 — 손상은 거절, 시계 되돌림은 `remainingSec` 의 `totalSec` clamp 로 표시만
+   * 보정한다(UX_STATES §4.8). 기준점을 저장해 두면 **쓰인 그 순간에 불가능했는지**만 본다.
+   */
+  saved_at: number;
 };
 
 export function restTimerKeyFor(sessionId: string): string {
@@ -85,22 +96,29 @@ export function restTimerKeyFor(sessionId: string): string {
 const isPositiveInt = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 
-/**
- * 누적 총시간의 계약.
- *
- * **남은 시간 상한(600초)을 여기에 적용하면 안 된다.** `addRest` 는
- * `totalSec = elapsed + nextRemaining` 으로 누적하므로, 600초 휴식에서 100초를 보낸 뒤 300초를
- * 더하면 남은 시간은 600(상한)이고 **총시간은 700**이다. 이건 정상 경로다
- * (`test/session-rest-timer.test.ts` 가 이미 고정하고 있다).
- *
- * 처음 판에서 `> REST_MAX_SEC` 를 거절했더니 그 정상 타이머가 reload 에서 손상 레코드로 판정돼
- * **삭제됐다.** 그래서 여기서는 새 상한을 만들지 않고 안전한 정수·비음수만 본다.
- */
-const isSafeTotalSec = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
+
+/**
+ * **총시간과 종료 시각의 관계.** 둘을 따로 검사하는 것만으로는 불가능한 조합이 통과한다.
+ *
+ * `total_sec: 1` 인데 `ends_at` 이 1년 뒤면 "1초"가 1년 동안 줄지 않고 stale 도 되지 않는다.
+ * `total_sec` 이 `MAX_SAFE_INTEGER` 면 진행 바 분모가 망가진다. 둘 다 두 값을 각각 봐서는
+ * 잡히지 않는다.
+ *
+ * 타이머가 시작한 시각은 `ends_at - total_sec * 1000` 이다. 그 값이
+ *  - 저장 시점보다 **미래**면 → 쓰일 때 이미 불가능했다(손상).
+ *  - epoch 이전이면 → total 이 터무니없이 크다(손상).
+ *
+ * **남은 시간 상한(600초)이나 총시간 상한을 새로 만들지 않는다.** 정상 700·1500 누적은 이 관계를
+ * 그대로 만족한다: `addRest` 는 `ends_at` 과 `total_sec` 을 같은 크기만큼 함께 늘린다.
+ */
+export function hasImpossibleSpan(record: StoredRestTimer): boolean {
+  const spanMs = record.total_sec * 1000;
+  if (!Number.isSafeInteger(spanMs)) return true;
+  const startedAt = record.ends_at - spanMs;
+  return startedAt > record.saved_at || startedAt <= 0;
+}
 
 /**
  * 저장된 값을 레코드로 해석한다. **모르는 모양은 전부 거절한다** — 손상된 값이나 다른 세션의
@@ -128,17 +146,23 @@ export function parseStoredRestTimer(
   if (!isNonEmptyString(record.planned_set_id)) return null;
   if (!isNonEmptyString(record.title)) return null;
   if (!isPositiveInt(record.ends_at)) return null;
-  // 총시간은 0 일 수도(rest_sec 0), 600 을 넘을 수도(연장 누적) 있다. 상한을 두지 않는다.
-  if (!isSafeTotalSec(record.total_sec)) return null;
+  if (!isPositiveInt(record.saved_at)) return null;
+  // 총시간은 **양수**다. 0 이면 진행 바 분모가 0 이고 화면이 곧바로 finished 를 반복 복구한다.
+  // 600 을 넘는 것은 정상이다(연장 누적) — 상한을 두지 않는다.
+  if (!isPositiveInt(record.total_sec)) return null;
 
-  return {
+  const parsedRecord: StoredRestTimer = {
     v: record.v,
     session_id: record.session_id,
     planned_set_id: record.planned_set_id,
     title: record.title,
     total_sec: record.total_sec,
     ends_at: record.ends_at,
+    saved_at: record.saved_at,
   };
+  // 두 값을 각각 통과해도 **조합이 불가능**하면 손상이다.
+  if (hasImpossibleSpan(parsedRecord)) return null;
+  return parsedRecord;
 }
 
 /** 너무 오래 지난 기록인가. 만료 자체는 정상(0 으로 복구)이고, **지나치게** 오래된 것만 버린다. */
@@ -156,6 +180,7 @@ export async function saveRestTimer(
   plannedSetId: string,
   title: string,
   timer: RestTimer,
+  savedAt: number = Date.now(),
 ): Promise<boolean> {
   const record: StoredRestTimer = {
     v: REST_TIMER_RECORD_VERSION,
@@ -164,6 +189,7 @@ export async function saveRestTimer(
     title,
     total_sec: timer.totalSec,
     ends_at: timer.endsAt,
+    saved_at: savedAt,
   };
   return enqueue(restTimerKeyFor(sessionId), async () => {
     try {
@@ -179,16 +205,22 @@ export async function saveRestTimer(
   });
 }
 
-/** 타이머 기록을 지운다. 실패는 삼킨다 — 남더라도 만료·검증 단계가 다시 걸러낸다. */
-export async function clearRestTimer(userId: string, sessionId: string): Promise<void> {
-  await enqueue(restTimerKeyFor(sessionId), () => rawDelete(userId, sessionId));
+/** 타이머 기록을 지운다. **성공 여부를 돌려준다**(예외는 던지지 않는다). */
+export function clearRestTimer(userId: string, sessionId: string): Promise<boolean> {
+  return enqueue(restTimerKeyFor(sessionId), () => rawDelete(userId, sessionId));
 }
 
-async function rawDelete(userId: string, sessionId: string): Promise<void> {
+/**
+ * 실제 삭제. **성공 여부를 돌려준다** — 사용자가 "휴식 종료"처럼 끝내겠다고 한 순간에는
+ * 호출부가 이 결과를 보고 화면을 terminal 로 인정할지 정해야 한다. 조용히 성공으로 가장하면
+ * 새로고침에서 닫은 타이머가 되살아난다(실제 Chromium E2E 에서 재현됐다).
+ */
+async function rawDelete(userId: string, sessionId: string): Promise<boolean> {
   try {
     await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);
+    return true;
   } catch {
-    // 다음 복구 시도에서 stale 로 걸린다.
+    return false;
   }
 }
 
@@ -207,18 +239,19 @@ async function rawRead(userId: string, sessionId: string): Promise<string | unde
  * 대기 중이거나 읽기가 잠깐 실패했으면 화면 state 는 비어 있어도 레코드는 남아 있다.
  * 그렇다고 통째로 지우면 **다른 세트의 정상 타이머**를 죽이므로 세트를 대조한다.
  */
-export async function clearRestTimerForPlannedSet(
+export function clearRestTimerForPlannedSet(
   userId: string,
   sessionId: string,
   plannedSetId: string,
-): Promise<void> {
-  await enqueue(restTimerKeyFor(sessionId), async () => {
+): Promise<boolean> {
+  return enqueue(restTimerKeyFor(sessionId), async () => {
     const raw = await rawRead(userId, sessionId);
-    if (raw === undefined) return;
+    // 지울 것이 없는 것도 "정리됐다"이다.
+    if (raw === undefined) return true;
     const record = parseStoredRestTimer(raw, sessionId);
     // 파싱되지 않는 값은 어차피 복구되지 않는다. 여기서는 **남의 세트를 지우지 않는 것**만 본다.
-    if (record !== null && record.planned_set_id !== plannedSetId) return;
-    await rawDelete(userId, sessionId);
+    if (record !== null && record.planned_set_id !== plannedSetId) return true;
+    return rawDelete(userId, sessionId);
   });
 }
 
@@ -373,6 +406,45 @@ export async function restoreRestTimer(
     return;
   }
   apply(stored);
+}
+
+/**
+ * **authoritative sync 커밋 트랜잭션 안에서** 저장된 타이머의 세트 id 를 승격한다.
+ *
+ * 화면 이벤트로 하면 안 되는 이유가 분명하다 — foreground sync 는 세션 화면이 없어도
+ * 전역 `AuthenticatedSync` 에서 돈다. 그때 listener 가 없으면 저장된 타이머는 correlation id 에
+ * 머물고, 다음 복구가 authoritative 세트 목록과 안 맞는다고 판단해 **타이머를 지운다.**
+ * 커밋 직후 탭이 닫혀도 같은 영구 불일치가 남는다.
+ *
+ * 그래서 durable 경계를 트랜잭션에 둔다. 롤백되면 승격도 함께 되돌아간다.
+ * **큐를 타지 않는다** — 순서는 트랜잭션이 준다(큐를 타면 트랜잭션 zone 을 벗어난다).
+ *
+ * F-4b marker 는 접두사가 달라 이 스캔에 걸리지 않는다.
+ */
+export async function remapRestTimersInTransaction(
+  userId: string,
+  mappings: readonly { correlation_id: string; planned_set_id: string }[],
+): Promise<number> {
+  if (mappings.length === 0) return 0;
+  const byCorrelation = new Map(mappings.map((mapping) => [mapping.correlation_id, mapping]));
+
+  const rows = await sessionDb.syncMeta.where("user_id").equals(userId).toArray();
+  let moved = 0;
+  for (const row of rows) {
+    if (!row.key.startsWith(REST_TIMER_PREFIX)) continue;
+    const sessionId = row.key.slice(REST_TIMER_PREFIX.length);
+    const record = parseStoredRestTimer(row.value, sessionId);
+    if (!record) continue;
+    const mapping = byCorrelation.get(record.planned_set_id);
+    if (!mapping || mapping.planned_set_id === record.planned_set_id) continue;
+    await sessionDb.syncMeta.put({
+      user_id: userId,
+      key: row.key,
+      value: JSON.stringify({ ...record, planned_set_id: mapping.planned_set_id }),
+    });
+    moved += 1;
+  }
+  return moved;
 }
 
 /** 화면이 쓰는 기본 스코프 바인딩. 사용자 스코프는 앱 전체에서 하나다. */

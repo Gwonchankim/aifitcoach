@@ -36,6 +36,7 @@ const STORE = join(WEB_DIR, "components", "session", "rest-timer-store.ts");
 const NOTIFY = join(WEB_DIR, "lib", "rest-notification.ts");
 const SHEET = join(WEB_DIR, "components", "session", "RestTimerSheet.tsx");
 const SCREEN = join(WEB_DIR, "components", "session", "SessionScreen.tsx");
+const COORDINATOR = join(WEB_DIR, "components", "session", "sync-coordinator.ts");
 
 /** ANSI 이스케이프의 시작 바이트. 소스에 제어문자를 남기지 않으려고 코드로 만든다. */
 const ESC = String.fromCharCode(27);
@@ -45,6 +46,7 @@ const NAMES = new Map([
   [NOTIFY, "rest-notification.ts"],
   [SHEET, "RestTimerSheet.tsx"],
   [SCREEN, "SessionScreen.tsx"],
+  [COORDINATOR, "sync-coordinator.ts"],
 ]);
 
 const MUTATIONS = [
@@ -351,10 +353,11 @@ const MUTATIONS = [
   {
     id: 38,
     file: SCREEN,
-    what: "**복구 effect 제거** — 저장은 하는데 아무도 안 읽는다",
-    from: "    void restoreRestTimer(coordinator, token, plannedSetIds, Date.now(), (stored) => {",
-    to: "    void (async (): Promise<void> => {})().then(() => {}) as never;\n    void ((stored: never) => {",
-    skip: true,
+    what: "**복구 effect 무력화** — 저장은 하는데 아무도 읽지 않는다",
+    // 이펙트 본문을 지우면 미사용 변수로 타입·lint 가 먼저 죽어 테스트 방어력을 증명하지 못한다.
+    // 그래서 **문법적으로 유효하게** guard 를 항상 반환시켜 복구만 사라지게 한다.
+    from: "    if (!token) return;",
+    to: "    if (token) return;",
   },
   {
     id: 39,
@@ -369,6 +372,111 @@ const MUTATIONS = [
     what: "세트 완료 때 **무효화 제거** — 늦은 복구가 새 타이머를 덮는다",
     from: "    restoreRef.current?.invalidate();\n    setRest(next);",
     to: "    setRest(next);",
+  },
+
+  /* ---- 재리뷰 P2: 시간 관계 계약 ---- */
+  {
+    id: 41,
+    file: STORE,
+    what: "**관계 검증 제거** — 1초짜리인데 1년 뒤 끝나는 좀비가 통과한다",
+    from: "  if (hasImpossibleSpan(parsedRecord)) return null;",
+    to: "  if (false) return null;",
+    oracle: "test",
+  },
+  {
+    id: 42,
+    file: STORE,
+    what: "시작 시각이 저장 시점보다 미래여도 통과시키기",
+    from: "  return startedAt > record.saved_at || startedAt <= 0;",
+    to: "  return startedAt <= 0;",
+  },
+  {
+    id: 43,
+    file: STORE,
+    what: "시작 시각이 epoch 이전이어도 통과시키기 — 터무니없는 total",
+    from: "  return startedAt > record.saved_at || startedAt <= 0;",
+    to: "  return startedAt > record.saved_at;",
+  },
+  {
+    id: 44,
+    file: STORE,
+    what: "total_sec 양수 검사를 비음수로 되돌리기 — 0 이 통과한다",
+    from: "  if (!isPositiveInt(record.total_sec)) return null;",
+    to: '  if (typeof record.total_sec !== "number" || record.total_sec < 0) return null;',
+  },
+  {
+    id: 45,
+    file: STORE,
+    what: "안전정수 검사를 정수 검사로 낮추기 — MAX_SAFE_INTEGER 초과 통과",
+    from: '  typeof value === "number" && Number.isSafeInteger(value) && value > 0;',
+    to: '  typeof value === "number" && Number.isInteger(value) && value > 0;',
+  },
+  {
+    id: 46,
+    file: STORE,
+    what: "saved_at 검증 제거 — 기준점 없이 관계를 판정한다",
+    from: "  if (!isPositiveInt(record.saved_at)) return null;",
+    to: "  if (record.saved_at === undefined) return null;",
+  },
+
+  /* ---- 재리뷰 P1: 전역 승격 ---- */
+  {
+    id: 47,
+    file: STORE,
+    what: "**전역 승격을 무력화** — 화면 없는 sync 에서 correlation id 가 남는다",
+    from: "  if (mappings.length === 0) return 0;",
+    to: "  return 0;\n  // eslint-disable-next-line no-unreachable",
+  },
+  {
+    id: 48,
+    file: STORE,
+    what: "전역 승격이 **다른 세트** 레코드까지 옮기게 만들기",
+    from: "    if (!mapping || mapping.planned_set_id === record.planned_set_id) continue;",
+    to: "    if (!mapping) continue;",
+  },
+  {
+    id: 49,
+    file: COORDINATOR,
+    what: "**커밋 트랜잭션에서 승격 호출 제거** — UI 이벤트에만 의존하게 된다",
+    from: "    await remapRestTimersInTransaction(this.userId, mappings);",
+    to: "    void 0;",
+  },
+
+  /* ---- 재리뷰 P1: terminal clear ---- */
+  {
+    id: 50,
+    file: SCREEN,
+    what: "**닫기를 fire-and-forget 으로 되돌리기** — 새로고침에서 유령 타이머",
+    from: "    if (!(await restTimerStore.clear(sessionId))) {\n      setNotice(CLEAR_FAILED_NOTICE);\n      return;\n    }\n    setRest(null);",
+    to: "    void restTimerStore.clear(sessionId);\n    setRest(null);",
+  },
+  {
+    id: 51,
+    file: SCREEN,
+    what: "삭제 실패를 성공으로 가장하기 — 시트를 닫아 버린다",
+    from: "    if (!(await restTimerStore.clear(sessionId))) {\n      setNotice(CLEAR_FAILED_NOTICE);\n      return;\n    }",
+    to: "    await restTimerStore.clear(sessionId);",
+  },
+  {
+    id: 52,
+    file: SCREEN,
+    what: "완료 취소의 삭제 실패를 조용히 넘기기",
+    from: "    if (!(await restTimerStore.clearForPlannedSet(sessionId, set.id)))\n      setNotice(CLEAR_FAILED_NOTICE);",
+    to: "    void restTimerStore.clearForPlannedSet(sessionId, set.id);",
+  },
+  {
+    id: 53,
+    file: SCREEN,
+    what: "세션 종료의 clear 를 기다리지 않기",
+    from: "      const timerCleared = await restTimerStore.clear(sessionId);",
+    to: "      const timerCleared = true;\n      void restTimerStore.clear(sessionId);",
+  },
+  {
+    id: 54,
+    file: STORE,
+    what: "clear 가 실패해도 성공을 보고하게 만들기",
+    from: "    await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);\n    return true;\n  } catch {\n    return false;\n  }",
+    to: "    await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);\n    return true;\n  } catch {\n    return true;\n  }",
   },
 ];
 
@@ -430,6 +538,7 @@ const TARGETED = [
   "test/rest-notification.test.ts",
   "test/rest-timer-ordering.test.ts",
   "test/rest-timer-wiring.test.tsx",
+  "test/rest-timer-sync-remap.test.ts",
 ];
 
 const runTests = () => run([VITEST_ENTRY, "run", ...TARGETED], WEB_DIR);
@@ -440,6 +549,7 @@ const runLint = () =>
       "apps/web/components/session/RestTimerSheet.tsx",
       "apps/web/components/session/SessionScreen.tsx",
       "apps/web/components/session/rest-timer-store.ts",
+      "apps/web/components/session/sync-coordinator.ts",
     ],
     ROOT,
   );
@@ -535,9 +645,10 @@ function main() {
 
   for (const mutation of MUTATIONS) {
     if (mutation.skip) {
+      // **승인 없는 skip 은 실패다.** 건너뛴 변이는 아무것도 증명하지 않는다.
       skipped += 1;
       console.log(
-        `| ${mutation.id} | \`${NAMES.get(mutation.file)}\` | ${mutation.what} | — | 건너뜀 | 문법적으로 동등한 변이를 만들 수 없다 |`,
+        `| ${mutation.id} | \`${NAMES.get(mutation.file)}\` | ${mutation.what} | — | **건너뜀(실패)** | 실행 가능한 변이로 바꿔야 한다 |`,
       );
       continue;
     }
@@ -606,7 +717,7 @@ function main() {
       `무효 ${invalid} · 건너뜀 ${skipped} · **미방어 생존 ${survivors}**.`,
   );
   console.log(`대상 ${TARGET_FILES.length}개 sha256 불변 · 추적 파일 잔류 ${leaked.length}건.`);
-  if (survivors > 0 || invalid > 0) process.exitCode = 1;
+  if (survivors > 0 || invalid > 0 || skipped > 0) process.exitCode = 1;
 }
 
 try {

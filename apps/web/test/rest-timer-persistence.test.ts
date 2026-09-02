@@ -199,6 +199,97 @@ describe("복구 — 시계가 흐른 만큼만 줄어든다", () => {
   });
 });
 
+/**
+ * **두 값이 각각 통과해도 조합이 불가능하면 손상이다.**
+ *
+ * `total_sec` 과 `ends_at` 을 따로만 보면 "1초짜리인데 1년 뒤에 끝나는" 좀비가 통과한다.
+ * 화면에는 1초가 1년 동안 줄지 않고 뜨고 stale 도 되지 않는다.
+ *
+ * 기준점은 `saved_at` 이다 — **쓰인 그 순간에 불가능했는지**만 본다. 저장 뒤의 시계 되돌림은
+ * 손상이 아니라 표시 문제이고 `remainingSec` 의 clamp 가 이미 다룬다(UX_STATES §4.8).
+ */
+describe("시간 관계 — 불가능한 조합은 거절한다", () => {
+  const record = (overrides: Record<string, unknown>) =>
+    JSON.stringify({
+      v: REST_TIMER_RECORD_VERSION,
+      session_id: SESSION,
+      planned_set_id: SET,
+      title: TITLE,
+      total_sec: 90,
+      ends_at: T0 + 90_000,
+      saved_at: T0,
+      ...overrides,
+    });
+
+  it("1초짜리인데 1년 뒤에 끝나는 좀비를 거절한다", () => {
+    const oneYear = 365 * 24 * 60 * 60 * 1000;
+    expect(
+      parseStoredRestTimer(record({ total_sec: 1, ends_at: T0 + oneYear }), SESSION),
+    ).toBeNull();
+  });
+
+  it("시작 시각이 저장 시점보다 미래면 거절한다", () => {
+    // 저장할 때 이미 "아직 시작도 안 한" 타이머 — 있을 수 없다.
+    expect(
+      parseStoredRestTimer(record({ total_sec: 60, ends_at: T0 + 120_000 }), SESSION),
+    ).toBeNull();
+  });
+
+  it("시작 시각이 epoch 이전이면 거절한다 — total 이 터무니없다", () => {
+    expect(
+      parseStoredRestTimer(record({ total_sec: 2_000_000_000, ends_at: T0 + 1_000 }), SESSION),
+    ).toBeNull();
+  });
+
+  it("경계: 시작 시각이 저장 시점과 같으면 통과한다", () => {
+    expect(
+      parseStoredRestTimer(record({ total_sec: 90, ends_at: T0 + 90_000 }), SESSION),
+    ).not.toBeNull();
+  });
+
+  it("경계: 1ms 라도 미래면 거절한다", () => {
+    expect(
+      parseStoredRestTimer(record({ total_sec: 90, ends_at: T0 + 90_001 }), SESSION),
+    ).toBeNull();
+  });
+
+  it("**정상 700·1500 누적은 그대로 통과한다** — 새 상한을 만들지 않았다", () => {
+    let timer = startRest(REST_MAX_SEC, T0);
+    const extended = addRest(timer, 300, T0 + 100_000).timer;
+    expect(extended.totalSec).toBe(700);
+    expect(
+      parseStoredRestTimer(
+        record({ total_sec: extended.totalSec, ends_at: extended.endsAt, saved_at: T0 + 100_000 }),
+        SESSION,
+      ),
+    ).not.toBeNull();
+
+    let savedAt = T0;
+    for (let step = 1; step <= 3; step += 1) {
+      savedAt = T0 + step * 300_000;
+      timer = addRest(timer, 300, savedAt).timer;
+    }
+    expect(timer.totalSec).toBe(1500);
+    expect(
+      parseStoredRestTimer(
+        record({ total_sec: timer.totalSec, ends_at: timer.endsAt, saved_at: savedAt }),
+        SESSION,
+      ),
+    ).not.toBeNull();
+  });
+
+  it("저장 뒤 시계가 되돌아간 것은 **거절하지 않는다** — 표시만 clamp 한다", async () => {
+    // 저장은 정상이었다. 읽는 시점의 시계만 과거로 갔다.
+    await saveRestTimer(USER, SESSION, SET, TITLE, startRest(90, T0), T0);
+
+    const restored = await loadRestTimer(USER, SESSION, T0 - 60_000);
+
+    expect(restored).not.toBeNull();
+    // remainingSec 이 totalSec 으로 잘라 준다(§4.8).
+    expect(remainingSec(restored!.timer, T0 - 60_000)).toBe(90);
+  });
+});
+
 describe("강제 종료 모사 — 새 Dexie 인스턴스", () => {
   it("DB 를 닫았다 다시 열어도 타이머가 살아 있고, 기록은 한 바이트도 안 바뀐다", async () => {
     await seedUserData();
@@ -253,6 +344,7 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
         title: TITLE,
         total_sec: 90,
         ends_at: T0 + 90_000,
+        saved_at: T0,
       }),
     );
 
@@ -272,13 +364,19 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
   });
 
   it.each([
-    ["모르는 버전", { v: 2 }],
+    ["모르는 버전", { v: 99 }],
+    ["옛 버전(v1)", { v: 1 }],
     ["버전 없음", { v: undefined }],
     ["planned_set_id 없음", { planned_set_id: "" }],
     ["title 없음", { title: "" }],
     ["ends_at 이 문자열", { ends_at: "later" }],
     ["ends_at 이 0", { ends_at: 0 }],
     ["total_sec 음수", { total_sec: -1 }],
+    ["total_sec 0 — 진행 바 분모가 0 이다", { total_sec: 0 }],
+    ["total_sec 이 안전정수 초과", { total_sec: Number.MAX_SAFE_INTEGER }],
+    ["saved_at 없음(v1 잔재)", { saved_at: undefined }],
+    ["saved_at 이 0", { saved_at: 0 }],
+    ["saved_at 이 NaN", { saved_at: Number.NaN }],
     ["total_sec 이 소수", { total_sec: 1.5 }],
     ["total_sec 이 NaN", { total_sec: Number.NaN }],
     ["total_sec 이 Infinity", { total_sec: Number.POSITIVE_INFINITY }],
@@ -293,6 +391,7 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
       title: TITLE,
       total_sec: 90,
       ends_at: T0 + 90_000,
+      saved_at: T0,
       ...override,
     };
     expect(parseStoredRestTimer(JSON.stringify(record), SESSION)).toBeNull();
@@ -315,6 +414,7 @@ describe("stale — 너무 오래된 기록은 복구하지 않는다", () => {
     title: TITLE,
     total_sec: 90,
     ends_at: T0 + 90_000,
+    saved_at: T0,
   };
 
   it("상한은 휴식 상한(10분)과 같다 — 새 숫자를 만들지 않는다", () => {
@@ -345,7 +445,8 @@ describe("정리 — 닫기·완료 취소·세션 종료", () => {
   });
 
   it("없는 것을 지워도 던지지 않는다", async () => {
-    await expect(clearRestTimer(USER, SESSION)).resolves.toBeUndefined();
+    // 지울 것이 없는 것도 "정리됐다"이다.
+    await expect(clearRestTimer(USER, SESSION)).resolves.toBe(true);
   });
 
   it("한 세션을 지워도 다른 세션 타이머는 남는다", async () => {
@@ -378,7 +479,7 @@ describe("저장 실패는 기록을 막지 않는다", () => {
   it("지우기가 던져도 예외가 새지 않는다", async () => {
     sessionDb.close();
 
-    await expect(clearRestTimer(USER, SESSION)).resolves.toBeUndefined();
+    await expect(clearRestTimer(USER, SESSION)).resolves.toBe(false);
 
     await sessionDb.open();
   });
