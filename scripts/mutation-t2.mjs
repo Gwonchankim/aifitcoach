@@ -523,33 +523,79 @@ const MUTATIONS = [
   {
     id: 61,
     file: STORE,
-    what: "**별칭 해석 제거** — 늦은 저장이 correlation id 를 되살린다",
-    from: "      planned_set_id: canonicalPlannedSetId(plannedSetId),",
-    to: "      planned_set_id: plannedSetId,",
+    what: "**별칭 조회를 저장 트랜잭션 밖으로** — 매핑이 그 사이 커밋되면 옛 id 로 쓴다",
+    from: "        const canonical = await resolveCanonicalPlannedSetId(userId, plannedSetId);",
+    to: "        const canonical = plannedSetId;",
   },
   {
     id: 62,
-    file: COORDINATOR,
-    what: "**커밋 뒤 별칭 등록 제거**",
-    from: "      commitRestTimerAliases(response.planned_set_mappings);",
-    to: "      void 0;",
+    file: STORE,
+    what: "**별칭 쓰기 제거** — 매핑 뒤 저장이 correlation id 로 남는다",
+    from: "      key: aliasKeyFor(mapping.correlation_id),",
+    to: "      key: `unused-alias:${mapping.correlation_id}`,",
   },
   {
     id: 63,
-    file: COORDINATOR,
-    what: "별칭을 커밋 **전에** 등록 — 롤백돼도 남는다",
+    file: STORE,
+    what: "별칭 버전 확인 제거 — 모르는 모양을 따라간다",
+    from: "    if (record.v !== REST_TIMER_ALIAS_VERSION) return null;",
+    to: "    if (false) return null;",
+  },
+  {
+    id: 64,
+    file: STORE,
+    what: "손상 별칭 fail-closed 제거 — 파싱 실패가 위로 샌다",
     edits: [
+      ["  try {\n    const parsed = JSON.parse(raw);", "  {\n    const parsed = JSON.parse(raw);"],
       [
-        "      const draftsChanged = await this.commitResponse(response);",
-        "      commitRestTimerAliases(response.planned_set_mappings);\n" +
-          "      const draftsChanged = await this.commitResponse(response);",
-      ],
-      [
-        "      commitRestTimerAliases(response.planned_set_mappings);\n" +
-          "      if (response.planned_set_mappings.length > 0",
-        "      if (response.planned_set_mappings.length > 0",
+        "    return { to: record.to, at };\n  } catch {\n    return null;\n  }\n}",
+        "    return { to: record.to, at };\n  }\n}",
       ],
     ],
+  },
+  {
+    id: 65,
+    file: STORE,
+    what: "별칭 순환 상한 제거 — 무한 루프",
+    from: "    if (alias === null || alias.to === current || seen.has(alias.to)) break;",
+    to: "    if (alias === null || alias.to === current) break;",
+  },
+  {
+    id: 66,
+    file: STORE,
+    what: "별칭 보존 정리 제거 — 무한 누적",
+    from: "    if (alias !== null && now - alias.at < REST_TIMER_ALIAS_RETENTION_MS) continue;",
+    to: "    continue;",
+  },
+  {
+    id: 67,
+    file: STORE,
+    what: "**로컬 의사 overlay 제거** — 서버 사실만 본다",
+    from:
+      "  const local = eligibility.localCompleted.get(plannedSetId);\n" +
+      "  if (local !== undefined) return local;",
+    to: "  void eligibility.localCompleted;",
+  },
+  {
+    id: 68,
+    file: STORE,
+    what: "로컬 **완료** 의사 무시 — 오프라인 완료 타이머가 지워진다",
+    from: "  if (local !== undefined) return local;",
+    to: "  if (local === false) return false;",
+  },
+  {
+    id: 69,
+    file: STORE,
+    what: "로컬 **취소** 의사 무시 — 취소한 타이머가 되살아난다",
+    from: "  if (local !== undefined) return local;",
+    to: "  if (local === true) return true;",
+  },
+  {
+    id: 70,
+    file: STORE,
+    what: "로컬 의사를 읽지 않는다(빈 맵) ",
+    from: "    return new Map(rows.map((row) => [row.planned_set_id, row.completed === true]));",
+    to: "    return new Map();",
   },
   {
     id: 54,
