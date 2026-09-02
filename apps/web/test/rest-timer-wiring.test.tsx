@@ -258,6 +258,39 @@ describe("배선 — terminal clear 를 기다린다", () => {
     expect(await storedTimer(SESSION_A)).toBeNull();
   });
 
+  it("닫는 사이 도착한 복구가 **닫은 타이머를 되살리지 못한다**", async () => {
+    // 복구를 붙잡아 둔 채 렌더한다 — 사용자가 그 사이 새 세트를 끝내고 닫는다.
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    const restoreGate = gateTimerRead(SESSION_A);
+
+    renderSession(SESSION_A);
+    const { fireEvent } = await import("@testing-library/dom");
+    const weight = await screen.findByLabelText("벤치프레스 2세트 무게, 킬로그램");
+    fireEvent.change(weight, { target: { value: "60" } });
+    fireEvent.change(screen.getByLabelText("벤치프레스 2세트 횟수, 회"), {
+      target: { value: "8" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "벤치프레스 2세트 완료 처리" }));
+    await screen.findByRole("dialog", { name: /2세트 후 휴식/ });
+
+    /**
+     * 닫는다. 닫기는 세대를 먼저 올린 뒤 삭제를 큐에 넣는데, 그 큐 앞에는 아직 붙잡혀 있는
+     * **복구 읽기**가 있다. 그래서 게이트를 풀어야 닫기가 끝난다 — 그 순서가 곧 이 경합이다:
+     * 복구 결과가 닫기보다 **늦게** 도착한다.
+     */
+    fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+    await act(async () => {
+      restoreGate.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    // 닫기가 세대를 올리지 않으면 늦은 복구가 1세트 타이머를 다시 연다.
+    expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();
+  });
+
   it("삭제가 실패하면 **닫지 않고** 다시 시도하도록 알린다", async () => {
     renderSession(SESSION_A);
     await completeFirstSet();
