@@ -311,30 +311,36 @@ const MUTATIONS = [
   {
     id: 32,
     file: SCREEN,
-    what: "휴식 닫을 때 **clear 호출 제거**",
-    from: "    dropRest();\n    void restTimerStore.clear(sessionId);\n    if (!from) return;",
-    to: "    dropRest();\n    if (!from) return;",
+    // 닫기의 clear 자체는 #50·#51 이 다룬다. 여기서는 **세대 무효화**만 떼어 본다.
+    what: "휴식 닫을 때 **복구 무효화 제거** — 늦은 복구가 닫은 타이머를 되살린다",
+    from: "    const from = rest?.plannedSetId;\n    // 닫는 것은 사용자의 최종 의사다 — 뒤늦은 복구가 되살리지 못하게 먼저 세대를 올린다.\n    restoreRef.current?.invalidate();",
+    to: "    const from = rest?.plannedSetId;",
   },
   {
     id: 33,
     file: SCREEN,
     what: "완료 취소의 **조건부 clear 제거**",
-    from: "    void restTimerStore.clearForPlannedSet(sessionId, set.id);",
+    from:
+      "    if (!(await restTimerStore.clearForPlannedSet(sessionId, set.id)))\n" +
+      "      setNotice(CLEAR_FAILED_NOTICE);",
     to: "    void 0;",
   },
   {
     id: 34,
     file: SCREEN,
     what: "완료 취소를 **화면에 타이머가 있을 때만** 지우도록 되돌리기",
-    from: "    void restTimerStore.clearForPlannedSet(sessionId, set.id);",
+    from:
+      "    if (!(await restTimerStore.clearForPlannedSet(sessionId, set.id)))\n" +
+      "      setNotice(CLEAR_FAILED_NOTICE);",
     to: "    if (rest?.plannedSetId === set.id) void restTimerStore.clear(sessionId);",
   },
   {
     id: 35,
     file: SCREEN,
-    what: "세션 종료 뒤 **clear 호출 제거**",
-    from: "      dropRest();\n      void restTimerStore.clear(sessionId);",
-    to: "      dropRest();",
+    // 종료의 clear 는 #53 이 다룬다. 여기서는 **실패 안내**를 떼어 본다.
+    what: "세션 종료의 **정리 실패 안내 제거** — 조용히 넘어간다",
+    from: "      if (!(data as { timerCleared?: boolean }).timerCleared) setNotice(CLEAR_FAILED_NOTICE);\n      else if",
+    to: "      if (false) setNotice(CLEAR_FAILED_NOTICE);\n      else if",
   },
   {
     id: 36,

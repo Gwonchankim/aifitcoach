@@ -644,6 +644,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   if (summary) {
     return (
       <div className="mx-auto max-w-md p-4">
+        {/*
+         * 종료 화면은 루틴 화면을 통째로 대체하므로 아래의 안내 영역이 렌더되지 않는다.
+         * 정리 실패는 여기서도 보여야 사용자가 "재진입하면 휴식이 다시 뜰 수 있다"를 안다.
+         */}
+        {notice ? (
+          <p role="status" className="mb-3 text-sm text-fg-muted">
+            {notice}
+          </p>
+        ) : null}
         <SessionSummary
           completedCount={completedCount}
           totalVolume={totalVolume}

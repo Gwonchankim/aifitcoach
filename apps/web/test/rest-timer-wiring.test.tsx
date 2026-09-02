@@ -395,6 +395,34 @@ describe("배선 — 세션 종료", () => {
   });
 });
 
+describe("배선 — 세션 종료의 정리 실패", () => {
+  it("종료 시 삭제가 실패하면 알린다 — 종료 자체는 막지 않는다", async () => {
+    renderSession(SESSION_A);
+    await screen.findByRole("heading", { name: "벤치프레스" });
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+
+    // **타이머 키만** 실패시킨다. 통째로 막으면 세션 종료 커밋 자체가 깨져 이 경로를 못 본다.
+    const realDelete = sessionDb.syncMeta.delete.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "delete").mockImplementation((async (key: never) => {
+      if (Array.isArray(key) && String(key[1]).startsWith("rest-timer:"))
+        throw new Error("TransactionInactive");
+      return realDelete(key);
+    }) as never);
+    const { fireEvent } = await import("@testing-library/dom");
+    fireEvent.click(screen.getByRole("button", { name: "운동 종료" }));
+    const dialog = await screen.findByRole("dialog", { name: "운동 종료" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /종료$/ }));
+
+    // 종료는 진행된다(요약이 뜬다). 다만 정리 실패는 조용히 넘기지 않는다.
+    expect(
+      await screen.findByText("휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요."),
+    ).toBeTruthy();
+  });
+});
+
 describe("배선 — 복구", () => {
   it("저장된 타이머가 있으면 마운트 후 휴식 시트가 뜬다", async () => {
     await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {

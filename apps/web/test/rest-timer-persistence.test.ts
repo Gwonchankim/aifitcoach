@@ -377,6 +377,11 @@ describe("fail closed — 남의 것·손상된 것은 화면에 올리지 않�
     ["saved_at 없음(v1 잔재)", { saved_at: undefined }],
     ["saved_at 이 0", { saved_at: 0 }],
     ["saved_at 이 NaN", { saved_at: Number.NaN }],
+    // 아래 셋은 **관계 검증을 통과하면서** 각 가드만 깨는 값이다.
+    // 관계가 대신 잡아 주면 그 가드가 있는지 없는지 알 수 없다.
+    ["saved_at 이 문자열", { saved_at: "later" }],
+    ["saved_at 이 안전정수 초과", { saved_at: Number.MAX_SAFE_INTEGER + 2 }],
+    ["total_sec 0 이고 관계는 성립", { total_sec: 0, ends_at: T0, saved_at: T0 }],
     ["total_sec 이 소수", { total_sec: 1.5 }],
     ["total_sec 이 NaN", { total_sec: Number.NaN }],
     ["total_sec 이 Infinity", { total_sec: Number.POSITIVE_INFINITY }],

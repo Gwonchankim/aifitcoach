@@ -150,6 +150,26 @@ describe("전역 커밋 — 화면이 없어도 승격된다", () => {
     expect((await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]))!.value).toBe(before);
   });
 
+  it("correlation 과 서버 id 가 같으면 레코드를 다시 쓰지 않는다", async () => {
+    await saveRestTimer(USER, SESSION, SERVER_SET, TITLE, {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    const before = (await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]))!.value;
+    const writes: string[] = [];
+    const realPut = sessionDb.syncMeta.put.bind(sessionDb.syncMeta);
+    vi.spyOn(sessionDb.syncMeta, "put").mockImplementation((async (row: never) => {
+      writes.push((row as { key: string }).key);
+      return realPut(row);
+    }) as never);
+
+    // 서버가 이미 authoritative 인 id 를 그대로 돌려준 경우.
+    await runSync(mappingResponse(SERVER_SET));
+
+    expect(writes.filter((key) => key.startsWith("rest-timer:"))).toEqual([]);
+    expect((await sessionDb.syncMeta.get([USER, restTimerKeyFor(SESSION)]))!.value).toBe(before);
+  });
+
   it("타이머가 없어도 sync 는 정상 완료한다", async () => {
     await expect(runSync(mappingResponse())).resolves.toBeDefined();
   });
