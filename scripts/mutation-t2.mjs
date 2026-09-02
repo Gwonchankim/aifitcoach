@@ -163,15 +163,37 @@ const MUTATIONS = [
   {
     id: 15,
     file: STORE,
-    what: "**load 를 큐 밖으로** — 낡은 판정의 삭제가 새 save 를 지운다",
+    /**
+     * 옛 변이("load 를 큐 밖으로")는 더 이상 결함이 아니다. 복구 판정이 `loadRestTimer` 를
+     * 거치지 않고 자기 트랜잭션에서 읽고 지우기 때문에, `load` 의 큐 소속을 구분할 입력이
+     * production 경로에 없다(게다가 `load` 의 원문 대조가 그 창을 이미 덮는다 — #16 과 같은 짝).
+     *
+     * 같은 자리에 있던 **진짜** 결함은 이제 여기다: 조건부 삭제를 스냅샷 트랜잭션 밖으로 빼면,
+     * 커밋과 삭제 사이에 커밋된 **새 타이머를 지운다.** 트랜잭션 안에서는 그 저장이 우리 뒤에
+     * 줄 서므로 지워지지 않는다.
+     */
+    what: "**자격 없는 기록의 삭제를 스냅샷 트랜잭션 밖으로** — 커밋 뒤에 도착한 새 타이머를 지운다",
     edits: [
       [
-        "  return enqueue(restTimerKeyFor(sessionId), async () => {\n    const raw = await rawRead(userId, sessionId);\n    if (raw === undefined) return null;",
-        "  return (async () => {\n    const raw = await rawRead(userId, sessionId);\n    if (raw === undefined) return null;",
+        '    return await sessionDb.transaction("rw", sessionDb.drafts, sessionDb.syncMeta, async () => {',
+        '    const outcome = await sessionDb.transaction("rw", sessionDb.drafts, sessionDb.syncMeta, async () => {',
       ],
       [
-        "      timer: { totalSec: record.total_sec, endsAt: record.ends_at },\n    };\n  });\n}",
-        "      timer: { totalSec: record.total_sec, endsAt: record.ends_at },\n    };\n  })();\n}",
+        "        // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.\n" +
+          "        await sessionDb.syncMeta.delete(key);\n" +
+          '        return { kind: "none" };',
+        '        return { kind: "deferred-delete" } as unknown as RestoreOutcome;',
+      ],
+      [
+        "    });\n  } catch {\n    // 아무것도 단정하지 않는다. 타이머는 다음 시도를 위해 그대로 둔다.",
+        "    });\n" +
+          '    if ((outcome as { kind: string }).kind === "deferred-delete") {\n' +
+          "      await sessionDb.syncMeta.delete(key);\n" +
+          '      return { kind: "none" };\n' +
+          "    }\n" +
+          "    return outcome;\n" +
+          "  } catch {\n" +
+          "    // 아무것도 단정하지 않는다. 타이머는 다음 시도를 위해 그대로 둔다.",
       ],
     ],
   },
@@ -236,16 +258,16 @@ const MUTATIONS = [
   {
     id: 23,
     file: STORE,
-    what: "복구 적용 전 표 확인 제거",
-    from: "  if (!coordinator.isCurrent(token) || !stored) return;",
-    to: "  if (!stored) return;",
+    what: "복구 적용 전 표(세대) 확인 제거 — 늦게 끝난 A 의 결과가 B 화면에 얹힌다",
+    from: "  if (!coordinator.isCurrent(token)) return;",
+    to: "  if (false) return;",
   },
   {
     id: 24,
     file: STORE,
-    what: "복구 시 자격 확인 제거 — 무엇이든 올린다",
-    from: "  if (!isRestorable(eligibility, stored.plannedSetId)) {",
-    to: "  if (false) {",
+    what: "복구 시 자격 확인 제거 — 취소한 세트·종료된 세션의 타이머도 올린다",
+    from: "      if (!isRestorable(eligibility, record.planned_set_id)) {",
+    to: "      if (false) {",
   },
 
   /* ---- 알림 ---- */
@@ -666,20 +688,22 @@ const MUTATIONS = [
   {
     id: 74,
     file: STORE,
-    what: "자격 없는 기록의 삭제를 트랜잭션 밖으로 — 늦게 도착한 새 타이머까지 지운다",
+    /**
+     * 처음엔 여기에 "삭제를 `void` 로 던진다"를 뒀는데 **같은 트리에서 8회 중 생존 2·RED 6 으로
+     * 흔들렸다.** 던져 둔 요청이 트랜잭션 자동 커밋과 경합해, 붙으면 원본과 같고 놓치면
+     * `TransactionInactive` 로 죽는다 — RED 근거가 "삭제 유실"이 아니라 변이 자신의 죽음이었다.
+     * 판정이 코드가 아니라 스케줄러에 달린 변이는 아무것도 증명하지 못한다.
+     *
+     * 그래서 같은 성질을 **결정적으로** 겨눈다: 삭제를 아예 하지 않는다.
+     * 15번은 삭제의 **위치**(스냅샷 안)를, 이 변이는 삭제의 **존재**를 못박는다.
+     */
+    what: "자격 없는 기록을 지우지 않는다 — 저장분이 남아 다음 진입마다 다시 뜬다",
     edits: [
       [
-        "      const eligibility = restoreEligibilityOf(session, localCompleted);\n" +
-          "      if (!isRestorable(eligibility, record.planned_set_id)) {\n" +
-          "        // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.\n" +
+        "        // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.\n" +
           "        await sessionDb.syncMeta.delete(key);\n" +
-          '        return { kind: "none" };\n' +
-          "      }",
-        "      const eligibility = restoreEligibilityOf(session, localCompleted);\n" +
-          "      if (!isRestorable(eligibility, record.planned_set_id)) {\n" +
-          "        void sessionDb.syncMeta.delete(key);\n" +
-          '        return { kind: "none" };\n' +
-          "      }",
+          '        return { kind: "none" };',
+        '        return { kind: "none" };',
       ],
     ],
   },
@@ -818,6 +842,13 @@ function trackedResidue() {
 
 function main() {
   const selfTestOnly = process.argv.includes("--self-test");
+  /**
+   * `--only 15,23,24` 로 몇 건만 돌린다. 앵커 하나를 고칠 때마다 전수(12분)를 기다리지 않으려는 것 —
+   * **최종 판정은 언제나 전수다.** 부분 실행에는 그래서 아래 요약이 그대로 붙는다(생존 0 을 못 주장하게).
+   */
+  const onlyFlag = process.argv.indexOf("--only");
+  const only =
+    onlyFlag === -1 ? null : new Set(process.argv[onlyFlag + 1].split(",").map((id) => Number(id)));
 
   // ---- baseline: 대상 파일이 깨끗해야 원복이 무엇으로 되돌리는지 말할 수 있다 ----
   const dirtyTargets = git(["status", "--porcelain", "--", ...TARGET_FILES])
@@ -865,8 +896,11 @@ function main() {
   let survivors = 0;
   let invalid = 0;
   let skipped = 0;
+  let selected = 0;
 
   for (const mutation of MUTATIONS) {
+    if (only !== null && !only.has(mutation.id)) continue;
+    selected += 1;
     if (mutation.skip) {
       // **승인 없는 skip 은 실패다.** 건너뛴 변이는 아무것도 증명하지 않는다.
       skipped += 1;
@@ -931,6 +965,20 @@ function main() {
     console.error("\n실행이 추적 파일을 남겼다:");
     for (const line of leaked) console.error(`  ${line}`);
     process.exitCode = 1;
+  }
+
+  /**
+   * `--only` 로 돌린 결과에 전수 요약을 붙이면 "생존 0"이 전수 판정처럼 읽힌다.
+   * 부분 실행은 **부분이라고 말한다** — 최종 판정은 전수 실행에서만 나온다.
+   */
+  if (only !== null) {
+    console.log(
+      `\n**부분 실행** — ${MUTATIONS.length}건 중 ${only.size}건만 돌렸다(RED ${selected - survivors - invalid} · ` +
+        `생존 ${survivors} · 무효 ${invalid}). 전수 판정이 아니다.`,
+    );
+    console.log(`대상 ${TARGET_FILES.length}개 sha256 불변 · 추적 파일 잔류 ${leaked.length}건.`);
+    if (survivors > 0 || invalid > 0 || skipped > 0) process.exitCode = 1;
+    return;
   }
 
   const counted = MUTATIONS.length - skipped;
