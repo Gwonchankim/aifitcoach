@@ -521,3 +521,218 @@ describe("복구 자격 — 완료 사실과 세션 상태", () => {
     expect(restoreEligibilityOf({ planned_sets: null }).sessionCompleted).toBe(false);
   });
 });
+
+/**
+ * **로컬 의사와 타이머는 같은 스냅샷이어야 한다.**
+ *
+ * 둘을 따로 읽으면 그 사이에 **다른 탭**이 원자적으로 커밋한 결과와 섞인다. 세대 무효화는
+ * 같은 화면 인스턴스의 이벤트만 막으므로 다른 연결의 커밋을 막지 못한다. 실제로 두 방향이 났다 —
+ * 오래된 "로컬 행 없음" 스냅샷 + 새 타이머 조합이 **정상 오프라인 완료 타이머를 지웠고**,
+ * 로컬 읽기 실패를 "행 없음"으로 낮춰서 **취소한 세트의 타이머를 복구했다.**
+ */
+describe("복구 스냅샷 — 로컬 의사와 타이머를 한 트랜잭션에서 본다", () => {
+  const staleServer = {
+    status: "in_progress",
+    planned_sets: [{ id: SET, performed_set: null }],
+  };
+  const doneOnServer = {
+    status: "in_progress",
+    planned_sets: [{ id: SET, performed_set: { actual_reps: 8 } }],
+  };
+
+  /**
+   * **다른 탭의 연결.** Dexie 인스턴스를 재사용하면 진행 중인 트랜잭션 zone 에 딸려 들어가
+   * 경합 자체가 사라진다 — 그래서 IndexedDB 연결을 따로 연다.
+   */
+  const foreign: IDBDatabase[] = [];
+  const openForeignConnection = () =>
+    new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("afc-session-v1");
+      request.onsuccess = () => {
+        foreign.push(request.result);
+        resolve(request.result);
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+  // 열린 연결이 남으면 다음 테스트의 `deleteDatabase` 가 블록된다(실측: beforeEach 타임아웃).
+  afterEach(() => {
+    for (const connection of foreign.splice(0)) connection.close();
+  });
+
+  /**
+   * `commitDraftBatch` 와 같은 원자성으로 draft 와 타이머를 **한 트랜잭션**에 넣는다.
+   * 완료를 기다리지 않는다 — 트랜잭션 **생성 순서**가 곧 커밋 순서라 그것만으로 결정론적이다.
+   */
+  function foreignCommit(connection: IDBDatabase, completed: boolean, timer: unknown): void {
+    const transaction = connection.transaction(["drafts", "syncMeta"], "readwrite");
+    transaction.objectStore("drafts").put({
+      user_id: USER,
+      session_id: A,
+      planned_set_id: SET,
+      weight: 60,
+      reps: 8,
+      rir: 2,
+      time_sec: null,
+      completed,
+      updated_at: "2026-08-14T08:00:00.000Z",
+    });
+    if (timer !== null) transaction.objectStore("syncMeta").put(timer);
+  }
+
+  const timerRow = (endsAt: number, savedAt: number) => ({
+    user_id: USER,
+    key: restTimerKeyFor(A),
+    value: JSON.stringify({
+      v: 2,
+      session_id: A,
+      planned_set_id: SET,
+      title: TITLE,
+      total_sec: 90,
+      ends_at: endsAt,
+      saved_at: savedAt,
+    }),
+  });
+
+  /** 타이머를 읽으러 가는 **바로 그 순간**에 다른 연결의 커밋을 끼워 넣는다. */
+  function interleaveAtTimerRead(run: () => void): void {
+    const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
+    let fired = false;
+    vi.spyOn(sessionDb.syncMeta, "get").mockImplementation(((key: [string, string]) => {
+      if (!fired && Array.isArray(key) && key[1] === restTimerKeyFor(A)) {
+        fired = true;
+        run();
+      }
+      return realGet(key as never);
+    }) as never);
+  }
+
+  it("두 읽기 사이의 원자적 완료+저장이 **정상 타이머를 지우지 못한다**", async () => {
+    const connection = await openForeignConnection();
+    const coordinator = createRestoreCoordinator();
+    const applied: string[] = [];
+
+    // 로컬 의사를 읽은 뒤, 타이머를 읽기 직전에 다른 탭이 완료 + 저장을 한 번에 커밋한다.
+    interleaveAtTimerRead(() => foreignCommit(connection, true, timerRow(T0 + 90_000, T0)));
+
+    const token = coordinator.begin(A)!;
+    // 서버는 아직 이 완료를 모른다(`performed_set: null`) — 로컬 의사만이 사실이다.
+    await restoreRestTimer(coordinator, token, staleServer, T0 + 1_000, (restored) =>
+      applied.push(restored.plannedSetId),
+    );
+    await flush();
+    vi.restoreAllMocks();
+
+    // 이 시점의 durable 사실: 완료됐고 타이머가 있다. 복구 탭이 그걸 지웠으면 안 된다.
+    expect((await sessionDb.drafts.toArray())[0]?.completed).toBe(true);
+    expect(await loadRestTimer(USER, A, T0 + 1_000)).not.toBeNull();
+
+    // 다음 복구가 그 타이머를 올린다 — 잃어버린 것이 없다.
+    coordinator.invalidate();
+    const retry = coordinator.begin(A)!;
+    await restoreRestTimer(coordinator, retry, staleServer, T0 + 1_000, (restored) =>
+      applied.push(restored.plannedSetId),
+    );
+    expect(applied).toEqual([SET]);
+  });
+
+  it("로컬 의사 읽기 실패는 **'행 없음'이 아니라 unknown** 이다 — 취소한 타이머를 올리지 않는다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
+    // durable 완료취소. 서버 미러는 아직 stale 한 `performed_set` 을 들고 있다.
+    await sessionDb.drafts.put({
+      user_id: USER,
+      session_id: A,
+      planned_set_id: SET,
+      weight: 60,
+      reps: 8,
+      rir: 2,
+      time_sec: null,
+      completed: false,
+      updated_at: "2026-08-14T08:00:00.000Z",
+    } as never);
+
+    vi.spyOn(sessionDb.drafts, "where").mockImplementationOnce((() => {
+      throw new Error("drafts read failed");
+    }) as never);
+
+    const coordinator = createRestoreCoordinator();
+    const applied: string[] = [];
+    const token = coordinator.begin(A)!;
+    await restoreRestTimer(coordinator, token, doneOnServer, T0 + 1_000, (restored) =>
+      applied.push(restored.plannedSetId),
+    );
+
+    // 아무것도 올리지 않는다. 그리고 **근거 없이 지우지도 않는다** — 다음 시도가 판단한다.
+    expect(applied).toEqual([]);
+    expect(await loadRestTimer(USER, A, T0 + 1_000)).not.toBeNull();
+
+    // 읽기가 회복되면 durable 완료취소가 이긴다: 올리지 않고 그때 정리한다.
+    vi.restoreAllMocks();
+    coordinator.invalidate();
+    const retry = coordinator.begin(A)!;
+    await restoreRestTimer(coordinator, retry, doneOnServer, T0 + 1_000, (restored) =>
+      applied.push(restored.plannedSetId),
+    );
+    expect(applied).toEqual([]);
+    expect(await loadRestTimer(USER, A, T0 + 1_000)).toBeNull();
+  });
+
+  it("로컬 행이 아예 없으면 서버 사실로 수렴한다 — 오버레이가 기능을 죽이지 않는다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
+    const coordinator = createRestoreCoordinator();
+    const applied: string[] = [];
+    const token = coordinator.begin(A)!;
+
+    await restoreRestTimer(coordinator, token, doneOnServer, T0 + 1_000, (restored) =>
+      applied.push(restored.plannedSetId),
+    );
+
+    expect(applied).toEqual([SET]);
+  });
+
+  it("자격 없는 타이머를 지울 때 **그 사이 도착한 새 타이머**는 지우지 않는다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
+    const connection = await openForeignConnection();
+    // 다른 탭이 새 타이머를 저장한다. 우리가 지우려는 것은 옛 바이트뿐이다.
+    // `ends_at` 은 `saved_at + total_sec` 를 넘지 못한다 — 넘으면 손상으로 거절된다.
+    interleaveAtTimerRead(() => foreignCommit(connection, true, timerRow(T0 + 91_000, T0 + 1_000)));
+
+    const coordinator = createRestoreCoordinator();
+    const token = coordinator.begin(A)!;
+    // 서버·로컬 모두 완료를 모르는 상태로 판단하게 둔다 → 옛 타이머는 자격이 없다.
+    await restoreRestTimer(coordinator, token, staleServer, T0 + 2_000, () => undefined);
+    await flush();
+    vi.restoreAllMocks();
+
+    const survivor = await loadRestTimer(USER, A, T0 + 2_000);
+    expect(survivor).not.toBeNull();
+    expect(survivor!.timer.endsAt).toBe(T0 + 91_000);
+  });
+
+  it("복구는 `drafts`·`outbox` 를 한 바이트도 바꾸지 않는다", async () => {
+    await saveRestTimer(USER, A, SET, TITLE, startRest(90, T0), T0);
+    await sessionDb.drafts.put({
+      user_id: USER,
+      session_id: A,
+      planned_set_id: SET,
+      weight: 60,
+      reps: 8,
+      rir: 2,
+      time_sec: null,
+      completed: true,
+      updated_at: "2026-08-14T08:00:00.000Z",
+    } as never);
+    const before = JSON.stringify([
+      await sessionDb.drafts.toArray(),
+      await sessionDb.outbox.toArray(),
+    ]);
+
+    const coordinator = createRestoreCoordinator();
+    const token = coordinator.begin(A)!;
+    await restoreRestTimer(coordinator, token, staleServer, T0 + 1_000, () => undefined);
+
+    expect(
+      JSON.stringify([await sessionDb.drafts.toArray(), await sessionDb.outbox.toArray()]),
+    ).toBe(before);
+  });
+});

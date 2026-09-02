@@ -78,18 +78,24 @@ function enqueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
  *  B) 매핑 tx 가 먼저 커밋 → 뒤이은 저장 tx 가 별칭을 읽어 서버 id 로 쓴다.
  *
  * 새 store·스키마 버전을 만들지 않는다. 접두사가 달라 타이머·F-4b marker 와 겹치지 않는다.
+ *
+ * **수명은 시간이 아니다.** 보존 기간을 뒀더니 두 가지가 깨졌다. ① 같은 매핑이 다시 도착하면
+ * 새로 쓴 별칭을 **옛 스냅샷 기준으로 stale 판정해 그 자리에서 지웠다.** ② 오래 열려 있거나
+ * suspended 된 탭은 최초 매핑 한참 뒤에도 correlation id 로 저장한다 — 그때 별칭이 없으면
+ * durable correlation 행이 남아 "매핑/저장 순서·다른 탭과 무관하게 최종 행은 server id"
+ * 계약을 깬다(UX_STATES §4.8).
+ *
+ * 명시적 lifecycle owner(세션 종료·404/410·캐시 purge)를 달려면 별칭이 어느 세션 것인지
+ * 알아야 하는데, **매핑 payload 에 그 사실이 없다** — `PlannedSetMapping` 은
+ * `{correlation_id, planned_set_id, planned_set}` 이고 `PlannedSet` 에 `session_id` 가 없다
+ * (openapi.yaml). 로컬 조인으로 추정하면 조인이 비는 순간 틀린 주인에게 묶인다. 그래서
+ * **별칭을 유지**하고, 무한 증가는 correctness 와 분리된 housekeeping 으로 남긴다
+ * (사용자가 오프라인에서 만든 세트 수에 비례하고 행 하나가 수십 바이트다).
  */
 export const REST_TIMER_ALIAS_PREFIX = "rest-timer-alias:";
 
 /** 별칭 레코드도 버전을 갖는다 — 모르는 모양은 읽지 않는다. */
 export const REST_TIMER_ALIAS_VERSION = 1;
-
-/**
- * 별칭 보존 기간. 늦은 저장은 **살아 있는 프로세스 안에서만** 발생하고, 그 저장이 만드는
- * 레코드는 이 시간이 지나면 어차피 stale 로 걸러진다. 그래서 같은 상한을 쓴다 —
- * 새 숫자를 만들지 않는다. 정리는 매핑 트랜잭션 안에서 함께 한다.
- */
-export const REST_TIMER_ALIAS_RETENTION_MS = REST_TIMER_STALE_AFTER_MS;
 
 const aliasKeyFor = (plannedSetId: string): string => `${REST_TIMER_ALIAS_PREFIX}${plannedSetId}`;
 
@@ -437,9 +443,10 @@ export async function loadRestTimer(
  * 존재 여부만 보면 이런 일이 난다 — 완료를 취소했는데 저장분 삭제가 실패하면, 다음 진입에서
  * **취소한 세트의 휴식이 다시 떠서** 기록 편집을 가린다. 종료한 세션도 마찬가지다.
  *
- * 그래서 **서버가 준 사실**만 본다: 세션이 아직 진행 중이고(`completed` 아님) 그 planned set 에
- * `performed_set` 이 실제로 달려 있을 때만 복구한다. 화면의 낙관적 draft 상태는 쓰지 않는다 —
- * 그건 아직 서버가 모르는 값이라 "취소했다"를 증명하지 못한다.
+ * 사실의 원천은 둘이고 **우선순위가 있다**: durable 로컬 의사(`drafts.completed`)가 있으면
+ * 그쪽이 이기고, 없을 때만 서버가 준 `performed_set` 을 쓴다. `drafts` 는 화면의 낙관적
+ * Zustand 상태가 아니라 `commitDraftBatch` 가 `outbox` 와 한 트랜잭션에 커밋한 durable
+ * 기록이라, sync 가 끝나기 전에도 "완료했다/취소했다"를 증명한다.
  */
 export type RestoreEligibility = {
   /** 세션이 종료됐으면 어떤 타이머도 복구하지 않는다. */
@@ -466,28 +473,6 @@ export function isRestorable(eligibility: RestoreEligibility, plannedSetId: stri
   const local = eligibility.localCompleted.get(plannedSetId);
   if (local !== undefined) return local;
   return eligibility.completedPlannedSetIds.has(plannedSetId);
-}
-
-/**
- * 세션의 durable 로컬 완료 의사. `drafts.completed` 가 그 자체로 의사다 —
- * 완료면 `true`, 완료 취소면 `false`, 손댄 적 없으면 행이 없다(그때는 서버 사실을 쓴다).
- *
- * `outbox` 는 같은 사실의 전송 큐일 뿐이라 따로 읽지 않는다. 둘은 한 트랜잭션에서 함께 쓰인다.
- */
-export async function localCompletionIntent(
-  userId: string,
-  sessionId: string,
-): Promise<Map<string, boolean>> {
-  try {
-    const rows = await sessionDb.drafts
-      .where("[user_id+session_id]")
-      .equals([userId, sessionId])
-      .toArray();
-    return new Map(rows.map((row) => [row.planned_set_id, row.completed === true]));
-  } catch {
-    // 읽지 못하면 로컬 의사를 주장하지 않는다 — 서버 사실만 쓴다.
-    return new Map();
-  }
 }
 
 /** wire 의 세션 payload 에서 자격을 뽑는다. 추정하지 않고 있는 사실만 읽는다. */
@@ -557,10 +542,79 @@ export function createRestoreCoordinator(): RestoreCoordinator {
 }
 
 /**
+ * 복구 판정 한 번의 결과. **읽기 실패를 "로컬 의사 없음"과 구분한다.**
+ *
+ * 둘을 같은 값으로 뭉개면 정반대로 움직인다 — durable 완료취소가 있는데 읽기가 실패하면
+ * 서버의 stale `performed_set` 으로 되돌아가 **취소한 세트의 타이머를 복구한다**(실측).
+ * 그래서 실패는 `unknown` 이고, 그때는 올리지도 지우지도 않는다. 다음 시도가 다시 판단한다.
+ */
+export type RestoreOutcome =
+  { kind: "restored"; value: RehydratedRestTimer } | { kind: "none" } | { kind: "unknown" };
+
+/**
+ * **로컬 의사와 타이머를 한 IndexedDB 트랜잭션에서 읽고, 그 안에서 정리까지 끝낸다.**
+ *
+ * 따로 읽으면 그 사이에 다른 탭이 원자적으로 커밋한 결과와 섞인다 — 세대 무효화는 같은 화면
+ * 인스턴스의 이벤트만 막지 다른 연결의 커밋을 막지 못한다. 실측으로 두 방향이 났다:
+ * 오래된 "로컬 행 없음" 스냅샷 + 새 타이머 조합이 **정상 오프라인 완료 타이머를 지웠고**,
+ * 읽기 실패를 "행 없음"으로 낮춰서 **취소한 세트의 타이머를 복구했다.**
+ *
+ * 자격 없는 기록의 삭제도 이 트랜잭션 안에서 한다. 그래야 지우는 대상이 **내가 읽은 그 바이트**다 —
+ * 뒤늦게 도착한 새 타이머는 우리 트랜잭션 뒤에 줄 서므로 함께 지워지지 않는다.
+ */
+export async function readRestoreSnapshot(
+  userId: string,
+  sessionId: string,
+  session: Parameters<typeof restoreEligibilityOf>[0],
+  now: number,
+): Promise<RestoreOutcome> {
+  const key: [string, string] = [userId, restTimerKeyFor(sessionId)];
+  try {
+    return await sessionDb.transaction("rw", sessionDb.drafts, sessionDb.syncMeta, async () => {
+      const draftRows = await sessionDb.drafts
+        .where("[user_id+session_id]")
+        .equals([userId, sessionId])
+        .toArray();
+      const localCompleted = new Map(
+        draftRows.map((row) => [row.planned_set_id, row.completed === true]),
+      );
+
+      const raw = (await sessionDb.syncMeta.get(key))?.value;
+      if (raw === undefined) return { kind: "none" };
+
+      const record = parseStoredRestTimer(raw, sessionId, now);
+      if (record === null || isStaleRestTimer(record, now)) {
+        await sessionDb.syncMeta.delete(key);
+        return { kind: "none" };
+      }
+
+      const eligibility = restoreEligibilityOf(session, localCompleted);
+      if (!isRestorable(eligibility, record.planned_set_id)) {
+        // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.
+        await sessionDb.syncMeta.delete(key);
+        return { kind: "none" };
+      }
+
+      return {
+        kind: "restored",
+        value: {
+          plannedSetId: record.planned_set_id,
+          title: record.title,
+          timer: { totalSec: record.total_sec, endsAt: record.ends_at },
+        },
+      };
+    });
+  } catch {
+    // 아무것도 단정하지 않는다. 타이머는 다음 시도를 위해 그대로 둔다.
+    return { kind: "unknown" };
+  }
+}
+
+/**
  * 복구 한 번의 전체 판단. 화면은 이 함수를 부르고 `apply` 로 받기만 한다.
  *
  * @param token `begin` 이 준 표. 결과를 적용하기 **직전에** 다시 확인한다.
- * @param plannedSetIds 지금 세션의 계획 세트 id. 여기 없는 세트의 타이머는 올릴 자리가 없다.
+ * @param session authoritative 세션 payload. 로컬 의사가 없는 세트는 이쪽 사실로 판단한다.
  */
 export async function restoreRestTimer(
   coordinator: RestoreCoordinator,
@@ -569,24 +623,13 @@ export async function restoreRestTimer(
   now: number,
   apply: (restored: RehydratedRestTimer) => void,
 ): Promise<void> {
-  /**
-   * 로컬 의사는 **타이머를 읽는 것과 같은 시점**에 읽는다. 화면에서 미리 계산해 넘기면
-   * 그 사이의 complete/uncomplete 를 놓친다(그보다 뒤의 클릭은 세대 무효화가 막는다).
-   */
-  const eligibility = restoreEligibilityOf(
-    session,
-    await localCompletionIntent(DEV_USER_SCOPE, token.sessionId),
+  const outcome = await enqueue(restTimerKeyFor(token.sessionId), () =>
+    readRestoreSnapshot(DEV_USER_SCOPE, token.sessionId, session, now),
   );
-  const stored = await restTimerStore.load(token.sessionId, now);
-  // 읽는 사이에 세션이 바뀌었거나 사용자가 무언가 했으면 이 결과는 낡았다.
-  if (!coordinator.isCurrent(token) || !stored) return;
-
-  if (!isRestorable(eligibility, stored.plannedSetId)) {
-    // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.
-    void restTimerStore.clearForPlannedSet(token.sessionId, stored.plannedSetId);
-    return;
-  }
-  apply(stored);
+  if (outcome.kind !== "restored") return;
+  // 트랜잭션이 끝난 뒤에 표를 확인한다 — 그 사이 세션이 바뀌었으면 화면에 닿으면 안 된다.
+  if (!coordinator.isCurrent(token)) return;
+  apply(outcome.value);
 }
 
 /**
@@ -627,17 +670,6 @@ export async function remapRestTimersInTransaction(
         at: now,
       }),
     });
-  }
-
-  /**
-   * 보존 기간이 지난 별칭은 여기서 정리한다 — 무한정 쌓이지 않게. 늦은 저장은 살아 있는
-   * 프로세스 안에서만 생기고, 그 저장이 만드는 레코드는 이 시간이 지나면 stale 로 걸러진다.
-   */
-  for (const row of rows) {
-    if (!row.key.startsWith(REST_TIMER_ALIAS_PREFIX)) continue;
-    const alias = parseAlias(row.value);
-    if (alias !== null && now - alias.at < REST_TIMER_ALIAS_RETENTION_MS) continue;
-    await sessionDb.syncMeta.delete([userId, row.key]);
   }
 
   let moved = 0;

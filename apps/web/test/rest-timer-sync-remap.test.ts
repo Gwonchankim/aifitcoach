@@ -12,9 +12,13 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEV_USER_SCOPE, sessionDb } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
+import Dexie from "dexie";
 import {
+  createRestoreCoordinator,
   loadRestTimer,
+  remapRestTimersInTransaction,
   restTimerKeyFor,
+  restoreRestTimer,
   saveRestTimer,
 } from "../components/session/rest-timer-store";
 import type { SyncResponse } from "../lib/api";
@@ -420,6 +424,52 @@ describe("durable 별칭 — 트랜잭션 순서", () => {
     expect(JSON.parse(alias!.value)).toMatchObject({ v: 1, to: SERVER_SET });
   });
 
+  /**
+   * **조회와 쓰기가 한 트랜잭션이 아니면 그 사이가 창이다(TOCTOU).**
+   *
+   * 밖에서 조회하면 "별칭 없음"을 확정한 뒤 매핑이 커밋되고, 그 다음에 열리는 put 이 이미 폐기된
+   * correlation id 로 쓴다. 매핑은 그때 아직 없던 행을 옮길 수 없으므로 durable correlation 행이 남는다.
+   *
+   * 조회 시점에 매핑을 **끼워 넣어** 그 창을 만든다. `ignoreTransaction` 은 진행 중인 zone 을
+   * 벗어나 최상위 트랜잭션을 만든다 — 그래야 조회가 트랜잭션 안이든 밖이든 같은 일정이 된다.
+   */
+  it("별칭 조회와 쓰기 사이에 매핑이 커밋돼도 correlation 행이 남지 않는다", async () => {
+    const realGet = sessionDb.syncMeta.get.bind(sessionDb.syncMeta);
+    let mapping: Promise<unknown> = Promise.resolve();
+    let fired = false;
+    vi.spyOn(sessionDb.syncMeta, "get").mockImplementation(((key: [string, string]) => {
+      if (!fired && Array.isArray(key) && key[1] === aliasKey) {
+        fired = true;
+        // 조회 직후·쓰기 직전에 매핑이 커밋된다.
+        mapping = Dexie.ignoreTransaction(() =>
+          sessionDb.transaction("rw", sessionDb.syncMeta, () =>
+            remapRestTimersInTransaction(USER, [
+              { correlation_id: CORRELATION, planned_set_id: SERVER_SET },
+            ]),
+          ),
+        );
+      }
+      return realGet(key as never);
+    }) as never);
+
+    const now = Date.now();
+    const saving = saveRestTimer(
+      USER,
+      SESSION,
+      CORRELATION,
+      TITLE,
+      { totalSec: 90, endsAt: now + 60_000 },
+      now,
+    );
+    await Promise.all([saving, mapping]);
+    vi.restoreAllMocks();
+
+    const row = await durableRow();
+    expect(row).toBeDefined();
+    expect(row!.value).not.toContain(CORRELATION);
+    expect((await loadRestTimer(USER, SESSION, now))!.plannedSetId).toBe(SERVER_SET);
+  });
+
   it("**롤백되면 별칭도 없다**", async () => {
     await expect(
       runSync(mappingResponse(), {
@@ -490,19 +540,85 @@ describe("durable 별칭 — 트랜잭션 순서", () => {
     expect(["a", "b"]).toContain((await loadRestTimer(USER, SESSION, now))!.plannedSetId);
   });
 
-  it("보존 기간이 지난 별칭은 다음 매핑에서 정리된다", async () => {
-    const stale = Date.now() - 11 * 60 * 1000;
-    await sessionDb.syncMeta.put({
-      user_id: USER,
-      key: `rest-timer-alias:old`,
-      value: JSON.stringify({ v: 1, to: "server-old", at: stale }),
+  /**
+   * **별칭의 수명은 시간이 아니다.**
+   *
+   * 보존 기간을 두면 두 가지가 깨졌다. ① 같은 매핑이 다시 도착하면 새로 쓴 별칭을 **옛 스냅샷
+   * 기준으로 stale 판정해 그 자리에서 지웠다.** ② 오래 열려 있거나 suspended 된 탭은 최초 매핑
+   * 한참 뒤에도 correlation id 를 들고 저장한다 — 그때 별칭이 없으면 durable correlation 행이 남는다.
+   * "매핑/저장 순서·다른 탭과 무관하게 최종 행은 server id"(UX_STATES §4.8)와 정면으로 어긋난다.
+   */
+  describe("별칭 수명 — 시간이 correctness 를 정하지 않는다", () => {
+    it("**같은 매핑이 다시 와도 별칭이 남는다** — 갱신이 자기 자신을 지우지 않는다", async () => {
+      await runSync(mappingResponse());
+      expect(await sessionDb.syncMeta.get([USER, aliasKey])).toBeDefined();
+
+      // 재시도·중복 응답으로 같은 매핑이 한참 뒤에 다시 온다.
+      vi.setSystemTime(new Date(Date.now() + 11 * 60 * 1000));
+      await runSync(mappingResponse());
+
+      const alias = await sessionDb.syncMeta.get([USER, aliasKey]);
+      expect(alias).toBeDefined();
+      expect(JSON.parse(alias!.value)).toMatchObject({ v: 1, to: SERVER_SET });
     });
 
-    await runSync(mappingResponse());
+    it("**하루 뒤** 다른 연결이 옛 correlation 으로 저장해도 canonical server id 가 된다", async () => {
+      await runSync(mappingResponse());
 
-    expect(await sessionDb.syncMeta.get([USER, `rest-timer-alias:old`])).toBeUndefined();
-    // 방금 쓴 별칭은 남는다.
-    expect(await sessionDb.syncMeta.get([USER, aliasKey])).toBeDefined();
+      // 오래 열려 있던 탭. 화면 state 는 아직 correlation id 를 들고 있다.
+      vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      sessionDb.close();
+      await sessionDb.open();
+
+      const now = Date.now();
+      await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+        totalSec: 90,
+        endsAt: now + 60_000,
+      });
+
+      expect((await loadRestTimer(USER, SESSION, now))!.plannedSetId).toBe(SERVER_SET);
+    });
+
+    it("무관한 매핑이 여러 번 지나가도 옛 별칭을 지우지 않는다", async () => {
+      await runSync(mappingResponse());
+
+      vi.setSystemTime(new Date(Date.now() + 11 * 60 * 1000));
+      await runSync(mappingResponse("00000000-0000-4000-8000-0000000000c2"));
+      vi.setSystemTime(new Date(Date.now() + 11 * 60 * 1000));
+      await runSync(mappingResponse("00000000-0000-4000-8000-0000000000c3"));
+
+      const now = Date.now();
+      await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+        totalSec: 90,
+        endsAt: now + 60_000,
+      });
+      expect((await loadRestTimer(USER, SESSION, now))!.plannedSetId).toBe(SERVER_SET);
+    });
+
+    it("종료된 세션이면 늦은 저장이 화면에 뜨지 않는다 — 별칭이 남아도 부활은 없다", async () => {
+      await runSync(mappingResponse());
+
+      vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
+      const now = Date.now();
+      await saveRestTimer(USER, SESSION, CORRELATION, TITLE, {
+        totalSec: 90,
+        endsAt: now + 60_000,
+      });
+
+      const coordinator = createRestoreCoordinator();
+      const token = coordinator.begin(SESSION)!;
+      const applied: string[] = [];
+      await restoreRestTimer(
+        coordinator,
+        token,
+        { status: "completed", planned_sets: [{ id: SERVER_SET, performed_set: { reps: 8 } }] },
+        now,
+        (restored) => applied.push(restored.plannedSetId),
+      );
+
+      expect(applied).toEqual([]);
+      expect(await loadRestTimer(USER, SESSION, now)).toBeNull();
+    });
   });
 
   it("F-4b marker 와 타이머 레코드는 별칭 정리에 영향받지 않는다", async () => {

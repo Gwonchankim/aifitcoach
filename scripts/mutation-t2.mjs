@@ -523,9 +523,15 @@ const MUTATIONS = [
   {
     id: 61,
     file: STORE,
-    what: "**별칭 조회를 저장 트랜잭션 밖으로** — 매핑이 그 사이 커밋되면 옛 id 로 쓴다",
-    from: "        const canonical = await resolveCanonicalPlannedSetId(userId, plannedSetId);",
-    to: "        const canonical = plannedSetId;",
+    what: "**별칭 조회를 저장 트랜잭션 밖으로 옮긴다** — 조회와 put 사이에 매핑이 커밋되는 TOCTOU",
+    edits: [
+      [
+        '      await sessionDb.transaction("rw", sessionDb.syncMeta, async () => {\n' +
+          "        const canonical = await resolveCanonicalPlannedSetId(userId, plannedSetId);",
+        "      const canonical = await resolveCanonicalPlannedSetId(userId, plannedSetId);\n" +
+          '      await sessionDb.transaction("rw", sessionDb.syncMeta, async () => {',
+      ],
+    ],
   },
   {
     id: 62,
@@ -556,16 +562,26 @@ const MUTATIONS = [
   {
     id: 65,
     file: STORE,
-    what: "별칭 순환 상한 제거 — 무한 루프",
+    what: "**방문 집합 제거**(홉 상한 8은 남긴다) — 순환에서 짝수 홉으로 끝나 답이 달라진다",
     from: "    if (alias === null || alias.to === current || seen.has(alias.to)) break;",
     to: "    if (alias === null || alias.to === current) break;",
   },
   {
     id: 66,
     file: STORE,
-    what: "별칭 보존 정리 제거 — 무한 누적",
-    from: "    if (alias !== null && now - alias.at < REST_TIMER_ALIAS_RETENTION_MS) continue;",
-    to: "    continue;",
+    what: "**시간 기반 별칭 만료 재도입** — 갱신한 별칭을 옛 스냅샷으로 지우고 늦은 저장이 correlation 으로 남는다",
+    edits: [
+      [
+        "  let moved = 0;\n  for (const row of rows) {\n    if (!row.key.startsWith(REST_TIMER_PREFIX)) continue;",
+        "  for (const row of rows) {\n" +
+          "    if (!row.key.startsWith(REST_TIMER_ALIAS_PREFIX)) continue;\n" +
+          "    const stale = parseAlias(row.value);\n" +
+          "    if (stale !== null && now - stale.at < REST_TIMER_STALE_AFTER_MS) continue;\n" +
+          "    await sessionDb.syncMeta.delete([userId, row.key]);\n" +
+          "  }\n\n" +
+          "  let moved = 0;\n  for (const row of rows) {\n    if (!row.key.startsWith(REST_TIMER_PREFIX)) continue;",
+      ],
+    ],
   },
   {
     id: 67,
@@ -594,8 +610,78 @@ const MUTATIONS = [
     id: 70,
     file: STORE,
     what: "로컬 의사를 읽지 않는다(빈 맵) ",
-    from: "    return new Map(rows.map((row) => [row.planned_set_id, row.completed === true]));",
-    to: "    return new Map();",
+    from:
+      "      const localCompleted = new Map(\n" +
+      "        draftRows.map((row) => [row.planned_set_id, row.completed === true]),\n" +
+      "      );",
+    to: "      const localCompleted = new Map<string, boolean>();\n      void draftRows;",
+  },
+  {
+    id: 71,
+    file: STORE,
+    what: "**로컬 의사와 타이머를 다시 따로 읽는다** — 그 사이 다른 탭의 원자적 커밋과 섞인다",
+    edits: [
+      [
+        '    return await sessionDb.transaction("rw", sessionDb.drafts, sessionDb.syncMeta, async () => {',
+        "    return await (async () => {",
+      ],
+      ["    });\n  } catch {", "    })();\n  } catch {"],
+    ],
+  },
+  {
+    id: 72,
+    file: STORE,
+    what: "**로컬 의사 읽기 실패를 '행 없음'으로 낮춘다** — 서버 stale 사실로 되돌아간다",
+    edits: [
+      [
+        "      const draftRows = await sessionDb.drafts\n" +
+          '        .where("[user_id+session_id]")\n' +
+          "        .equals([userId, sessionId])\n" +
+          "        .toArray();",
+        "      let draftRows: { planned_set_id: string; completed?: boolean }[] = [];\n" +
+          "      try {\n" +
+          "        draftRows = (await sessionDb.drafts\n" +
+          '          .where("[user_id+session_id]")\n' +
+          "          .equals([userId, sessionId])\n" +
+          "          .toArray()) as unknown as typeof draftRows;\n" +
+          "      } catch {\n" +
+          "        draftRows = [];\n" +
+          "      }",
+      ],
+    ],
+  },
+  {
+    id: 73,
+    file: STORE,
+    what: "**unknown 일 때도 타이머를 지운다** — 근거 없이 지워 재시도할 것이 사라진다",
+    edits: [
+      [
+        "    // 아무것도 단정하지 않는다. 타이머는 다음 시도를 위해 그대로 둔다.\n" +
+          '    return { kind: "unknown" };',
+        "    await sessionDb.syncMeta.delete([userId, restTimerKeyFor(sessionId)]);\n" +
+          '    return { kind: "unknown" };',
+      ],
+    ],
+  },
+  {
+    id: 74,
+    file: STORE,
+    what: "자격 없는 기록의 삭제를 트랜잭션 밖으로 — 늦게 도착한 새 타이머까지 지운다",
+    edits: [
+      [
+        "      const eligibility = restoreEligibilityOf(session, localCompleted);\n" +
+          "      if (!isRestorable(eligibility, record.planned_set_id)) {\n" +
+          "        // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.\n" +
+          "        await sessionDb.syncMeta.delete(key);\n" +
+          '        return { kind: "none" };\n' +
+          "      }",
+        "      const eligibility = restoreEligibilityOf(session, localCompleted);\n" +
+          "      if (!isRestorable(eligibility, record.planned_set_id)) {\n" +
+          "        void sessionDb.syncMeta.delete(key);\n" +
+          '        return { kind: "none" };\n' +
+          "      }",
+      ],
+    ],
   },
   {
     id: 54,
