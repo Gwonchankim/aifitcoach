@@ -503,8 +503,8 @@ const MUTATIONS = [
     id: 58,
     file: STORE,
     what: "세션 status 판정을 뒤집는다",
-    from: '  return { sessionCompleted: session.status === "completed", completedPlannedSetIds: completed };',
-    to: "  return { sessionCompleted: false, completedPlannedSetIds: completed };",
+    from: '    sessionCompleted: session.status === "completed",',
+    to: "    sessionCompleted: false,",
   },
   {
     id: 59,
