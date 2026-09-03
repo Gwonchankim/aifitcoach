@@ -315,14 +315,11 @@ const MUTATIONS = [
     from: "    notifyHidden: notifyRestComplete,",
     to: "    notifyHidden: () => Promise.resolve(false),",
   },
-  {
-    id: 30,
-    file: SHEET,
-    what: "알림 이펙트 의존성에서 finished·endsAt 제거",
-    from: "  }, [open, finished, timer.endsAt]);",
-    to: "  }, [open]);",
-    oracle: "lint",
-  },
+  /**
+   * 한때 30번으로 "알림 이펙트 의존성 제거"를 뒀다가 **뺐다.** 통합으로 시트의 종료 이펙트가
+   * 하나가 되면서 이 앵커가 T1 러너 19번과 **같은 줄**이 됐다. 같은 의미를 양쪽에서 겨누면
+   * 방어력은 그대로인데 숫자만 는다. 이 축은 T1 이 소유한다.
+   */
 
   /* ---- 실제 화면 배선 (helper 만 옳고 아무도 부르지 않는 상태를 잡는다) ---- */
   {

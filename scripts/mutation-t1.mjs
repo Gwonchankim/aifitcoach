@@ -158,6 +158,23 @@ const ORACLES = {
         .filter(Boolean)
         .join(" · "),
   },
+  /**
+   * **배선** 오라클. 실제로 렌더한 `SessionScreen` 으로 "게이트가 고른 싱크가 정말 불리는가"를 본다.
+   * 단위 오라클은 규칙만 보므로 호출부를 통째로 지워도 통과한다.
+   */
+  wiring: {
+    label: "wiring",
+    run: () => spawn([VITEST, "run", "test/rest-completion-wiring.test.tsx"], WEB_DIR),
+    red: /Tests\s+\d+ failed|Test Files\s+\d+ failed/,
+    invalid: /Transform failed|SyntaxError|Failed to load|Cannot find module/i,
+    summarize: (out) =>
+      [
+        /Tests\s+(\d+ failed[^\n|]*)/.exec(out)?.[1]?.trim(),
+        /FAIL[^\n]*?>[^\n]*?>\s*([^\n]+)/.exec(out)?.[1]?.trim(),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+  },
   lint: {
     label: "lint",
     run: () => spawn([ESLINT, relative(ROOT, SHEET)], ROOT),
@@ -426,6 +443,17 @@ const MUTATIONS = [
       ],
     ],
     oracle: "e2e",
+  },
+  {
+    id: 23,
+    file: SCREEN,
+    /**
+     * 게이트가 "전경이다"라고 골라도 **실제로 이 싱크가 불리는가**. 숨김 쪽 배선은 T2 러너가
+     * 보고(29번), 이쪽은 T1 의 몫이다. 게이트 규칙(6번)과 달리 여기서 겨누는 것은 배선이다.
+     */
+    what: "**call-site** 전경 싱크 배선 제거 — 게이트가 골라도 비프가 울리지 않는다",
+    edits: [["    emitForeground: emitRestCompleteFeedback,", "    emitForeground: () => {},"]],
+    oracle: "wiring",
   },
 ];
 
