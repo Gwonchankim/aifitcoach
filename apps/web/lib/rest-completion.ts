@@ -61,14 +61,32 @@ function identityOf({ sessionId, plannedSetId, endsAt }: RestCompletionObservati
  * 시트는 휴식마다 마운트/언마운트돼서 그 안에 두면 장부가 휴식보다 먼저 죽는다.
  */
 export function createRestCompletionGate(sinks: RestCompletionSinks): RestCompletionGate {
+  /**
+   * **진행 중을 본 적 있는** 정체성. 이게 없으면 "지금 돌던 휴식이 방금 끝났다"와 "앱을 다시
+   * 열었더니 저장소의 타이머가 이미 만료돼 있었다"를 구분할 수 없다. 후자에 알림을 보내면
+   * 지난 세션의 휴식에 대해 새 알림이 뜬다 — 통합이 막기로 한 바로 그 결함이다.
+   *
+   * 시간 규칙(`endsAt < visibleSince`)만으로는 못 막는다. 그건 **전경 복귀**를 기준으로 판정하는데,
+   * 숨은 채 복구되면 `visibleSince` 가 `null` 이라 그 비교 자체에 닿지 못한다.
+   */
+  const armed = new Set<string>();
   const consumed = new Set<string>();
 
   return (observation) => {
-    if (!observation.finished) return;
-
     const identity = identityOf(observation);
     if (consumed.has(identity)) return;
+
+    // 진행 중 관측은 **장전만** 한다. 소비하지 않으므로 뒤이은 종료가 정상적으로 울린다.
+    if (!observation.finished) {
+      armed.add(identity);
+      return;
+    }
+
     consumed.add(identity);
+
+    // 장전된 적 없는 종료 = 이미 끝난 채로 들어온 기록이다. 소비만 하고 아무 신호도 내지 않는다
+    // (남겨 두면 다음 관측에서 늦게 울린다).
+    if (!armed.has(identity)) return;
 
     const { visibleSince, endsAt } = observation;
 

@@ -413,9 +413,16 @@ const MUTATIONS = [
     id: 20,
     file: SCREEN,
     what: "**call-site** 세트 완료에서 unlock 호출 삭제",
-    // 임포트도 같이 지운다 — 남기면 빌드가 죽어 "무효"가 되고 아무것도 증명하지 못한다.
+    /**
+     * 임포트도 같이 좁힌다 — 남기면 미사용 심볼로 빌드가 죽어 "무효"가 되고 아무것도 증명하지 못한다.
+     * 통합으로 `emitRestCompleteFeedback` 과 한 문장이 됐으므로 **문장을 통째로 갈아끼운다**
+     * (옛 앵커는 단독 import 를 찾아서 통합 뒤 사라져 있었다).
+     */
     edits: [
-      ['import { unlockRestFeedback } from "../../lib/rest-feedback";\n', ""],
+      [
+        'import { emitRestCompleteFeedback, unlockRestFeedback } from "../../lib/rest-feedback";',
+        'import { emitRestCompleteFeedback } from "../../lib/rest-feedback";',
+      ],
       ["    unlockRestFeedback();\n", ""],
     ],
     oracle: "e2e",
@@ -454,6 +461,32 @@ const MUTATIONS = [
     what: "**call-site** 전경 싱크 배선 제거 — 게이트가 골라도 비프가 울리지 않는다",
     edits: [["    emitForeground: emitRestCompleteFeedback,", "    emitForeground: () => {},"]],
     oracle: "wiring",
+  },
+  {
+    id: 24,
+    file: GATE,
+    what: "**arm 가드 제거** — 이미 끝난 채 복구된 타이머가 지난 휴식의 알림을 만든다",
+    edits: [["    if (!armed.has(identity)) return;\n", ""]],
+    oracle: "unit",
+  },
+  {
+    id: 25,
+    file: GATE,
+    what: "진행 중 관측이 **장전하지 않는다** — 정상 만료가 통째로 침묵한다",
+    edits: [["      armed.add(identity);\n", ""]],
+    oracle: "unit",
+  },
+  {
+    id: 26,
+    file: GATE,
+    what: "종료 관측도 장전한다 — arm 가드가 자기 자신을 통과시켜 무력해진다",
+    edits: [
+      [
+        "    if (!observation.finished) {\n      armed.add(identity);\n      return;\n    }",
+        "    armed.add(identity);\n    if (!observation.finished) return;",
+      ],
+    ],
+    oracle: "unit",
   },
 ];
 

@@ -51,3 +51,33 @@ export function e2eDatabaseUrl(): string {
   url.pathname = `/${name.endsWith("_e2e") ? name : `${name}_e2e`}`;
   return url.toString();
 }
+
+/**
+ * **migration·seed·runtime 이 보는 DB 를 한 곳에서 정한다.**
+ *
+ * `DATABASE_URL` 만 덮으면 부족하다 — `scripts/prisma-migrate.mjs` 는 `DIRECT_URL` 이 있으면
+ * **그쪽을 먼저 쓴다**(운영에서 Neon pooler 를 우회하려는 정상 설계다). 루트 `.env` 에 둘 다 있는
+ * 개발 환경에서 `DATABASE_URL` 만 주면 **migration 은 개발 DB 로, seed·runtime 은 전용 DB 로** 갈린다.
+ * 화면도 테스트도 그럴듯하게 도는데 개발 DB 의 schema 가 바뀐다.
+ *
+ * 그래서 두 변수를 **같은 값 하나**로 함께 준다. migration 스크립트는 건드리지 않는다 —
+ * 그건 배포 경로의 계약이고, 여기서 고칠 것은 E2E 하네스가 무엇을 주입하느냐다.
+ */
+export function e2eDatabaseEnv(): { DATABASE_URL: string; DIRECT_URL: string; label: string } {
+  const url = e2eDatabaseUrl();
+  const parsed = new URL(url);
+  const name = parsed.pathname.replace(/^\//, "");
+
+  /**
+   * **띄우기 전에 거절한다.** 전용 DB 가 아니면 여기서 멈추는 편이, 서버가 떠서 개발 DB 에
+   * migration 을 거는 것보다 낫다. `_test` 는 api 통합 테스트의 것이라 함께 막는다(ADR-14).
+   */
+  if (!name.endsWith("_e2e")) {
+    throw new Error(
+      `E2E 는 전용 DB 만 쓴다. 해석된 이름이 '_e2e' 로 끝나지 않는다: ${parsed.host}/${name}`,
+    );
+  }
+
+  // 자격증명 없이 어디를 보는지만 남긴다 — 로그·보고에 그대로 실을 수 있어야 한다.
+  return { DATABASE_URL: url, DIRECT_URL: url, label: `${parsed.host}/${name}` };
+}

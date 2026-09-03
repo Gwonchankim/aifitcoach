@@ -810,17 +810,36 @@ describe("배선 — 숨김 상태 알림은 한 타이머당 한 번", () => {
     return shown;
   }
 
+  /**
+   * **아직 돌고 있는** 타이머를 복구시킨다. 게이트는 그 정체성의 진행 중을 본 뒤에야 종료를
+   * 신호로 인정하므로(arm), 여기서 곧 만료되는 값을 줘야 진짜 숨김 만료가 재현된다.
+   * 이미 끝난 값을 주면 그건 "복구된 과거 타이머"이고 계약상 알림 0 이다(아래 별도 테스트).
+   */
+  const saveRunningTimer = (remainingMs: number) =>
+    store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + remainingMs,
+    });
+
+  /**
+   * **시계를 손으로 민다.** 남은 시간을 짧게 줘서 실시간으로 끝나기를 기다리면, 마운트·복구가
+   * 그 안에 못 끝난 부하에서 **첫 관측이 이미 종료**가 된다 — 그러면 arm 이 안 돼 알림 0 이고
+   * 테스트가 간헐적으로 빨개진다(실측 1회). 시트가 열린 것을 확인한 **뒤에** 시계를 민다.
+   */
+  function expireAfterSheetOpened(byMs: number) {
+    const frozen = Date.now() + byMs;
+    vi.spyOn(Date, "now").mockImplementation(() => frozen);
+  }
+
   it("틱·focus·pageshow 가 여러 번 와도 알림은 정확히 1회다", async () => {
     const shown = grantedHiddenEnvironment();
-    // 이미 끝난 타이머를 복구시켜 종료 상태를 곧바로 만든다.
-    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
-      totalSec: 90,
-      endsAt: Date.now() - 1_000,
-    });
+    await saveRunningTimer(60_000);
 
     renderSession(SESSION_A);
     await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
-    await waitFor(() => expect(shown.length).toBe(1));
+    // 여기까지 왔으면 진행 중 관측이 끝났다(arm 됨). 이제 끝낸다.
+    expireAfterSheetOpened(61_000);
+    await waitFor(() => expect(shown.length).toBe(1), { timeout: 5_000 });
 
     // 재계산을 여러 번 유발한다 — 종료 상태는 그대로라 매번 "0 이다"가 참이다.
     for (let tick = 0; tick < 5; tick += 1) {
@@ -837,22 +856,45 @@ describe("배선 — 숨김 상태 알림은 한 타이머당 한 번", () => {
 
   it("**StrictMode 이중 이펙트**에서도 한 번이다", async () => {
     const shown = grantedHiddenEnvironment();
-    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
-      totalSec: 90,
-      endsAt: Date.now() - 1_000,
-    });
+    await saveRunningTimer(60_000);
 
     // 개발 모드처럼 이펙트가 두 번 돈다. 의존성이 그대로라 재실행을 막을 수 없으므로
-    // **중복 방지 ref 만이** 두 번째 알림을 막는다.
+    // **게이트의 정체성 장부만이** 두 번째 알림을 막는다.
     render(
       wrapper(
         createElement(StrictMode, null, createElement(SessionScreen, { sessionId: SESSION_A })),
       ),
     );
     await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    expireAfterSheetOpened(61_000);
+    await waitFor(() => expect(shown.length).toBe(1), { timeout: 5_000 });
+    // 알린 뒤로도 틱이 계속 돈다. 늘어나지 않는지 본다.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
 
     expect(shown).toEqual(["휴식이 끝났어요"]);
+  });
+
+  it("**이미 끝난 채 복구된 타이머는 숨김이어도 알리지 않는다** — 지난 휴식의 새 알림 금지", async () => {
+    const shown = grantedHiddenEnvironment();
+    // 앱을 다시 열었더니 저장소의 타이머가 이미 만료돼 있다.
+    await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() - 1_000,
+    });
+
+    renderSession(SESSION_A);
+    await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
+    // 틱·이벤트를 충분히 돌려도 알림이 생기면 안 된다.
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("pageshow"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+
+    expect(shown).toEqual([]);
   });
 
   it("화면이 보이는 상태면 알리지 않는다", async () => {

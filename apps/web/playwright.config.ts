@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
-import { e2eDatabaseUrl } from "./e2e/db-url";
+import { e2eDatabaseEnv } from "./e2e/db-url";
 import { TEST_TODAY } from "./e2e/test-today";
 
 /**
@@ -21,6 +21,15 @@ const API_BASE = process.env.E2E_API_BASE_URL ?? `${API_TARGET}/v1`;
 const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
 
 // 고정 "오늘"은 e2e/test-today.ts 한 곳에서만 정한다(API env 와 브라우저 시계가 같은 값을 봐야 한다).
+
+/**
+ * DB 는 **한 원천**에서 온다. `DATABASE_URL` 만 주면 `db:migrate` 래퍼가 부모의 `DIRECT_URL`
+ * (개발 DB)을 먼저 골라 migration 만 딴 데로 간다 — 전용 DB 는 migration 되지 않고, 개발 DB 는
+ * 의도 없이 바뀐다. 전용 DB 가 아니면 여기서 던져 **서버가 뜨기 전에** 멈춘다.
+ */
+const DB_ENV = e2eDatabaseEnv();
+// 자격증명은 찍지 않는다. 어디를 보는지만 남긴다.
+console.log(`[e2e] database → ${DB_ENV.label}`);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -71,8 +80,13 @@ export default defineConfig({
       timeout: 180_000,
       env: {
         PORT: String(API_PORT),
-        // 개발 DB 를 건드리지 않는다. 나머지 값(FIELD_ENCRYPTION_KEY 등)은 api 가 루트 .env 에서 읽는다(ADR-36).
-        DATABASE_URL: e2eDatabaseUrl(),
+        /**
+         * 개발 DB 를 건드리지 않는다. **두 변수를 같은 값으로 함께 준다** —
+         * `db:migrate` 래퍼가 `DIRECT_URL` 을 우선하므로 하나만 주면 migration 이 갈라진다.
+         * 나머지 값(FIELD_ENCRYPTION_KEY 등)은 api 가 루트 .env 에서 읽는다(ADR-36).
+         */
+        DATABASE_URL: DB_ENV.DATABASE_URL,
+        DIRECT_URL: DB_ENV.DIRECT_URL,
         // 브라우저 시계(e2e/fixtures.ts)와 **같은 날짜**여야 한다(ADR-50).
         AFC_TEST_TODAY: TEST_TODAY,
         /**

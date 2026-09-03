@@ -138,17 +138,21 @@ async function completeFirstSet() {
 }
 
 /**
- * 시계는 **손으로 민다.** fake timer 를 쓰면 `findBy*` 의 대기와 200ms 틱이 서로를 굶긴다
+ * 시계는 **손으로 민다.** fake timer 를 쓰면 `findBy*` 의 대기와 200ms 틱이 서로를 굶는다
  * (실측: 시트가 열리기 전에 단언이 먼저 죽는다). 대신 `Date.now` 만 옮기고 실제 틱을 기다린다.
  */
 let clock = 0;
 
-/** 휴식이 끝날 만큼 시계를 밀고 틱 한 번을 실제로 기다린다. */
+/**
+ * 휴식이 끝날 만큼 시계를 밀고 **화면이 종료를 그릴 때까지** 기다린다.
+ *
+ * 고정 sleep 을 쓰면 안 된다 — 200ms 틱이 부하에 밀리면 그 창을 놓쳐 clean baseline 이
+ * 간헐적으로 빨개진다(실측: 독립 실행에서 StrictMode 기대 1, 실제 0). "휴식 완료" 문구는
+ * 시트가 `finished` 를 실제로 관측했다는 증거라 조건으로 삼을 수 있다.
+ */
 async function runOutTheRest() {
   clock += 91_000;
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 260));
-  });
+  await screen.findByText("휴식 완료", undefined, { timeout: 5_000 });
 }
 
 beforeEach(async () => {
@@ -184,12 +188,15 @@ describe("배선 — 종료 관측이 게이트를 거쳐 한 싱크에만 닿�
     await completeFirstSet();
     await runOutTheRest();
 
-    await act(async () => {
-      window.dispatchEvent(new Event("focus"));
-      window.dispatchEvent(new Event("pageshow"));
-      document.dispatchEvent(new Event("visibilitychange"));
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    });
+    // 재계산을 여러 번 유발한다. 종료 상태는 그대로라 매 관측마다 "0 이다"가 참이다.
+    for (let round = 0; round < 3; round += 1) {
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("pageshow"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        await Promise.resolve();
+      });
+    }
 
     expect(emitForeground).toHaveBeenCalledTimes(1);
   });
@@ -218,10 +225,10 @@ describe("배선 — 종료 관측이 게이트를 거쳐 한 싱크에만 닿�
       await Promise.resolve();
     });
     clock += 91_000;
-    await act(async () => {
-      setVisibility("visible");
-      await new Promise((resolve) => setTimeout(resolve, 260));
-    });
+    setVisibility("visible");
+    // **관측이 실제로 일어났는지를 먼저 증명한다.** 그냥 기다렸다 0 을 단언하면 틱이 안 돈
+    // 경우에도 통과해 버린다 — "휴식 완료" 가 그려졌다는 것이 관측의 증거다.
+    await screen.findByText("휴식 완료", undefined, { timeout: 5_000 });
 
     expect(emitForeground).not.toHaveBeenCalled();
     expect(notifyHidden).not.toHaveBeenCalled();
