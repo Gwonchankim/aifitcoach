@@ -16,6 +16,7 @@ import {
   type SyncResponse,
 } from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
+import { unlockRestFeedback } from "../../lib/rest-feedback";
 import { isUtcToday } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
@@ -439,6 +440,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
+    // 휴식 타이머를 여는 유일한 제스처가 여기다. autoplay 정책상 오디오는 제스처 안에서 열어야
+    // 하므로 **await 앞에서** 연다 — 저장이 실패해도 무음일 뿐 흐름에는 영향이 없다.
+    unlockRestFeedback();
     try {
       await completeSetInStore(set.id, values);
     } catch {
