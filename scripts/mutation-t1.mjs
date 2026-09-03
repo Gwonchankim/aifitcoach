@@ -478,6 +478,17 @@ const MUTATIONS = [
     oracle: "unit",
   },
   {
+    id: 27,
+    file: GATE,
+    /**
+     * 24번과 같은 결함을 **배선 오라클**로 겨눈다. 단위 오라클은 규칙만 보므로
+     * "세션 화면을 떠났다 돌아오면 저장분이 다시 울린다"를 실제 React 경로로 증명하지 못한다.
+     */
+    what: "**arm 가드 제거(배선)** — 화면을 떠났다 돌아오면 복구된 저장분이 다시 울린다",
+    edits: [["    if (!armed.has(identity)) return;\n", ""]],
+    oracle: "wiring",
+  },
+  {
     id: 26,
     file: GATE,
     what: "종료 관측도 장전한다 — arm 가드가 자기 자신을 통과시켜 무력해진다",

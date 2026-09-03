@@ -11,7 +11,7 @@
  */
 import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlannedSet, Session } from "../lib/api";
@@ -150,9 +150,17 @@ let clock = 0;
  * 간헐적으로 빨개진다(실측: 독립 실행에서 StrictMode 기대 1, 실제 0). "휴식 완료" 문구는
  * 시트가 `finished` 를 실제로 관측했다는 증거라 조건으로 삼을 수 있다.
  */
+/** 시트 **안에서** 종료 문구를 기다린다 — 화면 다른 곳의 같은 문구와 섞이지 않게. */
+async function awaitRestFinished() {
+  const sheet = await screen.findByRole("dialog", { name: /후 휴식/ });
+  await waitFor(() => expect(within(sheet).getByText("휴식 완료")).toBeTruthy(), {
+    timeout: 3_000,
+  });
+}
+
 async function runOutTheRest() {
   clock += 91_000;
-  await screen.findByText("휴식 완료", undefined, { timeout: 5_000 });
+  await awaitRestFinished();
 }
 
 beforeEach(async () => {
@@ -228,7 +236,7 @@ describe("배선 — 종료 관측이 게이트를 거쳐 한 싱크에만 닿�
     setVisibility("visible");
     // **관측이 실제로 일어났는지를 먼저 증명한다.** 그냥 기다렸다 0 을 단언하면 틱이 안 돈
     // 경우에도 통과해 버린다 — "휴식 완료" 가 그려졌다는 것이 관측의 증거다.
-    await screen.findByText("휴식 완료", undefined, { timeout: 5_000 });
+    await awaitRestFinished();
 
     expect(emitForeground).not.toHaveBeenCalled();
     expect(notifyHidden).not.toHaveBeenCalled();
@@ -250,25 +258,83 @@ describe("배선 — 종료 관측이 게이트를 거쳐 한 싱크에만 닿�
   });
 });
 
-describe("배선 — 장부가 시트보다 오래 산다", () => {
-  it("휴식을 닫았다가 같은 세트로 다시 열어도 **총 1회**", async () => {
+/**
+ * **세션 화면을 떠났다가 돌아와도 총 1회.**
+ *
+ * "시트를 닫았다 같은 정체성으로 다시 열기" 는 **도달 불가**다 — 시트를 다시 여는 유일한 경로는
+ * `handleComplete` 이고 그건 새 `endsAt`(= 다른 정체성)을 만든다. 시계를 되감지 않는 한 같은
+ * 정체성으로 되돌아올 수 없다.
+ *
+ * 실제로 가능한 경로는 **라우트 이탈 후 복귀**다. 시트를 닫지 않고 화면을 떠나면 `syncMeta` 에
+ * 같은 `{sessionId, plannedSetId, endsAt}` 가 남고, 돌아오면 새 게이트가 그것을 복구한다.
+ * 그때 첫 관측은 **이미 끝난 상태**라 장전된 적이 없다 → 추가 신호 0. 총 1회.
+ *
+ * 이 경로는 장부 소유뿐 아니라 **arm 규칙과 저장분 복구 배선**을 함께 지난다.
+ */
+describe("배선 — 세션 화면을 떠났다 돌아와도 총 1회", () => {
+  /** 복구된 시트가 틱을 여러 번 관측하도록 둔다. 음성 단언이라 짧으면 통과할 뿐 실패하지 않는다 —
+   *  이 테스트가 실제로 판별하는지는 arm 가드 제거 뮤테이션(러너 27번)이 증명한다. */
+  async function settleTicks() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    });
+  }
+
+  /**
+   * 화면을 떠난다 → 같은 세션으로 새로 들어온다. 새 게이트·새 장부가 생긴다.
+   *
+   * `cleanup()` 으로 트리와 컨테이너를 함께 걷어낸다. `unmount()` 만 부르면 빈 컨테이너가
+   * 문서에 남아 다음 렌더와 겹치고, `screen` 이 두 트리를 함께 보게 된다(실측: "휴식 완료" 2개).
+   */
+  async function leaveAndReturn() {
+    cleanup();
+    render(wrapper(createElement(SessionScreen, { sessionId: SESSION_A })));
+    // 복구가 저장분을 올려 시트가 다시 뜬다.
+    await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
+  }
+
+  it("전경에서 울린 뒤 떠났다 돌아오면 **추가 0** — 저장분은 그대로 남아 있다", async () => {
     render(wrapper(createElement(SessionScreen, { sessionId: SESSION_A })));
     await completeFirstSet();
     await runOutTheRest();
     expect(emitForeground).toHaveBeenCalledTimes(1);
 
-    const { fireEvent } = await import("@testing-library/dom");
-    // 시트를 닫는다 → 시트가 언마운트된다(장부가 시트 안에 있었다면 여기서 죽는다).
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "다음 세트" }));
-      await Promise.resolve();
-    });
-
-    // 같은 세트를 다시 완료하면 같은 정체성의 휴식이 다시 열릴 수 있다.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 260));
-    });
+    // 시트를 닫지 않는다 — 닫으면 레코드가 지워져 같은 정체성이 사라진다.
+    await leaveAndReturn();
+    await settleTicks();
 
     expect(emitForeground).toHaveBeenCalledTimes(1);
-  });
+    expect(notifyHidden).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("숨김에서 알린 뒤 떠났다 돌아오면 **추가 0**", async () => {
+    render(wrapper(createElement(SessionScreen, { sessionId: SESSION_A })));
+    await completeFirstSet();
+
+    await act(async () => {
+      setVisibility("hidden");
+      await Promise.resolve();
+    });
+    await runOutTheRest();
+    expect(notifyHidden).toHaveBeenCalledTimes(1);
+
+    await leaveAndReturn();
+    await settleTicks();
+
+    expect(notifyHidden).toHaveBeenCalledTimes(1);
+    expect(emitForeground).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("**울리기 전에** 떠났다 돌아와도 정상 만료는 1회다 — 억제가 과하지 않다", async () => {
+    render(wrapper(createElement(SessionScreen, { sessionId: SESSION_A })));
+    await completeFirstSet();
+
+    // 아직 돌고 있다. 여기서 떠난다.
+    await leaveAndReturn();
+
+    // 돌아온 화면이 진행 중을 관측해 다시 장전한 뒤 끝난다.
+    await runOutTheRest();
+
+    expect(emitForeground).toHaveBeenCalledTimes(1);
+  }, 20_000);
 });
