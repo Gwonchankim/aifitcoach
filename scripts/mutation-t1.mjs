@@ -231,8 +231,13 @@ const MUTATIONS = [
   {
     id: 2,
     file: GATE,
-    what: "종료 여부 확인 제거 — 진행 중에도 울린다",
-    edits: [["if (!observation.finished) return;", "if (false) return;"]],
+    what: "종료 여부 확인 제거 — 진행 중 관측도 그대로 fan-out 한다",
+    edits: [
+      [
+        "    if (!observation.finished) {\n      armed.add(identity);\n      return;\n    }\n\n    consumed.add(identity);",
+        "    armed.add(identity);\n\n    consumed.add(identity);",
+      ],
+    ],
     oracle: "unit",
   },
   {
@@ -245,15 +250,11 @@ const MUTATIONS = [
   {
     id: 4,
     file: GATE,
-    what: "억제한 관측의 정체성을 소비하지 않음 — 복귀 뒤 늦게 울린다",
+    what: "**장전되지 않은 종료를 소비하지 않음** — 뒤늦은 진행 중 관측이 게이트를 다시 연다",
     edits: [
       [
-        "    consumed.add(identity);\n\n    const { visibleSince, endsAt } = observation;",
-        "    const { visibleSince, endsAt } = observation;",
-      ],
-      [
-        "    if (endsAt < visibleSince) return;",
-        "    if (endsAt < visibleSince) return;\n    consumed.add(identity);",
+        "    consumed.add(identity);\n\n    // 장전된 적 없는 종료 = 이미 끝난 채로 들어온 기록이다. 소비만 하고 아무 신호도 내지 않는다\n    // (남겨 두면 다음 관측에서 늦게 울린다).\n    if (!armed.has(identity)) return;",
+        "    if (!armed.has(identity)) return;\n    consumed.add(identity);",
       ],
     ],
     oracle: "unit",
