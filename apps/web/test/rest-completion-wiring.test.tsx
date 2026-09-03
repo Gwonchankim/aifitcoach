@@ -134,7 +134,7 @@ async function completeFirstSet() {
   fireEvent.change(weight, { target: { value: "60" } });
   fireEvent.change(reps, { target: { value: "8" } });
   fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" }));
-  await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
+  await awaitRestRunning();
 }
 
 /**
@@ -153,9 +153,27 @@ let clock = 0;
 /** 시트 **안에서** 종료 문구를 기다린다 — 화면 다른 곳의 같은 문구와 섞이지 않게. */
 async function awaitRestFinished() {
   const sheet = await screen.findByRole("dialog", { name: /후 휴식/ });
-  await waitFor(() => expect(within(sheet).getByText("휴식 완료")).toBeTruthy(), {
+  /**
+   * `getAllByText` 를 쓴다 — 시트 안에 같은 문구가 **둘**일 수 있다. 본문 문구와, 마일스톤
+   * 낭독이 0초에 걸렸을 때의 `aria-live` 영역이다. 틱이 정확히 0 을 밟는지에 따라 갈려서
+   * `getByText` 로는 간헐적으로 "multiple elements" 로 죽는다(실측 6회 중 2회).
+   */
+  await waitFor(() => expect(within(sheet).getAllByText("휴식 완료").length).toBeGreaterThan(0), {
     timeout: 3_000,
   });
+}
+
+/**
+ * 시트가 **진행 중을 실제로 관측했음**을 증명한다. 시트가 DOM 에 뜬 것만으로는 부족하다 —
+ * 관측 이펙트가 돌기 전에 시계를 밀면 첫 관측이 이미 종료가 돼 장전이 안 되고, 정상 만료가
+ * 조용히 삼켜진다(실측 8회 중 1~2회). "남은 휴식 시간" 이 그 관측의 증거다.
+ */
+async function awaitRestRunning() {
+  const sheet = await screen.findByRole("dialog", { name: /후 휴식/ });
+  await waitFor(
+    () => expect(within(sheet).getAllByText("남은 휴식 시간").length).toBeGreaterThan(0),
+    { timeout: 3_000 },
+  );
 }
 
 async function runOutTheRest() {
@@ -331,8 +349,9 @@ describe("배선 — 세션 화면을 떠났다 돌아와도 총 1회", () => {
 
     // 아직 돌고 있다. 여기서 떠난다.
     await leaveAndReturn();
+    // 돌아온 화면이 진행 중을 **관측했는지** 확인한 뒤에 끝낸다 — 그래야 장전이 보장된다.
+    await awaitRestRunning();
 
-    // 돌아온 화면이 진행 중을 관측해 다시 장전한 뒤 끝난다.
     await runOutTheRest();
 
     expect(emitForeground).toHaveBeenCalledTimes(1);
