@@ -16,12 +16,6 @@ import {
   remainingSec,
   type RestTimer,
 } from "../../lib/rest-timer";
-import {
-  createRestCompletionSignal,
-  emitRestCompleteFeedback,
-  type RestCompletionSignal,
-} from "../../lib/rest-feedback";
-import { notifyRestComplete } from "../../lib/rest-notification";
 import { useModal } from "./useModal";
 
 const SHEET_ID = "rest-timer";
@@ -41,17 +35,30 @@ export type RestTimerSheetProps = {
   timer: RestTimer;
   onChange: (timer: RestTimer) => void;
   onClose: () => void;
+  /**
+   * 종료 관측 보고. 세트·세션 정체성과 장부는 **호출부**가 갖는다.
+   * 안정된 참조여야 한다 — 매 렌더 새 함수를 주면 이펙트가 매번 다시 돈다.
+   */
+  onCompletionObserved: (observation: {
+    finished: boolean;
+    endsAt: number;
+    visibleSince: number | null;
+  }) => void;
 };
 
-export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTimerSheetProps) {
+export function RestTimerSheet({
+  open,
+  title,
+  timer,
+  onChange,
+  onClose,
+  onCompletionObserved,
+}: RestTimerSheetProps) {
   const [now, setNow] = useState(() => Date.now());
   const [announcement, setAnnouncement] = useState("");
   const announcedRef = useRef<Set<number>>(new Set());
   const addAnnounceRef = useRef<number | undefined>(undefined);
-  const signalRef = useRef<RestCompletionSignal | null>(null);
-  signalRef.current ??= createRestCompletionSignal(emitRestCompleteFeedback);
   const visibleSinceRef = useRef<number | null>(null);
-  const notifiedRef = useRef<number | null>(null);
 
   useModal(open, SHEET_ID, onClose, END_BUTTON_ID);
 
@@ -103,30 +110,19 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
     setAnnouncement(milestone);
   }, [open, remaining]);
 
-  // 종료 신호(비프·진동). 중복 방지는 게이트가 하므로 여기서는 관측한 상태를 그대로 넘긴다.
-  // 화면은 건드리지 않는다 — 타이머는 0에서 멈추고 시트는 열린 채로 남는다(§4.7).
-  useEffect(() => {
-    if (!open) return;
-    signalRef.current?.({
-      finished,
-      endsAt: timer.endsAt,
-      visibleSince: visibleSinceRef.current,
-    });
-  }, [open, finished, timer.endsAt]);
-
   /**
-   * 숨겨진 상태로 휴식이 끝났으면 **한 번만** 알린다.
+   * 종료를 **관측해서 보고만** 한다. 어느 신호를 낼지도, 몇 번 낼지도 게이트가 정한다.
    *
-   * 종료는 이벤트가 아니라 상태다 — 남은 시간은 틱과 `visibilitychange`·`focus`·`pageshow`
-   * 에서 다시 계산되고 StrictMode 는 이펙트를 두 번 돌린다. 그때마다 "0 이다"가 참이라
-   * 관측 횟수로 알리면 한 번의 휴식이 여러 번 울린다. 그래서 **끝나는 시각을 정체성**으로 잡는다.
+   * 게이트를 여기 두지 않는 이유가 분명하다 — 이 시트는 휴식마다 마운트/언마운트되므로
+   * 안에 장부를 두면 **장부가 휴식보다 먼저 죽는다.** 세션 화면이 들고 있어야 열고 닫는 것을
+   * 가로질러 "정확히 한 번"이 성립한다.
+   *
+   * 화면은 건드리지 않는다 — 타이머는 0에서 멈추고 시트는 열린 채로 남는다(§4.7).
    */
   useEffect(() => {
-    if (!open || !finished) return;
-    if (notifiedRef.current === timer.endsAt) return;
-    notifiedRef.current = timer.endsAt;
-    void notifyRestComplete();
-  }, [open, finished, timer.endsAt]);
+    if (!open) return;
+    onCompletionObserved({ finished, endsAt: timer.endsAt, visibleSince: visibleSinceRef.current });
+  }, [open, finished, timer.endsAt, onCompletionObserved]);
 
   const handleAdd = (delta: number) => {
     if (atCap) {

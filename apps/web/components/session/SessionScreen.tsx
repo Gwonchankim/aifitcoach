@@ -16,7 +16,9 @@ import {
   type SyncResponse,
 } from "../../lib/api";
 import { startRest, type RestTimer } from "../../lib/rest-timer";
-import { unlockRestFeedback } from "../../lib/rest-feedback";
+import { emitRestCompleteFeedback, unlockRestFeedback } from "../../lib/rest-feedback";
+import { notifyRestComplete } from "../../lib/rest-notification";
+import { createRestCompletionGate } from "../../lib/rest-completion";
 import {
   createRestoreCoordinator,
   restTimerStore,
@@ -217,6 +219,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   restoreRef.current ??= createRestoreCoordinator();
 
   /**
+   * **휴식 완료 게이트의 장부는 여기 있다.** 시트는 휴식마다 마운트/언마운트되므로 그 안에 두면
+   * 장부가 휴식보다 먼저 죽어, 닫았다 다시 열린 같은 휴식이 또 울린다.
+   * 정체성에 `sessionId` 가 들어가므로 화면이 세션을 갈아타도 서로 섞이지 않는다.
+   */
+  const completionGateRef = useRef<ReturnType<typeof createRestCompletionGate> | null>(null);
+  completionGateRef.current ??= createRestCompletionGate({
+    emitForeground: emitRestCompleteFeedback,
+    notifyHidden: notifyRestComplete,
+  });
+
+  /**
    * **진행 중인 복구를 무효화하고 화면 타이머를 내린다.** 사용자가 무언가 한 순간마다 부른다.
    *
    * 이게 없으면 늦게 도착한 복구가 "화면이 비어 있으니 올려도 되겠다"고 판단해 **사용자가 방금
@@ -226,6 +239,21 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     restoreRef.current?.invalidate();
     setRest(null);
   }, []);
+
+  /**
+   * 시트의 종료 관측에 **세션·세트 정체성**을 붙여 게이트로 넘긴다.
+   *
+   * 참조가 안정적이어야 한다 — 매 렌더 새 함수를 주면 시트의 이펙트가 매번 다시 돌아
+   * 200ms 틱마다 관측이 쏟아진다(게이트가 삼키긴 하지만 그건 방어지 설계가 아니다).
+   */
+  const restPlannedSetId = rest?.plannedSetId;
+  const handleCompletionObserved = useCallback(
+    (observation: { finished: boolean; endsAt: number; visibleSince: number | null }) => {
+      if (restPlannedSetId === undefined) return;
+      completionGateRef.current?.({ ...observation, sessionId, plannedSetId: restPlannedSetId });
+    },
+    [sessionId, restPlannedSetId],
+  );
 
   /**
    * 세션 전환은 **authoritative 질의보다 먼저** 세대를 올린다. 질의가 끝나기를 기다리면
@@ -859,6 +887,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             void restTimerStore.save(sessionId, rest.plannedSetId, rest.title, timer);
           }}
           onClose={() => void closeRest()}
+          onCompletionObserved={handleCompletionObserved}
         />
       ) : null}
 

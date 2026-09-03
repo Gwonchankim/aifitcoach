@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_DIR = join(ROOT, "apps", "web");
 const FEEDBACK = join(WEB_DIR, "lib", "rest-feedback.ts");
+const GATE = join(WEB_DIR, "lib", "rest-completion.ts");
 const SHEET = join(WEB_DIR, "components", "session", "RestTimerSheet.tsx");
 const SCREEN = join(WEB_DIR, "components", "session", "SessionScreen.tsx");
 
@@ -142,7 +143,11 @@ function spawn(args, cwd) {
 const ORACLES = {
   unit: {
     label: "unit",
-    run: () => spawn([VITEST, "run", "test/rest-feedback.test.ts"], WEB_DIR),
+    run: () =>
+      spawn(
+        [VITEST, "run", "test/rest-feedback.test.ts", "test/rest-completion-gate.test.ts"],
+        WEB_DIR,
+      ),
     red: /Tests\s+\d+ failed|Test Files\s+\d+ failed/,
     invalid: /Transform failed|SyntaxError|Failed to load|Cannot find module/i,
     summarize: (out) =>
@@ -201,57 +206,56 @@ const ORACLES = {
 const MUTATIONS = [
   {
     id: 1,
-    file: FEEDBACK,
-    what: "같은 endsAt 재신호를 막는 정체성 가드 제거",
-    edits: [["if (!finished || signaledEndsAt === endsAt) return;", "if (!finished) return;"]],
+    file: GATE,
+    what: "같은 정체성 재관측을 막는 가드 제거 — 틱마다 울린다",
+    edits: [["if (consumed.has(identity)) return;", "if (false) return;"]],
     oracle: "unit",
   },
   {
     id: 2,
-    file: FEEDBACK,
+    file: GATE,
     what: "종료 여부 확인 제거 — 진행 중에도 울린다",
-    edits: [
-      [
-        "if (!finished || signaledEndsAt === endsAt) return;",
-        "if (signaledEndsAt === endsAt) return;",
-      ],
-    ],
+    edits: [["if (!observation.finished) return;", "if (false) return;"]],
     oracle: "unit",
   },
   {
     id: 3,
-    file: FEEDBACK,
+    file: GATE,
     what: "정체성 기록을 빠뜨림 — 게이트가 영원히 열린다",
-    edits: [["    signaledEndsAt = endsAt;\n", ""]],
+    edits: [["    consumed.add(identity);\n", ""]],
     oracle: "unit",
   },
   {
     id: 4,
-    file: FEEDBACK,
-    what: "억제한 타이머의 정체성을 소비하지 않음 — 복귀 뒤 늦게 울린다",
+    file: GATE,
+    what: "억제한 관측의 정체성을 소비하지 않음 — 복귀 뒤 늦게 울린다",
     edits: [
       [
-        "    signaledEndsAt = endsAt;\n    if (visibleSince === null || endsAt < visibleSince) return;",
-        "    if (visibleSince === null || endsAt < visibleSince) return;\n    signaledEndsAt = endsAt;",
+        "    consumed.add(identity);\n\n    const { visibleSince, endsAt } = observation;",
+        "    const { visibleSince, endsAt } = observation;",
+      ],
+      [
+        "    if (endsAt < visibleSince) return;",
+        "    if (endsAt < visibleSince) return;\n    consumed.add(identity);",
       ],
     ],
     oracle: "unit",
   },
   {
     id: 5,
-    file: FEEDBACK,
-    what: "전경 판정 제거 — 백그라운드에서 끝나도 울린다",
-    edits: [["    if (visibleSince === null || endsAt < visibleSince) return;\n", ""]],
+    file: GATE,
+    what: "전경 판정 제거 — 복귀 전에 끝난 휴식도 비프를 낸다",
+    edits: [["    if (endsAt < visibleSince) return;\n", ""]],
     oracle: "unit",
   },
   {
     id: 6,
-    file: FEEDBACK,
-    what: "숨은 상태(null) 판정만 제거",
+    file: GATE,
+    what: "숨김 분기 제거 — 숨은 채 끝나도 알림 대신 비프가 간다",
     edits: [
       [
-        "if (visibleSince === null || endsAt < visibleSince) return;",
-        "if (visibleSince !== null && endsAt < visibleSince) return;",
+        "      void runSafely(() => sinks.notifyHidden());",
+        "      void runSafely(() => sinks.emitForeground());",
       ],
     ],
     oracle: "unit",
@@ -384,7 +388,7 @@ const MUTATIONS = [
     id: 19,
     file: SHEET,
     what: "이펙트 의존성에서 finished·endsAt 제거 — 종료를 관측하지 못한다",
-    edits: [["  }, [open, finished, timer.endsAt]);", "  }, [open]);"]],
+    edits: [["  }, [open, finished, timer.endsAt, onCompletionObserved]);", "  }, [open]);"]],
     oracle: "lint",
   },
   /* --- call-site 배선. 단위 테스트로는 절대 잡히지 않는 축이다(리뷰 P2-1). --- */
@@ -414,10 +418,10 @@ const MUTATIONS = [
   {
     id: 22,
     file: SHEET,
-    what: "**call-site** 타이머 시트의 종료 신호 호출 삭제",
+    what: "**call-site** 타이머 시트의 종료 관측 보고 삭제",
     edits: [
       [
-        "    signalRef.current?.({\n      finished,\n      endsAt: timer.endsAt,\n      visibleSince: visibleSinceRef.current,\n    });\n",
+        "    onCompletionObserved({ finished, endsAt: timer.endsAt, visibleSince: visibleSinceRef.current });\n",
         "",
       ],
     ],

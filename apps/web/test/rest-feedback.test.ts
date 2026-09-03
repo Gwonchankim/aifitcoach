@@ -101,6 +101,7 @@ describe("보존 — 0 클램프와 '휴식 완료' 화면", () => {
         timer: startRest(90, T0),
         onChange: () => {},
         onClose: () => {},
+        onCompletionObserved: () => {},
       }),
     );
   };
@@ -122,135 +123,6 @@ describe("보존 — 0 클램프와 '휴식 완료' 화면", () => {
     const markup = sheet(30_000);
     expect(markup).toContain("남은 휴식 시간");
     expect(markup).not.toContain("휴식 완료");
-  });
-});
-
-/* ------------------------------------------------------------------ *
- * 한 타이머당 정확히 한 번.
- * ------------------------------------------------------------------ */
-
-describe("종료 신호 — 한 타이머당 정확히 한 번", () => {
-  it("아직 끝나지 않았으면 신호가 없다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-
-    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
-    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
-
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("종료 순간 한 번 낸다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-
-    signal({ finished: false, endsAt: T0 + 90_000, visibleSince: T0 });
-    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
-
-    expect(emit).toHaveBeenCalledTimes(1);
-  });
-
-  it("같은 타이머로 몇 번을 더 불려도 늘지 않는다 — 틱·focus·pageshow·StrictMode 재실행", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-    const seen = { finished: true, endsAt: T0 + 90_000, visibleSince: T0 };
-
-    signal(seen); // 종료 감지
-    signal(seen); // 200ms 틱
-    signal(seen); // visibilitychange
-    signal(seen); // focus
-    signal(seen); // pageshow
-    signal(seen); // StrictMode 이펙트 재실행
-
-    expect(emit).toHaveBeenCalledTimes(1);
-  });
-
-  it("휴식을 더하면(새 endsAt) 그 타이머가 끝날 때 다시 한 번 낸다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-
-    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
-    signal({ finished: false, endsAt: T0 + 120_000, visibleSince: T0 }); // +30초 → 다시 진행 중
-    signal({ finished: true, endsAt: T0 + 120_000, visibleSince: T0 });
-
-    expect(emit).toHaveBeenCalledTimes(2);
-  });
-
-  it("다음 세트의 새 타이머는 다시 한 번이다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-
-    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
-    signal({ finished: true, endsAt: T0 + 90_000, visibleSince: T0 });
-    signal({ finished: true, endsAt: T0 + 300_000, visibleSince: T0 }); // 2세트 완료 → 새 타이머
-
-    expect(emit).toHaveBeenCalledTimes(2);
-  });
-});
-
-/* ------------------------------------------------------------------ *
- * 전경에서 끝났을 때만 — UX_STATES §4.7 "알림 조건".
- * ------------------------------------------------------------------ */
-
-describe("전경 관측만 재생한다", () => {
-  const endsAt = T0 + 90_000;
-
-  it("보는 중에 끝났으면 낸다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-
-    // 타이머가 끝나기 전부터 계속 보고 있었다.
-    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: T0 });
-
-    expect(emit).toHaveBeenCalledTimes(1);
-  });
-
-  it("숨어 있는 동안 끝났으면 복귀해도 내지 않는다 — 늦은 비프 금지", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-
-    // 복귀 시각(endsAt 이후)이 전경 시작점이다 → 이 휴식은 숨어 있는 동안 끝났다.
-    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: endsAt + 5_000 });
-
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("숨은 채로 관측해도 내지 않는다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-
-    createRestCompletionSignal(emit)({ finished: true, endsAt, visibleSince: null });
-
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("**억제해도 정체성은 소비한다** — 그 뒤 전경이 돼도 늦게 울리지 않는다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-
-    signal({ finished: true, endsAt, visibleSince: null }); // 숨은 채 첫 관측
-    signal({ finished: true, endsAt, visibleSince: endsAt + 1_000 }); // 복귀 후 재관측
-    signal({ finished: true, endsAt, visibleSince: T0 }); // focus 로 또 한 번
-
-    expect(emit).not.toHaveBeenCalled();
-  });
-
-  it("복귀 뒤 시작한 다음 휴식은 정상적으로 울린다 — 억제가 영구가 아니다", async () => {
-    const { createRestCompletionSignal } = await freshModule();
-    const emit = vi.fn();
-    const signal = createRestCompletionSignal(emit);
-    const backAt = endsAt + 5_000;
-
-    signal({ finished: true, endsAt, visibleSince: backAt }); // 백그라운드에서 끝난 휴식 → 억제
-    signal({ finished: true, endsAt: backAt + 90_000, visibleSince: backAt }); // 다음 세트
-
-    expect(emit).toHaveBeenCalledTimes(1);
   });
 });
 

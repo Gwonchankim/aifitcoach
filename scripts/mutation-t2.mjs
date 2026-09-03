@@ -306,12 +306,14 @@ const MUTATIONS = [
   },
   {
     id: 29,
-    file: SHEET,
-    what: "**알림 중복 방지 제거** — lint 를 피하는 의미상 동등 변이",
-    // `if (false)` 는 `no-constant-condition` 이 잡아 버려서 "행동 테스트가 죽였다"를 증명하지 못한다.
-    // 항상 거짓이지만 상수가 아닌 비교로 바꿔 **테스트만이** 잡게 한다.
-    from: "    if (notifiedRef.current === timer.endsAt) return;",
-    to: "    if (notifiedRef.current === undefined) return;",
+    file: SCREEN,
+    /**
+     * 중복 방지 자체는 통합 게이트의 계약이라 T1 러너(1번)가 본다 — 여기서 또 겨누면 숫자만 는다.
+     * T2 가 소유한 것은 **숨김 싱크의 배선**이다: 게이트가 고른 뒤 실제로 이 모듈이 불리는가.
+     */
+    what: "**숨김 싱크 배선 제거** — 게이트가 골라도 알림 모듈이 불리지 않는다",
+    from: "    notifyHidden: notifyRestComplete,",
+    to: "    notifyHidden: () => Promise.resolve(false),",
   },
   {
     id: 30,
