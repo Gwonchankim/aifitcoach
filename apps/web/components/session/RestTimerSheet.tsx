@@ -21,6 +21,7 @@ import {
   emitRestCompleteFeedback,
   type RestCompletionSignal,
 } from "../../lib/rest-feedback";
+import { notifyRestComplete } from "../../lib/rest-notification";
 import { useModal } from "./useModal";
 
 const SHEET_ID = "rest-timer";
@@ -50,6 +51,7 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
   const signalRef = useRef<RestCompletionSignal | null>(null);
   signalRef.current ??= createRestCompletionSignal(emitRestCompleteFeedback);
   const visibleSinceRef = useRef<number | null>(null);
+  const notifiedRef = useRef<number | null>(null);
 
   useModal(open, SHEET_ID, onClose, END_BUTTON_ID);
 
@@ -110,6 +112,20 @@ export function RestTimerSheet({ open, title, timer, onChange, onClose }: RestTi
       endsAt: timer.endsAt,
       visibleSince: visibleSinceRef.current,
     });
+  }, [open, finished, timer.endsAt]);
+
+  /**
+   * 숨겨진 상태로 휴식이 끝났으면 **한 번만** 알린다.
+   *
+   * 종료는 이벤트가 아니라 상태다 — 남은 시간은 틱과 `visibilitychange`·`focus`·`pageshow`
+   * 에서 다시 계산되고 StrictMode 는 이펙트를 두 번 돌린다. 그때마다 "0 이다"가 참이라
+   * 관측 횟수로 알리면 한 번의 휴식이 여러 번 울린다. 그래서 **끝나는 시각을 정체성**으로 잡는다.
+   */
+  useEffect(() => {
+    if (!open || !finished) return;
+    if (notifiedRef.current === timer.endsAt) return;
+    notifiedRef.current = timer.endsAt;
+    void notifyRestComplete();
   }, [open, finished, timer.endsAt]);
 
   const handleAdd = (delta: number) => {
