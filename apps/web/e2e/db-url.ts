@@ -38,6 +38,12 @@ function fromRootEnv(key: string): string | undefined {
 }
 
 /**
+ * 이 하네스가 주입하는 세 URL 은 전부 **PostgreSQL 직결 DSN** 이다(prisma-migrate·seed·API 가 그것만 받는다).
+ * `postgres:` 는 같은 계약의 짧은 표기라 함께 받는다.
+ */
+const ALLOWED_PROTOCOLS = new Set(["postgresql:", "postgres:"]);
+
+/**
  * **실패 메시지에 접속 URL 원문을 넣지 않는다.**
  *
  * 여기서 던진 오류는 Playwright 설정 import 실패로 CI 로그·터미널 기록에 그대로 남는다.
@@ -46,15 +52,28 @@ function fromRootEnv(key: string): string | undefined {
  *
  * 원본 예외를 `cause` 로도 달지 않는다 — Node 의 `ERR_INVALID_URL` 은 원문을 `input` 프로퍼티에
  * 담아서, 메시지가 깨끗해도 `console.error(error)` 한 번이면 그대로 찍힌다(실측).
+ *
+ * **문법만 보면 부족하다.** 이름이 `_e2e` 로 끝나는 `https://…` 는 문법 검사와 전용 DB 검사를 모두
+ * 통과해 서버 기동 명령까지 갔다(실측: config import exit 0). 잘못된 provider URL 을 Prisma 가
+ * 거절하는 시점은 이미 migration·seed 명령이 시작된 뒤라, 그때부터는 그 도구가 접속 문자열을
+ * 어떻게 찍는지에 안전이 달린다. 그래서 protocol 을 **여기서** 허용목록으로 막는다.
  */
 function parseDbUrl(raw: string): URL {
+  let url: URL;
   try {
-    return new URL(raw);
+    url = new URL(raw);
   } catch {
     throw new Error(
       "AFC_E2E_DB_URL_INVALID: 접속 URL 을 해석하지 못했다. 값에 자격증명이 섞일 수 있어 출력하지 않는다.",
     );
   }
+  // scheme 도 찍지 않는다 — 원문 조각을 로그에 남기지 않는다는 규칙은 여기에도 적용된다.
+  if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
+    throw new Error(
+      "AFC_E2E_DB_URL_PROTOCOL: 접속 URL 이 PostgreSQL(`postgresql:`·`postgres:`) 이 아니다. 값에 자격증명이 섞일 수 있어 출력하지 않는다.",
+    );
+  }
+  return url;
 }
 
 export function e2eDatabaseUrl(): string {

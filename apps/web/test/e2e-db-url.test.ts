@@ -58,6 +58,12 @@ describe("e2eDatabaseUrl", () => {
     process.env.E2E_DATABASE_URL = "postgresql://u:p@db:5432/custom_e2e";
     expect(e2eDatabaseUrl()).toBe("postgresql://u:p@db:5432/custom_e2e");
   });
+
+  // `postgres:` 도 같은 계약의 표기 차이일 뿐이다 — 막으면 정상 환경이 못 돈다.
+  it("짧은 `postgres:` 표기도 받는다", () => {
+    process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/afc";
+    expect(new URL(e2eDatabaseUrl()).pathname).toBe("/afc_e2e");
+  });
 });
 
 /**
@@ -148,6 +154,8 @@ const NO_DB_NAME = `postgresql://${AUTHORITY}?${QUERY}#${FRAGMENT}`;
 const UNPARSEABLE = `postgresql://${USER}:${PASSWORD}@localhost:port-x/afc_e2e?${QUERY}`;
 /** 파싱은 되지만 전용 DB 가 아니다(개발 DB). */
 const WRONG_DB_NAME = `postgresql://${AUTHORITY}/afc?${QUERY}#${FRAGMENT}`;
+/** 파싱도 되고 이름도 `_e2e` 인데 **PostgreSQL 이 아니다.** 이름만 보면 통과한다. */
+const WRONG_PROTOCOL = `https://${AUTHORITY}/reviewer_e2e?${QUERY}#${FRAGMENT}`;
 
 /**
  * 오류가 **어떤 방식으로 찍히든** 표식이 없어야 한다.
@@ -205,6 +213,20 @@ describe("실패 경로가 자격증명을 내보내지 않는다", () => {
       "전용 DB 가 아닌 E2E_DATABASE_URL",
       () => {
         process.env.E2E_DATABASE_URL = WRONG_DB_NAME;
+        e2eDatabaseEnv();
+      },
+    ],
+    [
+      "PostgreSQL 이 아닌 DATABASE_URL",
+      () => {
+        process.env.DATABASE_URL = WRONG_PROTOCOL;
+        e2eDatabaseUrl();
+      },
+    ],
+    [
+      "PostgreSQL 이 아닌 E2E_DATABASE_URL(`_e2e` 이름이어도)",
+      () => {
+        process.env.E2E_DATABASE_URL = WRONG_PROTOCOL;
         e2eDatabaseEnv();
       },
     ],
@@ -271,6 +293,7 @@ describe("Playwright 설정 import 실패가 자격증명을 찍지 않는다", 
     ["DB 이름 없음", { DATABASE_URL: NO_DB_NAME }],
     ["해석 불가", { DATABASE_URL: UNPARSEABLE }],
     ["전용 DB 아님", { E2E_DATABASE_URL: WRONG_DB_NAME }],
+    ["PostgreSQL 아님", { E2E_DATABASE_URL: WRONG_PROTOCOL }],
   ] as [string, Record<string, string>][]) {
     it(`${label} — 서버를 띄우기 전에 멈추고 표식이 0회다`, { timeout: 120_000 }, () => {
       const { status, output } = listWithDbEnv(overrides);
