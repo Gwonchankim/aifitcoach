@@ -182,12 +182,18 @@ describe("sessions", () => {
       }
     });
 
-    it("부분 수행(F7): 기록이 없는 운동의 추천은 재계산하지 않는다", async () => {
+    it("부분 수행(F7): 같은 부위라도 기록이 없는 다른 운동의 추천은 재계산하지 않는다", async () => {
       const [monday, , thursday] = await sessions();
       const performedExercise = monday.plannedSets[0].exerciseId;
       const skipped = monday.plannedSets.find(
         (set) => set.exerciseId !== performedExercise,
       )!.exerciseId;
+      const regions = await prisma.exercise.findMany({
+        where: { id: { in: [performedExercise, skipped] } },
+        select: { id: true, region: true },
+      });
+      expect(regions).toHaveLength(2);
+      expect(new Set(regions.map((exercise) => exercise.region)).size).toBe(1);
       await recordSets(monday.id, performedExercise, [{ w: 40, reps: 6, rir: 2 }]);
 
       const response = await request(app.getHttpServer())

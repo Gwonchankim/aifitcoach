@@ -67,17 +67,49 @@ describe("STEP 6 sync 계약 잠금", () => {
     };
   }
 
-  it("유실 0: push 뒤 수행 기록이 planned_set 논리 ID로 남는다", async () => {
+  it("유실·중복 0: push와 동일 재시도 뒤 무게·횟수·RIR이 planned_set 한 행에 정확히 남는다", async () => {
     const planned = await firstPlannedSet();
+    const mutation = performedMutation(planned.id, 50);
     await request(app.getHttpServer())
       .post("/v1/sync")
-      .send({ mutations: [performedMutation(planned.id, 50)] });
+      .send({ mutations: [mutation] })
+      .expect(200);
 
-    const stored = await prisma.performedSet.findUnique({
+    const stored = await prisma.performedSet.findUniqueOrThrow({
       where: { plannedSetId: planned.id },
     });
-    if (!stored) throw new Error("sync push가 수행 기록을 저장하지 않았다: DB 행이 null이다");
     expect(Number(stored.actualWeight)).toBe(50);
+    expect(stored).toMatchObject({
+      plannedSetId: planned.id,
+      clientId: mutation.client_id,
+      actualReps: 8,
+      actualRir: 2,
+      actualTimeSec: null,
+      painScore: null,
+      completed: true,
+      performedAt: new Date(T1),
+      updatedAt: new Date(T1),
+    });
+
+    // 네트워크 재전송은 같은 client_id를 재사용한다. 두 번째 행을 만들거나 값을 바꾸면 안 된다.
+    await request(app.getHttpServer())
+      .post("/v1/sync")
+      .send({ mutations: [mutation] })
+      .expect(200);
+    await expect(prisma.performedSet.count({ where: { plannedSetId: planned.id } })).resolves.toBe(
+      1,
+    );
+    const retried = await prisma.performedSet.findUniqueOrThrow({
+      where: { plannedSetId: planned.id },
+    });
+    expect(Number(retried.actualWeight)).toBe(50);
+    expect(retried).toMatchObject({
+      clientId: mutation.client_id,
+      actualReps: 8,
+      actualRir: 2,
+      completed: true,
+      updatedAt: new Date(T1),
+    });
   });
 
   it("중복 0: 같은 planned_set의 두 번째 서버 행은 DB가 거절한다", async () => {
