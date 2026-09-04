@@ -37,6 +37,26 @@ function fromRootEnv(key: string): string | undefined {
   return undefined;
 }
 
+/**
+ * **실패 메시지에 접속 URL 원문을 넣지 않는다.**
+ *
+ * 여기서 던진 오류는 Playwright 설정 import 실패로 CI 로그·터미널 기록에 그대로 남는다.
+ * PostgreSQL URL 은 user/password 를 authority 에, 때로는 query 에도 담으므로 원문을 실으면
+ * 환경변수 한 번 잘못 준 대가로 자격증명이 로그에 영속된다.
+ *
+ * 원본 예외를 `cause` 로도 달지 않는다 — Node 의 `ERR_INVALID_URL` 은 원문을 `input` 프로퍼티에
+ * 담아서, 메시지가 깨끗해도 `console.error(error)` 한 번이면 그대로 찍힌다(실측).
+ */
+function parseDbUrl(raw: string): URL {
+  try {
+    return new URL(raw);
+  } catch {
+    throw new Error(
+      "AFC_E2E_DB_URL_INVALID: 접속 URL 을 해석하지 못했다. 값에 자격증명이 섞일 수 있어 출력하지 않는다.",
+    );
+  }
+}
+
 export function e2eDatabaseUrl(): string {
   if (process.env.E2E_DATABASE_URL) return process.env.E2E_DATABASE_URL;
   const raw = process.env.DATABASE_URL ?? fromRootEnv("DATABASE_URL");
@@ -45,9 +65,13 @@ export function e2eDatabaseUrl(): string {
       "DATABASE_URL 이 필요하다. `pnpm db:up` 후 루트 .env(.env.example 복사)를 만들거나 E2E_DATABASE_URL 로 넘겨라.",
     );
   }
-  const url = new URL(raw);
+  const url = parseDbUrl(raw);
   const name = url.pathname.replace(/^\//, "");
-  if (!name) throw new Error(`DATABASE_URL 에 데이터베이스 이름이 없다: ${raw}`);
+  if (!name) {
+    throw new Error(
+      "AFC_E2E_DB_URL_NO_NAME: 접속 URL 에 데이터베이스 이름이 없다. 값에 자격증명이 섞일 수 있어 출력하지 않는다.",
+    );
+  }
   url.pathname = `/${name.endsWith("_e2e") ? name : `${name}_e2e`}`;
   return url.toString();
 }
@@ -65,7 +89,8 @@ export function e2eDatabaseUrl(): string {
  */
 export function e2eDatabaseEnv(): { DATABASE_URL: string; DIRECT_URL: string; label: string } {
   const url = e2eDatabaseUrl();
-  const parsed = new URL(url);
+  // `E2E_DATABASE_URL` 은 그대로 통과하므로 여기가 그 값의 첫 파싱 지점이다 — 여기서도 원문을 흘리면 안 된다.
+  const parsed = parseDbUrl(url);
   const name = parsed.pathname.replace(/^\//, "");
 
   /**
