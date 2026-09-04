@@ -46,6 +46,17 @@ const ANSI = new RegExp(ESC + "\\[[0-9;]*m", "g");
 const stripAnsi = (text) => text.replace(ANSI, "");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
+/** 표 한 칸에 넣는다 — 줄바꿈과 `|` 를 지워야 마크다운 표가 안 깨진다. */
+const cell = (text) => text.replace(/\s+/g, " ").replace(/\|/g, "/").trim().slice(0, 110);
+
+/** 출력의 마지막 의미 있는 줄. 오라클이 테스트까지 못 간 이유는 대개 여기 있다. */
+const lastLine = (output) =>
+  output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1) ?? "출력 없음";
+
 /* ------------------------------------------------------------------ *
  * 오라클의 부수효과 — 뮤테이션 대상만 되돌리면 부족하다
  * ------------------------------------------------------------------ */
@@ -413,19 +424,14 @@ const MUTATIONS = [
   {
     id: 20,
     file: SCREEN,
-    what: "**call-site** 세트 완료에서 unlock 호출 삭제",
+    what: "**call-site** 세트 완료에서 unlock **호출만** 제거(심볼은 그대로)",
     /**
-     * 임포트도 같이 좁힌다 — 남기면 미사용 심볼로 빌드가 죽어 "무효"가 되고 아무것도 증명하지 못한다.
-     * 통합으로 `emitRestCompleteFeedback` 과 한 문장이 됐으므로 **문장을 통째로 갈아끼운다**
-     * (옛 앵커는 단독 import 를 찾아서 통합 뒤 사라져 있었다).
+     * `void` 로 심볼만 남긴다. 문장을 통째로 지우고 import 까지 좁히면 **모양이 여러 개 바뀐다** —
+     * 그러면 빌드·lint 가 먼저 걸려 죽었을 때 그게 제품 결함을 잡은 건지 구분할 수 없다
+     * (실제로 그 형태의 #20 이 무효로 재현됐다). `void f;` 는 타입·import·lint 를 원본과 똑같이
+     * 유지하면서 **호출 한 번만** 없앤다 — 브라우저에서 AudioContext 가 안 열리는 것만 달라진다.
      */
-    edits: [
-      [
-        'import { emitRestCompleteFeedback, unlockRestFeedback } from "../../lib/rest-feedback";',
-        'import { emitRestCompleteFeedback } from "../../lib/rest-feedback";',
-      ],
-      ["    unlockRestFeedback();\n", ""],
-    ],
+    edits: [["    unlockRestFeedback();\n", "    void unlockRestFeedback;\n"]],
     oracle: "e2e",
   },
   {
@@ -654,6 +660,8 @@ function main() {
   let red = 0;
   let survivors = 0;
   let invalid = 0;
+  /** 무효 회차의 원문. 표의 한 줄로는 인프라 실패와 false-red 를 구분할 수 없다. */
+  const invalidNotes = [];
 
   for (const mutation of selected) {
     const oracle = ORACLES[mutation.oracle];
@@ -677,8 +685,17 @@ function main() {
       evidence = equivalent ?? "—";
       if (!equivalent) survivors += 1;
     } else if (oracle.invalid.test(result.output) || !oracle.red.test(result.output)) {
+      /**
+       * **무효도 이유가 두 가지다.** 빌드가 먼저 죽은 것과, 오라클이 테스트까지 가지도 못한 것
+       * (포트 점유·서버 기동 실패 같은 인프라 문제)은 다르게 다뤄야 한다 — 한 줄로 뭉뚱그렸더니
+       * #20 의 무효를 두고 "제품이 안 잡힌다"와 "환경이 죽었다"를 구분할 수 없었다.
+       */
+      const matched = oracle.invalid.exec(result.output)?.[0];
       verdict = "**무효**";
-      evidence = "문법·빌드·설정 실패 — 테스트가 잡은 게 아니다";
+      evidence = matched
+        ? `빌드·설정 실패(\`${cell(matched)}\`) — 테스트가 잡은 게 아니다`
+        : `실패 표식 없음(테스트까지 못 갔다) — ${cell(lastLine(result.output))}`;
+      invalidNotes.push({ id: mutation.id, oracle: oracle.label, output: result.output });
       invalid += 1;
     } else {
       verdict = "**RED**";
@@ -693,6 +710,12 @@ function main() {
   console.log(
     `\n${selected.length}건 중 RED ${red} · 등가 ${KNOWN_EQUIVALENT.size} · 무효 ${invalid} · **미방어 생존 ${survivors}**.`,
   );
+
+  // 무효 회차의 원문 꼬리를 **실행 로그에** 남긴다. 파일로 쓰면 residue 0 이 깨진다(추적되지 않는 파일도 status 에 뜬다).
+  for (const note of invalidNotes) {
+    console.log(`\n무효 #${note.id}(${note.oracle}) 원문 꼬리 —`);
+    console.log(note.output.split("\n").slice(-20).join("\n"));
+  }
 
   // **residue 0 을 주장하려면 저장소 전체를 봐야 한다.** 대상 파일 SHA 만 맞추고 끝내면
   // 오라클이 지운 추적 산출물이 그대로 남는다(이 러너가 실제로 그랬다).
