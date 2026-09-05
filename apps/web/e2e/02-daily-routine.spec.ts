@@ -153,6 +153,7 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(removeSheet).toBeVisible();
   await shot(page, "12-exercise-remove-sheet");
   await removeSheet.getByRole("button", { name: "루틴에서 빼기" }).click();
+  await expect(removeSheet).toBeHidden();
   await expect(page.getByRole("heading", { name: "케이블 크런치" })).toHaveCount(0);
   const after = await page.getByRole("heading", { level: 2 }).allInnerTexts();
   expect(after.length).toBe(before.length - 1);
