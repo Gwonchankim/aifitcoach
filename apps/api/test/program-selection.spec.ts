@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import type { Exercise } from "@prisma/client";
 import {
   buildProgramSelectionContext,
@@ -8,7 +6,7 @@ import {
   type SelectionOptions,
 } from "../src/programs/programs.service";
 import type { GenerateProgramDto } from "../src/programs/dto/generate-program.dto";
-import { loadSemanticsFor } from "../src/programs/assistance-migration";
+import { BASELINE_CATALOG } from "./support/catalog-extension";
 import {
   exerciseCountFor,
   type Focus,
@@ -100,38 +98,8 @@ describe("프로그램 운동 선택 안전 계약", () => {
  */
 const NEW_ID = "e_smith_incline_bench_press";
 
-const SEED_PATH = path.resolve(__dirname, "..", "..", "..", "docs", "specs", "exercises_seed.json");
-
-/** 시드 1행 → Prisma 행. 시드가 진실의 원천이므로 여기서 값을 다시 적지 않는다. */
-function toRow(raw: Record<string, unknown>): Exercise {
-  return {
-    id: raw.id,
-    nameKo: raw.name_ko,
-    nameEn: raw.name_en,
-    movementPattern: raw.movement_pattern,
-    mechanic: raw.mechanic,
-    region: raw.region,
-    primaryMuscles: raw.primary_muscles,
-    secondaryMuscles: raw.secondary_muscles,
-    equipment: raw.equipment,
-    difficulty: raw.difficulty,
-    metric: raw.metric,
-    defaultRepsLow: raw.default_reps_low ?? null,
-    defaultRepsHigh: raw.default_reps_high ?? null,
-    defaultTimeLowSec: raw.default_time_low_sec ?? null,
-    defaultTimeHighSec: raw.default_time_high_sec ?? null,
-    defaultStepKg: raw.default_step_kg ?? null,
-    unilateral: raw.unilateral,
-    loadSemantics: loadSemanticsFor(String(raw.id)),
-    substitutions: raw.substitutions,
-    cues: raw.cues,
-    media: raw.media,
-  } as unknown as Exercise;
-}
-
-const CATALOG: Exercise[] = (
-  JSON.parse(readFileSync(SEED_PATH, "utf8")) as { exercises: Record<string, unknown>[] }
-).exercises.map(toRow);
+// Fixed 106-row baseline keeps the Smith 105 → 106 regression independent of later additions.
+const CATALOG: Exercise[] = BASELINE_CATALOG;
 
 /** 신규 행을 뺀 카탈로그 = 이 티켓 이전 상태. */
 const CATALOG_BEFORE = CATALOG.filter((exercise) => exercise.id !== NEW_ID);

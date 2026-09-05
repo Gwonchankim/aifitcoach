@@ -13,6 +13,8 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp } from "./support/app";
 import { expectErrorMatchesContract, expectMatchesContract } from "./support/openapi-response";
 
+import { CURRENT_CATALOG, MACHINE_IDS, CATALOG_COUNT } from "./support/catalog-extension";
+
 const LIST_PATH = "/exercises";
 const DETAIL_PATH = "/exercises/{exerciseId}";
 
@@ -89,9 +91,43 @@ describe("운동 카탈로그 API", () => {
   }
 
   it("DB 카탈로그가 시드 파일의 ID 전량과 일치한다", () => {
+    expect(seededIds).toHaveLength(CATALOG_COUNT);
     expect(seededIds).toHaveLength(seedExercises.length);
     expect(new Set(seededIds)).toEqual(new Set(seedExercises.map((exercise) => exercise.id)));
   });
+
+  it.each([...MACHINE_IDS, "e_smith_incline_bench_press"])(
+    "%s detail/list preserve every public field from the DB",
+    async (id) => {
+      const row = await prisma.exercise.findUniqueOrThrow({ where: { id } });
+      const seed = CURRENT_CATALOG.find((exercise) => exercise.id === id)!;
+      expect({ ...row, defaultStepKg: Number(row.defaultStepKg) }).toEqual(seed);
+      const expected = {
+        id: row.id,
+        name_ko: row.nameKo,
+        name_en: row.nameEn,
+        movement_pattern: row.movementPattern,
+        primary_muscles: row.primaryMuscles,
+        equipment: row.equipment,
+        difficulty: row.difficulty,
+        mechanic: row.mechanic,
+        region: row.region,
+        metric: row.metric,
+        step_kg: Number(row.defaultStepKg),
+        rep_range_low: row.defaultRepsLow,
+        rep_range_high: row.defaultRepsHigh,
+        default_time_low_sec: null,
+        default_time_high_sec: null,
+        substitutions: row.substitutions,
+        media_url: null,
+      };
+      const response = await request(app.getHttpServer()).get(`/v1/exercises/${id}`).expect(200);
+      expectMatchesContract("get", DETAIL_PATH, 200, response.body);
+      expect(response.body).toEqual(expected);
+      const items = (await fetchAllPages()).flatMap((page) => page.items);
+      expect(items.filter((item) => item.id === id)).toEqual([expected]);
+    },
+  );
 
   describe("GET /exercises (필터 없음)", () => {
     it("커서 순회로 시드 전량을 돌려준다 — 중복 0 · 누락 0", async () => {

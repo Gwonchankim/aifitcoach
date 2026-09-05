@@ -10,6 +10,7 @@ import { execSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 import { REPO_ROOT, testDatabaseUrl } from "./support/database-url";
 import { applyTestDatabaseEnv } from "./global-setup";
+import { CURRENT_CATALOG, BASELINE_CATALOG, CATALOG_COUNT } from "./support/catalog-extension";
 
 const prisma = new PrismaClient({ datasources: { db: { url: testDatabaseUrl() } } });
 
@@ -18,8 +19,27 @@ describe("exercises 시드", () => {
     await prisma.$disconnect();
   });
 
-  it("시드 106종이 적재된다", async () => {
-    await expect(prisma.exercise.count()).resolves.toBe(106);
+  it("시드 109종이 적재된다", async () => {
+    await expect(prisma.exercise.count()).resolves.toBe(CATALOG_COUNT);
+  });
+
+  it("all DB fields match the seed, including the immutable baseline106", async () => {
+    const rows = await prisma.exercise.findMany();
+    const normalize = (row: (typeof rows)[number]) => ({
+      ...row,
+      defaultStepKg: row.defaultStepKg === null ? null : Number(row.defaultStepKg),
+    });
+    const byId = new Map(rows.map((row) => [row.id, normalize(row)]));
+    for (const expected of CURRENT_CATALOG)
+      expect(byId.get(expected.id)).toEqual(normalize(expected));
+    for (const expected of BASELINE_CATALOG)
+      expect(byId.get(expected.id)).toEqual(normalize(expected));
+    expect(
+      rows
+        .filter((row) => row.loadSemantics === "assistance")
+        .map((row) => row.id)
+        .sort(),
+    ).toEqual(["e_assisted_pullup"]);
   });
 
   it("substitutions 참조가 모두 존재한다", async () => {
@@ -126,7 +146,7 @@ describe("시드 재실행", () => {
       );
 
     const before = await snapshot();
-    expect(before).toHaveLength(106);
+    expect(before).toHaveLength(CATALOG_COUNT);
 
     // globalSetup 과 같은 방식으로 **test DB 를 강제**한다. 개발 DB 는 건드리지 않는다.
     execSync("pnpm --filter api db:seed", {

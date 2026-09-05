@@ -203,6 +203,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const sessionQuery = useQuery({
     queryKey: ["session", sessionId],
+    // The query owns its durable fallback; an offline pause would prevent reading it.
+    networkMode: "always",
     queryFn: ({ signal }) =>
       readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId, signal)),
   });
@@ -210,6 +212,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const catalogQuery = useQuery({
     queryKey: ["exercises"],
     queryFn: fetchAllExercises,
+    networkMode: "always",
     staleTime: Infinity,
   });
 
@@ -907,6 +910,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           open
           mode={picker}
           catalog={catalog}
+          catalogLoading={catalogQuery.isPending || catalogQuery.isFetching}
+          catalogError={catalogQuery.isError ? errorMessage(catalogQuery.error, "catalog") : null}
+          onRetryCatalog={() => void catalogQuery.refetch()}
           inRoutine={inRoutine}
           pending={addMutation.isPending || swapMutation.isPending}
           errorText={editError}
