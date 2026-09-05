@@ -129,6 +129,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [removeExerciseId, setRemoveExerciseId] = useState<string | null>(null);
   const [painExerciseId, setPainExerciseId] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerMode | null>(null);
+  const [pickerReturnFocusTarget, setPickerReturnFocusTarget] = useState<HTMLElement | null>(null);
   const [finishOpen, setFinishOpen] = useState(false);
   const [summary, setSummary] = useState<CompleteResponse | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -843,7 +844,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               variant="secondary"
               size="md"
               fullWidth
-              onClick={() => {
+              onClick={(event) => {
+                setPickerReturnFocusTarget(event.currentTarget);
                 setEditError(null);
                 setPicker({ type: "add" });
               }}
@@ -910,6 +912,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         <ExercisePickerSheet
           open
           mode={picker}
+          returnFocusTarget={picker.type === "add" ? pickerReturnFocusTarget : undefined}
           catalog={catalog}
           catalogLoading={catalogQuery.isPending || catalogQuery.isFetching}
           catalogError={catalogQuery.isError ? errorMessage(catalogQuery.error, "catalog") : null}

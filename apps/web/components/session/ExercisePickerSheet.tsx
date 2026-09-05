@@ -36,6 +36,8 @@ export type ExercisePickerSheetProps = {
   onRetryCatalog?: () => void;
   onSelect: (exerciseId: string) => void;
   onClose: () => void;
+  /** 클릭이 포커스를 주지 않는 브라우저에서도 실제 열기 버튼으로 복귀한다. */
+  returnFocusTarget?: HTMLElement | null;
 };
 
 export function ExercisePickerSheet({
@@ -50,6 +52,7 @@ export function ExercisePickerSheet({
   onRetryCatalog,
   onSelect,
   onClose,
+  returnFocusTarget,
 }: ExercisePickerSheetProps) {
   const from =
     mode.type === "swap" ? (catalog.find((e) => e.id === mode.exerciseId) ?? null) : null;
@@ -59,7 +62,7 @@ export function ExercisePickerSheet({
   const searchRef = useRef<HTMLInputElement>(null);
   const searching = normalizeExerciseSearch(query) !== "";
 
-  useModal(open, SHEET_ID, onClose, `picker-tab-${defaultRegion}`);
+  useModal(open, SHEET_ID, onClose, `picker-tab-${defaultRegion}`, returnFocusTarget);
 
   // 다른 운동을 교체하려고 다시 열면 그 운동의 부위부터 보여준다.
   useEffect(() => {

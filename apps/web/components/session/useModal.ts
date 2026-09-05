@@ -20,12 +20,14 @@ const FOCUSABLE = [
  * @param sheetId `Sheet` 에 넘긴 id(= dialog 엘리먼트 id)
  * @param onClose Esc·배경 탭으로 닫을 때 실행
  * @param initialFocusId 초기 포커스를 받을 요소의 id(없으면 첫 포커스 가능 요소)
+ * @param returnFocusTarget 명시적 열기 요소(없으면 기존 activeElement 복원)
  */
 export function useModal(
   open: boolean,
   sheetId: string,
   onClose: () => void,
   initialFocusId?: string,
+  returnFocusTarget?: HTMLElement | null,
 ) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -80,7 +82,15 @@ export function useModal(
       window.clearTimeout(focusTimer);
       document.removeEventListener("keydown", onKeyDown, true);
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus?.();
+      if (returnFocusTarget) {
+        if (
+          returnFocusTarget.isConnected &&
+          !returnFocusTarget.matches(':disabled, [aria-disabled="true"]')
+        )
+          returnFocusTarget.focus();
+      } else {
+        previouslyFocused?.focus?.();
+      }
     };
-  }, [open, sheetId, initialFocusId]);
+  }, [open, sheetId, initialFocusId, returnFocusTarget]);
 }
