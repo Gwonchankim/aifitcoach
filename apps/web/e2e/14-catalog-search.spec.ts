@@ -139,6 +139,23 @@ for (const [id, query] of searches) {
   });
 }
 
+/** Observe element focus separately from document activation; never move either one. */
+async function pickerFocusState(page: Page, stage: string) {
+  return page
+    .evaluate((label) => {
+      const active = document.activeElement;
+      return {
+        stage: label,
+        activeElement: active
+          ? { tag: active.tagName, id: active.id, text: active.textContent?.trim().slice(0, 160) }
+          : null,
+        hasFocus: document.hasFocus(),
+        dialogExists: document.getElementById("exercise-picker") !== null,
+      };
+    }, stage)
+    .catch((error: unknown) => ({ stage, readError: String(error) }));
+}
+
 for (const width of [360, 390, 430]) {
   test(`search keyboard, clear/reopen, no overflow and axe at ${width}px`, async ({
     page,
@@ -148,43 +165,62 @@ for (const width of [360, 390, 430]) {
     await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
     await openSession(page, await todaySession(request));
     const trigger = page.getByRole("button", { name: "운동 추가", exact: true });
-    const picker = await openPicker(page);
-    await expect(picker.getByRole("tab", { name: "가슴" })).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(picker.getByRole("tab", { name: "등" })).toBeFocused();
-    const search = picker.getByRole("searchbox", { name: "운동 검색" });
-    await search.fill("시티드 머신 로우");
-    await expect(picker.getByText("전체 부위에서 검색해요.")).toBeVisible();
-    await expect(picker.getByRole("button", { name: "머신 로우 머신", exact: true })).toBeVisible();
-    await picker.getByRole("button", { name: "검색어 지우기" }).click();
-    await expect(search).toBeFocused();
-    await search.fill("존재하지 않는 검색어");
-    await expect(
-      picker.getByText("검색 결과가 없어요. 다른 이름으로 검색해 보세요."),
-    ).toBeVisible();
-    await search.fill("머신");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
-    expect(await picker.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-      true,
-    );
-    const axe = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
-      .analyze();
-    await testInfo.attach(`axe-${width}`, {
-      body: JSON.stringify(axe.violations),
-      contentType: "application/json",
-    });
-    expect(axe.violations).toEqual([]);
-    await testInfo.attach(`search-${width}`, {
-      body: await page.screenshot(),
-      contentType: "image/png",
-    });
-    await page.keyboard.press("Escape");
-    await expect(trigger).toBeFocused();
-    await trigger.click();
-    await expect(search).toHaveValue("");
+    const focusObservations: Array<Awaited<ReturnType<typeof pickerFocusState>>> = [];
+    const observeFocus = async (stage: string) => {
+      focusObservations.push(await pickerFocusState(page, stage));
+    };
+    try {
+      await observeFocus("before-open-click");
+      const picker = await openPicker(page);
+      await observeFocus("after-open-click");
+      await expect(picker.getByRole("tab", { name: "가슴" })).toBeFocused();
+      await page.keyboard.press("ArrowRight");
+      await expect(picker.getByRole("tab", { name: "등" })).toBeFocused();
+      const search = picker.getByRole("searchbox", { name: "운동 검색" });
+      await search.fill("시티드 머신 로우");
+      await expect(picker.getByText("전체 부위에서 검색해요.")).toBeVisible();
+      await expect(
+        picker.getByRole("button", { name: "머신 로우 머신", exact: true }),
+      ).toBeVisible();
+      await picker.getByRole("button", { name: "검색어 지우기" }).click();
+      await expect(search).toBeFocused();
+      await search.fill("존재하지 않는 검색어");
+      await expect(
+        picker.getByText("검색 결과가 없어요. 다른 이름으로 검색해 보세요."),
+      ).toBeVisible();
+      await search.fill("머신");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      expect(await picker.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await observeFocus("before-axe");
+      const axe = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+        .analyze();
+      await observeFocus("after-axe");
+      await testInfo.attach(`axe-${width}`, {
+        body: JSON.stringify(axe.violations),
+        contentType: "application/json",
+      });
+      expect(axe.violations).toEqual([]);
+      await testInfo.attach(`search-${width}`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+      await page.keyboard.press("Escape");
+      await observeFocus("after-escape");
+      await expect(trigger).toBeFocused();
+      await trigger.click();
+      await expect(search).toHaveValue("");
+    } finally {
+      await observeFocus("finally");
+      await testInfo.attach(`picker-focus-${width}`, {
+        body: JSON.stringify(focusObservations, null, 2),
+        contentType: "application/json",
+      });
+    }
   });
 }
 
