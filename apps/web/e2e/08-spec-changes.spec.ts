@@ -6,7 +6,7 @@
  */
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { API_V1, openSession, seedProgram, shot, todaySession } from "./helpers";
+import { API_V1, openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
 
 /** 주당 일수별 운동 요일(apps/api programs/program-rules.ts 와 같은 표). */
 const DAY_PATTERN: Record<number, string[]> = {
@@ -63,7 +63,7 @@ async function completeSet(page: Page, exerciseName: string, setNo: number): Pro
 
 test.describe("F1-1 RIR 입력", () => {
   test("미입력으로 완료하면 요청 어디에도 RIR 이 실리지 않는다", async ({ page, request }) => {
-    await seedProgram(request);
+    await seedExternalLoadProgram(request);
     const sessionId = await todaySession(request);
     const bodies = recordRequestBodies(page);
 
@@ -98,7 +98,7 @@ test.describe("F1-1 RIR 입력", () => {
     page,
     request,
   }) => {
-    await seedProgram(request);
+    await seedExternalLoadProgram(request);
     const sessionId = await todaySession(request);
     await openSession(page, sessionId);
     const name = await firstExerciseName(page);
@@ -187,7 +187,7 @@ test("완료 행을 펼쳐 값만 고치면 휴식 타이머가 열리지 않는
   page,
   request,
 }) => {
-  await seedProgram(request, { days_per_week: 3 });
+  await seedExternalLoadProgram(request, { days_per_week: 3 });
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExerciseName(page);
@@ -250,7 +250,7 @@ test.describe("F8-1 휴식일에도 운동하기", () => {
       days == null,
       "월요일은 어떤 주당 일수(2~6)에도 운동일이라 휴식일 상태를 만들 수 없다",
     );
-    await seedProgram(request, { days_per_week: days as number });
+    await seedExternalLoadProgram(request, { days_per_week: days as number });
 
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "오늘은 휴식" })).toBeVisible();
@@ -278,7 +278,7 @@ test.describe("F8-1 휴식일에도 운동하기", () => {
   });
 
   test("오늘 세션이 이미 있으면(409) 에러 없이 그 세션으로 이동한다", async ({ page, request }) => {
-    await seedProgram(request, { days_per_week: 3 });
+    await seedExternalLoadProgram(request, { days_per_week: 3 });
     const sessionId = await todaySession(request);
 
     /*
@@ -314,7 +314,7 @@ test.describe("F8-1 휴식일에도 운동하기", () => {
   });
 
   test("7일 연속 운동했으면 회복 안내가 보인다(막지는 않는다)", async ({ page, request }) => {
-    await seedProgram(request, { days_per_week: 3 });
+    await seedExternalLoadProgram(request, { days_per_week: 3 });
     const summary = await (await request.get(`${API_V1}/dashboard`)).json();
     await page.route("**/v1/dashboard", (route) =>
       route.fulfill({
@@ -347,7 +347,7 @@ test.describe("F8-1 휴식일에도 운동하기", () => {
 // ---------------------------------------------------------------------------
 
 test("F6-1 종료한 당일 세션을 다시 열어 세트를 더하고 고친다", async ({ page, request }) => {
-  await seedProgram(request, { days_per_week: 3 });
+  await seedExternalLoadProgram(request, { days_per_week: 3 });
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExerciseName(page);

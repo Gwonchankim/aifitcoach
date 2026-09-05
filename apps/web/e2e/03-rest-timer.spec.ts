@@ -6,14 +6,14 @@
  */
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { openSession, seedProgram, shot, todaySession } from "./helpers";
+import { openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
 
 let sessionId: string;
 
 // /sync now persists a completed set on the server. Give every timer case a fresh session so
 // one case cannot pull the previous case's first-set completion into its new browser context.
 test.beforeEach(async ({ request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   sessionId = await todaySession(request);
 });
 

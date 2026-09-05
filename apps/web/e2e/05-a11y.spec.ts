@@ -7,7 +7,7 @@ import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import fs from "node:fs";
 import path from "node:path";
-import { openSession, seedProgram, shot, todaySession } from "./helpers";
+import { openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
 
 /**
  * 결과는 JSONL 로 **한 줄씩 append** 한다.
@@ -21,7 +21,7 @@ let sessionId: string;
 // S4/S5 both complete a real server set after STEP 6. A fresh session per case keeps the axe
 // target state intentional instead of pulling the previous case's completion.
 test.beforeEach(async ({ request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   sessionId = await todaySession(request);
 });
 
@@ -206,7 +206,7 @@ test("키보드만으로 세트 완료 → 타이머 → 휴식 종료 루프를
   page,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const fresh = await todaySession(request);
   await openSession(page, fresh);
 

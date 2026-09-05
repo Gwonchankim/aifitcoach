@@ -14,7 +14,7 @@
  */
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { openSession, seedProgram, todaySession } from "./helpers";
+import { openSession, seedExternalLoadProgram, todaySession } from "./helpers";
 
 type ProbeEvent = { seq: number; kind: string; store?: string; pattern?: number[] };
 
@@ -28,7 +28,7 @@ declare global {
 let sessionId: string;
 
 test.beforeEach(async ({ request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   sessionId = await todaySession(request);
 });
 

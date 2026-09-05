@@ -12,7 +12,7 @@
  */
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { addExercise, openSession, seedProgram, shot, todaySession } from "./helpers";
+import { addExercise, openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
 
 const PULLUP = "e_pullup"; // 맨몸(reps)
 const PLANK = "e_plank"; // 시간(time)
@@ -84,7 +84,7 @@ test("종목 3종 성공 경로: 입력 → 체크 → 타이머 → 카운터 �
   page,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await addExercise(request, sessionId, PULLUP);
   await addExercise(request, sessionId, PLANK);
@@ -153,7 +153,7 @@ test("종목 3종 성공 경로: 입력 → 체크 → 타이머 → 카운터 �
  * 원인은 `crypto.randomUUID` 가 secure context 전용이라는 것. 폰에서 사설 IP 로 접속하면 없다.
  */
 test("비보안 출처(실기기 http 접속)에서도 완료 체크가 동작한다", async ({ page, request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
 
   await page.addInitScript(() => {

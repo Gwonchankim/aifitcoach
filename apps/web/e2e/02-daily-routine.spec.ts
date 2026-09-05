@@ -4,12 +4,19 @@
  */
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { API_V1, assertNoZeroKg, openSession, seedProgram, shot, todaySession } from "./helpers";
+import {
+  API_V1,
+  assertNoZeroKg,
+  openSession,
+  seedExternalLoadProgram,
+  shot,
+  todaySession,
+} from "./helpers";
 
 let sessionId: string;
 
 test.beforeAll(async ({ request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   sessionId = await todaySession(request);
 });
 
@@ -299,7 +306,7 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
  * (접근 이름에도 그대로 들어가기 때문). 회귀 방지용으로 고정한다.
  */
 test("카탈로그 도착 전에는 임시 이름 대신 스켈레톤을 보여준다", async ({ page, request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const fresh = await todaySession(request);
 
   // 시간 지연 대신 **게이트**로 막는다. 지연값에 기대면 응답이 먼저 도착해 테스트가 흔들린다.
@@ -336,7 +343,7 @@ test("카탈로그 도착 전에는 임시 이름 대신 스켈레톤을 보여�
 test("종료한 당일 세션에 다시 들어가면 편집 모드다(F6-1)", async ({ page, request }) => {
   // 이 테스트 전용으로 세션을 만들어 종료한다.
   // (앞 테스트가 프로그램을 다시 만들면 beforeAll 의 세션은 사라질 수 있다.)
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const target = await todaySession(request);
   const done = await request.post(`${API_V1}/sessions/${target}/complete`, {
     headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev" },

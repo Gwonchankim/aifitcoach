@@ -37,6 +37,7 @@ export type GeneratePayload = {
   experience_level: "beginner" | "intermediate" | "advanced";
   equipment: string[];
   pain_areas: string[];
+  avoid_exercises?: string[];
 };
 
 export const DEFAULT_PROGRAM: GeneratePayload = {
@@ -58,6 +59,19 @@ export async function seedProgram(
     data: { ...DEFAULT_PROGRAM, ...payload },
   });
   expect(response.status(), "프로그램 생성").toBe(201);
+}
+
+/** Legacy weight/timer/offline scenarios exercise external-load inputs, not assistance inputs. */
+export async function seedExternalLoadProgram(
+  request: APIRequestContext,
+  payload: Partial<GeneratePayload> = {},
+): Promise<void> {
+  await seedProgram(request, {
+    ...payload,
+    avoid_exercises: [
+      ...new Set([...(payload.avoid_exercises ?? []), "e_assisted_pullup", "e_assisted_dips"]),
+    ],
+  });
 }
 
 export type TodaySession = { sessionId: string; status: string };

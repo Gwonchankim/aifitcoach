@@ -5,7 +5,8 @@ import { expect, test } from "./fixtures";
 import { API_V1, addExercise, openSession, seedProgram, todaySession } from "./helpers";
 import { TEST_NOW } from "./test-today";
 import { assistanceDatabaseSnapshot } from "./support/assistance-observation";
-import type { Session } from "../lib/api";
+import { warmSessionDocument } from "./support/warm-session-document";
+import type { CompletionAnalytics, Session, SyncResponse } from "../lib/api";
 
 test.describe.configure({ mode: "serial" });
 const pairs = [
@@ -23,6 +24,36 @@ async function fresh(request: APIRequestContext) {
   const id = await todaySession(request);
   for (const pair of pairs) await addExercise(request, id, pair.id);
   return getSession(request, id);
+}
+
+async function prepareUnperformedTarget(request: APIRequestContext, session: Session) {
+  const response = await request.get(`${API_V1}/analytics/completion`, { params: { weeks: 2 } });
+  expect(response.status()).toBe(200);
+  const calendar = (await response.json()) as CompletionAnalytics;
+  expect(calendar.program_id).toBe(session.program_id);
+  const next = calendar.weeks
+    .flatMap((week) => week.days)
+    .filter(
+      (day) => day.session_id && day.date > session.scheduled_date && day.state === "scheduled",
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  expect(
+    next?.session_id,
+    "completion recompute needs an unperformed target in the same program",
+  ).toBeTruthy();
+  const nextId = next.session_id!;
+  for (const pair of pairs) await addExercise(request, nextId, pair.id);
+  const target = await getSession(request, nextId);
+  expect(target.program_id).toBe(session.program_id);
+  for (const pair of pairs) {
+    const rows = target.planned_sets.filter((row) => row.exercise_id === pair.id);
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.performed_set).toBeNull();
+      expect(row.assistance_safety_status).toBe("safe");
+    }
+  }
+  return nextId;
 }
 async function outbox(page: Page) {
   return page.evaluate(async () => {
@@ -71,27 +102,43 @@ test("minimum pullup+dips suggestions survive GET, reload, offline/reload and re
     await openSession(page, session.id);
     for (const pair of pairs)
       await expect(page.getByText(pair.text, { exact: true })).toHaveCount(0);
+    // Completed assistance rows must never become a recompute target. Prepare a real future row.
+    sessionIds.push(await prepareUnperformedTarget(request, session));
+    const mutations = session.planned_sets
+      .filter((row) => pairs.some((pair) => pair.id === row.exercise_id))
+      .map((row) => ({
+        client_id: randomUUID(),
+        entity: "performed_set" as const,
+        entity_id: row.id, // Mutation contract: performed_set entity_id is the planned-set ID.
+        op: "upsert" as const,
+        updated_at: TEST_NOW,
+        payload: {
+          actual_weight: 2.5,
+          actual_reps: row.target_reps_high,
+          actual_rir: 2,
+          completed: true,
+        },
+      }));
     const sync = await request.post(`${API_V1}/sync`, {
       headers,
-      data: {
-        mutations: session.planned_sets
-          .filter((row) => pairs.some((pair) => pair.id === row.exercise_id))
-          .map((row) => ({
-            client_id: randomUUID(),
-            entity: "performed_set",
-            entity_id: row.id,
-            op: "upsert",
-            updated_at: TEST_NOW,
-            payload: {
-              actual_weight: 2.5,
-              actual_reps: row.target_reps_high,
-              actual_rir: 2,
-              completed: true,
-            },
-          })),
-      },
+      data: { mutations },
     });
     expect(sync.status()).toBe(200);
+    const acknowledgement = (await sync.json()) as SyncResponse;
+    await testInfo.attach(`history-sync-${count + 1}`, {
+      body: JSON.stringify({ mutations, acknowledgement }),
+      contentType: "application/json",
+    });
+    expect(acknowledgement.conflicts).toEqual([]);
+    expect([...acknowledgement.applied].sort()).toEqual(
+      mutations.map((mutation) => mutation.client_id).sort(),
+    );
+    const accepted = await getSession(request, session.id);
+    for (const mutation of mutations) {
+      expect(
+        accepted.planned_sets.find((row) => row.id === mutation.entity_id)?.performed_set,
+      ).toMatchObject(mutation.payload);
+    }
     const complete = await request.post(`${API_V1}/sessions/${session.id}/complete`, {
       headers,
       data: {},
@@ -124,6 +171,7 @@ test("minimum pullup+dips suggestions survive GET, reload, offline/reload and re
     });
   }
   await openSession(page, session.id);
+  await warmSessionDocument(page);
   const databaseBefore = await assistanceDatabaseSnapshot(sessionIds);
   const outboxBefore = await outbox(page);
   expect(outboxBefore).toEqual([]);

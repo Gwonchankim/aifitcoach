@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { type APIRequestContext, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { API_V1, openSession, seedProgram, todaySession } from "./helpers";
+import { API_V1, openSession, seedExternalLoadProgram, todaySession } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -92,7 +92,7 @@ test("loss 0: offline add/swap/immediate logging survives reload and a closed ta
   request,
   browserName,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   await warmOfflineShell(page);
@@ -194,7 +194,7 @@ test("@chromium-only 휴식을 닫고 곧바로 새로고침해도 타이머가 
   page,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExercise(page);
@@ -219,7 +219,7 @@ test("@chromium-only 완료 취소 뒤 새로고침해도 그 세트 타이머�
   page,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExercise(page);
@@ -238,7 +238,7 @@ test("@chromium-only a stale reconnect read cannot overwrite an applied routine 
   context,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const initialResponse = await request.get(`${API_V1}/sessions/${sessionId}`);
@@ -296,7 +296,7 @@ test("@chromium-only response loss retries one server-received mutation without 
   context,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExercise(page);
@@ -325,7 +325,7 @@ test("@chromium-only a re-offline transport interruption preserves the outbox un
   context,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   await openSession(page, sessionId);
   const name = await firstExercise(page);
@@ -355,7 +355,7 @@ test("@chromium-only pull creates a missing local draft and applies a later tomb
   page,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   const session = (await (await request.get(`${API_V1}/sessions/${sessionId}`)).json()) as {
     planned_sets: { id: string }[];
@@ -406,7 +406,7 @@ test("@chromium-only two tabs resolve the same planned set by later real-clock w
   context,
   request,
 }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   const sessionId = await todaySession(request);
   const other = await context.newPage();
   await openSession(page, sessionId);

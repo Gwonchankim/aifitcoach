@@ -4,6 +4,7 @@ import { type APIRequestContext, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { API_V1, addExercise, openSession, seedProgram, todaySession } from "./helpers";
 import type { Exercise, Session } from "../lib/api";
+import { warmSessionDocument } from "./support/warm-session-document";
 
 test.describe.configure({ mode: "serial" });
 const CATALOG_COUNT = 110;
@@ -239,14 +240,9 @@ test("old106 partial-page failure preserves cache; retry fills110 and warm offli
     });
   });
   await openSession(page, sessionId);
+  await warmSessionDocument(page);
   const before = await localSnapshot(page);
   expect(before.catalogs[0].catalog).toEqual(old);
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready;
-  });
-  await expect
-    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
-    .toBe(true);
   await page.unroute("**/v1/exercises*");
   await context.setOffline(true);
   await page.reload();
@@ -323,14 +319,9 @@ test("cold catalog offline reload shows connection retry instead of empty search
   await expect(page.getByRole("button", { name: "운동 추가", exact: true })).toBeVisible({
     timeout: 20_000,
   });
+  await warmSessionDocument(page);
   const before = await localSnapshot(page);
   expect(before.catalogs).toEqual([]);
-  await page.evaluate(async () => {
-    await navigator.serviceWorker.ready;
-  });
-  await expect
-    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
-    .toBe(true);
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole("button", { name: "운동 추가", exact: true })).toBeVisible({

@@ -8,7 +8,7 @@ import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import fs from "node:fs";
 import path from "node:path";
-import { openSession, seedProgram, shot, todaySession } from "./helpers";
+import { openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
 
 const metrics: Record<string, unknown>[] = [];
 
@@ -17,7 +17,7 @@ let sessionId: string;
 // A completed set is server state after STEP 6. Isolate metric cases with a fresh session so
 // the scroll-density case cannot pre-complete the timer case's first row through pull.
 test.beforeEach(async ({ request }) => {
-  await seedProgram(request);
+  await seedExternalLoadProgram(request);
   sessionId = await todaySession(request);
 });
 
