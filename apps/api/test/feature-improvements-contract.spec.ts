@@ -4,6 +4,7 @@ import Ajv, { type AnySchema } from "ajv";
 import addFormats from "ajv-formats";
 import { parse } from "yaml";
 import { ROUTINE_RULES_VERSION } from "shared";
+import { toJsonSchema } from "./support/openapi-response";
 
 type Schema = Record<string, unknown>;
 type Document = {
@@ -78,8 +79,11 @@ function referenceTarget(reference: string): unknown {
 
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
-ajv.addSchema(active as AnySchema, "https://afc.test/openapi.yaml");
-ajv.addSchema(reserved as AnySchema, "https://afc.test/feature-improvements.openapi.yaml");
+ajv.addSchema(toJsonSchema(active) as AnySchema, "https://afc.test/openapi.yaml");
+ajv.addSchema(
+  toJsonSchema(reserved) as AnySchema,
+  "https://afc.test/feature-improvements.openapi.yaml",
+);
 const validate = (name: string, value: unknown) =>
   ajv.validate(
     `https://afc.test/feature-improvements.openapi.yaml#/components/schemas/${name}`,

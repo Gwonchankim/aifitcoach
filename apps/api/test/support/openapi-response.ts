@@ -23,7 +23,7 @@ const OPENAPI_PATH = path.resolve(
 const SCHEMA_KEY = "openapi";
 
 /** OpenAPI 3.0 의 `nullable: true` 를 JSON Schema 의 union 타입으로 옮긴다. */
-function toJsonSchema(node: unknown): unknown {
+export function toJsonSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(toJsonSchema);
   if (node === null || typeof node !== "object") return node;
 
