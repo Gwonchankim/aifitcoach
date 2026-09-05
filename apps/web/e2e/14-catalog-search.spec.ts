@@ -378,44 +378,137 @@ test("cold catalog offline reload shows connection retry instead of empty search
   await context.setOffline(false);
 });
 
-test("cold partial failure has no cache or false empty results; explicit retry preserves query and completes", async ({
-  page,
-  request,
-}, testInfo) => {
-  await allExercises(request);
-  await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
-  const sessionId = await todaySession(request);
-  await page.route("**/v1/exercises*", (route) =>
-    new URL(route.request().url()).searchParams.has("cursor")
-      ? route.abort("failed")
-      : route.continue(),
-  );
-  await page.goto(`/session/${sessionId}`);
-  await expect(page.getByRole("button", { name: "운동 추가", exact: true })).toBeVisible({
-    timeout: 20_000,
-  });
-  const picker = await openPicker(page);
-  await picker.getByRole("searchbox", { name: "운동 검색" }).fill("Low Row Machine");
-  await expect(
-    picker.getByText("운동 목록을 불러올 수 없어요. 연결 후 다시 시도해 주세요."),
-  ).toBeVisible();
-  await expect(picker.getByText(/검색 결과가 없어요/)).toHaveCount(0);
-  const failed = await localSnapshot(page);
-  expect(failed.catalogs).toEqual([]);
-  await page.unroute("**/v1/exercises*");
-  await picker.getByRole("button", { name: "다시 시도", exact: true }).click();
-  await expect(picker.getByRole("searchbox", { name: "운동 검색" })).toHaveValue("Low Row Machine");
-  await expect(
-    picker.getByRole("button", { name: "로우 로우 머신 머신", exact: true }),
-  ).toBeVisible();
-  const complete = await localSnapshot(page);
-  expect(complete.catalogs[0].catalog).toHaveLength(CATALOG_COUNT);
-  expect(complete.drafts).toEqual(failed.drafts);
-  expect(complete.outbox).toEqual(failed.outbox);
-  expect(complete.sessions).toEqual(failed.sessions);
-  expect(complete.routines).toEqual(failed.routines);
-  await testInfo.attach("cold-failure-retry", {
-    body: JSON.stringify({ failed, complete }),
-    contentType: "application/json",
+test.describe("catalog partial-failure transport", () => {
+  test.use({ serviceWorkers: "block" });
+
+  test("cold partial failure has no cache or false empty results; explicit retry preserves query and completes", async ({
+    page,
+    request,
+  }, testInfo) => {
+    await allExercises(request);
+    const firstPage = await request.get(`${API_V1}/exercises`);
+    expect(firstPage.status()).toBe(200);
+    const { next_cursor: page2Cursor } = (await firstPage.json()) as { next_cursor: string };
+    expect(page2Cursor).toEqual(expect.any(String));
+    expect(page2Cursor.length).toBeGreaterThan(0);
+    await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
+    const sessionId = await todaySession(request);
+    let phase: "failure" | "retry" = "failure";
+    const routeLog: Array<{ phase: string; cursor: string | null; action: string }> = [];
+    const requestFailures: Array<{
+      phase: string;
+      method: string;
+      url: string;
+      error: string | null;
+    }> = [];
+    const catalogResponses: Array<{
+      phase: string;
+      url: string;
+      cursor: string | null;
+      status: number;
+    }> = [];
+    page.on("requestfailed", (failedRequest) => {
+      if (!failedRequest.url().startsWith(`${API_V1}/exercises`)) return;
+      requestFailures.push({
+        phase,
+        method: failedRequest.method(),
+        url: failedRequest.url(),
+        error: failedRequest.failure()?.errorText ?? null,
+      });
+    });
+    page.on("response", (response) => {
+      if (!response.url().startsWith(`${API_V1}/exercises`)) return;
+      catalogResponses.push({
+        phase,
+        url: response.url(),
+        cursor: new URL(response.url()).searchParams.get("cursor"),
+        status: response.status(),
+      });
+    });
+    const successfulFailurePages = () =>
+      catalogResponses.filter(
+        (response) =>
+          response.phase === "failure" && response.cursor !== null && response.status === 200,
+      );
+    await page.route("**/v1/exercises*", async (route) => {
+      const cursor = new URL(route.request().url()).searchParams.get("cursor");
+      if (cursor) {
+        await route.abort("failed");
+        routeLog.push({ phase, cursor, action: "aborted" });
+      } else {
+        await route.continue();
+        routeLog.push({ phase, cursor, action: "continued" });
+      }
+    });
+    try {
+      await page.goto(`/session/${sessionId}`);
+      await expect(page.getByRole("button", { name: "운동 추가", exact: true })).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect
+        .poll(() => routeLog)
+        .toContainEqual({ phase: "failure", cursor: page2Cursor, action: "aborted" });
+      await expect
+        .poll(() => requestFailures)
+        .toContainEqual(
+          expect.objectContaining({
+            phase: "failure",
+            method: "GET",
+            url: `${API_V1}/exercises?cursor=${encodeURIComponent(page2Cursor)}`,
+          }),
+        );
+      expect(successfulFailurePages()).toEqual([]);
+      const picker = await openPicker(page);
+      await picker.getByRole("searchbox", { name: "운동 검색" }).fill("Low Row Machine");
+      await expect(
+        picker.getByText("운동 목록을 불러올 수 없어요. 연결 후 다시 시도해 주세요."),
+      ).toBeVisible();
+      await expect(picker.getByText(/검색 결과가 없어요/)).toHaveCount(0);
+      const failed = await localSnapshot(page);
+      expect(failed.catalogs).toEqual([]);
+      expect(successfulFailurePages()).toEqual([]);
+      phase = "retry";
+      await page.unroute("**/v1/exercises*");
+      await picker.getByRole("button", { name: "다시 시도", exact: true }).click();
+      await expect(picker.getByRole("searchbox", { name: "운동 검색" })).toHaveValue(
+        "Low Row Machine",
+      );
+      await expect(
+        picker.getByRole("button", { name: "로우 로우 머신 머신", exact: true }),
+      ).toBeVisible();
+      const complete = await localSnapshot(page);
+      expect(complete.catalogs[0].catalog).toHaveLength(CATALOG_COUNT);
+      expect(complete.drafts).toEqual(failed.drafts);
+      expect(complete.outbox).toEqual(failed.outbox);
+      expect(complete.sessions).toEqual(failed.sessions);
+      expect(complete.routines).toEqual(failed.routines);
+      await testInfo.attach("cold-failure-retry", {
+        body: JSON.stringify({ failed, complete }),
+        contentType: "application/json",
+      });
+    } finally {
+      const serviceWorker = await page
+        .evaluate(async () => ({
+          controller: navigator.serviceWorker.controller?.scriptURL ?? null,
+          registrations: (await navigator.serviceWorker.getRegistrations()).map((registration) => ({
+            scope: registration.scope,
+            active: registration.active?.scriptURL ?? null,
+            waiting: registration.waiting?.scriptURL ?? null,
+            installing: registration.installing?.scriptURL ?? null,
+          })),
+        }))
+        .catch((error: unknown) => ({ readError: String(error) }));
+      const local = await localSnapshot(page).catch((error: unknown) => ({
+        readError: String(error),
+      }));
+      await testInfo.attach("cold-partial-transport", {
+        body: JSON.stringify(
+          { page2Cursor, phase, routeLog, requestFailures, catalogResponses, serviceWorker, local },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    }
   });
 });
