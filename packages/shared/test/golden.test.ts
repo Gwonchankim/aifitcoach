@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import goldenJson from "../../../docs/specs/golden_tests.json";
 import { recommendNextSet } from "../src/recommend";
-import type { LoadKind, ReasonCode, RecommendationInput, RecommendationState } from "../src/types";
+import type {
+  LoadKind,
+  ReasonCode,
+  RecommendationInput,
+  RecommendationState,
+  RecommendedAction,
+} from "../src/types";
 
 /**
  * 추천 엔진 계약 테스트. docs/specs/golden_tests.json을 직접 로드해 케이스별로 실행한다.
@@ -30,6 +36,7 @@ interface GoldenCase {
     confidence?: number;
     confidence_max?: number;
     suggest_substitution?: boolean;
+    recommended_action?: RecommendedAction | null;
   };
 }
 
@@ -55,6 +62,7 @@ const KNOWN_EXPECT_KEYS = [
   "confidence",
   "confidence_max",
   "suggest_substitution",
+  "recommended_action",
   "note",
 ];
 
@@ -98,6 +106,8 @@ describe("golden_tests.json", () => {
       expect(out.recommendation_state, `${c.id} recommendation_state`).toBeDefined();
 
       if (c.expect.weight !== undefined) expect(out.weight).toBe(c.expect.weight);
+      if (c.expect.recommended_action !== undefined)
+        expect(out.recommended_action).toEqual(c.expect.recommended_action);
       if (c.expect.reps_low !== undefined) expect(out.reps_low).toBe(c.expect.reps_low);
       if (c.expect.reps_high !== undefined) expect(out.reps_high).toBe(c.expect.reps_high);
       if (c.expect.time_low_sec !== undefined) expect(out.time_low_sec).toBe(c.expect.time_low_sec);

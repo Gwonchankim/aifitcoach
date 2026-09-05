@@ -102,6 +102,8 @@ export interface PerformedSet {
 export interface RecommendationInput {
   goal: Goal;
   exercise: {
+    /** Canonical metadata for a transition suggestion; never changes load calculations. */
+    id?: string;
     type: ExerciseType;
     region: Region;
     /** null = 맨몸(자체중량): 부하 대신 반복으로 진행한다. 0 은 잘못된 증량 단위(INVALID_INPUT). */

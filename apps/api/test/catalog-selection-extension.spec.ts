@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import {
   BASELINE_CATALOG,
-  CURRENT_CATALOG,
-  CATALOG_COUNT,
+  CATALOG109 as CURRENT_CATALOG,
   MACHINE_IDS,
 } from "./support/catalog-extension";
 import { catalogSelectionMatrix, weeklySelection } from "./support/catalog-selection-matrix";
@@ -15,7 +14,7 @@ describe("106 → 109 production selection matrix", () => {
 
   it("freezes all 2025 exact before/after weekly plans and their measured change distribution", () => {
     expect(BASELINE_CATALOG).toHaveLength(106);
-    expect(CURRENT_CATALOG).toHaveLength(CATALOG_COUNT);
+    expect(CURRENT_CATALOG).toHaveLength(109);
     expect(matrix).toHaveLength(2025);
     const serialized = JSON.stringify(matrix);
     const sha256 = createHash("sha256").update(serialized).digest("hex");

@@ -881,7 +881,10 @@ function toSessionResponse(
         recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
         assistance_provenance: set.assistanceProvenance,
         // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
-        recommended_action: applyDisplayGate(sampleCount, recommendedActionFor(set.reasonCode)),
+        recommended_action: applyDisplayGate(
+          sampleCount,
+          recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
+        ),
         // 게이트 **이전** raw 값으로 판정한다 — 가려진 legacy 처방도 unsafe 로 잡아야 한다.
         assistance_safety_status: rawAssistanceSafetyStatus(
           toRawTargetRow(

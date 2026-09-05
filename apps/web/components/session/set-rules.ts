@@ -3,6 +3,7 @@
  * 전부 순수 함수라 테스트로 고정한다(test/session-set-rules.test.ts).
  */
 import type { Exercise, PlannedSet } from "../../lib/api";
+import { assistanceTransitionAction } from "shared";
 
 export type SetKind =
   /** metric=time 종목: 시간(초)만 기록하고 RIR 을 묻지 않는다. */
@@ -172,7 +173,18 @@ export function assistanceSafetyCopy(set: PlannedSet): string | null {
  */
 export function assistanceAction(set: PlannedSet): PlannedSet["recommended_action"] {
   if (!isAssistanceSet(set) || isAssistanceSafetyState(set)) return null;
-  return set.recommended_action ?? null;
+  if (
+    set.reason_code !== "ASSISTANCE_MINIMUM_REACHED" ||
+    set.recommendation_state !== "ready" ||
+    set.recommendation_gate !== "ready" ||
+    set.assistance_safety_status !== "safe"
+  )
+    return null;
+  const action = set.recommended_action;
+  const allowed = assistanceTransitionAction(set.exercise_id);
+  if (!action || !allowed) return null;
+  // 표시 권한만 확인한다. 서버가 action을 주지 않았으면 새 제안을 합성하지 않는다.
+  return action.kind === allowed.kind && action.exercise_id === allowed.exercise_id ? action : null;
 }
 
 /**
@@ -190,7 +202,7 @@ const ASSISTANCE_REASON_TEXT: Record<string, string> = {
   ASSISTANCE_DOWN_RIR_EASY: "여유가 있어 보여 도움을 한 단계 줄여요",
   ASSISTANCE_UP_RIR_HARD: "강도가 높아 보여 도움을 한 단계 늘려요",
   ASSISTANCE_UP_TOO_HARD: "버거워 보여 도움을 한 단계 늘려요",
-  ASSISTANCE_MINIMUM_REACHED: "도움을 더 줄이기 어려워요. 다음 단계 운동을 권해요",
+  ASSISTANCE_MINIMUM_REACHED: "도움을 더 줄이기 어려워요. 현재 도움 무게를 유지해요",
   ASSISTANCE_CALIBRATION_NEEDED: "기계에서 편한 도움 무게를 직접 정해요",
   ADD_ONE_REP: "도움은 그대로, 반복을 1회 늘려요",
   HOLD_RIR_LOW: "지난번이 힘들어 보여 도움을 유지해요",

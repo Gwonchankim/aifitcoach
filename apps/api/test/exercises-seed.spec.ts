@@ -19,7 +19,7 @@ describe("exercises 시드", () => {
     await prisma.$disconnect();
   });
 
-  it("시드 109종이 적재된다", async () => {
+  it("시드 110종이 적재된다", async () => {
     await expect(prisma.exercise.count()).resolves.toBe(CATALOG_COUNT);
   });
 
@@ -39,7 +39,7 @@ describe("exercises 시드", () => {
         .filter((row) => row.loadSemantics === "assistance")
         .map((row) => row.id)
         .sort(),
-    ).toEqual(["e_assisted_pullup"]);
+    ).toEqual(["e_assisted_dips", "e_assisted_pullup"]);
   });
 
   it("substitutions 참조가 모두 존재한다", async () => {

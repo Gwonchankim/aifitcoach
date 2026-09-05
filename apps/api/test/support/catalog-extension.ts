@@ -7,7 +7,11 @@ export const MACHINE_IDS = [
   "e_high_row_machine",
   "e_incline_chest_press_machine",
 ];
-export const CATALOG_COUNT = 109;
+export const CATALOG_COUNT = 110;
+export const CATALOG_ADDITION_IDS = [...MACHINE_IDS, "e_assisted_dips"];
+export const CATALOG109_RAW = JSON.parse(
+  readFileSync(path.join(__dirname, "catalog-baseline-109.fixture"), "utf8"),
+).exercises as Record<string, unknown>[];
 export const BASELINE_RAW = JSON.parse(
   readFileSync(path.join(__dirname, "catalog-baseline-106.fixture"), "utf8"),
 ).exercises as Record<string, unknown>[];
@@ -42,3 +46,5 @@ export function toRow(raw: Record<string, unknown>): Exercise {
 
 export const BASELINE_CATALOG = BASELINE_RAW.map(toRow);
 export const CURRENT_CATALOG = CURRENT_RAW.map(toRow);
+
+export const CATALOG109 = CATALOG109_RAW.map(toRow);

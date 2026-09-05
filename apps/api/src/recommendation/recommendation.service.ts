@@ -14,7 +14,10 @@ import type {
 } from "shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { mergePainObservations, readPainObservation } from "./pain-observation.adapter";
-import { rulesVersionForLoadSemantics } from "../programs/assistance-migration";
+import {
+  recommendedActionFor,
+  rulesVersionForLoadSemantics,
+} from "../programs/assistance-migration";
 import { RULES_VERSION } from "../programs/program-rules";
 
 /** openapi: components.schemas.Recommendation */
@@ -523,7 +526,8 @@ export class RecommendationService {
   /** 엔진 호출. exercise 는 시드 카탈로그 행, target 은 planned_set 의 목표값. */
   recommend(params: {
     goal: Goal;
-    exercise: Pick<Exercise, "mechanic" | "region" | "defaultStepKg" | "metric" | "loadSemantics">;
+    exercise: Pick<Exercise, "mechanic" | "region" | "defaultStepKg" | "metric" | "loadSemantics"> &
+      Partial<Pick<Exercise, "id">>;
     target: EngineTarget;
     history: ExerciseHistory;
     calibration?: { rir_bias: number };
@@ -544,6 +548,7 @@ export class RecommendationService {
     return recommendNextSet({
       goal,
       exercise: {
+        id: exercise.id,
         type: exercise.mechanic,
         region: exercise.region,
         // null = 맨몸(자체중량). 0 을 넣으면 엔진이 "잘못된 증량 단위"로 보고 INVALID_INPUT 을 낸다.
@@ -634,10 +639,7 @@ export class RecommendationService {
       rules_version: planned.rulesVersion,
       load_kind: loadKind,
       recommendation_state: state,
-      recommended_action:
-        reason === "ASSISTANCE_MINIMUM_REACHED"
-          ? { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }
-          : null,
+      recommended_action: recommendedActionFor(reason, exerciseId, planned.loadSemantics),
     };
   }
 }

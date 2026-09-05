@@ -12,6 +12,7 @@ import type { RecommendationInput } from "../src/types";
  */
 
 const ASSISTED = {
+  id: "e_assisted_pullup",
   type: "compound",
   region: "upper",
   step_kg: 2.5,

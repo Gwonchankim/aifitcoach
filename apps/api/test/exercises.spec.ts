@@ -13,7 +13,7 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp } from "./support/app";
 import { expectErrorMatchesContract, expectMatchesContract } from "./support/openapi-response";
 
-import { CURRENT_CATALOG, MACHINE_IDS, CATALOG_COUNT } from "./support/catalog-extension";
+import { CURRENT_CATALOG, CATALOG_ADDITION_IDS, CATALOG_COUNT } from "./support/catalog-extension";
 
 const LIST_PATH = "/exercises";
 const DETAIL_PATH = "/exercises/{exerciseId}";
@@ -96,7 +96,7 @@ describe("운동 카탈로그 API", () => {
     expect(new Set(seededIds)).toEqual(new Set(seedExercises.map((exercise) => exercise.id)));
   });
 
-  it.each([...MACHINE_IDS, "e_smith_incline_bench_press"])(
+  it.each([...CATALOG_ADDITION_IDS, "e_smith_incline_bench_press"])(
     "%s detail/list preserve every public field from the DB",
     async (id) => {
       const row = await prisma.exercise.findUniqueOrThrow({ where: { id } });

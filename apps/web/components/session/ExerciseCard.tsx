@@ -7,7 +7,14 @@
 import type { Exercise, PlannedSet } from "../../lib/api";
 import { Badge, Card } from "../ui";
 import { ExerciseMenu } from "./ExerciseMenu";
-import { assistanceBadge, reasonLabel, setKind, weightBadge, type SetValues } from "./set-rules";
+import {
+  assistanceAction,
+  assistanceBadge,
+  reasonLabel,
+  setKind,
+  weightBadge,
+  type SetValues,
+} from "./set-rules";
 import { SetRow } from "./SetRow";
 import type { SetDraft } from "./session-store";
 
@@ -17,6 +24,8 @@ const BASELINE_NOTE =
 export type ExerciseCardProps = {
   name: string;
   exercise: Exercise | null;
+  /** 전환 제안의 이름도 현재 받은 권위 카탈로그에서만 읽는다. */
+  catalogById?: ReadonlyMap<string, Exercise>;
   sets: PlannedSet[];
   drafts: Record<string, SetDraft>;
   readOnly: boolean;
@@ -41,6 +50,7 @@ export type ExerciseCardProps = {
 export function ExerciseCard({
   name,
   exercise,
+  catalogById,
   sets,
   drafts,
   readOnly,
@@ -65,6 +75,13 @@ export function ExerciseCard({
   const showBaselineNote = kinds.some((kind) => kind === "unknown_weight");
   const menuId = `exercise-${sets[0]?.exercise_id ?? "unknown"}-menu`;
   const lockedReasonId = `${menuId}-locked-reason`;
+  const action = sets[0] ? assistanceAction(sets[0]) : null;
+  const suggestedName = action ? catalogById?.get(action.exercise_id)?.name_ko : null;
+  const lastSyllable = suggestedName
+    ? suggestedName.charCodeAt(suggestedName.length - 1) - 0xac00
+    : -1;
+  const objectParticle =
+    lastSyllable >= 0 && lastSyllable <= 11171 && lastSyllable % 28 === 0 ? "를" : "을";
 
   return (
     <Card density="tight" className="flex flex-col gap-2">
@@ -119,6 +136,12 @@ export function ExerciseCard({
         </p>
       ) : null}
       {showBaselineNote ? <p className="text-sm text-fg-muted">{BASELINE_NOTE}</p> : null}
+      {suggestedName ? (
+        <p className="text-sm text-fg-muted">
+          다음 단계로 {suggestedName}
+          {objectParticle} 고려해 보세요
+        </p>
+      ) : null}
 
       <ul className="flex flex-col gap-1.5">
         {sets.map((set, index) => {

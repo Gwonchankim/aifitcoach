@@ -9,6 +9,7 @@
   - `expect.e1rm` → `|반환 - 기대| <= (expect.e1rm_tolerance || defaults.e1rm_tolerance)`.
   - `expect.confidence_max` → 반환 confidence <= 값.
   - `expect.suggest_substitution` / 기타 플래그 → 반환 값과 일치.
+  - `expect.recommended_action` → 대상 canonical ID를 포함한 객체 또는 null과 정확히 일치. 숫자·reason과 별도로 제안 대상을 검증한다.
 - **CI 게이트**: 이 테스트는 CI의 test 스텝에 포함되어야 하며 실패 시 머지를 차단한다.
 - **금지**: 통과를 위해 케이스를 삭제·완화하지 말 것. 로직이 스펙(RECOMMENDATION_ENGINE.md)과 다르면 스펙을 먼저 확인/질문.
 

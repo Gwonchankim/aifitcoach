@@ -267,7 +267,7 @@ describe("F-3 post-migration 상태", () => {
         where: { loadSemantics: "assistance" },
         select: { id: true },
       });
-      expect(rows.map((r) => r.id).sort()).toEqual([ASSISTED]);
+      expect(rows.map((r) => r.id).sort()).toEqual(["e_assisted_dips", ASSISTED]);
     });
   });
 

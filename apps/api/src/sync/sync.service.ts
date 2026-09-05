@@ -742,7 +742,10 @@ export function plannedSetResponse(set: PlannedSet, sampleCount: number) {
     recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
     assistance_provenance: set.assistanceProvenance,
     // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
-    recommended_action: applyDisplayGate(sampleCount, recommendedActionFor(set.reasonCode)),
+    recommended_action: applyDisplayGate(
+      sampleCount,
+      recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
+    ),
     // sync 로 만들어진 행은 아직 수행 사실이 없다(방금 생성된 planned row 의 매핑이다).
     assistance_safety_status: rawAssistanceSafetyStatus(toRawTargetRow(set, false)),
     recommendation_gate: displayGateState(sampleCount),

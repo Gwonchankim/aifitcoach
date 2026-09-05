@@ -7,7 +7,7 @@ import {
   patternsFor,
   scheduleFor,
 } from "../../src/programs/program-rules";
-import { BASELINE_CATALOG, CURRENT_CATALOG } from "./catalog-extension";
+import { BASELINE_CATALOG, CATALOG109 } from "./catalog-extension";
 
 export function weeklySelection(catalog: Exercise[], input: GenerateProgramDto) {
   const context = buildProgramSelectionContext(catalog, input);
@@ -24,7 +24,10 @@ export function weeklySelection(catalog: Exercise[], input: GenerateProgramDto) 
 }
 
 /** Active V1 production helpers and counts; preserve exact weekly IDs and order for every input. */
-export function catalogSelectionMatrix() {
+export function catalogSelectionMatrix(
+  beforeCatalog = BASELINE_CATALOG,
+  afterCatalog = CATALOG109,
+) {
   const result = [];
   for (const pain of [undefined, ...PAIN_AREAS])
     for (const goal of ["diet", "hypertrophy", "strength"] as const)
@@ -38,8 +41,8 @@ export function catalogSelectionMatrix() {
               experience_level: level,
               ...(pain ? { pain_areas: [pain] } : {}),
             };
-            const before = weeklySelection(BASELINE_CATALOG, input);
-            const after = weeklySelection(CURRENT_CATALOG, input);
+            const before = weeklySelection(beforeCatalog, input);
+            const after = weeklySelection(afterCatalog, input);
             result.push({
               input,
               before,

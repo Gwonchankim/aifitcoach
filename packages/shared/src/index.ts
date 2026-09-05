@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./assistance-transition";
 export * from "./assistance";
 export * from "./assistance-safety";
 export * from "./safety";

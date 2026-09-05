@@ -5,7 +5,6 @@ import {
   isAssistanceSafeSession,
   provenanceFor,
   supportsAssistance,
-  assistanceTransitionAction,
 } from "shared";
 import type {
   AssistanceSessionRow,
@@ -24,8 +23,8 @@ import type {
  * 허용집합의 원천은 `packages/shared` 하나다(`ASSISTANCE_PROVENANCE_VERSIONS`).
  */
 
-/** 신규 native 생성용 canonical 목록. 적용된 historical migration 목록은 보존한다. */
-export const ASSISTED_EXERCISE_IDS: readonly string[] = ["e_assisted_pullup", "e_assisted_dips"];
+/** 어시스트 semantics 를 갖는 카탈로그 id. migration SQL 의 목록과 같아야 한다. */
+export const ASSISTED_EXERCISE_IDS: readonly string[] = ["e_assisted_pullup"];
 
 /**
  * canonical semantics. **시드·import 가 조용히 빠뜨릴 수 없게** 여기 한 곳에서만 정한다.
@@ -112,7 +111,6 @@ export type TargetCohort = "generic" | "assistance_safe" | "unsafe";
 
 /** cohort 판정에 쓰는 target 행. 카탈로그가 아니라 **저장된 snapshot** 만 본다. */
 export interface AssistanceTargetRow extends AssistanceSnapshot {
-  exerciseId?: string;
   reasonCode: string;
   recommendedWeight: unknown;
   confidence: unknown;
@@ -205,20 +203,15 @@ function classifyCohort(
 export type AssistanceSafetyStatus = "safe" | "unsafe";
 
 /** 최소 경계에서만 붙는 제안. 안전 상태·비어시스트는 null 이다(§F). */
-export function recommendedActionFor(
-  reasonCode: string,
-  exerciseId?: string,
-  loadSemantics?: "assistance" | "external_load",
-): RecommendedAction | null {
-  return reasonCode === "ASSISTANCE_MINIMUM_REACHED" && loadSemantics === "assistance"
-    ? assistanceTransitionAction(exerciseId)
+export function recommendedActionFor(reasonCode: string): RecommendedAction | null {
+  return reasonCode === "ASSISTANCE_MINIMUM_REACHED"
+    ? { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }
     : null;
 }
 
 /** 저장 행 + 서버 적용 수행 사실 → 판정 입력. 게이트를 거치지 않은 raw 값이다. */
 export function toRawTargetRow(
   set: {
-    exerciseId?: string;
     loadSemantics: "assistance" | "external_load";
     assistanceStepKg: unknown;
     assistanceProvenance: AssistanceProvenance | null;
@@ -230,7 +223,6 @@ export function toRawTargetRow(
   hasServerAppliedPerformedFact: boolean,
 ): AssistanceTargetRow {
   return {
-    exerciseId: set.exerciseId,
     loadSemantics: set.loadSemantics,
     assistanceStepKg: set.assistanceStepKg,
     assistanceProvenance: set.assistanceProvenance,
@@ -268,7 +260,10 @@ function toSessionRow(row: AssistanceTargetRow): AssistanceSessionRow {
     recommendation_state: stateForReasonCode(row.reasonCode),
     reason_code: row.reasonCode,
     recommended_weight: weight,
-    recommended_action: recommendedActionFor(row.reasonCode, row.exerciseId, row.loadSemantics),
+    recommended_action:
+      row.reasonCode === "ASSISTANCE_MINIMUM_REACHED"
+        ? { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }
+        : null,
     has_server_applied_performed_fact: row.hasServerAppliedPerformedFact,
   };
 }

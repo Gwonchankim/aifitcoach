@@ -803,6 +803,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                   key={group.exerciseId}
                   name={nameOf(group.exerciseId, index)}
                   exercise={catalogById.get(group.exerciseId) ?? null}
+                  catalogById={catalogById}
                   sets={group.sets}
                   drafts={drafts}
                   readOnly={readOnly}

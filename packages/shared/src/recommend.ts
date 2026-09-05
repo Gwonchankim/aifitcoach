@@ -1,4 +1,5 @@
 import { isV2RulesBundle, supportsAssistance } from "./rules-version";
+import { assistanceTransitionAction } from "./assistance-transition";
 import { normalizePain, resolveSafetyOutcome } from "./safety";
 import type {
   LoadKind,
@@ -505,7 +506,7 @@ function recommendAssistance(input: RecommendationInput): Recommendation {
           reason_code: "ASSISTANCE_MINIMUM_REACHED",
           confidence,
           // 제안만 한다. 자동 전환은 하지 않는다.
-          recommended_action: { kind: "suggest_exercise_swap", exercise_id: "e_pullup" },
+          recommended_action: assistanceTransitionAction(exercise.id),
         }
       : {
           ...base,

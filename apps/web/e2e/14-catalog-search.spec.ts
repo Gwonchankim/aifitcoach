@@ -6,12 +6,18 @@ import { API_V1, addExercise, openSession, seedProgram, todaySession } from "./h
 import type { Exercise, Session } from "../lib/api";
 
 test.describe.configure({ mode: "serial" });
-const CATALOG_COUNT = 109;
-const newIds = ["e_low_row_machine", "e_high_row_machine", "e_incline_chest_press_machine"];
+const CATALOG_COUNT = 110;
+const newIds = [
+  "e_low_row_machine",
+  "e_high_row_machine",
+  "e_incline_chest_press_machine",
+  "e_assisted_dips",
+];
 const searches = [
   ["e_low_row_machine", " LOW ROW MACHINE "],
   ["e_high_row_machine", "하이로우머신"],
   ["e_incline_chest_press_machine", "Incline Chest Press Machine"],
+  ["e_assisted_dips", "어시스트 딥스 머신"],
   ["e_chest_press_machine", "머신 벤치 프레스"],
   ["e_machine_row", "시티드 머신 로우"],
 ];
@@ -84,7 +90,7 @@ for (const [id, query] of searches) {
   }, testInfo) => {
     const catalog = await allExercises(request);
     const exercise = catalog.find((item) => item.id === id)!;
-    // Bodyweight-only generation leaves the five machine targets available for explicit add.
+    // Bodyweight-only generation leaves the six machine targets available for explicit add.
     await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
     const sessionId = await todaySession(request);
     await openSession(page, sessionId);
@@ -209,7 +215,7 @@ test("swap uses the same all-region canonical search and persists the selected r
   ).toBeGreaterThan(0);
 });
 
-test("old106 partial-page failure preserves cache; retry fills109 and warm offline search survives reload @chromium-only", async ({
+test("old106 partial-page failure preserves cache; retry fills110 and warm offline search survives reload @chromium-only", async ({
   page,
   context,
   request,

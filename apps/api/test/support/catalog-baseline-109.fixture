@@ -1,7 +1,7 @@
 {
   "schema_version": "1.1",
   "rules_version_ref": "2026.07.1",
-  "note": "AI 맞춤형 운동프로그램 웹앱 운동DB 시드 110종. 기존 105종과 승인 Smith 인클라인을 보존하고 머신 3종과 어시스트 딥스를 추가했다. equipment enum은 기존 값을 사용한다. media는 자체제작/라이선스 확보 후 채운다.",
+  "note": "AI 맞춤형 운동프로그램 웹앱 운동DB 시드 109종. 기존 105종과 승인 Smith 인클라인을 보존하고 머신 3종을 추가했다. equipment enum은 기존 값을 사용한다. media는 자체제작/라이선스 확보 후 채운다.",
   "exercises": [
     {
       "id": "e_back_squat",
@@ -3564,40 +3564,6 @@
       "cues": [
         "인클라인 손잡이를 윗가슴 높이에 맞춘다",
         "등을 패드에 붙이고 손잡이를 밀어 올린다"
-      ],
-      "mechanic": "compound",
-      "region": "upper",
-      "equipment": "machine",
-      "difficulty": "beginner",
-      "metric": "reps",
-      "default_step_kg": 2.5,
-      "unilateral": false,
-      "media": {
-        "image_url": null,
-        "video_url": null
-      }
-    },
-    {
-      "id": "e_assisted_dips",
-      "name_ko": "어시스트 딥스 머신",
-      "name_en": "Assisted Dip Machine",
-      "movement_pattern": "horizontal_push",
-      "primary_muscles": [
-        "chest",
-        "triceps"
-      ],
-      "secondary_muscles": [
-        "front_delts"
-      ],
-      "default_reps_low": 6,
-      "default_reps_high": 12,
-      "substitutions": [
-        "e_dips",
-        "e_chest_press_machine"
-      ],
-      "cues": [
-        "손잡이를 잡고 무릎을 도움 패드에 올린다",
-        "어깨가 불편하지 않은 범위에서 팔꿈치를 굽혔다 편다"
       ],
       "mechanic": "compound",
       "region": "upper",

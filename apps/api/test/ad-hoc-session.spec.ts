@@ -12,6 +12,9 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { testUserId } from "./support/users";
 import { expectErrorMatchesContract, expectMatchesContract } from "./support/openapi-response";
+import { BASELINE_CATALOG, CATALOG_ADDITION_IDS } from "./support/catalog-extension";
+import { DIFFICULTY_RANK, selectExercises } from "../src/programs/programs.service";
+import { exerciseCountFor, patternsForBodyPart } from "../src/programs/program-rules";
 
 const USER_ID = devUserId();
 /** dev-user(...0001)·tenancy(...0002)·dashboard(...0003) 와 겹치지 않는 고정 UUID. */
@@ -47,10 +50,15 @@ describe("즉석 세션 (F8-1)", () => {
   });
 
   /** 주 2일 프로그램 생성 + 현재 주 lazy materialization(금요일은 휴식일). */
-  async function restDayProgram(pain?: string[]): Promise<void> {
+  async function restDayProgram(pain?: string[], avoid?: string[]): Promise<void> {
     await request(app.getHttpServer())
       .post("/v1/programs/generate")
-      .send({ ...PROGRAM, days_per_week: 2, ...(pain ? { pain_areas: pain } : {}) })
+      .send({
+        ...PROGRAM,
+        days_per_week: 2,
+        ...(pain ? { pain_areas: pain } : {}),
+        ...(avoid ? { avoid_exercises: avoid } : {}),
+      })
       .expect(201);
     await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
   }
@@ -162,16 +170,83 @@ describe("즉석 세션 (F8-1)", () => {
   /**
    * 안전(재평가 D-2): `wrist` 는 제외 패턴이 0건이라 excluded_exercises 가 비고, 그러면 즉석 세션이
    * 통증 부위를 하나도 되읽지 못해 머신/케이블 우선 배려(SAFETY_PAIN_MAPPING.md 규칙 4)가 사라졌다.
-   * 가슴 후보 4종 중 머신은 e_chest_press_machine 하나뿐이고, 배려가 살아 있으면 그게 첫 자리에 온다
-   * (배려가 없으면 난이도·id 순으로 e_bench_press 가 먼저 온다).
+   * baseline106 카탈로그에서 배려가 살아 있으면 e_chest_press_machine 이 첫 자리에 온다.
+   * 배려가 없으면 e_bench_press 가 먼저 온다. 현재110 동작은 다음 독립 사례에서 검증한다.
    */
-  it("손목 통증만 보고한 프로그램의 즉석 세션도 머신/케이블을 먼저 고른다", async () => {
+  it("baseline106: 손목 통증만 보고한 프로그램의 즉석 세션도 머신/케이블을 먼저 고른다", async () => {
+    await restDayProgram(["wrist"], CATALOG_ADDITION_IDS);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: USER_ID } });
+    const chooseFirst = (preferStable: boolean) =>
+      selectExercises(BASELINE_CATALOG, patternsForBodyPart("chest"), exerciseCountFor(60), {
+        levelRank: DIFFICULTY_RANK[user.experienceLevel],
+        preferStable,
+        substituteMuscles: new Set(),
+      })[0].id;
+    // Counterfactual: removing the wrist reread/stable preference must change this fixture's result.
+    expect(chooseFirst(false)).toBe("e_bench_press");
+    expect(chooseFirst(true)).toBe("e_chest_press_machine");
+
+    // createAdHoc does not read generationInput.avoid_exercises. Reproduce the old catalog only
+    // at this single test's read boundary; HTTP, persisted pain reread and writes stay real.
+    const readCatalog = prisma.exercise.findMany.bind(prisma.exercise);
+    const catalogSpy = jest.spyOn(prisma.exercise, "findMany").mockImplementation((async (
+      args: Parameters<typeof readCatalog>[0],
+    ) => {
+      const rows = await readCatalog(args);
+      const baseline = rows.filter((row) => !CATALOG_ADDITION_IDS.includes(row.id));
+      if (args === undefined) {
+        expect(baseline.map((row) => row.id).sort()).toEqual(
+          BASELINE_CATALOG.map((row) => row.id).sort(),
+        );
+        expect(baseline).toHaveLength(106);
+      }
+      return baseline;
+    }) as typeof prisma.exercise.findMany);
+    try {
+      const response = await createAdHoc("chest");
+      expect(response.status).toBe(201);
+      expect(catalogSpy).toHaveBeenCalledWith();
+      expect(exercisesOf(response.body)[0]).toBe("e_chest_press_machine");
+    } finally {
+      catalogSpy.mockRestore();
+    }
+  });
+
+  it("전체110: 손목 통증 즉석 세션의 첫 운동은 canonical native 어시스트 딥스다", async () => {
     await restDayProgram(["wrist"]);
-
+    expect(await prisma.exercise.count()).toBe(110);
     const response = await createAdHoc("chest");
-
     expect(response.status).toBe(201);
-    expect(exercisesOf(response.body)[0]).toBe("e_chest_press_machine");
+    expectMatchesContract("post", PATH, 201, response.body);
+    expect(exercisesOf(response.body)[0]).toBe("e_assisted_dips");
+    const exercise = await prisma.exercise.findUniqueOrThrow({ where: { id: "e_assisted_dips" } });
+    expect(exercise.nameKo).toBe("어시스트 딥스 머신");
+    const rows = await prisma.plannedSet.findMany({
+      where: { sessionId: response.body.id, exerciseId: exercise.id },
+      orderBy: { setNo: "asc" },
+    });
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.loadSemantics).toBe("assistance");
+      expect(row.assistanceProvenance).toBe("native");
+      expect(Number(row.assistanceStepKg)).toBe(2.5);
+      expect(row.rulesVersion).toBe("2026.08.2");
+      expect(row.reasonCode).toBe("ASSISTANCE_CALIBRATION_NEEDED");
+      expect(row.recommendedWeight).toBeNull();
+    }
+    const detail = await request(app.getHttpServer())
+      .get(`/v1/sessions/${response.body.id}`)
+      .expect(200);
+    expect(exercisesOf(detail.body)[0]).toBe(exercise.id);
+    expect(
+      detail.body.planned_sets.filter(
+        (row: { exercise_id: string }) => row.exercise_id === exercise.id,
+      ),
+    ).toEqual(
+      response.body.planned_sets.filter(
+        (row: { exercise_id: string }) => row.exercise_id === exercise.id,
+      ),
+    );
   });
 
   /** 즉석 세션은 계획 세션과 구분해 저장한다 — 대시보드 스트릭·주간 완료율이 이 값을 본다(D-1). */

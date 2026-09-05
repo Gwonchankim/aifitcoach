@@ -62,6 +62,7 @@ export function buildProvisionalRoutineSets(
   const recommendation = recommendNextSet({
     goal,
     exercise: {
+      id: exercise.id,
       type: exercise.mechanic,
       region: exercise.region,
       step_kg: exercise.step_kg,

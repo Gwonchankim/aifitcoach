@@ -22,6 +22,7 @@ import { createTestApp, resetUserData } from "./support/app";
 import { normalizeProgram, planKey } from "./support/v1-plan-fixture";
 import type { NormalizedProgram } from "./support/v1-plan-fixture";
 import fixtureJson from "./fixtures/v1-plan-225.json";
+import { CATALOG_ADDITION_IDS } from "./support/catalog-extension";
 
 const fixture = fixtureJson as { rules_version: string; cases: NormalizedProgram[] };
 
@@ -455,7 +456,7 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
     expect(RULES_VERSION).toBe("2026.08.1");
   });
 
-  it("legacy 225조합이 **커밋된 fixture 와 정확히 같다**", async () => {
+  it("baseline106 catalog의 legacy 225조합이 **커밋된 fixture 와 정확히 같다**", async () => {
     // current-vs-current(같은 코드로 두 번 생성해 비교)는 규칙을 바꿔도 양쪽이 함께 바뀌어
     // **항상 통과**한다. 커밋된 정적 fixture 와 exact equality 로 비교해야 회귀가 잡힌다.
     expect(fixture.rules_version).toBe("2026.08.1");
@@ -473,7 +474,11 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
             await resetUserData(prisma, DEV_USER_ID);
             const actual = normalizeProgram(
               key,
-              await programs.generate(DEV_USER_ID, dto(goal, days, minutes, level)),
+              // Freeze the original catalog candidates; later 225-case tests still use all110.
+              await programs.generate(DEV_USER_ID, {
+                ...dto(goal, days, minutes, level),
+                avoid_exercises: CATALOG_ADDITION_IDS,
+              }),
             );
             const want = expected.get(key);
             compared += 1;

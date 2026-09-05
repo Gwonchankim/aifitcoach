@@ -179,7 +179,7 @@ describe("어시스트 진행 문구는 generic weighted 로 되돌아가지 않
   it.each([
     ["ASSISTANCE_DOWN_REP_TARGET_MET", "목표를 채워서 도움을 한 단계 줄여요"],
     ["ASSISTANCE_UP_TOO_HARD", "버거워 보여 도움을 한 단계 늘려요"],
-    ["ASSISTANCE_MINIMUM_REACHED", "도움을 더 줄이기 어려워요. 다음 단계 운동을 권해요"],
+    ["ASSISTANCE_MINIMUM_REACHED", "도움을 더 줄이기 어려워요. 현재 도움 무게를 유지해요"],
     ["ASSISTANCE_CALIBRATION_NEEDED", "기계에서 편한 도움 무게를 직접 정해요"],
   ])("%s 는 도움 축 문구다", (code, expected) => {
     const set = assisted({ reason_code: code });
