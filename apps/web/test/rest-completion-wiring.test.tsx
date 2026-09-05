@@ -15,6 +15,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import { StrictMode, createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlannedSet, Session } from "../lib/api";
+import type { RestCompletionObservation, RestCompletionSinks } from "../lib/rest-completion";
 
 const SESSION_A = "11111111-1111-4111-8111-111111111111";
 const SET_1 = "aaaaaaaa-1111-4111-8111-111111111111";
@@ -23,6 +24,34 @@ const SET_2 = "aaaaaaaa-2222-4222-8222-222222222222";
 /** 두 싱크를 브라우저 경계에서 센다 — 게이트가 아니라 **실제 배선**을 보려는 것이다. */
 const emitForeground = vi.fn();
 const notifyHidden = vi.fn(() => Promise.resolve(true));
+
+const gateObservations: Array<{ instance: number; observation: RestCompletionObservation }> = [];
+let gateInstances = 0;
+let mountGateCursor = 0;
+let observedInstance: number | null = null;
+let expectedRestEndsAt = 0;
+
+vi.mock("../lib/rest-completion", async () => {
+  const actual =
+    await vi.importActual<typeof import("../lib/rest-completion")>("../lib/rest-completion");
+  return {
+    ...actual,
+    createRestCompletionGate: (sinks: RestCompletionSinks) => {
+      const gate = actual.createRestCompletionGate(sinks);
+      const instance = ++gateInstances;
+      return (observation: RestCompletionObservation) => {
+        gate(observation);
+        // 실제 배선이 게이트와 싱크 처리를 마친 뒤에만 관측을 기록한다.
+        gateObservations.push({ instance, observation });
+      };
+    },
+  };
+});
+
+function beginMountObservations() {
+  mountGateCursor = gateInstances;
+  observedInstance = null;
+}
 
 vi.mock("../lib/rest-feedback", async () => {
   const actual =
@@ -133,6 +162,7 @@ async function completeFirstSet() {
   const { fireEvent } = await import("@testing-library/dom");
   fireEvent.change(weight, { target: { value: "60" } });
   fireEvent.change(reps, { target: { value: "8" } });
+  expectedRestEndsAt = clock + 90_000;
   fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" }));
   await awaitRestRunning();
 }
@@ -143,37 +173,51 @@ async function completeFirstSet() {
  */
 let clock = 0;
 
-/**
- * 휴식이 끝날 만큼 시계를 밀고 **화면이 종료를 그릴 때까지** 기다린다.
- *
- * 고정 sleep 을 쓰면 안 된다 — 200ms 틱이 부하에 밀리면 그 창을 놓쳐 clean baseline 이
- * 간헐적으로 빨개진다(실측: 독립 실행에서 StrictMode 기대 1, 실제 0). "휴식 완료" 문구는
- * 시트가 `finished` 를 실제로 관측했다는 증거라 조건으로 삼을 수 있다.
- */
-/** 시트 **안에서** 종료 문구를 기다린다 — 화면 다른 곳의 같은 문구와 섞이지 않게. */
-async function awaitRestFinished() {
-  const sheet = await screen.findByRole("dialog", { name: /후 휴식/ });
-  /**
-   * `getAllByText` 를 쓴다 — 시트 안에 같은 문구가 **둘**일 수 있다. 본문 문구와, 마일스톤
-   * 낭독이 0초에 걸렸을 때의 `aria-live` 영역이다. 틱이 정확히 0 을 밟는지에 따라 갈려서
-   * `getByText` 로는 간헐적으로 "multiple elements" 로 죽는다(실측 6회 중 2회).
-   */
-  await waitFor(() => expect(within(sheet).getAllByText("휴식 완료").length).toBeGreaterThan(0), {
-    timeout: 3_000,
-  });
-}
-
-/**
- * 시트가 **진행 중을 실제로 관측했음**을 증명한다. 시트가 DOM 에 뜬 것만으로는 부족하다 —
- * 관측 이펙트가 돌기 전에 시계를 밀면 첫 관측이 이미 종료가 돼 장전이 안 되고, 정상 만료가
- * 조용히 삼켜진다(실측 8회 중 1~2회). "남은 휴식 시간" 이 그 관측의 증거다.
- */
-async function awaitRestRunning() {
+/** DOM 커밋만으로는 passive effect 실행을 증명하지 못하므로 실제 게이트의 반환도 기다린다. */
+async function awaitRestObservation(finished: boolean) {
   const sheet = await screen.findByRole("dialog", { name: /후 휴식/ });
   await waitFor(
-    () => expect(within(sheet).getAllByText("남은 휴식 시간").length).toBeGreaterThan(0),
+    () => {
+      // 본문과 aria-live 영역에 같은 문구가 함께 있을 수 있다.
+      expect(
+        within(sheet).getAllByText(finished ? "휴식 완료" : "남은 휴식 시간").length,
+      ).toBeGreaterThan(0);
+      const currentMount = gateObservations.filter(
+        ({ instance }) =>
+          instance > mountGateCursor &&
+          (observedInstance === null || instance === observedInstance),
+      );
+      const expected = {
+        sessionId: SESSION_A,
+        plannedSetId: SET_1,
+        endsAt: expectedRestEndsAt,
+        finished,
+      };
+      expect(currentMount).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ observation: expect.objectContaining(expected) }),
+        ]),
+      );
+      const entry = currentMount.find(
+        ({ observation }) =>
+          observation.sessionId === expected.sessionId &&
+          observation.plannedSetId === expected.plannedSetId &&
+          observation.endsAt === expected.endsAt &&
+          observation.finished === expected.finished,
+      );
+      if (entry) observedInstance = entry.instance;
+    },
     { timeout: 3_000 },
   );
+}
+
+/** 현재 mount의 동일 휴식이 장전된 뒤에 시계를 옮긴다. */
+async function awaitRestRunning() {
+  await awaitRestObservation(false);
+}
+
+async function awaitRestFinished() {
+  await awaitRestObservation(true);
 }
 
 async function runOutTheRest() {
@@ -186,6 +230,8 @@ beforeEach(async () => {
   vi.spyOn(Date, "now").mockImplementation(() => clock);
   emitForeground.mockClear();
   notifyHidden.mockClear();
+  gateObservations.length = 0;
+  beginMountObservations();
   setVisibility("visible");
   await sessionDb.delete();
   await sessionDb.open();
@@ -253,7 +299,7 @@ describe("배선 — 종료 관측이 게이트를 거쳐 한 싱크에만 닿�
     clock += 91_000;
     setVisibility("visible");
     // **관측이 실제로 일어났는지를 먼저 증명한다.** 그냥 기다렸다 0 을 단언하면 틱이 안 돈
-    // 경우에도 통과해 버린다 — "휴식 완료" 가 그려졌다는 것이 관측의 증거다.
+    // 경우에도 통과해 버린다 — 실제 게이트가 종료 관측을 처리한 뒤 0을 단언한다.
     await awaitRestFinished();
 
     expect(emitForeground).not.toHaveBeenCalled();
@@ -306,6 +352,7 @@ describe("배선 — 세션 화면을 떠났다 돌아와도 총 1회", () => {
    */
   async function leaveAndReturn() {
     cleanup();
+    beginMountObservations();
     render(wrapper(createElement(SessionScreen, { sessionId: SESSION_A })));
     // 복구가 저장분을 올려 시트가 다시 뜬다.
     await screen.findByRole("dialog", { name: /1세트 후 휴식/ });
@@ -319,6 +366,7 @@ describe("배선 — 세션 화면을 떠났다 돌아와도 총 1회", () => {
 
     // 시트를 닫지 않는다 — 닫으면 레코드가 지워져 같은 정체성이 사라진다.
     await leaveAndReturn();
+    await awaitRestFinished();
     await settleTicks();
 
     expect(emitForeground).toHaveBeenCalledTimes(1);
@@ -337,6 +385,7 @@ describe("배선 — 세션 화면을 떠났다 돌아와도 총 1회", () => {
     expect(notifyHidden).toHaveBeenCalledTimes(1);
 
     await leaveAndReturn();
+    await awaitRestFinished();
     await settleTicks();
 
     expect(notifyHidden).toHaveBeenCalledTimes(1);
