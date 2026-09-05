@@ -154,9 +154,13 @@ test("S4 루틴 · 타이머 팝업 · 편집 팝업(열린 상태)", async ({ p
   await scan(page, "S4-rir-sheet-open");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "RIR 고르기" })).toBeHidden();
+  // RirField restores input focus after the sheet closes. Finish that contract before typing.
+  await expect(page.getByLabel(`${name} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`)).toBeFocused();
 
   await page.getByLabel(`${name} 1세트 무게, 킬로그램`).fill("40");
   await page.getByLabel(`${name} 1세트 횟수, 회`).fill("10");
+  await expect(page.getByLabel(`${name} 1세트 무게, 킬로그램`)).toHaveValue("40");
+  await expect(page.getByLabel(`${name} 1세트 남은 반복 수(RIR), 0~6, 선택 입력`)).toHaveValue("");
   await check.click();
   await expect(page.getByRole("dialog", { name: /후 휴식/ })).toBeVisible();
   await scan(page, "S4-rest-timer-open");
