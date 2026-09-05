@@ -76,6 +76,7 @@ function setVibrate(value: unknown) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("navigator", {});
   setAudioContext(undefined);
   setVibrate(undefined);
 });
@@ -84,6 +85,7 @@ afterEach(() => {
   if (originalAudio) Object.defineProperty(globalThis, "AudioContext", originalAudio);
   else Reflect.deleteProperty(globalThis, "AudioContext");
   Reflect.deleteProperty(globalThis.navigator, "vibrate");
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
