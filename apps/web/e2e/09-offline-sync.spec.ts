@@ -86,6 +86,61 @@ async function assertAuthoritativeSummary(
     .toBe(`${sets}/${volume}`);
 }
 
+/** Read the existing synthetic session without creating/upgrading or writing any IDB store. */
+async function readRelaunchState(page: Page, sessionId: string) {
+  return page.evaluate(async (id) => {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    const controller = navigator.serviceWorker.controller;
+    const open = indexedDB.open("afc-session-v1");
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      open.onupgradeneeded = () => {
+        open.transaction?.abort();
+        reject(new Error("Expected an existing session database"));
+      };
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => reject(open.error);
+    });
+    try {
+      const stores = ["sessions", "routines", "outbox", "drafts"];
+      const transaction = db.transaction(stores, "readonly");
+      const [sessions, routines, outbox, drafts] = await Promise.all(
+        stores.map(
+          (store) =>
+            new Promise<Record<string, unknown>[]>((resolve, reject) => {
+              const read = transaction.objectStore(store).getAll();
+              read.onsuccess = () => resolve(read.result as Record<string, unknown>[]);
+              read.onerror = () => reject(read.error);
+            }),
+        ),
+      );
+      const belongsToSession = (row: Record<string, unknown>) =>
+        row.user_id === "dev-user" && row.session_id === id;
+      const sessionDrafts = drafts.filter(belongsToSession);
+      return {
+        sessionId: id,
+        sessions: sessions.filter(belongsToSession),
+        routines: routines.filter(belongsToSession),
+        // Keep orphan mutations visible even if the matching draft or routine is what was lost.
+        outbox: outbox.filter((row) => row.user_id === "dev-user"),
+        drafts: sessionDrafts,
+        serviceWorker: {
+          controller: controller
+            ? { scriptURL: controller.scriptURL, state: controller.state }
+            : null,
+          registrations: registrations.map((registration) => ({
+            scope: registration.scope,
+            active: registration.active?.scriptURL ?? null,
+            waiting: registration.waiting?.scriptURL ?? null,
+            installing: registration.installing?.scriptURL ?? null,
+          })),
+        },
+      };
+    } finally {
+      db.close();
+    }
+  }, sessionId);
+}
+
 test("loss 0: offline add/swap/immediate logging survives reload and a closed tab, then syncs exactly", async ({
   page,
   context,
@@ -143,33 +198,88 @@ test("loss 0: offline add/swap/immediate logging survives reload and a closed ta
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((registration) => registration.unregister()));
     });
+    const beforeClose = await readRelaunchState(page, sessionId);
+    await test.info().attach("loss0-before-close", {
+      body: JSON.stringify(beforeClose, null, 2),
+      contentType: "application/json",
+    });
+    expect(beforeClose.serviceWorker.registrations).toEqual([]);
   }
   await page.close();
+  const blockedApi: Array<{ method: string; url: string }> = [];
+  const successfulApi: Array<{ method: string; url: string; status: number }> = [];
   if (browserName === "webkit") {
-    await context.route("**/v1/**", (route) => route.abort("failed"));
+    await context.route("**/v1/**", async (route) => {
+      const request = route.request();
+      await route.abort("failed");
+      blockedApi.push({ method: request.method(), url: request.url() });
+    });
     await context.setOffline(false);
   }
   const resumed = await context.newPage();
-  await resumed.goto(`/session/${sessionId}`);
-  await expect(resumed.getByRole("heading", { name, exact: true })).toBeVisible();
-  await expect(resumed.getByRole("heading", { name: "덤벨 컬", exact: true })).toBeVisible();
-  for (const setNo of [1, 2, 3]) {
-    await expect(
-      resumed.getByRole("button", { name: `${name} ${setNo}세트 완료 취소` }),
-    ).toBeVisible();
+  if (browserName === "webkit") {
+    // unregister does not prevent this new document from registering again and escaping routing.
+    // Only this page's isolated relaunch phase suppresses registration. The reconnect reload below
+    // uses the native method again; application SW code and the original page stay unchanged.
+    await resumed.addInitScript(() => {
+      if (sessionStorage.getItem("e2e-loss0-sw-reconnect") === "1") return;
+      Object.defineProperty(navigator.serviceWorker, "register", {
+        configurable: true,
+        value: () => Promise.reject(new DOMException("Offline relaunch transport", "NetworkError")),
+      });
+    });
+    resumed.on("response", (response) => {
+      if (response.url().startsWith(`${API_V1}/`) && response.status() === 200)
+        successfulApi.push({
+          method: response.request().method(),
+          url: response.url(),
+          status: response.status(),
+        });
+    });
   }
-  await resumed
-    .getByRole("button", { name: `${name} 1세트 기록, 50킬로그램 10회, 완료. 수정하려면 누르세요` })
-    .click();
-  await expect(resumed.getByLabel(`${name} 1세트 무게, 킬로그램`)).toHaveValue("50");
-  await resumed
-    .getByRole("button", {
-      name: "덤벨 컬 1세트 기록, 40킬로그램 10회, 완료. 수정하려면 누르세요",
-    })
-    .click();
-  await expect(resumed.getByLabel("덤벨 컬 1세트 무게, 킬로그램")).toHaveValue("40");
+  try {
+    await resumed.goto(`/session/${sessionId}`);
+    if (browserName === "webkit") {
+      await expect
+        .poll(() => blockedApi)
+        .toContainEqual({ method: "GET", url: `${API_V1}/sessions/${sessionId}` });
+      expect(successfulApi).toEqual([]);
+    }
+    await expect(resumed.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(resumed.getByRole("heading", { name: "덤벨 컬", exact: true })).toBeVisible();
+    for (const setNo of [1, 2, 3]) {
+      await expect(
+        resumed.getByRole("button", { name: `${name} ${setNo}세트 완료 취소` }),
+      ).toBeVisible();
+    }
+    await resumed
+      .getByRole("button", {
+        name: `${name} 1세트 기록, 50킬로그램 10회, 완료. 수정하려면 누르세요`,
+      })
+      .click();
+    await expect(resumed.getByLabel(`${name} 1세트 무게, 킬로그램`)).toHaveValue("50");
+    await resumed
+      .getByRole("button", {
+        name: "덤벨 컬 1세트 기록, 40킬로그램 10회, 완료. 수정하려면 누르세요",
+      })
+      .click();
+    await expect(resumed.getByLabel("덤벨 컬 1세트 무게, 킬로그램")).toHaveValue("40");
+  } finally {
+    if (browserName === "webkit") {
+      // Capture this page even when an exact recovery assertion fails; the fixture page is closed.
+      const recovered = await readRelaunchState(resumed, sessionId);
+      await test.info().attach("loss0-resumed-api-offline", {
+        body: JSON.stringify({ ...recovered, blockedApi, successfulApi }, null, 2),
+        contentType: "application/json",
+      });
+      expect(recovered.serviceWorker.registrations).toEqual([]);
+      expect(recovered.serviceWorker.controller).toBeNull();
+      expect(successfulApi).toEqual([]);
+    }
+  }
 
   if (browserName === "webkit") {
+    await resumed.evaluate(() => sessionStorage.setItem("e2e-loss0-sw-reconnect", "1"));
     await context.unroute("**/v1/**");
     // The new page started while API transport was failed. Reload after reconnect wakes a fresh
     // coordinator and is the online half of the WebKit relaunch contract.
