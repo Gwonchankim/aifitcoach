@@ -94,7 +94,10 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(setRow(page, firstExercise, 1).getByLabel(/1세트 무게, 킬로그램/)).toHaveValue("");
 
   await assertNoZeroKg(page);
-  await page.screenshot({ path: "e2e/.artifacts/screenshots/11-routine-three-kinds.png", fullPage: true });
+  await page.screenshot({
+    path: "e2e/.artifacts/screenshots/11-routine-three-kinds.png",
+    fullPage: true,
+  });
 
   // 종목 카드 단위 근접 촬영(전체 페이지 샷은 축소돼 문구를 읽기 어렵다).
   await plank.scrollIntoViewIfNeeded();
