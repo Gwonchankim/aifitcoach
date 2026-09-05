@@ -87,6 +87,7 @@ C만 H로 전환하며 기존 S/H 슬롯의 유산소 처방은 유지한다. �
 
 ## W — 현재 주 조회와 swap 원자성
 
+- W06: 일회성 대체는 사용자가 명시적으로 선택하는 보조 모드이며 주간 볼륨 보존을 약속하지 않는다. 기존 운동 단위 편집 경계를 재사용한다. 실제 두 세션 swap이 불가능하거나 실패했다고 일회성 대체를 묵시적으로 실행하는 자동 fallback은 금지한다.
 - 기존 `Program.sessions`는 immutable template 그대로다. 예약 `GET /programs/{id}/weeks/current`를 추가하여 UTC week_start, program_id, materialized actual sessions의 `id`, `scheduled_date`, `focus`, `status`, `revision`, `planned_set_ids`, 운동별 planned count를 반환한다. 이번 주 lazy materialization 완료 후 같은 transaction snapshot에서 읽는다. 미래 preview는 기존 template 기반임을 표시하고 이 응답과 섞지 않는다.
 - 예약 `POST /programs/{id}/week-swaps`: client_id, today_session_id, target_session_id, today_revision, target_revision. 응답은 두 세션의 새 id/date/focus/revision과 `today_session_id`(교환 전 target ID), week_start. 호출 당시 today였던 ID를 계속 오늘 경로로 사용하는 것을 금지한다.
 - 프로그램 현재 주 화면은 actual-week projection, 대시보드와 세션 화면은 같은 실제 세션 데이터에 근거한다. 성공 시 current-week/dashboard/두 session query를 갱신하고 서버 `today_session_id`로 이동한다. cache invalidation만으로 template 표시를 고치는 구현은 불합격이다.
@@ -102,6 +103,8 @@ C만 H로 전환하며 기존 S/H 슬롯의 유산소 처방은 유지한다. �
 
 ## A — append source·복사·재전송
 
+- A10: 추가 세트는 당일 요약·실제 수행 projection에 포함하고, 완료한 기록은 동일 운동 추천의 완료 history에 정상 포함한다. 추가 행이나 세트 수를 program.template/generation_input 및 다음 회차 기본 세트 수에 전파하지 않는다. 완료 history를 추천 입력으로 쓰는 것과 프로그램 기본 세트 수를 바꾸는 것은 별개다.
+- 예약 POST 두 개는 기존 `CsrfHeader` required 계약을 그대로 참조한다. 모든 오류 응답의 표준 schema는 공통 `Error`의 직접 참조를 유지한다. 409의 `x-afc-response-refinement`는 추가로 반드시 검증할 `FeatureConflict` body schema이며 `code=CONFLICT`와 허용된 `details.reason`을 제한한다. 이는 OpenAPI 도구가 자동 적용하는 키가 아니므로, 소유 Sprint의 승격 시 해당 ref와 공통 Error를 함께 검사하는 실제 응답 테스트를 추가해야 한다. 필수 헤더·공통 오류 ref 검사나 refinement를 없애 승격시키지 않는다.
 - 새 append 경로에만 UTC 오늘 guard를 적용한다. 기존 add/remove/swap-exercise의 assertEditable 날짜 정책은 이 티켓에서 넓히거나 좁히지 않는다. 당일 completed는 기존 완료 상태를 유지하며 실제 세트 입력 후 기존 projection 규약을 사용한다.
 - 클릭 당시 같은 운동 중 최대 set_no 행을 source로 선택한다(완료 여부는 선택 순서를 바꾸지 않음). request는 source_planned_set_id와 source_revision을 보낸다. source_revision은 source의 immutable/처방 필드 hash로 서버가 응답하고 mirror가 보관한다. 서버는 source가 여전히 해당 session/exercise에 존재하고 해당 처방 revision이 같은지 확인한다. 먼저 다른 append가 진행되어 더 큰 번호가 생겨도 기존 source가 유효하면 허용한다.
 - provisional 운동/세트의 source는 기존 correlation UUID로 참조 가능하며 /sync 적용 순서는 session_routine 생성 → append → performed_set → session 완료다. parent correlation이 해결되지 않으면 dependent append는 conflict/pending으로 남고 actual mutation을 먼저 적용하지 않는다.

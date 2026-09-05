@@ -113,6 +113,48 @@ describe("feature improvement reserved contract", () => {
     }
   });
 
+  it("preserves required CSRF and direct Error refs when reserved operations are promoted", () => {
+    for (const item of Object.values(reserved.paths)) {
+      const post = item.post as
+        { parameters: Schema[]; responses: Record<string, Schema> } | undefined;
+      if (!post) continue;
+      const csrf = post.parameters.find(
+        (parameter) => parameter.$ref === "./openapi.yaml#/components/parameters/CsrfHeader",
+      );
+      expect(csrf).toBeDefined();
+      expect(referenceTarget(csrf!.$ref as string)).toMatchObject({
+        name: "X-CSRF-Token",
+        in: "header",
+        required: true,
+      });
+      for (const [status, response] of Object.entries(post.responses)) {
+        if (Number(status) < 400) continue;
+        const content = response.content as Record<string, { schema: { $ref: string } }>;
+        expect(content["application/json"].schema.$ref.replace("./openapi.yaml", "")).toBe(
+          "#/components/schemas/Error",
+        );
+      }
+      expect(post.responses["409"]["x-afc-response-refinement"]).toEqual({
+        $ref: "#/components/schemas/FeatureConflict",
+      });
+    }
+  });
+
+  it("requires a specific conflict reason in addition to the shared Error envelope", () => {
+    const error = {
+      error: { code: "CONFLICT", message: "Conflict", details: { reason: "source_changed" } },
+    };
+    expect(validate("FeatureConflict", error)).toBe(true);
+    expect(ajv.validate("https://afc.test/openapi.yaml#/components/schemas/Error", error)).toBe(
+      true,
+    );
+    expect(validate("FeatureConflict", { error: { ...error.error, details: {} } })).toBe(false);
+    expect(
+      validate("FeatureConflict", { error: { ...error.error, details: { reason: "unknown" } } }),
+    ).toBe(false);
+    expect(validate("FeatureConflict", { error: { ...error.error, code: "OTHER" } })).toBe(false);
+  });
+
   it("requires append source identity/revision, rejects client set numbers and ambiguous source", () => {
     const request = {
       client_id: id,

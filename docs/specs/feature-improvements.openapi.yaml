@@ -24,6 +24,7 @@ paths:
           schema: &a2
             type: string
             format: uuid
+        - $ref: ./openapi.yaml#/components/parameters/CsrfHeader
       requestBody:
         required: true
         content:
@@ -62,11 +63,14 @@ paths:
               schema:
                 $ref: ./openapi.yaml#/components/schemas/Error
         "409":
-          description: Atomic rejection; no partial writes
+          description: Atomic rejection; no partial writes. Body must satisfy both Error
+            and the mandatory x-afc-response-refinement schema on promotion.
+          x-afc-response-refinement:
+            $ref: "#/components/schemas/FeatureConflict"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FeatureConflict"
+                $ref: ./openapi.yaml#/components/schemas/Error
   /programs/{id}/weeks/current:
     get:
       operationId: getActualCurrentWeekReserved
@@ -118,6 +122,7 @@ paths:
         today_session_id.
       parameters:
         - *a1
+        - $ref: ./openapi.yaml#/components/parameters/CsrfHeader
       requestBody:
         required: true
         content:
@@ -156,11 +161,14 @@ paths:
               schema:
                 $ref: ./openapi.yaml#/components/schemas/Error
         "409":
-          description: Atomic rejection; no partial writes
+          description: Atomic rejection; no partial writes. Body must satisfy both Error
+            and the mandatory x-afc-response-refinement schema on promotion.
+          x-afc-response-refinement:
+            $ref: "#/components/schemas/FeatureConflict"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FeatureConflict"
+                $ref: ./openapi.yaml#/components/schemas/Error
 components:
   schemas:
     SplitPreference:
