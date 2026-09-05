@@ -21,4 +21,4 @@
 9. `GOLDEN_TESTS.md` — 골든 테스트 사용법(CI 게이트)
 
 원본 상세 docx(PRD/MVP 스펙/기술명세서 v1.1)는 팀 드라이브 참조. 본 `docs/`는 에이전트가 읽기 좋은 요약·계약본입니다.
-`specs/exercises_seed.json` — 운동 시드 105종(로드용).
+`specs/exercises_seed.json` — 운동 시드 106종(로드용).

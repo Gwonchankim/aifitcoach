@@ -1897,6 +1897,40 @@
       }
     },
     {
+      "id": "e_smith_incline_bench_press",
+      "name_ko": "스미스머신 인클라인 벤치프레스",
+      "name_en": "Smith Machine Incline Bench Press",
+      "movement_pattern": "horizontal_push",
+      "mechanic": "compound",
+      "region": "upper",
+      "primary_muscles": [
+        "chest",
+        "front_delts"
+      ],
+      "secondary_muscles": [
+        "triceps"
+      ],
+      "equipment": "machine",
+      "difficulty": "beginner",
+      "metric": "reps",
+      "default_reps_low": 8,
+      "default_reps_high": 12,
+      "default_step_kg": 2.5,
+      "unilateral": false,
+      "substitutions": [
+        "e_incline_bench_press",
+        "e_incline_db_press"
+      ],
+      "cues": [
+        "벤치 30도",
+        "궤도가 고정돼 안정적"
+      ],
+      "media": {
+        "image_url": null,
+        "video_url": null
+      }
+    },
+    {
       "id": "e_pushup",
       "name_ko": "푸시업",
       "name_en": "Push-up",
