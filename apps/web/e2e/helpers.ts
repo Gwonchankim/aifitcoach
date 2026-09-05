@@ -17,7 +17,7 @@ export const API_V1 = `${API}/v1`;
 /** 앱이 브라우저에서 쓰는 출처. api 의 CORS 허용목록과 일치해야 한다. */
 export const WEB_ORIGIN = `http://localhost:${process.env.E2E_WEB_PORT ?? 3000}`;
 
-export const SHOTS = path.resolve(process.cwd(), "e2e/screenshots");
+export const SHOTS = path.resolve(process.cwd(), "e2e/.artifacts/screenshots");
 
 export function shotPath(name: string): string {
   fs.mkdirSync(SHOTS, { recursive: true });

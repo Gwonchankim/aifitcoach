@@ -94,18 +94,18 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(setRow(page, firstExercise, 1).getByLabel(/1세트 무게, 킬로그램/)).toHaveValue("");
 
   await assertNoZeroKg(page);
-  await page.screenshot({ path: "e2e/screenshots/11-routine-three-kinds.png", fullPage: true });
+  await page.screenshot({ path: "e2e/.artifacts/screenshots/11-routine-three-kinds.png", fullPage: true });
 
   // 종목 카드 단위 근접 촬영(전체 페이지 샷은 축소돼 문구를 읽기 어렵다).
   await plank.scrollIntoViewIfNeeded();
-  await plank.screenshot({ path: "e2e/screenshots/11a-set-time-plank.png" });
-  await pullup.screenshot({ path: "e2e/screenshots/11b-set-bodyweight-pullup.png" });
+  await plank.screenshot({ path: "e2e/.artifacts/screenshots/11a-set-time-plank.png" });
+  await pullup.screenshot({ path: "e2e/.artifacts/screenshots/11b-set-bodyweight-pullup.png" });
   await setRow(page, firstExercise, 1).screenshot({
-    path: "e2e/screenshots/11c-set-unknown-weight.png",
+    path: "e2e/.artifacts/screenshots/11c-set-unknown-weight.png",
   });
   // 카드 전체(제목 + 근거 배지). 제목(h2)의 부모가 카드다.
-  await card(page, "플랭크").screenshot({ path: "e2e/screenshots/11d-plank-card.png" });
-  await card(page, "풀업").screenshot({ path: "e2e/screenshots/11e-pullup-card.png" });
+  await card(page, "플랭크").screenshot({ path: "e2e/.artifacts/screenshots/11d-plank-card.png" });
+  await card(page, "풀업").screenshot({ path: "e2e/.artifacts/screenshots/11e-pullup-card.png" });
 
   // ---- M-UIb: 앵커 메뉴는 정확히 3항목이며 키보드·외부 클릭 후 트리거로 복귀한다. ----
   let opened = await openExerciseMenu(page, "플랭크");
@@ -280,7 +280,7 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   await expect(page.getByRole("heading", { name: "수고했어요" })).toBeVisible();
   await expect(page.getByText(/오늘 2세트, [\d.]+kg 들었어요\./)).toBeVisible();
   await assertNoZeroKg(page);
-  await page.screenshot({ path: "e2e/screenshots/17-summary.png", fullPage: true });
+  await page.screenshot({ path: "e2e/.artifacts/screenshots/17-summary.png", fullPage: true });
 
   // ---- 대시보드가 done 으로 바뀐다(실 데이터) ----
   await page.getByRole("link", { name: "대시보드로" }).click();
