@@ -100,3 +100,7 @@ CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_a
 - 구현(ADR-16): `users.body_fat_pct`·`performed_sets.pain_score`는 **text 컬럼에 `v1:iv:tag:ciphertext`(AES-256-GCM)** 로 저장하고,
   `workout_sessions.session_feedback`의 `pain` 값도 같은 형식으로 암호화한다. 암복호는 서비스 레이어 한 곳에서만 한다.
   → 이 필드로는 DB 정렬·범위검색·집계가 불가능하다(디로드 "통증↑" 신호는 앱 레이어 계산, 범위 검증은 DTO).
+
+## 기능개선 예약 계약 (2026-09-05)
+
+[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md)은 세션 append·실제 주 조회/swap·split snapshot·forward-only 전환의 후속 구현 경계를 정의한다. 현재 API/Prisma/runtime 지원 선언이 아니며 각 소유 Sprint에서 원자 승격한다.

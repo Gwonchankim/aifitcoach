@@ -12,3 +12,7 @@
 
 ## 엔드포인트 요약
 auth(social/refresh/logout) · me(GET/PATCH/DELETE, consents, export, calibration) · programs(generate, current, {id}) · exercises · sessions({id}, complete, exercises add/remove/swap) · sync · analytics(e1rm/volume/completion), dashboard · billing(checkout/confirm) · subscriptions/status · webhooks/pg
+
+## 기능개선 예약 계약 (2026-09-05)
+
+[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md)은 세션 append·실제 주 조회/swap·split snapshot·forward-only 전환의 후속 구현 경계를 정의한다. 현재 API/Prisma/runtime 지원 선언이 아니며 각 소유 Sprint에서 원자 승격한다.

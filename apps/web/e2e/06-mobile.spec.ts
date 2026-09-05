@@ -23,7 +23,11 @@ test.beforeEach(async ({ request }) => {
 
 // 프로젝트(브라우저)별로 따로 남긴다 — 뷰포트가 달라 덮어쓰면 안 된다.
 test.afterAll(({ browserName }, testInfo) => {
-  const file = path.resolve(process.cwd(), `e2e/mobile-metrics.${testInfo.project.name}.json`);
+  const file = path.resolve(
+    process.cwd(),
+    `e2e/.artifacts/metrics/mobile-metrics.${testInfo.project.name}.json`,
+  );
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({ browserName, screens: metrics }, null, 2));
 });
 

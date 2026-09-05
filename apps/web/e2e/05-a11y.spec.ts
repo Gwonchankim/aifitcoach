@@ -14,7 +14,7 @@ import { openSession, seedProgram, shot, todaySession } from "./helpers";
  * 테스트가 실패하면 Playwright 가 워커를 새로 띄우고 모듈이 다시 로드되므로,
  * 메모리에 모았다가 afterAll 에서 한 번에 쓰면 실패한 화면의 결과가 사라진다.
  */
-const RESULTS = path.resolve(process.cwd(), "e2e/axe-results.jsonl");
+const RESULTS = path.resolve(process.cwd(), "e2e/.artifacts/metrics/axe-results.jsonl");
 
 let sessionId: string;
 

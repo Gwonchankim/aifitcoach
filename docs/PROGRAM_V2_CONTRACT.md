@@ -208,6 +208,8 @@ ADR-49는 추천 **수식** 변경을 UI 마일스톤에서 분리하고 근거+
 
 ### 2.3 S/C/H composition — **확정 제품정책** (근거 아님)
 
+**버전 구분(ADR-73, 2026-09-05): 아래 기존 표는 예약 `2026.09.0`의 의미로 보존한다. 이번 전체 기능개선이 최종 활성화할 `2026.09.1`의 4·5일 개편 표는 다음 절에 있다. 두 버전의 persisted snapshot을 서로 재해석하지 않는다.**
+
 문자열은 주간 횟수 composition이며 실제 요일은 회복 가드레일이 정한다.
 `S` = 저항운동 중심, `C` = 유산소 중심, `H` = 혼합.
 
@@ -229,6 +231,25 @@ ADR-49는 추천 **수식** 변경을 UI 마일스톤에서 분리하고 근거+
 불연속이었다 — 사용자가 주2일 → 주3일로 늘렸을 때 프로그램이 "발전"이 아니라 "다른 것"으로 보인다.
 **`HHC`로 확정**했다. 저항 노출 2회와 혼합 성격을 보존하면서 `C`만 추가하므로 2일 → 3일이 증분이 된다.
 문헌 수치가 아니라 ADR-71의 versioned product policy다.
+
+#### 2.3.1 개편 `2026.09.1` — 모든 4·5일의 실제 저항 초점
+
+사용자 사양 개정1·2와 독립 계약 합의(ADR-73). 순수 C를 H로 전환하되 같은 슬롯의 유산소 block을 보존한다. S/H 문자의 이름만 바꿔 저항 빈도를 맞추지 않는다.
+
+| goal | 2일 | 3일 | 4일 | 5일 | 6일 |
+| --- | --- | --- | --- | --- | --- |
+| diet | HH | HHC | HHHH | HHHHH | HHCCCC |
+| hypertrophy | SS | SSH | SSSH | SSSSH | SSSSHH |
+| strength | SS | SSH | SSSH | SSSHH | SSSSHC |
+| general_fitness | HH | HHC | SSHH | SSHHH | SSHHCC |
+| endurance | HH | HHC | HHHH | HHHHH | HHCCCC |
+
+- 4일은 MON/TUE/THU/FRI에 U/L/U/L(2:2). 5일은 MON/TUE/WED/FRI/SAT에 balanced·upper_priority = U/L/U/L/U(3:2), lower_priority = L/U/L/U/L(2:3). balanced 기본의 상3/하2 의미를 UI에서 명시한다. 2·3·6일 경량 선호는 N/A다.
+- 각 4·5일 초점에 실제 해당 부위 non-core primary ≥1종 × ≥2 working sets가 있어야 한다. primary 불가·시간 부족은 명시 생성 불가이며 빈/유산소 전용 세션을 해당 부위로 세지 않는다.
+- 같은 부위 최소48시간은 주 경계까지 검사하는 제품 일정 규칙이다. 새 swap operation에도 교환 후 실제 인접 주를 후보 및 최종 transaction에서 검사하고 위반409·양쪽 불변을 유지한다. 기존 프로그램을 이 규칙으로 backfill하지 않는다.
+- 유산소 숫자 정책은 아직 미구현이다. **Sprint04 첫 CARDIO-CONTRACT-BASELINE(ticket10)의 docs+golden 전용 SHA를 제품 코드보다 먼저 승인·동결**한다. 순서는 freeze → PLAN-02 → cardio generator/wire → 개편 split/packer → 전체 `.09.1` activation이다. 기존 원천의 기계적 전사는 Evaluator 승인, 새 수치·용량 감소·생성 불가 확대는 Planner→사용자 승인이다.
+- 개편 전 동일 입력과 원래 fallback의 descriptor/총초/강도별초/interval/long-session을 먼저 고정하고 개편 결과와 exact 비교한다. 개편 유발 fallback으로 baseline을 재설정하지 않는다. 불변을 못 지키면 명시 생성 불가이며 무승인 shortfall은 금지한다.
+- §2.4 cap·§4.4 estimator/primary 보호는 그대로 사용하고 mandatory cardio 전체 시간을 additional_fixed_block_sec에 포함한다. 시간 예산 밖으로 cardio를 숨기거나 primary를 없애지 않는다. 상세 오류·배포·snapshot 계약은 [기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md), 기계적 fixture는 [예약 정책 fixture](specs/feature_improvements_contract.json)다. 이는 기능 runtime 검증 완료 주장이 아니다.
 
 ### 2.4 세트 envelope
 
@@ -307,7 +328,7 @@ ADR-71이 "버전 관리되는 제품정책"이라고 말할 때, 그 버전을 
 - **S/C/H composition, set envelope·cap, time-estimator 상수, 그리고 추천 엔진 출력 계약은 하나의
   `Program.rules_version` rules bundle에 묶인다.** 엔진 버전과 프로그램 버전을 **서로 다른 의미의 상수로
   분리하지 않는다.**
-- 최초 V2 bundle 값은 **`2026.09.0`** 이다.
+- 최초 예약 V2 의미는 **`2026.09.0`** 으로 보존한다. ADR-73의 개편 composition+split을 포함한 전체 기능개선 최종 활성화 대상은 **`2026.09.1`** 이다. 활성 포인터는 그 전까지 `2026.08.1`이며 중간 V1에 `.09.1`을 표기하지 않는다.
 - 같은 생성 결과의 `PlannedSet.rules_version`과 추천 엔진 출력도 같은 bundle 값을 쓴다.
 - composition·cap·estimator·엔진 출력 의미 중 **하나라도 바뀌면 bundle version을 올린다.**
 - 기존 persisted `2026.08.1` 행은 **backfill하지 않는다.** 그 행의 값은 그 버전의 규칙으로 해석한다.

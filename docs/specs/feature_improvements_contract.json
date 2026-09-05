@@ -1,0 +1,326 @@
+{
+  "status": "reserved-contract-not-runtime-evidence",
+  "legacy_bundle": "2026.09.0",
+  "revised_bundle": "2026.09.1",
+  "active_bundle": "2026.08.1",
+  "composition": [
+    {
+      "goal": "diet",
+      "days": 2,
+      "legacy": "HH",
+      "revised": "HH"
+    },
+    {
+      "goal": "diet",
+      "days": 3,
+      "legacy": "HHC",
+      "revised": "HHC"
+    },
+    {
+      "goal": "diet",
+      "days": 4,
+      "legacy": "HHCC",
+      "revised": "HHHH"
+    },
+    {
+      "goal": "diet",
+      "days": 5,
+      "legacy": "HHCCC",
+      "revised": "HHHHH"
+    },
+    {
+      "goal": "diet",
+      "days": 6,
+      "legacy": "HHCCCC",
+      "revised": "HHCCCC"
+    },
+    {
+      "goal": "hypertrophy",
+      "days": 2,
+      "legacy": "SS",
+      "revised": "SS"
+    },
+    {
+      "goal": "hypertrophy",
+      "days": 3,
+      "legacy": "SSH",
+      "revised": "SSH"
+    },
+    {
+      "goal": "hypertrophy",
+      "days": 4,
+      "legacy": "SSSH",
+      "revised": "SSSH"
+    },
+    {
+      "goal": "hypertrophy",
+      "days": 5,
+      "legacy": "SSSSH",
+      "revised": "SSSSH"
+    },
+    {
+      "goal": "hypertrophy",
+      "days": 6,
+      "legacy": "SSSSHH",
+      "revised": "SSSSHH"
+    },
+    {
+      "goal": "strength",
+      "days": 2,
+      "legacy": "SS",
+      "revised": "SS"
+    },
+    {
+      "goal": "strength",
+      "days": 3,
+      "legacy": "SSH",
+      "revised": "SSH"
+    },
+    {
+      "goal": "strength",
+      "days": 4,
+      "legacy": "SSSH",
+      "revised": "SSSH"
+    },
+    {
+      "goal": "strength",
+      "days": 5,
+      "legacy": "SSSHC",
+      "revised": "SSSHH"
+    },
+    {
+      "goal": "strength",
+      "days": 6,
+      "legacy": "SSSSHC",
+      "revised": "SSSSHC"
+    },
+    {
+      "goal": "general_fitness",
+      "days": 2,
+      "legacy": "HH",
+      "revised": "HH"
+    },
+    {
+      "goal": "general_fitness",
+      "days": 3,
+      "legacy": "HHC",
+      "revised": "HHC"
+    },
+    {
+      "goal": "general_fitness",
+      "days": 4,
+      "legacy": "SSCC",
+      "revised": "SSHH"
+    },
+    {
+      "goal": "general_fitness",
+      "days": 5,
+      "legacy": "SSHCC",
+      "revised": "SSHHH"
+    },
+    {
+      "goal": "general_fitness",
+      "days": 6,
+      "legacy": "SSHHCC",
+      "revised": "SSHHCC"
+    },
+    {
+      "goal": "endurance",
+      "days": 2,
+      "legacy": "HH",
+      "revised": "HH"
+    },
+    {
+      "goal": "endurance",
+      "days": 3,
+      "legacy": "HHC",
+      "revised": "HHC"
+    },
+    {
+      "goal": "endurance",
+      "days": 4,
+      "legacy": "HHCC",
+      "revised": "HHHH"
+    },
+    {
+      "goal": "endurance",
+      "days": 5,
+      "legacy": "HHCCC",
+      "revised": "HHHHH"
+    },
+    {
+      "goal": "endurance",
+      "days": 6,
+      "legacy": "HHCCCC",
+      "revised": "HHCCCC"
+    }
+  ],
+  "preferences": [
+    {
+      "days": 4,
+      "preference": "balanced",
+      "focus": [
+        "upper",
+        "lower",
+        "upper",
+        "lower"
+      ],
+      "day_offsets": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "expected_counts": [
+        2,
+        2
+      ]
+    },
+    {
+      "days": 5,
+      "preference": "balanced",
+      "focus": [
+        "upper",
+        "lower",
+        "upper",
+        "lower",
+        "upper"
+      ],
+      "day_offsets": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "expected_counts": [
+        3,
+        2
+      ]
+    },
+    {
+      "days": 5,
+      "preference": "upper_priority",
+      "focus": [
+        "upper",
+        "lower",
+        "upper",
+        "lower",
+        "upper"
+      ],
+      "day_offsets": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "expected_counts": [
+        3,
+        2
+      ]
+    },
+    {
+      "days": 5,
+      "preference": "lower_priority",
+      "focus": [
+        "lower",
+        "upper",
+        "lower",
+        "upper",
+        "lower"
+      ],
+      "day_offsets": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "expected_counts": [
+        2,
+        3
+      ]
+    }
+  ],
+  "recovery_counterexample": {
+    "day_offsets": [
+      0,
+      1,
+      3,
+      4
+    ],
+    "focus_before": [
+      "upper",
+      "lower",
+      "upper",
+      "lower"
+    ],
+    "swap_indices": [
+      0,
+      3
+    ],
+    "focus_after": [
+      "lower",
+      "lower",
+      "upper",
+      "upper"
+    ],
+    "expected_status": 409,
+    "minimum_gap_hours": 24
+  },
+  "synthetic_time_boundary": {
+    "not_a_cardio_prescription": true,
+    "minutes": 30,
+    "warmup_sec": 480,
+    "cooldown_sec": 300,
+    "sets": 2,
+    "reps_high": 12,
+    "rest_sec": 90,
+    "cardio_sec": 900,
+    "expected_total_sec": 1866,
+    "expected_error": "insufficient_time_for_mixed_focus"
+  },
+  "invalid_preferences": [
+    {
+      "days": 2,
+      "preference": "upper_priority",
+      "status": 400
+    },
+    {
+      "days": 2,
+      "preference": "lower_priority",
+      "status": 400
+    },
+    {
+      "days": 3,
+      "preference": "upper_priority",
+      "status": 400
+    },
+    {
+      "days": 3,
+      "preference": "lower_priority",
+      "status": 400
+    },
+    {
+      "days": 6,
+      "preference": "upper_priority",
+      "status": 400
+    },
+    {
+      "days": 6,
+      "preference": "lower_priority",
+      "status": 400
+    },
+    {
+      "days": 4,
+      "preference": "upper_priority",
+      "status": 400
+    },
+    {
+      "days": 4,
+      "preference": "lower_priority",
+      "status": 400
+    }
+  ]
+}

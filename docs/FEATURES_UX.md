@@ -169,3 +169,7 @@
 ## 안전
 - 휴식 타이머 사운드/진동은 옵션(기본 off 가능).
 - 로깅 화면에 통증 보고(pain) 입력과 안전 플로우(pain_score≥4 → 대체/감량 안내)를 유지(RECOMMENDATION_ENGINE.md).
+
+## 기능개선 예약 계약 (2026-09-05)
+
+[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md)은 세션 append·실제 주 조회/swap·split snapshot·forward-only 전환의 후속 구현 경계를 정의한다. 현재 API/Prisma/runtime 지원 선언이 아니며 각 소유 Sprint에서 원자 승격한다.

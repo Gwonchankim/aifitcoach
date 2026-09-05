@@ -1,0 +1,533 @@
+openapi: 3.0.3
+info:
+  title: AFC reserved feature contracts — not runtime routes
+  version: sprint01-contract-1
+x-afc-status: reserved-not-implemented
+x-afc-activation: Promote one feature atomically into openapi.yaml with
+  DTO/codegen/schema/migration/wiring/tests in its owning sprint. This document
+  is never a runtime capability declaration.
+servers:
+  - url: http://localhost:3001/v1
+paths:
+  /sessions/{id}/sets:
+    post:
+      operationId: appendSessionSetReserved
+      x-afc-delivery-sprint: 3
+      description: RESERVED. UTC-today append only. Shared atomic handler with
+        session_set sync; client_id is durable idempotency, no Idempotency-Key
+        header.
+      parameters:
+        - &a1
+          name: id
+          in: path
+          required: true
+          schema: &a2
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendSetRequest"
+      responses:
+        "201":
+          description: Atomic success; exact replay returns the stored result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendSetResult"
+        "400":
+          description: Malformed or unsupported input
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "401":
+          description: Existing authentication guard
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "403":
+          description: Existing CSRF guard
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "404":
+          description: Absent or not owned
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "409":
+          description: Atomic rejection; no partial writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureConflict"
+  /programs/{id}/weeks/current:
+    get:
+      operationId: getActualCurrentWeekReserved
+      x-afc-delivery-sprint: 4
+      description: RESERVED. Materialized actual week, not immutable Program.sessions
+        template. Reader uses program-scoped lazy generation lock.
+      parameters:
+        - *a1
+      responses:
+        "200":
+          description: Actual current week
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentProgramWeek"
+        "404":
+          description: Absent or not owned
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+  /programs/{id}/week-swaps/candidates:
+    get:
+      operationId: getWeekSwapCandidatesReserved
+      x-afc-delivery-sprint: 4
+      description: RESERVED. Eligibility includes post-swap neighboring actual-week
+        resistance/cardio recovery. Final transaction must recheck.
+      parameters:
+        - *a1
+      responses:
+        "200":
+          description: Candidates with recovery/readonly reasons
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeekSwapCandidates"
+        "404":
+          description: Absent/not-owned program or today session
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+  /programs/{id}/week-swaps:
+    post:
+      operationId: swapCurrentWeekReserved
+      x-afc-delivery-sprint: 4
+      description: RESERVED. Lock program then affected and neighboring sessions;
+        validate aggregate revisions/recovery; exchange dates only. Return new
+        today_session_id.
+      parameters:
+        - *a1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeekSwapRequest"
+      responses:
+        "200":
+          description: Atomic success; exact replay returns the stored result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeekSwapResult"
+        "400":
+          description: Malformed or unsupported input
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "401":
+          description: Existing authentication guard
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "403":
+          description: Existing CSRF guard
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "404":
+          description: Absent or not owned
+          content:
+            application/json:
+              schema:
+                $ref: ./openapi.yaml#/components/schemas/Error
+        "409":
+          description: Atomic rejection; no partial writes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureConflict"
+components:
+  schemas:
+    SplitPreference:
+      type: string
+      enum:
+        - balanced
+        - upper_priority
+        - lower_priority
+    ServerAppendSource:
+      type: object
+      additionalProperties: false
+      required:
+        - source_planned_set_id
+        - source_revision
+      properties:
+        source_planned_set_id: *a2
+        source_revision: &a3
+          type: string
+          minLength: 1
+    ProvisionalAppendSource:
+      type: object
+      additionalProperties: false
+      required:
+        - source_correlation_id
+      properties:
+        source_correlation_id: *a2
+    AppendSource:
+      oneOf:
+        - $ref: "#/components/schemas/ServerAppendSource"
+        - $ref: "#/components/schemas/ProvisionalAppendSource"
+    AppendSetPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - exercise_id
+        - correlation_id
+        - source
+      properties:
+        exercise_id: *a3
+        correlation_id: *a2
+        source:
+          $ref: "#/components/schemas/AppendSource"
+    AppendSetRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - client_id
+        - exercise_id
+        - correlation_id
+        - source
+      properties:
+        client_id: *a2
+        exercise_id: *a3
+        correlation_id: *a2
+        source:
+          $ref: "#/components/schemas/AppendSource"
+    RevisionedPlannedSet:
+      allOf:
+        - $ref: ./openapi.yaml#/components/schemas/PlannedSet
+        - type: object
+          required:
+            - source_revision
+          properties:
+            source_revision: *a3
+    AppendSetResult:
+      type: object
+      additionalProperties: false
+      required:
+        - client_id
+        - session_id
+        - correlation_id
+        - planned_set_id
+        - planned_set
+      properties:
+        client_id: *a2
+        session_id: *a2
+        correlation_id: *a2
+        planned_set_id: *a2
+        planned_set:
+          $ref: "#/components/schemas/RevisionedPlannedSet"
+    AppendSetSyncMutation:
+      type: object
+      additionalProperties: false
+      required:
+        - client_id
+        - entity
+        - entity_id
+        - op
+        - updated_at
+        - payload
+      properties:
+        client_id: *a2
+        entity:
+          type: string
+          enum:
+            - session_set
+        entity_id: *a2
+        op:
+          type: string
+          enum:
+            - upsert
+        updated_at:
+          type: string
+          format: date-time
+        payload:
+          $ref: "#/components/schemas/AppendSetPayload"
+    WeekExercise:
+      type: object
+      additionalProperties: false
+      required:
+        - exercise_id
+        - planned_set_ids
+        - set_count
+      properties:
+        exercise_id: *a3
+        planned_set_ids:
+          type: array
+          items: *a2
+          minItems: 1
+          uniqueItems: true
+        set_count:
+          type: integer
+          minimum: 1
+          maximum: 10
+    ActualWeekSession:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - scheduled_date
+        - focus
+        - status
+        - revision
+        - planned_set_ids
+        - exercises
+      properties:
+        id: *a2
+        scheduled_date: &a4
+          type: string
+          format: date
+        focus: *a3
+        status:
+          type: string
+          enum:
+            - scheduled
+            - in_progress
+            - completed
+        revision: *a3
+        planned_set_ids:
+          type: array
+          items: *a2
+          uniqueItems: true
+        exercises:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeekExercise"
+    CurrentProgramWeek:
+      type: object
+      additionalProperties: false
+      required:
+        - program_id
+        - week_start
+        - sessions
+      properties:
+        program_id: *a2
+        week_start: *a4
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActualWeekSession"
+    WeekSwapRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - client_id
+        - today_session_id
+        - target_session_id
+        - today_revision
+        - target_revision
+      properties:
+        client_id: *a2
+        today_session_id: *a2
+        target_session_id: *a2
+        today_revision: *a3
+        target_revision: *a3
+    WeekSwapResult:
+      type: object
+      additionalProperties: false
+      required:
+        - client_id
+        - program_id
+        - week_start
+        - today_session_id
+        - sessions
+      properties:
+        client_id: *a2
+        program_id: *a2
+        week_start: *a4
+        today_session_id: *a2
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActualWeekSession"
+          minItems: 2
+          maxItems: 2
+    WeekSwapCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - session
+        - eligible
+        - reason
+      properties:
+        session:
+          $ref: "#/components/schemas/ActualWeekSession"
+        eligible:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - recovery_gap_violation
+            - readonly
+            - not_scheduled
+            - performed_history
+            - wrong_week
+            - ambiguous_schedule
+    WeekSwapCandidates:
+      type: object
+      additionalProperties: false
+      required:
+        - program_id
+        - week_start
+        - today_session_id
+        - today_revision
+        - candidates
+      properties:
+        program_id: *a2
+        week_start: *a4
+        today_session_id: *a2
+        today_revision: *a3
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeekSwapCandidate"
+    SplitPreferenceProfileFields:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        split_preference:
+          $ref: "#/components/schemas/SplitPreference"
+    SplitGenerationFields:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        split_preference:
+          $ref: "#/components/schemas/SplitPreference"
+    SplitProgramSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - requested_preference
+        - effective_preference
+        - applicable
+        - reason
+        - upper_days
+        - lower_days
+      properties:
+        requested_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        effective_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        applicable:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - unsupported_days
+            - four_day_balanced_only
+            - legacy_input
+        upper_days:
+          type: integer
+          minimum: 0
+          maximum: 5
+        lower_days:
+          type: integer
+          minimum: 0
+          maximum: 5
+    FeatureConflict:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+              enum:
+                - CONFLICT
+            message: *a3
+            details:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - readonly
+                    - set_cap_reached
+                    - set_number_gap
+                    - source_changed
+                    - source_removed
+                    - correlation_mismatch
+                    - idempotency_payload_mismatch
+                    - append_target_removed
+                    - unsafe_assistance_snapshot
+                    - unresolved_parent
+                    - stale_revision
+                    - recovery_gap_violation
+                    - ambiguous_schedule
+                    - insufficient_time_for_mixed_focus
+                    - cardio_preservation_failed
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sid
+      description: httpOnly·Secure·SameSite=Lax 세션 쿠키. 변경 요청에는 X-CSRF-Token 헤더가 필요하다.
+x-afc-promotion:
+  AppendSetSyncMutation: "Sprint03: extend SyncMutation oneOf/entity enum and
+    dependency ordering, preserve existing mutation payloads and cursor/LWW
+    behavior"
+  RevisionedPlannedSet: "Sprint03: additive source_revision on PlannedSet
+    wire/mirror, computed from raw prescription fields"
+  SplitPreferenceProfileFields: "Sprint04: merge optional split_preference into
+    Profile/ProfileUpdate; additive nullable User.splitPreference; no changes to
+    auth or health fields"
+  SplitGenerationFields: "Sprint04: merge optional split_preference into GenerateProgramRequest"
+  SplitProgramSnapshot: "Sprint04: additive split_preference_snapshot on Program;
+    immutable requested/effective values in Program.generation_input"
+  CurrentProgramWeek: "Sprint04: separate actual-week query; Program.sessions
+    remains immutable template"
+security:
+  - cookieAuth: []

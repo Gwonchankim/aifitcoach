@@ -1,3 +1,4 @@
+# 후속 기능은 feature-improvements.openapi.yaml의 reserved 계약이며 아직 paths에 활성화하지 않는다.
 openapi: 3.0.3
 info:
   title: AI 맞춤형 운동프로그램 웹앱 API

@@ -19,8 +19,9 @@ export const RULES_BUNDLE_V1_ASSIST = "2026.08.2";
 export const RULES_BUNDLE_V2 = "2026.09.0";
 
 /**
- * 예약 bundle. `.09.0` 위에 **split preference 만** 더한다(§D).
- * 정책 구현은 `d-split-preference-0901` 소유지만, **상수·union·판정은 여기 있어야** 한다 —
+ * 예약 bundle. `.09.0` 위에 **개편 S/C/H composition + split preference**를 더한다(ADR-73).
+ * 전체 V2 구성과 CARDIO baseline 검증 후 한 번에 활성화한다. 중간 V1에 쓰지 않는다.
+ * 정책 구현은 Sprint04/05 소유지만, **상수·union·판정은 여기 있어야** 한다 —
  * 없으면 `.09.1` 이 unknown 으로 throw 해서 어시스트 계약이 그 버전에서 끊긴다.
  */
 export const RULES_BUNDLE_V2_SPLIT = "2026.09.1";
@@ -60,7 +61,7 @@ export function resolveRulesBundle(rulesVersion: string): RulesBundle {
 
 /**
  * V2 계약 여부. 지원하지 않는 버전이면 `resolveRulesBundle` 이 throw 한다.
- * `.09.1` 은 `.09.0` 위에 split preference 만 얹은 것이므로 **V2 계약을 그대로 따른다.**
+ * `.09.1` 은 composition/split를 개편하지만 **V2 추천 출력 계약을 그대로 따른다.**
  */
 export function isV2RulesBundle(rulesVersion: string): boolean {
   const bundle = resolveRulesBundle(rulesVersion);
