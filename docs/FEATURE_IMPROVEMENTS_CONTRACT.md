@@ -130,8 +130,9 @@ C만 H로 전환하며 기존 S/H 슬롯의 유산소 처방은 유지한다. �
 
 ## R — 복원 계약 (Sprint03 소유)
 
-- R01: principal+session별 현재 exercise ID와 확장 planned-set ID/correlation을 durable 저장한다. pixel scrollTop은 저장하지 않는다.
-- R02: 새 browser context/강제 종료 뒤 데이터 hydrate 후 유효한 마지막 행을 펼치고 해당 행으로 이동한다. 삭제된 행은 같은 운동 첫 미완료→세션 첫 미완료→세션 요약 순서로 결정론적 fallback하며 다른 세션 위치를 재사용하지 않는다.
-- R03: provisional→server mapping ack transaction에서 위치 correlation도 함께 승격한다. draft/타이머는 기존 durable 저장 경계를 재사용하고 타이머 시작시각·실제 수행값을 위치 복원으로 덮지 않는다.
-- R04: swap 후 오늘 이동은 서버 today_session_id를 따르고 각 session의 저장 위치를 따로 유지한다. 사용자 명시 조작 전 자동 focus로 입력·화면을 반복해서 빼앗지 않는다.
+- R01: principal+session별 마지막 명시 상호작용 exercise/planned-set ID 또는 correlation과 완료행 expanded 상태를 기존 syncMeta의 별도 namespace/value-version에 durable 저장한다. 새 Dexie schema/store·pixel scrollTop·미완료 입력 문자열 저장은 없다. input/focus·완료/취소·expanded toggle·append 성공만 위치를 갱신한다.
+- R02: hydrate 후 유효한 마지막 행으로 한 번 이동한다. 삭제된 행은 같은 운동 첫 미완료→세션 첫 미완료→세션 요약 순서로 결정론적 fallback하며 다른 세션 위치를 재사용하지 않는다. 성공 종료는 position을 정리하고 summary가 기본이며 당일 명시 edit/append 진입에서 새 위치를 기록한다. loading/error를 authoritative empty로 오인하지 않는다.
+- R03: provisional→server mapping ack transaction에서 위치 correlation도 함께 승격한다. late position/timer write는 alias를 확인한다. 삭제된 completed draft/old alias만으로 membership를 인정하지 않는다. draft/타이머는 기존 durable 저장 경계를 재사용하고 타이머 종료시각·실제 수행값을 위치 복원으로 덮지 않는다.
+- R04: future swap 후 오늘 이동은 서버 today_session_id를 따르고 각 session의 저장 위치를 따로 유지한다. 현재 위치 기능이 swap API를 활성화하지 않는다. 사용자가 조작한 뒤 늦은 hydrate/ACK/refetch로 focus·화면을 반복해서 빼앗지 않는다.
 - R05: 360~430px·keyboard/assistive focus·error/loading/removed-source·offline 재진입을 실제 React wiring/E2E에서 검증한다. helper-only 성공을 복원 완료로 보지 않는다.
+- R06: 실제40초 background/route/reload와 소유 persistent origin/storage의 새 process 복원을 검사한다. 빈 isolated context는 별도 안전 fallback이다. IndexedDB snapshot 이식은 process 내구성 증거가 아니며 강제 종료 보장은 관측된 durable commit 뒤에 한정한다. 상세는 [위치 계약](SESSION_POSITION.md), ADR-76이다.

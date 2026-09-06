@@ -144,6 +144,9 @@ export type SetRowProps = {
   readOnly: boolean;
   /** 완료 행이 펼쳐져 있는지(F6-1 값 수정). 한 번에 하나만 펼친다 — 상태는 부모가 갖는다(AC-SET-8). */
   expanded: boolean;
+  active?: boolean;
+  focusOnExpand?: boolean;
+  onActivate?: () => void;
   onToggleExpand: () => void;
   onComplete: (values: SetValues) => void;
   /** 펼친 완료 행에서 값을 고칠 때. 완료 상태·휴식 타이머를 건드리지 않는다(§2.4.3). */
@@ -160,6 +163,9 @@ export function SetRow({
   previous,
   readOnly,
   expanded,
+  active = false,
+  focusOnExpand = true,
+  onActivate,
   onToggleExpand,
   onComplete,
   onEdit,
@@ -242,9 +248,19 @@ export function SetRow({
   // 펼치면 바로 고칠 수 있게 첫 입력칸으로 포커스를 옮긴다(탭한 이유가 수정이다).
   const primaryId = primaryInputId(set, kind);
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || !focusOnExpand) return;
     document.getElementById(primaryId)?.focus();
-  }, [editing, primaryId]);
+  }, [editing, primaryId, focusOnExpand]);
+
+  const positionAttributes = {
+    id: `session-set-${set.id}`,
+    "data-planned-set-id": set.id,
+    "data-exercise-id": set.exercise_id,
+    "data-session-current": String(active),
+    "data-expanded": String(editing),
+    onFocusCapture: readOnly ? undefined : onActivate,
+    onChangeCapture: readOnly ? undefined : onActivate,
+  };
 
   // 무게 미정 세트는 프리필이 없다. 대신 같은 운동의 앞 세트 값을 이어 쓴다(§5.2).
   const shownWeight = shownWeightText(weightText, kind, fallbackWeight, weightEdited.current);
@@ -326,6 +342,7 @@ export function SetRow({
     const recorded = draft ? recordLabel(draft) : null;
     return (
       <li
+        {...positionAttributes}
         className={cn(
           "flex flex-wrap items-center gap-2 rounded-control border p-3",
           // 읽기 전용 화면에서도 완료 구분은 완료 전용 토큰으로 한다(ADR-41: opacity 금지).
@@ -363,6 +380,7 @@ export function SetRow({
   if (completed && !expanded) {
     return (
       <li
+        {...positionAttributes}
         className={cn(
           // p-1.5: 48px 버튼 + 여백 12 + 테두리 2 = 62px → 완료 행 한 줄(≤64px) 기준을 지킨다.
           "flex items-center gap-2 rounded-control border p-1.5",
@@ -406,6 +424,7 @@ export function SetRow({
   */
   return (
     <li
+      {...positionAttributes}
       className={cn(
         "grid grid-cols-[16px_minmax(0,1fr)_minmax(0,1fr)_46px_48px] items-center gap-x-1.5 gap-y-1",
         "rounded-control border border-border bg-bg p-2",

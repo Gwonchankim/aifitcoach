@@ -35,10 +35,19 @@ import { PainSheet } from "./PainSheet";
 import { RestTimerSheet } from "./RestTimerSheet";
 import { SessionSummary } from "./SessionSummary";
 import { primaryInputId } from "./SetRow";
+import {
+  clearPositionInTransaction,
+  readPosition,
+  savePosition,
+  resolveSessionPosition,
+  resolvePositionAlias,
+  type PositionRecord,
+  type SessionPosition,
+} from "./session-position";
 import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
 import { fetchAllExercises } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
-import { newClientId, painOf, summarize, useSessionLog } from "./session-store";
+import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
 import {
   commitRoutineSnapshot,
   commitSessionCompletion,
@@ -46,6 +55,7 @@ import {
   mirrorSession,
   readThroughSession,
   safeMappings,
+  sessionDb,
   type RoutineCorrelation,
 } from "./session-db";
 import {
@@ -68,6 +78,20 @@ type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 const CLEAR_FAILED_NOTICE = "휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요.";
 
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
+
+/** Summary is a read projection: authoritative facts fill only missing local records. */
+function summaryMetricsFor(sets: readonly PlannedSet[], drafts: Record<string, SetDraft>) {
+  let completedCount = 0;
+  let totalVolume = 0;
+  for (const set of sets) {
+    const actual = drafts[set.id] ?? set.performed_set;
+    if (actual?.completed !== true) continue;
+    completedCount += 1;
+    if (set.load_kind === "external" && actual.actual_weight != null && actual.actual_reps != null)
+      totalVolume += actual.actual_weight * actual.actual_reps;
+  }
+  return { completedCount, totalVolume };
+}
 
 /**
  * 매핑 결과를 화면 캐시에 합성한다. **미러와 같은 fail-closed 경계를 쓴다** —
@@ -115,7 +139,12 @@ export async function refetchAuthoritativeSession(
 
 export function SessionScreen({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
-  const drafts = useSessionLog((state) => state.drafts);
+  const storedDrafts = useSessionLog((state) => state.drafts);
+  const draftSessionId = useSessionLog((state) => state.sessionId);
+  const drafts = useMemo(
+    () => (draftSessionId === sessionId ? storedDrafts : {}),
+    [draftSessionId, sessionId, storedDrafts],
+  );
   const begin = useSessionLog((state) => state.begin);
   const completeSetInStore = useSessionLog((state) => state.completeSet);
   const uncompleteSetInStore = useSessionLog((state) => state.uncompleteSet);
@@ -126,6 +155,19 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [rest, setRest] = useState<RestState | null>(null);
   /** 펼쳐 둔 완료 세트. 한 번에 하나만 펼친다(AC-SET-8) → 화면 전체에서 값 하나로 관리한다. */
   const [expandedSetId, setExpandedSetId] = useState<string | null>(null);
+  const [focusExpandedSetId, setFocusExpandedSetId] = useState<string | null>(null);
+  const [activePosition, setActivePosition] = useState<SessionPosition | null>(null);
+  const [positionHydration, setPositionHydration] = useState<{
+    sessionId: string;
+    record: PositionRecord;
+  } | null>(null);
+  const positionScope = useRef<{
+    sessionId: string;
+    intent: number;
+    restored: boolean;
+    read: Promise<PositionRecord>;
+  } | null>(null);
+  const [editingCompleted, setEditingCompleted] = useState(false);
   const [removeExerciseId, setRemoveExerciseId] = useState<string | null>(null);
   const [painExerciseId, setPainExerciseId] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerMode | null>(null);
@@ -137,14 +179,55 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    void begin(sessionId);
+    const scope = {
+      sessionId,
+      intent: 0,
+      restored: false,
+      read: readPosition(DEV_USER_SCOPE, sessionId),
+    };
+    positionScope.current = scope;
+    setActivePosition(null);
+    setExpandedSetId(null);
+    setFocusExpandedSetId(null);
+    setSummary(null);
+    setFinishOpen(false);
+    setEditingCompleted(false);
+    void Promise.all([scope.read, begin(sessionId)])
+      .then(([record]) => {
+        if (positionScope.current === scope) setPositionHydration({ sessionId, record });
+      })
+      .catch(() => undefined);
+    return () => {
+      if (positionScope.current === scope) positionScope.current = null;
+    };
   }, [sessionId, begin]);
+
+  const rememberPosition = (set: PlannedSet, expanded = expandedSetId === set.id) => {
+    const scope = positionScope.current;
+    if (!scope || scope.sessionId !== sessionId) return;
+    const intent = ++scope.intent;
+    const position = { exercise_id: set.exercise_id, planned_set_id: set.id, expanded };
+    setActivePosition(position);
+    void scope.read
+      .then((record) => savePosition(DEV_USER_SCOPE, sessionId, position, record.generation))
+      .then((saved) => {
+        if (saved && positionScope.current === scope && scope.intent === intent)
+          setActivePosition(saved.position);
+      })
+      .catch(() => setNotice("화면 위치를 저장하지 못했어요. 다시 시도해 주세요."));
+  };
 
   useEffect(() => {
     const onMapping = (event: Event) => {
       const mappings = (event as CustomEvent<SyncResponse["planned_set_mappings"]>).detail;
       if (!Array.isArray(mappings) || mappings.length === 0) return;
       remapPlannedSetsInStore(mappings);
+      setExpandedSetId((id) => mappings.find((m) => m.correlation_id === id)?.planned_set_id ?? id);
+      setFocusExpandedSetId(null);
+      setActivePosition((position) => {
+        const moved = mappings.find((m) => m.correlation_id === position?.planned_set_id);
+        return position && moved ? { ...position, planned_set_id: moved.planned_set_id } : position;
+      });
 
       /**
        * **타이머의 세트 정체성도 함께 승격한다.**
@@ -316,16 +399,159 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   }, [session]);
 
   const orderedSets = useMemo(() => groups.flatMap((group) => group.sets), [groups]);
+  useEffect(() => {
+    if (
+      !rest ||
+      !session ||
+      session.id !== sessionId ||
+      sessionQuery.isFetching ||
+      sessionQuery.isError ||
+      orderedSets.some((set) => set.id === rest.plannedSetId)
+    )
+      return;
+    let cancelled = false;
+    void sessionDb
+      .transaction("r", sessionDb.syncMeta, () =>
+        resolvePositionAlias(DEV_USER_SCOPE, sessionId, rest.plannedSetId),
+      )
+      .then(async (id) => {
+        if (cancelled || orderedSets.some((set) => set.id === id)) return;
+        if (await restTimerStore.clearForPlannedSet(sessionId, rest.plannedSetId)) {
+          if (!cancelled) dropRest();
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    rest,
+    session,
+    sessionId,
+    sessionQuery.isFetching,
+    sessionQuery.isError,
+    orderedSets,
+    dropRest,
+  ]);
   /**
    * 카탈로그가 도착했거나(성공) 끝내 실패했을 때만 운동 카드를 그린다.
    * 실패하면 이름을 알 방법이 없으므로 순번 이름으로 낮춰서라도 기록은 계속할 수 있게 둔다
    * (배너 + [다시 시도] 가 위에 함께 보인다, E-21).
    */
   const catalogResolved = catalogQuery.isSuccess || catalogQuery.isError;
+  useEffect(() => {
+    const scope = positionScope.current;
+    if (
+      !scope ||
+      scope.restored ||
+      !session ||
+      session.id !== sessionId ||
+      sessionQuery.isError ||
+      !catalogResolved ||
+      positionHydration?.sessionId !== sessionId
+    )
+      return;
+    if (scope.intent > 0) return;
+    if (session.status === "completed" && !editingCompleted) return;
+    let cancelled = false;
+    const stored = positionHydration.record.position;
+    void sessionDb
+      .transaction("r", sessionDb.syncMeta, async () =>
+        stored
+          ? {
+              ...stored,
+              planned_set_id: await resolvePositionAlias(
+                DEV_USER_SCOPE,
+                sessionId,
+                stored.planned_set_id,
+              ),
+            }
+          : null,
+      )
+      .then((position) => {
+        if (cancelled || positionScope.current !== scope || scope.intent > 0) return;
+        scope.restored = true;
+        const resolved = resolveSessionPosition(
+          position,
+          orderedSets,
+          new Map(Object.values(drafts).map((draft) => [draft.planned_set_id, draft.completed])),
+        );
+        setActivePosition(resolved);
+        setExpandedSetId(resolved?.expanded ? resolved.planned_set_id : null);
+        if (!resolved && (orderedSets.length > 0 || position !== null) && !editingCompleted) {
+          setSummary({ session, next_recommendations: [] });
+          return;
+        }
+        if (resolved)
+          document
+            .getElementById(`session-set-${resolved.planned_set_id}`)
+            ?.scrollIntoView?.({ block: "center" });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session,
+    sessionId,
+    sessionQuery.isError,
+    catalogResolved,
+    positionHydration,
+    orderedSets,
+    drafts,
+    editingCompleted,
+  ]);
+  useEffect(() => {
+    const scope = positionScope.current;
+    if (
+      !scope?.restored ||
+      !activePosition ||
+      !session ||
+      session.id !== sessionId ||
+      sessionQuery.isFetching ||
+      sessionQuery.isError ||
+      orderedSets.some((set) => set.id === activePosition.planned_set_id)
+    )
+      return;
+    const intent = scope.intent;
+    let cancelled = false;
+    void sessionDb
+      .transaction("r", sessionDb.syncMeta, () =>
+        resolvePositionAlias(DEV_USER_SCOPE, sessionId, activePosition.planned_set_id),
+      )
+      .then((id) => {
+        if (cancelled || positionScope.current !== scope || scope.intent !== intent) return;
+        const resolved = resolveSessionPosition(
+          { ...activePosition, planned_set_id: id },
+          orderedSets,
+          new Map(Object.values(drafts).map((draft) => [draft.planned_set_id, draft.completed])),
+        );
+        setActivePosition(resolved);
+        setExpandedSetId(resolved?.expanded ? resolved.planned_set_id : null);
+        setFocusExpandedSetId(null);
+        if (!resolved) setSummary({ session, next_recommendations: [] });
+        if (resolved && resolved.planned_set_id !== id)
+          document
+            .getElementById(`session-set-${resolved.planned_set_id}`)
+            ?.scrollIntoView?.({ block: "center" });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePosition,
+    session,
+    sessionId,
+    sessionQuery.isFetching,
+    sessionQuery.isError,
+    orderedSets,
+    drafts,
+  ]);
   const nameOf = (exerciseId: string, index: number) =>
     catalogById.get(exerciseId)?.name_ko ?? `운동 ${index + 1}`;
 
-  const { completedCount, totalVolume } = summarize(drafts);
+  const { completedCount } = summarize(drafts);
   /*
     F6-1. 종료했다고 잠그지 않는다 — **오늘 세션이면** 세트를 더하거나 고칠 수 있다(재개/편집 모드).
     잠그는 건 **다른 날짜**의 종료된 세션뿐이다(서버도 같은 조건으로 409 를 낸다).
@@ -535,7 +761,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
        * 지워졌는지 확인한다 — 여기서 기다리지 않으면 재진입 때 그 타이머가 되살아난다.
        * 종료 자체는 이미 로컬 커밋이 끝났으므로 **되돌리지 않는다**. 실패는 알리기만 한다.
        */
+      if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
+        throw new ApiError(409, "SYNC_CONFLICT", "completion sync conflict");
       const timerCleared = await restTimerStore.clear(sessionId);
+      await sessionDb.transaction("rw", sessionDb.syncMeta, () =>
+        clearPositionInTransaction(DEV_USER_SCOPE, sessionId),
+      );
 
       return {
         timerCleared,
@@ -551,9 +782,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       };
     },
     onSuccess: (data) => {
+      if (positionScope.current?.sessionId !== data.session.id) {
+        queryClient.setQueryData(["session", data.session.id], data.session);
+        return;
+      }
+      positionScope.current.intent += 1;
       setFinishOpen(false);
       setFinishError(null);
       setSummary(data as CompleteResponse);
+      setActivePosition(null);
+      setExpandedSetId(null);
+      setEditingCompleted(false);
       // 세션이 끝났으면 그 세션의 휴식은 더 없다. 대기 중인 복구도 함께 무효로 만든다.
       dropRest();
       if (!(data as { timerCleared?: boolean }).timerCleared) setNotice(CLEAR_FAILED_NOTICE);
@@ -576,7 +815,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
       return;
     }
+    if (positionScope.current?.sessionId !== sessionId) return;
     setNotice(`${set.set_no}세트 완료`);
+    rememberPosition(set, false);
     const next: RestState = {
       plannedSetId: set.id,
       title: `${exerciseName} ${set.set_no}세트 후 휴식`,
@@ -592,6 +833,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const handleUncomplete = async (set: PlannedSet) => {
     try {
       await uncompleteSetInStore(set.id);
+      rememberPosition(set, false);
     } catch {
       setNotice("기록을 저장하지 못했어요. 다시 시도해 주세요.");
       return;
@@ -684,29 +926,52 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     );
   }
 
-  if (summary) {
-    return (
-      <div className="mx-auto max-w-md p-4">
-        {/*
-         * 종료 화면은 루틴 화면을 통째로 대체하므로 아래의 안내 영역이 렌더되지 않는다.
-         * 정리 실패는 여기서도 보여야 사용자가 "재진입하면 휴식이 다시 뜰 수 있다"를 안다.
-         */}
-        {notice ? (
-          <p role="status" className="mb-3 text-sm text-fg-muted">
-            {notice}
-          </p>
-        ) : null}
-        <SessionSummary
-          completedCount={completedCount}
-          totalVolume={totalVolume}
-          nextRecommendations={summary.next_recommendations}
-          catalogById={catalogById}
-          /* F6-1: 오늘이면 종료 후에도 돌아가서 더 하거나 고칠 수 있다. */
-          onResume={isUtcToday(summary.session.scheduled_date) ? () => setSummary(null) : undefined}
-        />
-      </div>
-    );
-  }
+  const shownSummary =
+    (summary?.session.id === sessionId ? summary : null) ??
+    (session.status === "completed" &&
+    (readOnly || positionScope.current?.sessionId !== sessionId || !editingCompleted)
+      ? { session, next_recommendations: [] }
+      : null);
+  const summaryContent = shownSummary ? (
+    <div inert={modalOpen} className="mx-auto max-w-md p-4">
+      {/*
+       * 종료 화면은 루틴 화면을 통째로 대체하므로 아래의 안내 영역이 렌더되지 않는다.
+       * 정리 실패는 여기서도 보여야 사용자가 "재진입하면 휴식이 다시 뜰 수 있다"를 안다.
+       */}
+      {notice ? (
+        <p role="status" className="mb-3 text-sm text-fg-muted">
+          {notice}
+        </p>
+      ) : null}
+      <SessionSummary
+        {...summaryMetricsFor(session.planned_sets, drafts)}
+        nextRecommendations={shownSummary.next_recommendations}
+        catalogById={catalogById}
+        /* F6-1: 오늘이면 종료 후에도 돌아가서 더 하거나 고칠 수 있다. */
+        onResume={
+          shownSummary.session.status !== "completed" ||
+          isUtcToday(shownSummary.session.scheduled_date)
+            ? () => {
+                setSummary(null);
+                setEditingCompleted(true);
+                const scope = positionScope.current;
+                if (scope) {
+                  scope.intent = 0;
+                  scope.restored = false;
+                  scope.read = readPosition(DEV_USER_SCOPE, sessionId);
+                  void scope.read
+                    .then((record) => {
+                      if (positionScope.current === scope)
+                        setPositionHydration({ sessionId, record });
+                    })
+                    .catch(() => undefined);
+                }
+              }
+            : undefined
+        }
+      />
+    </div>
+  ) : null;
 
   const removeIndex = groups.findIndex((group) => group.exerciseId === removeExerciseId);
   const inRoutine = new Set(groups.map((group) => group.exerciseId));
@@ -730,158 +995,176 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   return (
     <>
-      {/* 랜드마크 <main> 과 스킵 링크는 app/layout.tsx 에 하나씩만 둔다(중복 금지). */}
-      {/* pb-28 = 하단 고정 바(버튼 72 + 패딩 24)를 가릴 만큼만 비운다. */}
-      <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
-        <header className="flex flex-col gap-1">
-          <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
-          <p className="text-sm text-fg-muted">
-            {completedCount}세트 완료 · 계획 {orderedSets.length}세트
-          </p>
-          {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
-          {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
-          {finishedToday ? (
-            /* "지금 편집 모드"를 알리는 면이라 primary 소프트로 둔다(§2.3 파랑 = 지금·계획과 다름).
+      {summaryContent}
+      {shownSummary ? null : (
+        <>
+          {/* 랜드마크 <main> 과 스킵 링크는 app/layout.tsx 에 하나씩만 둔다(중복 금지). */}
+          {/* pb-28 = 하단 고정 바(버튼 72 + 패딩 24)를 가릴 만큼만 비운다. */}
+          <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
+            <header className="flex flex-col gap-1">
+              <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
+              <p className="text-sm text-fg-muted">
+                {completedCount}세트 완료 · 계획 {orderedSets.length}세트
+              </p>
+              {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
+              {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
+              {finishedToday ? (
+                /* "지금 편집 모드"를 알리는 면이라 primary 소프트로 둔다(§2.3 파랑 = 지금·계획과 다름).
                `bg-raised` 단독은 페이지 `bg` 와 1.05:1 이라 상자가 사실상 안 보였다 —
                면을 만드는 건 1px 테두리다(Badge.tsx). 대비: fg 15:1 / fg-muted 5.03:1. */
-            <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
-              <p className="text-sm text-fg">
-                이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
+                <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
+                  <p className="text-sm text-fg">
+                    이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
+                  </p>
+                  {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
+                  <p className="text-sm text-fg-muted">
+                    고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
+                  </p>
+                </div>
+              ) : null}
+            </header>
+
+            {catalogQuery.isError ? (
+              <Card className="flex flex-col gap-2">
+                <p role="alert" className="text-sm text-fg">
+                  {errorMessage(catalogQuery.error, "catalog")}
+                </p>
+                <Button variant="secondary" size="sm" onClick={() => void catalogQuery.refetch()}>
+                  다시 시도
+                </Button>
+              </Card>
+            ) : null}
+
+            {editError ? (
+              /* 배지와 같은 소프트 어법(면 `*-bg` + 글자 `*` + 1px `*-border`, Badge.tsx). danger 5.61:1. */
+              <p
+                role="alert"
+                className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+              >
+                {editError}
               </p>
-              {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
-              <p className="text-sm text-fg-muted">
-                고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
-              </p>
+            ) : null}
+
+            <div
+              className="flex flex-col gap-3"
+              // Only explicit routine interaction keeps an ongoing edit open across a remote completion.
+              // Hydration and programmatic focus do not opt in; route changes and local completion reset it.
+              onClickCapture={() => !readOnly && setEditingCompleted(true)}
+              onChangeCapture={() => !readOnly && setEditingCompleted(true)}
+              onKeyDownCapture={() => !readOnly && setEditingCompleted(true)}
+            >
+              {groups.length === 0 ? (
+                <Card className="flex flex-col gap-3">
+                  <p className="text-base text-fg">
+                    오늘 루틴이 비어 있어요. 하고 싶은 운동을 추가해 보세요.
+                  </p>
+                </Card>
+              ) : !catalogResolved ? (
+                /* 이름을 카탈로그에서만 얻으므로, 도착 전에는 임시 이름 대신 스켈레톤을 세운다(§2.4). */
+                <>
+                  <p className="sr-only">운동 목록을 불러오는 중이에요.</p>
+                  {groups.map((group) => (
+                    <Card
+                      key={group.exerciseId}
+                      aria-hidden="true"
+                      className="h-48 animate-pulse bg-raised"
+                    />
+                  ))}
+                </>
+              ) : (
+                groups.map((group, index) => {
+                  const locked = group.sets.some((set) => drafts[set.id]?.completed);
+                  return (
+                    <ExerciseCard
+                      key={group.exerciseId}
+                      name={nameOf(group.exerciseId, index)}
+                      exercise={catalogById.get(group.exerciseId) ?? null}
+                      catalogById={catalogById}
+                      sets={group.sets}
+                      drafts={drafts}
+                      readOnly={readOnly}
+                      lockedReason={locked ? LOCKED_REASON : null}
+                      painScore={painOf(
+                        drafts,
+                        group.sets.map((set) => set.id),
+                      )}
+                      expandedSetId={expandedSetId}
+                      focusExpandedSetId={focusExpandedSetId}
+                      activeSetId={activePosition?.planned_set_id}
+                      onActivateSet={(set) => rememberPosition(set)}
+                      onToggleExpand={(plannedSetId) => {
+                        const set = group.sets.find((item) => item.id === plannedSetId)!;
+                        rememberPosition(set, expandedSetId !== plannedSetId);
+                        setFocusExpandedSetId(plannedSetId);
+                        setExpandedSetId((previous) =>
+                          previous === plannedSetId ? null : plannedSetId,
+                        );
+                      }}
+                      onEdit={(set, values) => void handleEdit(set, values)}
+                      onSwap={() => {
+                        setEditError(null);
+                        setPicker({ type: "swap", exerciseId: group.exerciseId });
+                      }}
+                      onRemove={() => {
+                        setEditError(null);
+                        setRemoveExerciseId(group.exerciseId);
+                      }}
+                      onRemoveBlocked={() => setNotice(LOCKED_REASON)}
+                      onReportPain={() => setPainExerciseId(group.exerciseId)}
+                      onComplete={(set, values) =>
+                        void handleComplete(nameOf(group.exerciseId, index), set, values)
+                      }
+                      onUncomplete={(set) => void handleUncomplete(set)}
+                    />
+                  );
+                })
+              )}
+
+              {readOnly || !catalogResolved ? null : (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  fullWidth
+                  onClick={(event) => {
+                    setPickerReturnFocusTarget(event.currentTarget);
+                    setEditError(null);
+                    setPicker({ type: "add" });
+                  }}
+                >
+                  운동 추가
+                </Button>
+              )}
             </div>
-          ) : null}
-        </header>
 
-        {catalogQuery.isError ? (
-          <Card className="flex flex-col gap-2">
-            <p role="alert" className="text-sm text-fg">
-              {errorMessage(catalogQuery.error, "catalog")}
+            <p role="status" className="sr-only">
+              {notice}
             </p>
-            <Button variant="secondary" size="sm" onClick={() => void catalogQuery.refetch()}>
-              다시 시도
-            </Button>
-          </Card>
-        ) : null}
-
-        {editError ? (
-          /* 배지와 같은 소프트 어법(면 `*-bg` + 글자 `*` + 1px `*-border`, Badge.tsx). danger 5.61:1. */
-          <p
-            role="alert"
-            className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
-          >
-            {editError}
-          </p>
-        ) : null}
-
-        <div className="flex flex-col gap-3">
-          {groups.length === 0 ? (
-            <Card className="flex flex-col gap-3">
-              <p className="text-base text-fg">
-                오늘 루틴이 비어 있어요. 하고 싶은 운동을 추가해 보세요.
-              </p>
-            </Card>
-          ) : !catalogResolved ? (
-            /* 이름을 카탈로그에서만 얻으므로, 도착 전에는 임시 이름 대신 스켈레톤을 세운다(§2.4). */
-            <>
-              <p className="sr-only">운동 목록을 불러오는 중이에요.</p>
-              {groups.map((group) => (
-                <Card
-                  key={group.exerciseId}
-                  aria-hidden="true"
-                  className="h-48 animate-pulse bg-raised"
-                />
-              ))}
-            </>
-          ) : (
-            groups.map((group, index) => {
-              const locked = group.sets.some((set) => drafts[set.id]?.completed);
-              return (
-                <ExerciseCard
-                  key={group.exerciseId}
-                  name={nameOf(group.exerciseId, index)}
-                  exercise={catalogById.get(group.exerciseId) ?? null}
-                  catalogById={catalogById}
-                  sets={group.sets}
-                  drafts={drafts}
-                  readOnly={readOnly}
-                  lockedReason={locked ? LOCKED_REASON : null}
-                  painScore={painOf(
-                    drafts,
-                    group.sets.map((set) => set.id),
-                  )}
-                  expandedSetId={expandedSetId}
-                  onToggleExpand={(plannedSetId) =>
-                    setExpandedSetId((previous) =>
-                      previous === plannedSetId ? null : plannedSetId,
-                    )
-                  }
-                  onEdit={(set, values) => void handleEdit(set, values)}
-                  onSwap={() => {
-                    setEditError(null);
-                    setPicker({ type: "swap", exerciseId: group.exerciseId });
-                  }}
-                  onRemove={() => {
-                    setEditError(null);
-                    setRemoveExerciseId(group.exerciseId);
-                  }}
-                  onRemoveBlocked={() => setNotice(LOCKED_REASON)}
-                  onReportPain={() => setPainExerciseId(group.exerciseId)}
-                  onComplete={(set, values) =>
-                    void handleComplete(nameOf(group.exerciseId, index), set, values)
-                  }
-                  onUncomplete={(set) => void handleUncomplete(set)}
-                />
-              );
-            })
-          )}
-
-          {readOnly || !catalogResolved ? null : (
-            <Button
-              variant="secondary"
-              size="md"
-              fullWidth
-              onClick={(event) => {
-                setPickerReturnFocusTarget(event.currentTarget);
-                setEditError(null);
-                setPicker({ type: "add" });
-              }}
-            >
-              운동 추가
-            </Button>
-          )}
-        </div>
-
-        <p role="status" className="sr-only">
-          {notice}
-        </p>
-      </div>
-
-      {readOnly ? null : (
-        <div
-          inert={modalOpen}
-          className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
-        >
-          <div className="mx-auto max-w-md pb-safe-bottom">
-            <Button
-              size="lg"
-              fullWidth
-              onClick={() => {
-                setFinishError(null);
-                setFinishOpen(true);
-              }}
-            >
-              {finishedToday ? "수정 마치기" : "운동 종료"}
-            </Button>
           </div>
-        </div>
-      )}
 
-      {/* 타이머 시트는 열려 있을 때만 마운트해서 틱을 멈춘다. */}
-      {rest ? (
+          {readOnly ? null : (
+            <div
+              inert={modalOpen}
+              className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
+            >
+              <div className="mx-auto max-w-md pb-safe-bottom">
+                <Button
+                  size="lg"
+                  fullWidth
+                  onClick={() => {
+                    setFinishError(null);
+                    setFinishOpen(true);
+                  }}
+                >
+                  {finishedToday ? "수정 마치기" : "운동 종료"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 타이머 시트는 열려 있을 때만 마운트해서 틱을 멈춘다. */}
+        </>
+      )}
+      {rest && positionScope.current?.sessionId === sessionId ? (
         <RestTimerSheet
           open
           title={rest.title}

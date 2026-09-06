@@ -9,7 +9,7 @@ import {
   sessionDb,
 } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
-import type { SyncRequest } from "../lib/api";
+import type { PlannedSet, SyncRequest } from "../lib/api";
 
 const id = (last: string) => `00000000-0000-4000-8000-0000000000${last}`;
 const draft = (clientId = id("01")) => ({
@@ -417,6 +417,93 @@ describe("foreground sync coordinator", () => {
       },
     });
   });
+
+  it.each([false, true])(
+    "mapping ACK preserves T0; only an acknowledged performed pull records local T1 (pull=%s)",
+    async (pull) => {
+      const correlationId = id("31");
+      const serverId = id("32");
+      const sessionId = id("21");
+      const t0 = "2026-08-14T10:00:02.580Z";
+      const t1 = "2026-08-14T10:00:02.742Z";
+      const original = { ...draft(), planned_set_id: correlationId, updated_at: t0 };
+      await commitDraft(DEV_USER_SCOPE, sessionId, original, "upsert");
+      const before = (await sessionDb.drafts.get([DEV_USER_SCOPE, sessionId, correlationId]))!;
+      const outgoing = (await sessionDb.outbox.get(original.client_id))!;
+      const wire = {
+        client_id: outgoing.client_id,
+        entity: outgoing.entity,
+        entity_id: outgoing.entity_id,
+        op: outgoing.op,
+        updated_at: outgoing.updated_at,
+        payload: outgoing.payload,
+      };
+      const canonical: PlannedSet = {
+        id: serverId,
+        exercise_id: "e_bench_press",
+        set_no: 1,
+        target_reps_low: 8,
+        target_reps_high: 12,
+        target_rir: 2,
+        rest_sec: 120,
+        target_time_low_sec: null,
+        target_time_high_sec: null,
+        recommended_weight: 60,
+        recommended_reps: 8,
+        reason_code: "BASELINE",
+        confidence: 0.3,
+        rules_version: "2026.08.1",
+        load_kind: "external",
+        recommendation_state: null,
+        assistance_provenance: null,
+        recommended_action: null,
+        assistance_safety_status: null,
+        recommendation_gate: "ready",
+        performed_set: null,
+      };
+      const network = vi.fn(async (body: SyncRequest) => {
+        if (body.mutations.length === 0) return response();
+        expect(body.mutations).toEqual([wire]);
+        return {
+          ...response([original.client_id]),
+          planned_set_mappings: [
+            {
+              correlation_id: correlationId,
+              planned_set_id: serverId,
+              planned_set: canonical,
+            },
+          ],
+          changes: pull
+            ? [
+                {
+                  entity: "performed_set" as const,
+                  entity_id: serverId,
+                  op: "upsert" as const,
+                  data: { ...outgoing.payload },
+                  server_seq: "130",
+                },
+              ]
+            : [],
+        };
+      });
+      const sync = new SyncCoordinator({
+        clock: { now: () => Date.parse(t1) },
+        transport: network,
+      });
+      await sync.request();
+      const expected = { ...before, planned_set_id: serverId, updated_at: pull ? t1 : t0 };
+      expect(await sessionDb.drafts.toArray()).toEqual([expected]);
+      expect(await sessionDb.outbox.count()).toBe(0);
+      expect(await sessionDb.conflicts.count()).toBe(0);
+      // Local pull materialization must never rewrite or replay the original LWW envelope.
+      expect(network.mock.calls[0][0].mutations).toEqual([wire]);
+      await sync.request();
+      expect(network.mock.calls).toHaveLength(2);
+      expect(network.mock.calls[1][0].mutations).toEqual([]);
+      expect(await sessionDb.drafts.toArray()).toEqual([expected]);
+      expect(await sessionDb.outbox.count()).toBe(0);
+    },
+  );
 
   it("D-31 mapping transaction 중단은 모든 테이블을 온전한 임시 ID 상태로 롤백한다", async () => {
     const correlationId = id("41");

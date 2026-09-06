@@ -1,4 +1,4 @@
-/** Read-only snapshots for the explicitly owned Sprint02 E2E database. No setup writes or resets. */
+/** Read-only snapshots for explicitly owned Sprint02/03 E2E databases. No setup writes or resets. */
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -21,13 +21,13 @@ export async function assistanceDatabaseSnapshot(sessionIds: string[]) {
   const url = new URL(databaseUrl);
   if (
     !["localhost", "127.0.0.1"].includes(url.hostname) ||
-    !/^\/afc_(?:gen|eval)_s02_[a-zA-Z0-9_]+_e2e$/.test(url.pathname) ||
+    !/^\/afc_(?:gen|eval)_s0[23]_[a-zA-Z0-9_]+_e2e$/.test(url.pathname) ||
     !userId ||
     !/^[0-9a-f-]{36}$/i.test(userId) ||
     sessionIds.length === 0
   )
     throw new Error(
-      "Assistance observation refuses a database or identity outside the owned Sprint02 run.",
+      "Assistance observation refuses a database or identity outside the owned Sprint02/03 run.",
     );
   const requireApi = createRequire(path.resolve(process.cwd(), "../api/package.json"));
   const { PrismaClient } = requireApi("@prisma/client") as {

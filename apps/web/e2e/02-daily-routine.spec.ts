@@ -337,10 +337,10 @@ test("카탈로그 도착 전에는 임시 이름 대신 스켈레톤을 보여�
 });
 
 /**
- * F6-1 이후 **당일** 종료 세션은 잠기지 않는다(재개/편집 모드).
+ * 당일 종료 세션은 요약으로 진입하고 명시 CTA로 편집을 재개한다(F6-1).
  * 읽기 전용은 다른 날짜의 종료 세션에만 적용된다(AC-S4-3 → e2e/04-errors.spec.ts).
  */
-test("종료한 당일 세션에 다시 들어가면 편집 모드다(F6-1)", async ({ page, request }) => {
+test("종료한 당일 세션은 요약에서 명시적으로 편집을 재개한다(F6-1)", async ({ page, request }) => {
   // 이 테스트 전용으로 세션을 만들어 종료한다.
   // (앞 테스트가 프로그램을 다시 만들면 beforeAll 의 세션은 사라질 수 있다.)
   await seedExternalLoadProgram(request);
@@ -352,6 +352,10 @@ test("종료한 당일 세션에 다시 들어가면 편집 모드다(F6-1)", as
   expect(done.status()).toBe(200);
 
   await page.goto(`/session/${target}`);
+  await expect(page.getByRole("heading", { name: "오늘은 기록이 없어요" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /완료 처리$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "운동 추가" })).toHaveCount(0);
+  await page.getByRole("button", { name: "기록 더하거나 고치기", exact: true }).click();
   await expect(
     page.getByText("이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요."),
   ).toBeVisible();

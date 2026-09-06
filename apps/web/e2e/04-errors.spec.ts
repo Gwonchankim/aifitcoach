@@ -234,7 +234,10 @@ test.describe("409", () => {
     );
 
     await page.goto(`/session/${sessionId}`);
-    await expect(page.getByText("이미 종료한 운동이에요.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "오늘은 기록이 없어요" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "기록 더하거나 고치기", exact: true }),
+    ).toHaveCount(0);
     await expect(page.getByText("오늘 안에는 기록을 더하거나 고칠 수 있어요.")).toHaveCount(0);
     // 편집·기록 UI 는 DOM 에 없다(AC-S4-3).
     await expect(page.getByRole("button", { name: "운동 추가" })).toHaveCount(0);

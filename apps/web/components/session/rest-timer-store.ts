@@ -589,7 +589,10 @@ export async function readRestoreSnapshot(
       }
 
       const eligibility = restoreEligibilityOf(session, localCompleted);
-      if (!isRestorable(eligibility, record.planned_set_id)) {
+      if (
+        !session.planned_sets?.some((set) => set.id === record.planned_set_id) ||
+        !isRestorable(eligibility, record.planned_set_id)
+      ) {
         // 세션이 끝났거나, 그 세트가 사라졌거나, **더는 완료 상태가 아니다.** 기록을 버린다.
         await sessionDb.syncMeta.delete(key);
         return { kind: "none" };

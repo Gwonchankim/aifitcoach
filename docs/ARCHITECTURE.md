@@ -118,3 +118,4 @@ scripts/        # 시드 적재, docker-compose 등
 
 | ADR-74 | 머신 3종을 canonical seed에 추가하고 기존 머신 벤치/시티드 머신 로우는 검색 동의어로 연결한다. 검색은 전체 cursor fetch 뒤에 수행하며 완전한 catalog만 캐시한다 | ID와 기존 추천 이력을 분리하지 않고 오프라인 캐시 갱신 실패에서 기존 기록을 보존한다. [카탈로그 계약](CATALOG_EXTENSION.md) | 확정(Sprint02 계약 revision2, 2026-09-05) |
 | ADR-75 | 어시스트 딥스를 추가하고 최소 도움 경계의 제안 대상 메타데이터를 운동군별 canonical ID로 전달한다. 풀업→풀업, 딥스→딥스이며 누락/미지 ID는 null이다. 화면은 수동적 안내만 표시한다 | 기존 도움 수치·방향·안전/F-4b·snapshot·migration은 보존한다. 잘못된 풀업 제안과 자동 교체를 방지한다. [카탈로그 계약](CATALOG_EXTENSION.md) | 확정(Planner D01 사양 개정3, Sprint02 계약 revision2, 2026-09-05) |
+| ADR-76 | 명시 조작한 현재 세트와 완료행 펼침 상태를 기존 syncMeta에 세션별로 저장한다. 성공 종료는 요약이 기본이고 당일 명시 편집에서 위치를 다시 기록한다. ACK가 위치·draft·timer identity를 함께 승격한다 | 늦은 응답의 focus 탈취와 삭제 행 복원을 막는다. 미완료 문자열·scrollTop·새 Dexie schema는 범위 밖이며 실제 persistent process 복원과 빈 context를 구분한다. [위치 계약](SESSION_POSITION.md) | 확정(Sprint03 계약 revision3, 2026-09-05) |

@@ -15,6 +15,7 @@ import {
   type OutboxMutation,
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
+import { remapPositionsInTransaction } from "./session-position";
 
 const LEASE_NAME = "foreground-sync";
 const LEASE_MS = 15_000;
@@ -334,6 +335,7 @@ export class SyncCoordinator {
     mappings: SyncResponse["planned_set_mappings"],
   ): Promise<void> {
     if (mappings.length === 0) return;
+    await remapPositionsInTransaction(this.userId, mappings);
     const byCorrelation = new Map(mappings.map((mapping) => [mapping.correlation_id, mapping]));
 
     for (const mapping of mappings) {

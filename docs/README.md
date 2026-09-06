@@ -1,5 +1,7 @@
 # 문서 인덱스 (읽는 순서)
 
+- `SESSION_POSITION.md` — 현재 세트의 durable 위치·완료 요약·ACK/타이머 복원 경계(Sprint03 티켓03).
+
 1. `FEATURE_IMPROVEMENTS_CONTRACT.md` — 예약 append/swap/split·V2 전체 활성화 계약(현재 runtime 지원과 구분, ADR-73).
 1. `WORKFLOW.md` — 작업 방식(Milestone/Step/Sprint + /orchestration) ★ 먼저
 1. `PRODUCT.md` — 무엇을/왜 만드는가(제품·차별점·목표)

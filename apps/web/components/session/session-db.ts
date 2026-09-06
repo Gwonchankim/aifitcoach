@@ -1,6 +1,7 @@
 import Dexie, { type Table, type Transaction } from "dexie";
 import type { Exercise, Session } from "../../lib/api";
 import type { SetDraft } from "./session-store";
+import { clearPositionInTransaction, resolvePositionAlias } from "./session-position";
 
 export const DEV_USER_SCOPE = "dev-user";
 
@@ -380,6 +381,7 @@ export async function cleanupSessionCache(userId: string, sessionId: string): Pr
           await sessionDb.readModels.delete([model.user_id, model.cache_key]);
       }
       await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
+      await clearPositionInTransaction(userId, sessionId);
     },
   );
 }
@@ -443,8 +445,8 @@ export async function commitDraft(
   sessionId: string,
   draft: SetDraft,
   op: "upsert" | "delete" | null,
-): Promise<void> {
-  await commitDraftBatch(userId, sessionId, [{ draft, op }]);
+): Promise<string> {
+  return (await commitDraftBatch(userId, sessionId, [{ draft, op }]))[0];
 }
 
 /** One UI action may update several sets (exercise-level pain); it still commits all-or-nothing. */
@@ -452,18 +454,32 @@ export async function commitDraftBatch(
   userId: string,
   sessionId: string,
   changes: { draft: SetDraft; op: "upsert" | "delete" | null }[],
-): Promise<void> {
-  await sessionDb.transaction("rw", sessionDb.drafts, sessionDb.outbox, async () => {
-    for (const change of changes) {
-      const stored: StoredDraft = {
-        ...change.draft,
-        user_id: userId,
-        session_id: sessionId,
-      };
-      await sessionDb.drafts.put(stored);
-      if (change.op) await sessionDb.outbox.put(mutationFor(stored, change.op));
-    }
-  });
+): Promise<string[]> {
+  return sessionDb.transaction(
+    "rw",
+    sessionDb.drafts,
+    sessionDb.outbox,
+    sessionDb.syncMeta,
+    async () => {
+      const ids: string[] = [];
+      for (const change of changes) {
+        const stored: StoredDraft = {
+          ...change.draft,
+          user_id: userId,
+          session_id: sessionId,
+          planned_set_id: await resolvePositionAlias(
+            userId,
+            sessionId,
+            change.draft.planned_set_id,
+          ),
+        };
+        await sessionDb.drafts.put(stored);
+        ids.push(stored.planned_set_id);
+        if (change.op) await sessionDb.outbox.put(mutationFor(stored, change.op));
+      }
+      return ids;
+    },
+  );
 }
 
 export async function loadDrafts(

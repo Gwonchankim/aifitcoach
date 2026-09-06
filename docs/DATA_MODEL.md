@@ -93,7 +93,11 @@ CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_a
 ## 데일리 루틴·부분 수행 (FEATURES_UX.md)
 - 데일리 루틴 = workout_sessions 1개. planned_sets를 세션 스코프로 add/remove/swap 가능(오늘 루틴 편집).
 - 부분 수행: 완료 체크된 세트만 performed_sets 생성. 세션은 부분이어도 completed 가능.
-- 휴식 추천값은 planned_sets.rest_sec. 휴식 타이머 증가/종료는 클라이언트 UI 상태(미저장).
+- 휴식 추천값은 planned_sets.rest_sec. 휴식 타이머는 기존 IndexedDB syncMeta에 종료 절대시각/총 초/세트 identity를 저장하며 서버 planned 처방을 바꾸지 않는다.
+
+## 로컬 세션 위치 (ADR-76)
+
+기존 IndexedDB syncMeta의 별도 namespace/value-version에 principal+session별 active exercise/planned ID 또는 correlation 및 완료행 expanded 상태를 둔다. 새 Dexie store/schema 또는 Prisma 테이블을 만들지 않는다. 위치에는 scrollTop·건강값·미완료 입력 문자열을 넣지 않는다. ACK mapping은 위치·draft·timer alias와 같은 transaction에서 canonical ID를 적용하며, late write도 alias를 확인한다. 성공 완료 시 position을 정리하고 삭제 membership에 따른 fallback을 사용한다. [SESSION_POSITION.md](SESSION_POSITION.md)가 복원·새 process·빈 context의 검증 경계를 정의한다.
 
 ## 민감정보
 - body_fat_pct·pain_score·문진 등 건강 민감정보는 애플리케이션/컬럼 암호화 + 접근 감사 로깅(SECURITY_PIPA.md).

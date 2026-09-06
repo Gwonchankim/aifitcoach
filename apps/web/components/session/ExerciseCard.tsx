@@ -35,6 +35,9 @@ export type ExerciseCardProps = {
   painScore: number | null;
   /** 지금 펼쳐 둔 완료 세트(화면 전체에서 하나뿐이다, AC-SET-8). */
   expandedSetId: string | null;
+  activeSetId?: string | null;
+  focusExpandedSetId?: string | null;
+  onActivateSet?: (set: PlannedSet) => void;
   onToggleExpand: (plannedSetId: string) => void;
   /** 펼친 완료 세트의 값 수정(휴식 타이머를 열지 않는다). */
   onEdit: (set: PlannedSet, values: SetValues) => void;
@@ -57,6 +60,9 @@ export function ExerciseCard({
   lockedReason,
   painScore,
   expandedSetId,
+  activeSetId,
+  focusExpandedSetId,
+  onActivateSet,
   onToggleExpand,
   onEdit,
   onSwap,
@@ -169,6 +175,9 @@ export function ExerciseCard({
               previous={previous}
               readOnly={readOnly}
               expanded={expandedSetId === set.id}
+              active={activeSetId === set.id}
+              focusOnExpand={focusExpandedSetId === undefined || focusExpandedSetId === set.id}
+              onActivate={() => onActivateSet?.(set)}
               onToggleExpand={() => onToggleExpand(set.id)}
               onComplete={(values) => onComplete(set, values)}
               onEdit={(values) => onEdit(set, values)}

@@ -116,6 +116,7 @@ const { PLANNED_SET_MAPPING_EVENT } = await import("../components/session/sync-c
 const store = await import("../components/session/rest-timer-store");
 const { sessionDb, DEV_USER_SCOPE } = await import("../components/session/session-db");
 const { useSessionLog } = await import("../components/session/session-store");
+const { savePosition } = await import("../components/session/session-position");
 
 const USER = DEV_USER_SCOPE;
 
@@ -152,6 +153,19 @@ beforeEach(async () => {
   await sessionDb.delete();
   await sessionDb.open();
   useSessionLog.setState({ drafts: {}, sessionId: null });
+  // Timer-only fixtures keep an existing valid row selected. No-position fallback is covered
+  // by session-position-wiring; these assertions exercise the timer's independent lifecycle.
+  for (const sessionId of [SESSION_A, SESSION_B])
+    await savePosition(
+      USER,
+      sessionId,
+      {
+        exercise_id: "e_bench_press",
+        planned_set_id: SET_1,
+        expanded: false,
+      },
+      0,
+    );
   /**
    * 기본 payload 는 **두 세트 모두 서버가 완료로 아는** 상태다. 복구 자격이 완료 사실을 보므로,
    * "복구된다"를 확인하는 테스트들이 이 전제 위에 선다. 완료가 아닌 상태는 각 테스트가 따로 만든다.
@@ -496,6 +510,7 @@ describe("배선 — 정리 실패 뒤 재진입", () => {
   });
 
   it("세션 종료 clear 가 실패해도 **재진입에서 오버레이 0**", async () => {
+    await sessionDb.syncMeta.delete([USER, `session-position:${SESSION_A}`]);
     await store.saveRestTimer(USER, SESSION_A, SET_1, "벤치프레스 1세트 후 휴식", {
       totalSec: 90,
       endsAt: Date.now() + 60_000,
@@ -509,7 +524,7 @@ describe("배선 — 정리 실패 뒤 재진입", () => {
     );
 
     renderSession(SESSION_A);
-    await screen.findByRole("heading", { name: "벤치프레스" });
+    await screen.findByRole("heading", { name: "오늘은 기록이 없어요" });
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();

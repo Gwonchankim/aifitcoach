@@ -22,7 +22,9 @@ import {
   DEV_USER_SCOPE,
   loadDrafts,
   requestPersistentStorage,
+  sessionDb,
 } from "./session-db";
+import { resolvePositionAlias } from "./session-position";
 import { requestForegroundSync } from "./sync-coordinator";
 
 /** openapi PerformedSet 과 같은 모양(= /sync payload). */
@@ -104,11 +106,20 @@ export const useSessionLog = create<SessionLogState>((set, get) => {
   const write = async (plannedSetId: string, patch: Partial<SetDraft>) => {
     const state = get();
     if (!state.sessionId) throw new Error("세션 기록을 시작하지 못했어요.");
-    const { draft, op } = nextDraft(plannedSetId, state.drafts[plannedSetId], patch);
-    await commitDraft(DEV_USER_SCOPE, state.sessionId, draft, op);
+    const resolvedId = await sessionDb.transaction("r", sessionDb.syncMeta, () =>
+      resolvePositionAlias(DEV_USER_SCOPE, state.sessionId!, plannedSetId),
+    );
+    const latest = get().sessionId === state.sessionId ? get().drafts : state.drafts;
+    const { draft, op } = nextDraft(resolvedId, latest[resolvedId] ?? latest[plannedSetId], patch);
+    const canonicalId = await commitDraft(DEV_USER_SCOPE, state.sessionId, draft, op);
     // A session switch while the transaction was pending must not leak its draft into the new screen.
     if (get().sessionId !== state.sessionId) return;
-    set((current) => ({ drafts: { ...current.drafts, [plannedSetId]: draft } }));
+    set((current) => {
+      const drafts = { ...current.drafts };
+      if (canonicalId !== plannedSetId) delete drafts[plannedSetId];
+      drafts[canonicalId] = { ...draft, planned_set_id: canonicalId };
+      return { drafts };
+    });
     if (op) void requestForegroundSync().catch(() => undefined);
   };
 
