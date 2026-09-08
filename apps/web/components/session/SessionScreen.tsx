@@ -5,6 +5,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { buildProvisionalRoutineSets, routineSetCountFor } from "shared";
 import {
@@ -1150,7 +1151,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       setNotice(CLEAR_FAILED_NOTICE);
       return;
     }
-    setRest(null);
+    flushSync(() => setRest(null));
     if (!from) return;
 
     const index = orderedSets.findIndex((set) => set.id === from);

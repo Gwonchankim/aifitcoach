@@ -1692,7 +1692,10 @@ components:
                     description: >
                       기존 session_routine 변경의 실제 삭제 identity. upsert/delete 모두 전달할 수 있으며
                       과거 metadata 없는 delete는 data:null을 유지한다. GET 누락이나 번호 추정은 삭제 증거가 아니다.
-                      직접 remove/swap의 원격 변경 발행은 이 필드의 구현 범위가 아니다.
+                      직접 remove/swap에 실제 삭제가 있으면 같은 편집 트랜잭션에서 기록한
+                      session_routine/upsert 서버 편집 이벤트의 data.tombstones로 삭제 identity만 발행한다.
+                      서버 이벤트는 기존 server_seq cursor로 changes에 전달되며
+                      클라이언트 mutation receipt·applied·dependency 성공·LWW 후보로 사용하지 않는다.
               server_seq:
                 type: string
                 pattern: '^[0-9]+$'
