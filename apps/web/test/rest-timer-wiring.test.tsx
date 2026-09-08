@@ -1001,3 +1001,55 @@ describe("배선 — 오프라인 세트 id 승격", () => {
     expect(saved!.plannedSetId).toBe(SET_2);
   });
 });
+
+describe("배선 — 휴식 종료의 포커스 예약 전에 모달을 해제한다", () => {
+  it.each(["next", "fallback"] as const)(
+    "%s 대상은 20ms 예약 시점부터 inert 밖에 있다",
+    async (branch) => {
+      sessionResponses.set(SESSION_A, () =>
+        Promise.resolve(
+          sessionPayload(
+            SESSION_A,
+            branch === "next"
+              ? [plannedSet(SET_1, 1), plannedSet(SET_2, 2)]
+              : [plannedSet(SET_1, 1)],
+          ),
+        ),
+      );
+      renderSession(SESSION_A);
+      await completeFirstSet();
+      await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+
+      const target = document.querySelector<HTMLElement>(
+        branch === "next" ? `#set-${SET_2}-weight` : `[data-set-check="${SET_1}"]`,
+      )!;
+      expect(target).not.toBeNull();
+      expect(target.closest("[inert]")).not.toBeNull();
+      const atRegistration: { dialogs: number; inert: boolean; connected: boolean }[] = [];
+      const realSetTimeout = window.setTimeout;
+      // Read synchronously before forwarding the real timer registration. No fake clock,
+      // held act, callback invocation or synthetic focus can supply the required commit.
+      vi.spyOn(window, "setTimeout").mockImplementation(function (
+        this: Window,
+        handler,
+        delay,
+        ...args
+      ) {
+        if (delay === 20)
+          atRegistration.push({
+            dialogs: document.querySelectorAll('[role="dialog"]').length,
+            inert: target.closest("[inert]") !== null,
+            connected: target.isConnected,
+          });
+        return Reflect.apply(realSetTimeout, this, [handler, delay, ...args]);
+      });
+
+      const { fireEvent } = await import("@testing-library/dom");
+      fireEvent.click(screen.getByRole("button", { name: "휴식 종료" }));
+      await waitFor(() => expect(atRegistration).toHaveLength(1));
+      expect(atRegistration).toEqual([{ dialogs: 0, inert: false, connected: true }]);
+      expect(await storedTimer(SESSION_A)).toBeNull();
+      await waitFor(() => expect(document.activeElement).toBe(target));
+    },
+  );
+});
