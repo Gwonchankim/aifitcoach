@@ -16,12 +16,26 @@ import {
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
 import { remapPositionsInTransaction } from "./session-position";
+import {
+  acknowledgeAppendsInTransaction,
+  preserveAppendConflictInTransaction,
+  clearAppendAuditInTransaction,
+  completeAppendSessionInTransaction,
+  reconcileBlockedAppendsInTransaction,
+  confirmAppendDeletionInTransaction,
+  readAppendState,
+} from "./session-set-append-db";
 
 const LEASE_NAME = "foreground-sync";
 const LEASE_MS = 15_000;
 const TRANSPORT_TIMEOUT_MS = 10_000;
 export const PLANNED_SET_MAPPING_EVENT = "afc:planned-set-mapping";
 export const SYNC_RESPONSE_EVENT = "afc:sync-response";
+/** Local postcommit metadata; never serialized into the HTTP transport. */
+export type SyncResponseEventDetail = SyncResponse & {
+  local_session_ids?: string[];
+  completed_session_ids?: string[];
+};
 
 export type SyncClock = { now: () => number };
 export type SyncTransport = (body: SyncRequest) => Promise<SyncResponse>;
@@ -158,6 +172,7 @@ export class SyncCoordinator {
         sessionDb.outbox.where("user_id").equals(this.userId).toArray(),
       ]);
       const mutations = rows
+        .filter((row) => row.sync_status !== "blocked")
         .sort(
           (a, b) =>
             a.updated_at.localeCompare(b.updated_at) || a.client_id.localeCompare(b.client_id),
@@ -168,15 +183,20 @@ export class SyncCoordinator {
         mutations,
       });
       await this.beforeLocalCommit?.();
-      const draftsChanged = await this.commitResponse(response);
+      const committed = await this.commitResponse(response);
       if (response.planned_set_mappings.length > 0 && typeof window !== "undefined")
         window.dispatchEvent(
           new CustomEvent(PLANNED_SET_MAPPING_EVENT, {
             detail: response.planned_set_mappings,
           }),
         );
-      if (draftsChanged && typeof window !== "undefined")
-        window.dispatchEvent(new CustomEvent(SYNC_RESPONSE_EVENT, { detail: response }));
+      if (
+        (committed.draftsChanged || committed.local_session_ids.length) &&
+        typeof window !== "undefined"
+      )
+        window.dispatchEvent(
+          new CustomEvent(SYNC_RESPONSE_EVENT, { detail: { ...response, ...committed } }),
+        );
       /**
        * **"다음 sync 에서 authoritative refetch" 를 실제로 수행하는 곳이다.**
        * 트랜잭션 밖에서 돈다 — 네트워크 왕복을 IDB 트랜잭션 안에 넣으면 트랜잭션이 죽는다.
@@ -190,8 +210,10 @@ export class SyncCoordinator {
     }
   }
 
-  private async commitResponse(response: SyncResponse): Promise<boolean> {
+  private async commitResponse(response: SyncResponse) {
     let draftsChanged = false;
+    const touched = new Set<string>();
+    const completed = new Set<string>();
     await sessionDb.transaction(
       "rw",
       [
@@ -217,12 +239,16 @@ export class SyncCoordinator {
           response.conflicts.map((conflict) => [conflict.client_id, conflict]),
         );
         await this.applyPlannedSetMappings(response.planned_set_mappings);
+        await acknowledgeAppendsInTransaction(this.userId, response);
         /** server 가 적용한 세션 종료. 여기가 governing §F 의 "server 성공 + outbox drain" 지점이다. */
         const completedSessions = new Set<string>();
         for (const clientId of [...applied, ...conflicts.keys()]) {
           const row = await sessionDb.outbox.get(clientId);
           if (!row || row.user_id !== this.userId) continue;
+          if (row.entity === "session_set") touched.add(row.entity_id);
+          if (row.append_dependencies) touched.add(row.append_dependencies.session_id);
           if (conflicts.has(clientId)) {
+            if (await preserveAppendConflictInTransaction(row, conflicts.get(clientId)!)) continue;
             await sessionDb.conflicts.add({
               user_id: this.userId,
               client_id: clientId,
@@ -230,15 +256,34 @@ export class SyncCoordinator {
               payload: row,
             });
           } else if (row.entity === "session") {
+            await completeAppendSessionInTransaction(row);
+            if (row.append_dependencies) completed.add(row.entity_id);
             completedSessions.add(row.entity_id);
           }
+          if (
+            !conflicts.has(clientId) &&
+            row.entity === "session_routine" &&
+            row.removed_planned_sets?.length
+          ) {
+            await confirmAppendDeletionInTransaction(
+              { user_id: this.userId, session_id: row.entity_id },
+              row.removed_planned_sets,
+            );
+            touched.add(row.entity_id);
+          }
+          if (row.entity === "session_set" || row.append_dependencies)
+            await clearAppendAuditInTransaction(this.userId, clientId);
           await sessionDb.outbox.delete(clientId);
         }
+        await reconcileBlockedAppendsInTransaction(this.userId);
         await this.cleanupCompletedRemediation(completedSessions);
 
         for (const change of response.changes) {
+          if (change.entity === "session_routine" && change.data?.tombstones?.length)
+            touched.add(change.entity_id);
           if (await this.applyChange(change)) draftsChanged = true;
         }
+        await reconcileBlockedAppendsInTransaction(this.userId);
         await sessionDb.syncMeta.put({
           user_id: this.userId,
           key: "cursor",
@@ -246,7 +291,11 @@ export class SyncCoordinator {
         });
       },
     );
-    return draftsChanged;
+    return {
+      draftsChanged,
+      local_session_ids: [...touched],
+      completed_session_ids: [...completed],
+    };
   }
 
   /**
@@ -282,7 +331,21 @@ export class SyncCoordinator {
       for (const set of mirror.session.planned_sets)
         if (isObject(set) && typeof set.id === "string") planned.add(set.id);
     }
-    return rows.some((row) => row.entity_id === sessionId || planned.has(row.entity_id));
+    if (rows.some((row) => row.entity_id === sessionId || planned.has(row.entity_id))) return true;
+    const append = await readAppendState({ user_id: this.userId, session_id: sessionId });
+    return rows.some(
+      (row) =>
+        row.entity === "performed_set" &&
+        row.append_dependencies?.session_id === sessionId &&
+        append.entries.some(
+          (entry) =>
+            row.append_dependencies!.client_ids.includes(entry.intent.transport.client_id) &&
+            (entry.provisional.id === row.entity_id ||
+              entry.execution.canonical_id === row.entity_id ||
+              (entry.execution.canonical_id !== null &&
+                entry.execution.canonical_id === row.canonical_entity_id)),
+        ),
+    );
   }
 
   /**
@@ -345,8 +408,24 @@ export class SyncCoordinator {
         .toArray();
       for (const draft of drafts) {
         if (draft.user_id !== this.userId) continue;
+        const state = await readAppendState({ user_id: this.userId, session_id: draft.session_id });
+        const isAppend = state.entries.some(
+          (entry) =>
+            entry.provisional.id === mapping.correlation_id &&
+            entry.intent.transport.payload.exercise_id === mapping.planned_set.exercise_id &&
+            (entry.execution.canonical_id === null ||
+              entry.execution.canonical_id === mapping.planned_set_id),
+        );
+        const canonical = isAppend
+          ? await sessionDb.drafts.get([draft.user_id, draft.session_id, mapping.planned_set_id])
+          : undefined;
         await sessionDb.drafts.delete([draft.user_id, draft.session_id, draft.planned_set_id]);
-        await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
+        if (
+          !canonical ||
+          draft.updated_at > canonical.updated_at ||
+          (draft.updated_at === canonical.updated_at && draft.client_id > canonical.client_id)
+        )
+          await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
       }
     }
 
@@ -365,7 +444,12 @@ export class SyncCoordinator {
     const pending = await sessionDb.outbox.where("user_id").equals(this.userId).toArray();
     for (const row of pending) {
       const mapping = byCorrelation.get(row.entity_id);
-      if (mapping) await sessionDb.outbox.put({ ...row, entity_id: mapping.planned_set_id });
+      if (mapping)
+        await sessionDb.outbox.put(
+          row.append_dependencies
+            ? { ...row, canonical_entity_id: mapping.planned_set_id }
+            : { ...row, entity_id: mapping.planned_set_id },
+        );
     }
 
     /**
@@ -412,6 +496,9 @@ export class SyncCoordinator {
           session: { ...mirror.session, planned_sets },
           updated_at: new Date(this.clock.now()).toISOString(),
           ...(localIds.size > 0 ? { local_ids: [...localIds] } : { local_ids: undefined }),
+          ...(mirror.append_ids
+            ? { append_ids: mirror.append_ids.filter((id) => !byCorrelation.has(id)) }
+            : {}),
         });
       if (blocked) await markRemediationPending(this.userId, mirror.session_id);
     }
@@ -430,12 +517,21 @@ export class SyncCoordinator {
   }
 
   private async applyChange(change: SyncResponse["changes"][number]): Promise<boolean> {
+    // Exact deletion proof is not suppressed by an unacknowledged local routine/C intent.
+    if (change.entity === "session_routine" && change.data && "tombstones" in change.data)
+      await confirmAppendDeletionInTransaction(
+        { user_id: this.userId, session_id: change.entity_id },
+        change.data.tombstones,
+      );
     // An unacknowledged local write is newer knowledge than a pull row; leave it alone.
     if (
-      await sessionDb.outbox
+      (await sessionDb.outbox.where("user_id").equals(this.userId).toArray()).some(
+        (row) => row.canonical_entity_id === change.entity_id,
+      ) ||
+      (await sessionDb.outbox
         .where("[user_id+entity_id]")
         .equals([this.userId, change.entity_id])
-        .count()
+        .count())
     )
       return false;
     if (change.entity === "performed_set") {
@@ -530,6 +626,7 @@ function toWireMutation(row: OutboxMutation): SyncRequest["mutations"][number] {
     op: row.op,
     updated_at: row.updated_at,
     payload: row.payload,
+    ...(row.append_dependencies ? { append_dependencies: row.append_dependencies } : {}),
   };
 }
 

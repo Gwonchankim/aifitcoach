@@ -94,10 +94,15 @@ const other = "22222222-2222-4222-8222-222222222222";
 
 /** Reserved schema/fixture checks; these are not evidence that future routes work. */
 describe("feature improvement reserved contract", () => {
-  it("keeps future operations out of the active route contract and leaves V1 active", () => {
+  it("promotes only Sprint03 append, keeps future operations reserved and leaves V1 active", () => {
     expect(reserved["x-afc-status"]).toBe("reserved-not-implemented");
     expect(Object.keys(reserved.paths)).toHaveLength(4);
-    for (const route of Object.keys(reserved.paths)) expect(active.paths[route]).toBeUndefined();
+    for (const route of Object.keys(reserved.paths)) {
+      if (route === "/sessions/{id}/sets") {
+        expect(active.paths[route]).toBeDefined();
+        expect((reserved.paths[route].post as Schema)["x-afc-status"]).toBe("promoted-to-active");
+      } else expect(active.paths[route]).toBeUndefined();
+    }
     expect(ROUTINE_RULES_VERSION).toBe("2026.08.1");
     expect(fixture.active_bundle).toBe(ROUTINE_RULES_VERSION);
   });

@@ -13,7 +13,9 @@ paths:
     post:
       operationId: appendSessionSetReserved
       x-afc-delivery-sprint: 3
-      description: RESERVED. UTC-today append only. Shared atomic handler with
+      x-afc-status: promoted-to-active
+      description: Promoted in Sprint03 to openapi.yaml. This historical request reservation
+        is retained for the promotion audit. UTC-today append only. Shared atomic handler with
         session_set sync; client_id is durable idempotency, no Idempotency-Key
         header.
       parameters:

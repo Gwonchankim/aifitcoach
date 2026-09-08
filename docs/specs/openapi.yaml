@@ -376,15 +376,72 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /sessions/{id}/sets:
+    post:
+      tags: [sessions]
+      operationId: appendSessionSet
+      summary: 오늘 세션에 원본 처방 세트 한 개 추가
+      description: >
+        원본 raw snapshot을 복사한다. client_id는 POST와 session_set sync가 공유하는
+        멱등 키이며 transport updated_at은 append intent hash에 포함하지 않는다.
+        성공 재전송은 저장된 target identity의 현재 권위 row를 현재 표시 게이트로 반환한다.
+        당일 scheduled/in_progress/completed에서 허용하며 다음 세션 기본 세트 수에 전파하지 않는다.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppendSetRequest' }
+      responses:
+        '201':
+          description: 원자적 추가 또는 동일 성공 identity의 현재 권위 재전송
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppendSetResult' }
+        '400':
+          description: 잘못된 입력 또는 알 수 없는 필드
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: 기존 인증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: 기존 CSRF 검증 실패
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: 세션이 없거나 소유하지 않음
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 부분 쓰기 없는 거절. Error와 지정 refinement를 모두 만족해야 한다.
+          x-afc-response-refinement: { $ref: '#/components/schemas/SessionAppendConflict' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /sync:
     post:
       tags: [sync]
       summary: 오프라인 변경 배치 push + 변경 pull
       description: >
         client_id는 한 번의 로컬 변경을 식별하는 멱등 키이며 재시도에서만 재사용한다.
-        같은 entity_id의 변경은 (updated_at, client_id) 순서로 LWW를 판정한다.
-        session_routine → performed_set → session 완료 순으로 적용하고, 완료 전에 같은 세션의
-        선행 mutation이 충돌하면 완료를 보류한다. pull은 서버 단조 증가 순서의 opaque cursor를 쓴다.
+        기존 entity의 변경은 canonical entity_id에 대해 (updated_at, client_id) 순서로 LWW를 판정한다.
+        session_set은 additive이며 서로 다른 append를 LWW로 버리지 않는다.
+        session_routine → session_set 부모 의존 위상순서 → performed_set → session 완료 순으로
+        적용한다. append_dependencies의 미도착/pending 선행 변경은 원 UUID로 재시도하며,
+        완료 생성 시 고정한 performed_client_ids가 적용되기 전에는 완료를 성공시키지 않는다.
+        pull은 서버 단조 증가 순서의 opaque cursor를 쓴다. 성공 replay mapping은 cursor/page와 별개다.
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
       requestBody:
@@ -1070,6 +1127,9 @@ components:
           assistance_safety_status,
           recommendation_gate,
           performed_set,
+          source_revision,
+          append_eligibility,
+          correlation_id,
         ]
       properties:
         id: { type: string }
@@ -1114,6 +1174,20 @@ components:
           nullable: true
           enum: [safe, unsafe, null]
         recommendation_gate: { $ref: '#/components/schemas/DisplayGateState' }
+        source_revision:
+          type: string
+          minLength: 1
+          description: 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision.
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+        append_eligibility:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/AppendEligibility'
+          description: 같은 raw/source/cohort snapshot의 복사 자격. 날짜·cap·소유권의 쓰기 허가는 아니다.
         performed_set:
           allOf:
             - $ref: '#/components/schemas/PerformedSetSummary'
@@ -1338,7 +1412,7 @@ components:
           type: string
           format: uuid
           description: 한 번의 로컬 변경 ID. 같은 변경의 네트워크 재시도에서만 재사용한다.
-        entity: { type: string, enum: [performed_set, session_routine, session] }
+        entity: { type: string, enum: [performed_set, session_routine, session, session_set] }
         entity_id:
           type: string
           format: uuid
@@ -1353,8 +1427,161 @@ components:
             - $ref: '#/components/schemas/PerformedSetMutationPayload'
             - $ref: '#/components/schemas/SessionRoutineMutationPayload'
             - $ref: '#/components/schemas/SessionMutationPayload'
+            - $ref: '#/components/schemas/AppendSetPayload'
           description: >
             entity에 대응하는 payload. delete는 빈 객체를 허용하며 서비스가 entity/op 조합을 검증한다.
+        append_dependencies:
+          $ref: '#/components/schemas/CompletionAppendDependencies'
+      # 기존 payload 검증은 유지하며 새 append/dependency 조합만 좁게 제한한다.
+      oneOf:
+        - $ref: '#/components/schemas/AppendSetSyncMutation'
+        - properties:
+            entity: { enum: [performed_set, session_routine, session] }
+          anyOf:
+            - not: { required: [append_dependencies] }
+            - required: [append_dependencies]
+              properties:
+                entity: { enum: [performed_set] }
+                append_dependencies: { $ref: '#/components/schemas/AppendDependencies' }
+            - required: [append_dependencies]
+              properties:
+                entity: { enum: [session] }
+                op: { enum: [upsert] }
+                payload:
+                  required: [status]
+                  properties:
+                    status: { enum: [completed] }
+                append_dependencies: { $ref: '#/components/schemas/CompletionAppendDependencies' }
+
+    ServerAppendSource:
+      type: object
+      additionalProperties: false
+      required: [source_planned_set_id, source_revision]
+      properties:
+        source_planned_set_id: { type: string, format: uuid }
+        source_revision: { type: string, minLength: 1 }
+
+    ProvisionalAppendSource:
+      type: object
+      additionalProperties: false
+      required: [source_correlation_id]
+      properties:
+        source_correlation_id: { type: string, format: uuid }
+
+    AppendSource:
+      oneOf:
+        - $ref: '#/components/schemas/ServerAppendSource'
+        - $ref: '#/components/schemas/ProvisionalAppendSource'
+
+    AppendSetPayload:
+      type: object
+      additionalProperties: false
+      required: [exercise_id, correlation_id, source]
+      properties:
+        exercise_id: { type: string, minLength: 1 }
+        correlation_id: { type: string, format: uuid }
+        source: { $ref: '#/components/schemas/AppendSource' }
+
+    AppendSetRequest:
+      type: object
+      additionalProperties: false
+      required: [client_id, exercise_id, correlation_id, source]
+      properties:
+        client_id: { type: string, format: uuid }
+        exercise_id: { type: string, minLength: 1 }
+        correlation_id: { type: string, format: uuid }
+        source: { $ref: '#/components/schemas/AppendSource' }
+
+    AppendSetResult:
+      type: object
+      additionalProperties: false
+      required: [client_id, session_id, correlation_id, planned_set_id, planned_set]
+      properties:
+        client_id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        correlation_id: { type: string, format: uuid }
+        planned_set_id: { type: string, format: uuid }
+        planned_set: { $ref: '#/components/schemas/PlannedSet' }
+
+    AppendSetSyncMutation:
+      type: object
+      additionalProperties: false
+      required: [client_id, entity, entity_id, op, updated_at, payload]
+      properties:
+        client_id: { type: string, format: uuid }
+        entity: { type: string, enum: [session_set] }
+        entity_id: { type: string, format: uuid }
+        op: { type: string, enum: [upsert] }
+        updated_at: { type: string, format: date-time }
+        payload: { $ref: '#/components/schemas/AppendSetPayload' }
+
+    AppendDependencies:
+      type: object
+      additionalProperties: false
+      required: [session_id, client_ids]
+      properties:
+        session_id: { type: string, format: uuid }
+        client_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+
+    CompletionAppendDependencies:
+      type: object
+      additionalProperties: false
+      required: [session_id, client_ids]
+      description: >
+        원 transport intent에 고정한 선행 UUID. 완료의 performed_client_ids는 완료 생성 tx까지
+        이미 커밋한 append 관련 actual을 담고 이후 새 수정으로 확장하지 않는다.
+      properties:
+        session_id: { type: string, format: uuid }
+        client_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        performed_client_ids:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+
+    AppendEligibility:
+      type: object
+      additionalProperties: false
+      required: [version, source_revision, cohort_revision, status, reason]
+      properties:
+        version: { type: integer, enum: [1] }
+        source_revision: { type: string, minLength: 1 }
+        cohort_revision: { type: string, minLength: 1 }
+        status: { type: string, enum: [allowed, blocked] }
+        reason: { type: string, nullable: true, enum: [unsafe_assistance_snapshot, null] }
+      oneOf:
+        - properties:
+            status: { enum: [allowed] }
+            reason: { enum: [null] }
+        - properties:
+            status: { enum: [blocked] }
+            reason: { enum: [unsafe_assistance_snapshot] }
+
+    SessionAppendConflict:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: { type: string, enum: [CONFLICT] }
+            message: { type: string, minLength: 1 }
+            details:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [readonly, set_cap_reached, set_number_gap, source_changed, source_removed, correlation_mismatch, idempotency_payload_mismatch, append_target_removed, unsafe_assistance_snapshot, unresolved_parent]
 
     PerformedSetMutationPayload:
       type: object
@@ -1411,6 +1638,16 @@ components:
         pump: { type: string, enum: [low, medium, high] }
         pain: { type: integer, minimum: 0, maximum: 10 }
 
+    PlannedSetTombstone:
+      type: object
+      additionalProperties: false
+      required: [planned_set_id, correlation_id, exercise_id]
+      properties:
+        planned_set_id: { type: string, format: uuid }
+        correlation_id: { type: string, format: uuid, nullable: true }
+        exercise_id: { type: string }
+      description: 같은 삭제 transaction에서 확인한 identity만 전달한다. 세션은 enclosing session_routine change.entity_id로 한정한다.
+
     SyncResponse:
       type: object
       required: [applied, conflicts, changes, planned_set_mappings, next_cursor]
@@ -1427,16 +1664,35 @@ components:
               client_id: { type: string, format: uuid }
               entity_id: { type: string, format: uuid }
               reason: { type: string, example: stale_update }
+              retryable:
+                type: boolean
+                description: append 의존 변경에만 존재. unresolved_parent는 true, 확인된 terminal dependency는 false.
+              cause_client_id: { type: string, format: uuid }
+              cause_reason: { type: string }
         changes:
           type: array
           items:
             type: object
             required: [entity, entity_id, op, data, server_seq]
             properties:
-              entity: { type: string, enum: [performed_set, session_routine, session] }
-              entity_id: { type: string, format: uuid }
+              entity: { type: string, enum: [performed_set, session_routine, session, session_set] }
+              entity_id:
+                type: string
+                format: uuid
+                description: performed_set은 planned_set_id, session/session_routine/session_set은 session ID다.
               op: { type: string, enum: [upsert, delete] }
-              data: { type: object, additionalProperties: true, nullable: true }
+              data:
+                type: object
+                additionalProperties: true
+                nullable: true
+                properties:
+                  tombstones:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlannedSetTombstone' }
+                    description: >
+                      기존 session_routine 변경의 실제 삭제 identity. upsert/delete 모두 전달할 수 있으며
+                      과거 metadata 없는 delete는 data:null을 유지한다. GET 누락이나 번호 추정은 삭제 증거가 아니다.
+                      직접 remove/swap의 원격 변경 발행은 이 필드의 구현 범위가 아니다.
               server_seq:
                 type: string
                 pattern: '^[0-9]+$'
@@ -1445,7 +1701,8 @@ components:
           type: array
           items: { $ref: '#/components/schemas/PlannedSetMapping' }
           description: >
-            이번 요청의 routine correlation에 대응하는 권위 planned set. 응답 유실 재시도에도 동일하다.
+            이번 요청의 routine/append correlation에 대응하는 현재 권위 planned set.
+            성공 replay는 stored target identity를 사용하며 cursor와 changes 100건 page에 관계없이 회수된다.
         next_cursor:
           type: string
           description: 마지막으로 관찰한 server_seq를 감싼 opaque cursor.

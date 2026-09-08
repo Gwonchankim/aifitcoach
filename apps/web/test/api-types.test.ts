@@ -70,4 +70,75 @@ describe("api-types (openapi 코드젠)", () => {
     expect(response.next_cursor).toBe("42");
     expect(hasDuplicateTransportKey).toBe(false);
   });
+
+  it("append uses the same source identity over POST/sync and completion carries committed actual UUIDs", () => {
+    type AppendBody =
+      paths["/sessions/{id}/sets"]["post"]["requestBody"]["content"]["application/json"];
+    type AppendHeaders = NonNullable<paths["/sessions/{id}/sets"]["post"]["parameters"]["header"]>;
+    const duplicateKey: "Idempotency-Key" extends keyof AppendHeaders ? true : false = false;
+    const request: AppendBody = {
+      client_id: "11111111-1111-4111-8111-111111111111",
+      exercise_id: "e_bench_press",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      source: {
+        source_planned_set_id: "33333333-3333-4333-8333-333333333333",
+        source_revision: "opaque",
+      },
+    };
+    const append: SyncMutation = {
+      client_id: request.client_id,
+      entity: "session_set",
+      entity_id: request.client_id,
+      op: "upsert",
+      updated_at: "2026-08-14T10:00:00.000Z",
+      payload: {
+        exercise_id: request.exercise_id,
+        correlation_id: request.correlation_id,
+        source: request.source,
+      },
+    };
+    const completion: SyncMutation = {
+      client_id: request.correlation_id,
+      entity: "session",
+      entity_id: request.client_id,
+      op: "upsert",
+      updated_at: "2026-08-14T10:00:01.000Z",
+      payload: { status: "completed" },
+      append_dependencies: {
+        session_id: request.client_id,
+        client_ids: [append.client_id],
+        performed_client_ids: [request.correlation_id],
+      },
+    };
+    const eligibility: components["schemas"]["AppendEligibility"] = {
+      version: 1,
+      source_revision: "opaque",
+      cohort_revision: "opaque-cohort",
+      status: "allowed",
+      reason: null,
+    };
+    expect("source" in append.payload && append.payload.source).toEqual(request.source);
+    expect(completion.append_dependencies?.performed_client_ids).toEqual([request.correlation_id]);
+    expect(eligibility.reason).toBeNull();
+    expect(duplicateKey).toBe(false);
+  });
+
+  it("routine changes keep session scope and exact nullable correlation tombstones", () => {
+    const tombstone: components["schemas"]["PlannedSetTombstone"] = {
+      planned_set_id: "11111111-1111-4111-8111-111111111111",
+      correlation_id: null,
+      exercise_id: "e_bench_press",
+    };
+    const change: SyncOk["changes"][number] = {
+      entity: "session_routine",
+      entity_id: "22222222-2222-4222-8222-222222222222",
+      op: "delete",
+      data: { tombstones: [tombstone] },
+      server_seq: "9007199254740993",
+    };
+    const removedId: string | undefined = change.data?.tombstones?.[0]?.planned_set_id;
+    expect(removedId).toBe(tombstone.planned_set_id);
+    expect(change.entity_id).not.toBe(removedId);
+    expect(change.data?.tombstones?.[0]?.correlation_id).toBeNull();
+  });
 });

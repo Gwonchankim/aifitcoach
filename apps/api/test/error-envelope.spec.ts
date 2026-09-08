@@ -4,9 +4,21 @@
  * 내부 메시지·스택은 응답에 새면 안 된다(SECURITY_PIPA.md — 오류 응답에 내부 정보 미노출).
  */
 import "reflect-metadata";
-import { ArgumentsHost, ConflictException, Logger, NotFoundException } from "@nestjs/common";
+import {
+  ArgumentsHost,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import type { HttpAdapterHost } from "@nestjs/core";
 import { ErrorEnvelopeFilter } from "../src/common/http/error-envelope.filter";
+import {
+  SESSION_APPEND_REASONS,
+  SessionAppendConflictException,
+} from "../src/common/http/session-append-conflict";
+import { expectMatchesContract } from "./support/openapi-response";
 
 interface Replied {
   body: unknown;
@@ -50,6 +62,29 @@ describe("ErrorEnvelopeFilter", () => {
     expect(runFilter(new ConflictException("이미 완료한 세션이다.")).body).toEqual({
       error: { code: "CONFLICT", message: "이미 완료한 세션이다." },
     });
+  });
+
+  it.each(SESSION_APPEND_REASONS)("serializes only a typed append 409 reason %s", (reason) => {
+    const exception = new SessionAppendConflictException(reason);
+    Object.assign(exception, { details: { raw_weight: 20 }, raw_source: { actual: 30 } });
+    const response = runFilter(exception);
+    expect(response).toEqual({
+      status: 409,
+      body: { error: { code: "CONFLICT", message: exception.message, details: { reason } } },
+    });
+    expectMatchesContract("post", "/sessions/{id}/sets", 409, response.body);
+  });
+
+  it("keeps arbitrary conflict/auth/CSRF details out of the existing envelopes", () => {
+    for (const exception of [
+      new ConflictException({ message: "existing", details: { reason: "source_changed" } }),
+      new UnauthorizedException({ message: "auth", details: { token: "hidden" } }),
+      new ForbiddenException({ message: "csrf", details: { reason: "source_changed" } }),
+    ]) {
+      expect(runFilter(exception).body).toEqual({
+        error: { code: expect.any(String), message: exception.message },
+      });
+    }
   });
 
   it("HttpException 이 아니면 500 + INTERNAL_ERROR 엔벨로프", () => {

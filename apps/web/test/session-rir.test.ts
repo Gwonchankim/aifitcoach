@@ -91,6 +91,9 @@ describe("parseRirChoice / rirText (드롭다운)", () => {
 describe("미입력 RIR 은 기록에 들어가지 않는다", () => {
   const set: PlannedSet = {
     id: "ps_1",
+    source_revision: "fixture-rir-ps-1",
+    correlation_id: null,
+    append_eligibility: null,
     exercise_id: "e_bench_press",
     set_no: 1,
     target_reps_low: 8,
@@ -259,6 +262,9 @@ describe("RirSheet (M-7 RIR 고르기)", () => {
 describe("목표 RIR 표기", () => {
   const set: PlannedSet = {
     id: "ps_2",
+    source_revision: "fixture-rir-ps-2",
+    correlation_id: null,
+    append_eligibility: null,
     exercise_id: "e_bench_press",
     set_no: 1,
     target_reps_low: 8,
@@ -322,6 +328,9 @@ describe("목표 RIR 표기", () => {
 describe("시간 종목(AC-E-4)", () => {
   const timeSet: PlannedSet = {
     id: "ps_time",
+    source_revision: "fixture-rir-ps-time",
+    correlation_id: null,
+    append_eligibility: null,
     exercise_id: "e_plank",
     set_no: 1,
     target_reps_low: null,

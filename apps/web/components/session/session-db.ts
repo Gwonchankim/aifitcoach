@@ -2,6 +2,15 @@ import Dexie, { type Table, type Transaction } from "dexie";
 import type { Exercise, Session } from "../../lib/api";
 import type { SetDraft } from "./session-store";
 import { clearPositionInTransaction, resolvePositionAlias } from "./session-position";
+import {
+  appendDependentMutation,
+  appendCompletionMutation,
+  bumpAppendGenerationInTransaction,
+  isSafeAppendMirror,
+  overlayAppendReadInTransaction,
+  readAppendState,
+} from "./session-set-append-db";
+import { overlayAppends, type AppendDependencies } from "./session-set-append";
 
 export const DEV_USER_SCOPE = "dev-user";
 
@@ -10,12 +19,25 @@ export type StoredDraft = SetDraft & { user_id: string; session_id: string };
 export type OutboxMutation = {
   client_id: string;
   user_id: string;
-  entity: "performed_set" | "session_routine" | "session";
+  entity: "performed_set" | "session_routine" | "session" | "session_set";
   entity_id: string;
   op: "upsert" | "delete";
   updated_at: string;
   payload: Record<string, unknown>;
   attempts: number;
+  append_dependencies?: AppendDependencies;
+  /** Local execution reference only. It is never serialized into the original transport. */
+  canonical_entity_id?: string;
+  sync_status?: "pending" | "blocked";
+  sync_reason?: string;
+  cause_client_id?: string;
+  cause_reason?: string;
+  /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
+  removed_planned_sets?: {
+    planned_set_id: string;
+    correlation_id: string | null;
+    exercise_id: string;
+  }[];
 };
 
 /**
@@ -29,6 +51,7 @@ type SessionMirror = {
   session: unknown;
   updated_at: string;
   local_ids?: string[];
+  append_ids?: string[];
 };
 type CatalogMirror = { user_id: string; catalog: Exercise[]; updated_at: string };
 type RoutineSnapshot = {
@@ -396,21 +419,33 @@ export async function commitAuthoritativeSession(
   userId: string,
   sessionId: string,
   session: unknown,
+  appendReadGeneration?: number | null,
 ): Promise<boolean> {
   if (!isSafeSessionPayload(session)) return false;
   // completion 후보·unknown 상태에서는 **safe 200 이어도** 미러를 확정하지 않는다 —
   // 서버가 아직 못 받은 기록이 있는데 authoritative 로 굳히면 그 기록이 화면에서 사라진다.
   const state = await remediationStateFor(userId, sessionId);
   if (state === "completion" || state === "unknown") return false;
-  await sessionDb.transaction("rw", sessionDb.sessions, sessionDb.syncMeta, async () => {
-    await sessionDb.sessions.put({
-      user_id: userId,
-      session_id: sessionId,
-      session,
-      updated_at: new Date().toISOString(),
-    });
-    await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
-  });
+  await sessionDb.transaction(
+    "rw",
+    [sessionDb.sessions, sessionDb.syncMeta, sessionDb.drafts, sessionDb.outbox],
+    async () => {
+      const merged = await overlayAppendReadInTransaction(
+        { user_id: userId, session_id: sessionId },
+        session as Session,
+        appendReadGeneration,
+      );
+      await sessionDb.sessions.put({
+        user_id: userId,
+        session_id: sessionId,
+        session: merged.session,
+        ...(merged.append_ids !== undefined ? { append_ids: merged.append_ids } : {}),
+        ...(merged.local_ids !== undefined ? { local_ids: merged.local_ids } : {}),
+        updated_at: new Date().toISOString(),
+      });
+      await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
+    },
+  );
   return true;
 }
 
@@ -473,9 +508,41 @@ export async function commitDraftBatch(
             change.draft.planned_set_id,
           ),
         };
-        await sessionDb.drafts.put(stored);
+        const mutation = change.op
+          ? await appendDependentMutation(
+              { user_id: userId, session_id: sessionId },
+              mutationFor(stored, change.op),
+            )
+          : null;
+        // Only a proven append-intent replay uses this guard. Its original transport is
+        // immutable, while a later canonical draft may already have won the local register.
+        const replay =
+          mutation?.append_dependencies && (await sessionDb.outbox.get(stored.client_id));
+        const previous = replay
+          ? await sessionDb.drafts.get([userId, sessionId, stored.planned_set_id])
+          : undefined;
+        if (
+          previous?.client_id === stored.client_id &&
+          (
+            [
+              "actual_weight",
+              "actual_reps",
+              "actual_rir",
+              "actual_time_sec",
+              "pain_score",
+              "completed",
+            ] as const
+          ).some((field) => previous[field] !== stored[field])
+        )
+          throw new Error("immutable append intent draft mismatch");
+        if (
+          !previous ||
+          previous.updated_at < stored.updated_at ||
+          (previous.updated_at === stored.updated_at && previous.client_id <= stored.client_id)
+        )
+          await sessionDb.drafts.put(stored);
         ids.push(stored.planned_set_id);
-        if (change.op) await sessionDb.outbox.put(mutationFor(stored, change.op));
+        if (mutation) await sessionDb.outbox.put(mutation);
       }
       return ids;
     },
@@ -526,7 +593,21 @@ export async function mirrorSession(
 }
 
 export async function readMirroredSession<T>(userId: string, sessionId: string): Promise<T | null> {
-  return ((await sessionDb.sessions.get([userId, sessionId]))?.session as T | undefined) ?? null;
+  const mirror = await sessionDb.sessions.get([userId, sessionId]);
+  if (mirror?.append_ids?.length) {
+    const rows = (mirror.session as Session).planned_sets;
+    if (
+      !Array.isArray(rows) ||
+      !isSafeAppendMirror(
+        rows,
+        mirror.local_ids ?? [],
+        mirror.append_ids,
+        await readAppendState({ user_id: userId, session_id: sessionId }),
+      )
+    )
+      return null;
+  }
+  return (mirror?.session as T | undefined) ?? null;
 }
 
 /**
@@ -544,8 +625,13 @@ export async function readThroughSession<T>(
   userId: string,
   sessionId: string,
   fetchSession: () => Promise<T>,
+  options: { offlineFallback?: boolean } = {},
 ): Promise<T> {
   try {
+    // Unknown is distinct from an empty envelope. A storage failure must not suppress online GET.
+    const generation = await readAppendState({ user_id: userId, session_id: sessionId })
+      .then((state) => state.generation)
+      .catch(() => null);
     const fetched = await fetchSession();
     // **safe predicate 를 통과해야만** 렌더한다. `GET` 200 은 근거가 아니다 —
     // rolling deploy 중 구버전 서버도 200 으로 legacy weighted 처방을 준다.
@@ -557,7 +643,19 @@ export async function readThroughSession<T>(
       throw new StaleAssistanceSessionError();
     }
     // **캐시 쓰기 실패가 성공한 온라인 읽기를 화면 오류로 바꾸면 안 된다** — 판정과 저장은 다른 축이다.
-    await commitAuthoritativeSession(userId, sessionId, fetched).catch(() => undefined);
+    const committed = await commitAuthoritativeSession(
+      userId,
+      sessionId,
+      fetched,
+      generation,
+    ).catch(() => false);
+    if (committed) return (await readMirroredSession<T>(userId, sessionId)) ?? fetched;
+    const existing = await sessionDb.sessions.get([userId, sessionId]).catch(() => undefined);
+    if (existing?.append_ids !== undefined) {
+      const pendingView = await readMirroredSession<T>(userId, sessionId);
+      if (pendingView) return pendingView;
+      throw new Error("append view unavailable");
+    }
     return fetched;
   } catch (error) {
     if (error instanceof StaleAssistanceSessionError) throw error;
@@ -566,6 +664,7 @@ export async function readThroughSession<T>(
       await cleanupSessionCache(userId, sessionId).catch(() => undefined);
       throw error;
     }
+    if (options.offlineFallback === false) throw error;
     // 오프라인·5xx: marker 가 있으면 미러 폴백도 막는다(무효화한 이유가 그대로 살아 있다).
     if (await isRemediationPending(userId, sessionId)) throw error;
     const mirrored = await readMirroredSession<T>(userId, sessionId);
@@ -605,14 +704,25 @@ export async function commitRoutineSnapshot(
   session?: Session,
   /** 이 커밋이 방금 만든 **로컬 임시 행 id**. payload 가 아니라 호출자가 알려준다. */
   localIds?: ReadonlySet<string>,
-): Promise<void> {
+): Promise<Session | undefined> {
   let unsafeSnapshot = false;
+  let committedSession: Session | undefined;
   await sessionDb.transaction(
     "rw",
     sessionDb.routines,
     sessionDb.outbox,
     sessionDb.sessions,
+    sessionDb.syncMeta,
     async () => {
+      await bumpAppendGenerationInTransaction({ user_id: userId, session_id: sessionId });
+      const priorMirror = await sessionDb.sessions.get([userId, sessionId]);
+      const removed = ((priorMirror?.session as Session | undefined)?.planned_sets ?? [])
+        .filter((row) => !exerciseIds.includes(row.exercise_id) && /^[0-9a-f-]{36}$/i.test(row.id))
+        .map((row) => ({
+          planned_set_id: row.id,
+          correlation_id: row.correlation_id ?? null,
+          exercise_id: row.exercise_id,
+        }));
       const previous = await sessionDb.routines.get([userId, sessionId]);
       const merged = new Map(
         (previous?.correlations ?? [])
@@ -644,23 +754,57 @@ export async function commitRoutineSnapshot(
          * (삭제된 종목의 id 를 계속 들고 있으면 봉투가 무한히 커진다).
          */
         const previous = await sessionDb.sessions.get([userId, sessionId]);
+        const appendState = await readAppendState({ user_id: userId, session_id: sessionId });
+        const entries = appendState.entries.filter((entry) =>
+          exerciseIds.includes(entry.intent.transport.payload.exercise_id),
+        );
+        const appendIdentities = new Set(
+          entries.flatMap((entry) => [
+            entry.provisional.id,
+            ...(entry.execution.canonical_id ? [entry.execution.canonical_id] : []),
+          ]),
+        );
+        const currentAppendRows = (
+          (previous?.session as Session | undefined)?.planned_sets ?? []
+        ).filter((row) => appendIdentities.has(row.id));
+        const rows = overlayAppends(
+          { user_id: userId, session_id: sessionId },
+          [
+            ...session.planned_sets.filter((row) => !appendIdentities.has(row.id)),
+            ...currentAppendRows,
+          ],
+          entries,
+          appendState.tombstones,
+        ).rows;
+        const orderedRows = [
+          ...exerciseIds.flatMap((exerciseId) =>
+            rows
+              .filter((row) => row.exercise_id === exerciseId)
+              .sort((a, b) => a.set_no - b.set_no),
+          ),
+          ...rows.filter((row) => !exerciseIds.includes(row.exercise_id)),
+        ];
+        const nextSession = { ...session, planned_sets: orderedRows as Session["planned_sets"] };
         const present = new Set(
-          (plannedRowsOf(session) ?? [])
+          (plannedRowsOf(nextSession) ?? [])
             .map((row) => row.id)
             .filter((id): id is string => typeof id === "string"),
         );
         const merged = new Set(
           [...(previous?.local_ids ?? []), ...(localIds ?? [])].filter((id) => present.has(id)),
         );
-        if (isSafeSessionPayload(session, merged))
+        const appendIds = (previous?.append_ids ?? []).filter((id) => present.has(id));
+        if (isSafeAppendMirror(nextSession.planned_sets, [...merged], appendIds, appendState)) {
           await sessionDb.sessions.put({
             user_id: userId,
             session_id: sessionId,
-            session,
+            session: nextSession,
             updated_at: updatedAt,
             ...(merged.size > 0 ? { local_ids: [...merged] } : {}),
+            ...(previous?.append_ids !== undefined ? { append_ids: appendIds } : {}),
           });
-        else unsafeSnapshot = true;
+          committedSession = nextSession;
+        } else unsafeSnapshot = true;
       }
       await sessionDb.outbox.put({
         client_id: clientId,
@@ -669,6 +813,7 @@ export async function commitRoutineSnapshot(
         entity_id: sessionId,
         op: "upsert",
         updated_at: updatedAt,
+        ...(removed.length ? { removed_planned_sets: removed } : {}),
         payload: {
           exercise_ids: exerciseIds,
           ...(snapshotCorrelations.length
@@ -685,6 +830,7 @@ export async function commitRoutineSnapshot(
   );
   // marker 는 트랜잭션 밖에서 세운다 — 편집 커밋 자체를 실패시키지 않는다.
   if (unsafeSnapshot) await markRemediationPending(userId, sessionId);
+  return committedSession;
 }
 
 export async function commitSessionCompletion(
@@ -694,26 +840,39 @@ export async function commitSessionCompletion(
   clientId: string,
   updatedAt: string,
 ): Promise<void> {
-  await sessionDb.transaction("rw", sessionDb.sessions, sessionDb.outbox, async () => {
-    const current = await sessionDb.sessions.get([userId, sessionId]);
-    if (current && typeof current.session === "object" && current.session != null) {
-      await sessionDb.sessions.put({
-        ...current,
-        session: { ...(current.session as Record<string, unknown>), status: "completed" },
-        updated_at: updatedAt,
-      });
-    }
-    await sessionDb.outbox.put({
-      client_id: clientId,
-      user_id: userId,
-      entity: "session",
-      entity_id: sessionId,
-      op: "upsert",
-      updated_at: updatedAt,
-      payload: { ...payload, status: "completed" },
-      attempts: 0,
-    });
-  });
+  await sessionDb.transaction(
+    "rw",
+    [sessionDb.sessions, sessionDb.outbox, sessionDb.syncMeta, sessionDb.drafts],
+    async () => {
+      const mutation = await appendCompletionMutation(
+        { user_id: userId, session_id: sessionId },
+        {
+          client_id: clientId,
+          user_id: userId,
+          entity: "session",
+          entity_id: sessionId,
+          op: "upsert",
+          updated_at: updatedAt,
+          payload: { ...payload, status: "completed" },
+          attempts: 0,
+        },
+      );
+      const current = await sessionDb.sessions.get([userId, sessionId]);
+      if (
+        !mutation.append_dependencies &&
+        current &&
+        typeof current.session === "object" &&
+        current.session != null
+      ) {
+        await sessionDb.sessions.put({
+          ...current,
+          session: { ...(current.session as Record<string, unknown>), status: "completed" },
+          updated_at: updatedAt,
+        });
+      }
+      await sessionDb.outbox.put(mutation);
+    },
+  );
 }
 
 export async function requestPersistentStorage(): Promise<void> {

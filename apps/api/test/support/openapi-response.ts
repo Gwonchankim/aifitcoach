@@ -207,6 +207,25 @@ export function expectMatchesContract(
       `${method} ${contractPath} ${status} 응답에 openapi 에 없는 키가 있다: ${undeclared.join(", ")}`,
     );
   }
+
+  // An operation may require a narrower body while keeping the common Error ref.
+  // Do not infer a refinement from status or arbitrary exception details.
+  const refinement = nodeAt([
+    ...responseSegments(method, contractPath, status),
+    "x-afc-response-refinement",
+  ]);
+  if (refinement) {
+    const pointer = [...responseSegments(method, contractPath, status), "x-afc-response-refinement"]
+      .map(escapePointer)
+      .join("/");
+    const refine = instance().getSchema(`${SCHEMA_KEY}#/${pointer}`);
+    if (!refine || !refine(body)) {
+      throw new Error(
+        `${method} ${contractPath} ${status} mandatory response refinement: ` +
+          JSON.stringify(refine?.errors ?? "missing validator"),
+      );
+    }
+  }
 }
 
 /**

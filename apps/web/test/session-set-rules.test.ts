@@ -19,6 +19,9 @@ import {
 function plannedSet(overrides: Partial<PlannedSet> = {}): PlannedSet {
   return {
     id: "ps_1",
+    source_revision: "fixture-set-rules-ps-1",
+    correlation_id: null,
+    append_eligibility: null,
     exercise_id: "e_bench_press",
     set_no: 1,
     target_reps_low: 8,

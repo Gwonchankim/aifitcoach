@@ -5,7 +5,7 @@
 "use client";
 
 import type { Exercise, PlannedSet } from "../../lib/api";
-import { Badge, Card } from "../ui";
+import { Badge, Button, Card } from "../ui";
 import { ExerciseMenu } from "./ExerciseMenu";
 import {
   assistanceAction,
@@ -48,6 +48,10 @@ export type ExerciseCardProps = {
   onReportPain: () => void;
   onComplete: (set: PlannedSet, values: SetValues) => void;
   onUncomplete: (set: PlannedSet) => void;
+  onAppend?: () => void;
+  appendDisabled?: boolean;
+  appendReason?: string | null;
+  onReloadAppend?: () => void;
 };
 
 export function ExerciseCard({
@@ -71,6 +75,10 @@ export function ExerciseCard({
   onReportPain,
   onComplete,
   onUncomplete,
+  onAppend,
+  appendDisabled,
+  appendReason,
+  onReloadAppend,
 }: ExerciseCardProps) {
   const completedCount = sets.filter((set) => drafts[set.id]?.completed).length;
   const kinds = sets.map((set) => setKind(set, exercise?.metric, exercise?.step_kg));
@@ -166,7 +174,8 @@ export function ExerciseCard({
 
           return (
             <SetRow
-              key={set.id}
+              // ACK changes the DOM id, not this row's identity or uncommitted input state.
+              key={set.correlation_id ?? set.id}
               set={set}
               kind={kind}
               exerciseName={name}
@@ -186,6 +195,31 @@ export function ExerciseCard({
           );
         })}
       </ul>
+      {onAppend ? (
+        <div className="-mt-1 flex flex-col gap-2">
+          <Button
+            variant="secondary"
+            size="md"
+            fullWidth
+            aria-label={`${name} 세트 추가`}
+            aria-describedby={appendReason ? `${menuId}-append-reason` : undefined}
+            disabled={readOnly || appendDisabled}
+            onClick={onAppend}
+          >
+            세트 추가
+          </Button>
+          {appendReason ? (
+            <p id={`${menuId}-append-reason`} className="text-sm text-fg-muted">
+              {appendReason}
+            </p>
+          ) : null}
+          {onReloadAppend ? (
+            <Button variant="secondary" size="md" onClick={onReloadAppend}>
+              다시 불러오기
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 }

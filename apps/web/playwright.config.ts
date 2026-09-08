@@ -13,6 +13,10 @@ import { TEST_TODAY } from "./e2e/test-today";
  *   `http://localhost:3000` 이라 `00-api-cors` 회귀 스펙이 그대로 산다(apps/api common/http/cors.ts).
  * - 웹은 **프로덕션 빌드**(`next build && next start`)로 띄운다 — Lighthouse 수치를 위해서다.
  * - 뷰포트는 iPhone 14 Pro 급 390x844(세로) 고정. 한 손 조작·탭 타깃 검증 기준(UX_STATES §8).
+ * - 최종 게이트는 통합 스위트 + 전용 phase의 합집합이다: 16 persistent, 18·19 각각 fresh principal.
+ *   spec15가 어시스트 이력을 만들므로 18·19는 통합 실행과 principal을 공유하지 않는다.
+ *   전용 phase를 생략한 통합 스위트만으로 전체 통과를 판정하지 않는다.
+ *   ticket13·14: 공유 통합 FAIL과 fresh owned DB/principal의 WebKit 통합 1회를 별도 기록한다.
  */
 const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3000);
 const API_PORT = Number(process.env.E2E_API_PORT ?? 3101);
@@ -61,7 +65,8 @@ export default defineConfig({
     {
       // iOS(WebKit) 렌더·카탈로그 검색·핵심 오프라인 종료 복구. 전체 fault matrix는 Chromium이 소유한다.
       name: "webkit-ios",
-      testMatch: /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position)\.spec\.ts/,
+      testMatch:
+        /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position|17-session-set-append|18-assistance-append|19-assistance-historical)\.spec\.ts/,
       grepInvert: /@chromium-only/,
       use: { ...devices["iPhone 14 Pro"] },
     },

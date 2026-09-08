@@ -5,6 +5,7 @@
  * lazy materialization 이후 생성된 세션을 임의 삭제하면 다음 조회가 다시 생성하므로 삭제로 만들지 않는다.
  */
 import type { INestApplication } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
 import { utcToday } from "../src/common/date/utc-day";
@@ -188,27 +189,56 @@ describe("즉석 세션 (F8-1)", () => {
 
     // createAdHoc does not read generationInput.avoid_exercises. Reproduce the old catalog only
     // at this single test's read boundary; HTTP, persisted pain reread and writes stay real.
-    const readCatalog = prisma.exercise.findMany.bind(prisma.exercise);
-    const catalogSpy = jest.spyOn(prisma.exercise, "findMany").mockImplementation((async (
-      args: Parameters<typeof readCatalog>[0],
-    ) => {
-      const rows = await readCatalog(args);
+    const catalogSpy = jest.fn(async function (
+      this: Prisma.TransactionClient["exercise"],
+      ...args: Parameters<typeof prisma.exercise.findMany>
+    ) {
+      const rows = await this.findMany(...args);
       const baseline = rows.filter((row) => !CATALOG_ADDITION_IDS.includes(row.id));
-      if (args === undefined) {
+      if (args[0] === undefined) {
         expect(baseline.map((row) => row.id).sort()).toEqual(
           BASELINE_CATALOG.map((row) => row.id).sort(),
         );
         expect(baseline).toHaveLength(106);
       }
       return baseline;
-    }) as typeof prisma.exercise.findMany);
+    });
+    type TransactionHost = { $transaction: (...args: unknown[]) => Promise<unknown> };
+    const host = prisma as unknown as TransactionHost;
+    const transaction = host.$transaction.bind(prisma);
+    const transactionSpy = jest.spyOn(host, "$transaction").mockImplementation((...args) => {
+      const callback = args[0];
+      if (typeof callback !== "function") return transaction(...args);
+      return transaction(
+        (tx: Prisma.TransactionClient) =>
+          callback(
+            new Proxy(tx, {
+              get(target, key) {
+                if (key === "exercise")
+                  return new Proxy(target.exercise, {
+                    get(delegate, method) {
+                      const value = Reflect.get(delegate, method);
+                      if (method === "findMany")
+                        return (...queryArgs: Parameters<typeof prisma.exercise.findMany>) =>
+                          catalogSpy.apply(delegate, queryArgs);
+                      return typeof value === "function" ? value.bind(delegate) : value;
+                    },
+                  });
+                const value = Reflect.get(target, key);
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }),
+          ),
+        args[1],
+      );
+    });
     try {
       const response = await createAdHoc("chest");
       expect(response.status).toBe(201);
       expect(catalogSpy).toHaveBeenCalledWith();
       expect(exercisesOf(response.body)[0]).toBe("e_chest_press_machine");
     } finally {
-      catalogSpy.mockRestore();
+      transactionSpy.mockRestore();
     }
   });
 

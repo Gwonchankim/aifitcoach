@@ -4,11 +4,21 @@ import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
 import { SwapExerciseDto } from "./dto/swap-exercise.dto";
+import { AppendSetDto } from "./dto/append-set.dto";
 import { CompleteSessionResponse, SessionResponse, SessionsService } from "./sessions.service";
 
 @Controller("sessions")
 export class SessionsController {
   constructor(private readonly sessions: SessionsService) {}
+
+  @Post(":id/sets")
+  appendSet(
+    @CurrentUser() userId: string,
+    @Param("id") sessionId: string,
+    @Body() body: AppendSetDto,
+  ) {
+    return this.sessions.appendSet(userId, sessionId, body);
+  }
 
   /**
    * POST /sessions/ad-hoc — 휴식일 즉석 세션 생성(부위 선택, F8-1).

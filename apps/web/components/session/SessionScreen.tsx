@@ -25,7 +25,7 @@ import {
   restoreRestTimer,
   type RestoreCoordinator,
 } from "./rest-timer-store";
-import { isUtcToday } from "../../lib/utc-day";
+import { isUtcToday, utcDateString } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
 import { ExercisePickerSheet, type PickerMode } from "./ExercisePickerSheet";
@@ -52,8 +52,8 @@ import {
   commitRoutineSnapshot,
   commitSessionCompletion,
   DEV_USER_SCOPE,
-  mirrorSession,
   readThroughSession,
+  readMirroredSession,
   safeMappings,
   sessionDb,
   type RoutineCorrelation,
@@ -62,7 +62,22 @@ import {
   PLANNED_SET_MAPPING_EVENT,
   requestForegroundSync,
   SYNC_RESPONSE_EVENT,
+  type SyncResponseEventDetail,
 } from "./sync-coordinator";
+import {
+  readAppendCompletions,
+  readAppendState,
+  commitSessionSetAppend,
+  AppendCreationError,
+  type AppendState,
+} from "./session-set-append-db";
+import {
+  assessAppend,
+  captureAppendSource,
+  overlayAppends,
+  type AppendContext,
+  type CapturedAppendSource,
+} from "./session-set-append";
 
 type CompleteResponse = {
   session: Session;
@@ -76,6 +91,8 @@ type RestState = { plannedSetId: string; title: string; timer: RestTimer };
  * 다시 열려 화면을 가린다(실제 Chromium E2E 에서 재현됐다).
  */
 const CLEAR_FAILED_NOTICE = "휴식 타이머를 정리하지 못했어요. 다시 시도해 주세요.";
+const APPEND_ELIGIBILITY_MISSING = "세트를 추가할 수 있는지 확인하지 못했어요. 다시 불러와 주세요.";
+const APPEND_BLOCKED = "이 운동은 지금 세트를 추가할 수 없어요.";
 
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
 
@@ -129,10 +146,10 @@ export async function refetchAuthoritativeSession(
   sessionId: string,
   fetchSession: () => Promise<Session>,
 ): Promise<Session | null> {
-  const fetched = await fetchSession().catch(() => null);
+  const fetched = await readThroughSession(DEV_USER_SCOPE, sessionId, fetchSession, {
+    offlineFallback: false,
+  }).catch(() => null);
   if (!fetched) return null;
-  // `mirrorSession` 이 경계다 — 거절하면 marker 를 세우고 false 를 준다.
-  if (!(await mirrorSession(DEV_USER_SCOPE, sessionId, fetched).catch(() => false))) return null;
   queryClient.setQueryData<Session>(["session", sessionId], fetched);
   return fetched;
 }
@@ -177,6 +194,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [appendFocus, setAppendFocus] = useState<{
+    sessionId: string;
+    plannedId: string;
+    intent: number;
+  } | null>(null);
 
   useEffect(() => {
     const scope = {
@@ -208,7 +230,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     const intent = ++scope.intent;
     const position = { exercise_id: set.exercise_id, planned_set_id: set.id, expanded };
     setActivePosition(position);
-    void scope.read
+    void readPosition(DEV_USER_SCOPE, sessionId)
       .then((record) => savePosition(DEV_USER_SCOPE, sessionId, position, record.generation))
       .then((saved) => {
         if (saved && positionScope.current === scope && scope.intent === intent)
@@ -222,6 +244,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       const mappings = (event as CustomEvent<SyncResponse["planned_set_mappings"]>).detail;
       if (!Array.isArray(mappings) || mappings.length === 0) return;
       remapPlannedSetsInStore(mappings);
+      setAppendFocus((previous) =>
+        previous
+          ? {
+              ...previous,
+              plannedId:
+                mappings.find((mapping) => mapping.correlation_id === previous.plannedId)
+                  ?.planned_set_id ?? previous.plannedId,
+            }
+          : null,
+      );
       setExpandedSetId((id) => mappings.find((m) => m.correlation_id === id)?.planned_set_id ?? id);
       setFocusExpandedSetId(null);
       setActivePosition((position) => {
@@ -301,6 +333,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const session = sessionQuery.data;
+  const appendCompletionQuery = useQuery({
+    queryKey: ["append-completion", sessionId],
+    networkMode: "always",
+    queryFn: () => readAppendCompletions({ user_id: DEV_USER_SCOPE, session_id: sessionId }),
+  });
+  const completionWaiting = (appendCompletionQuery.data?.length ?? 0) > 0;
+  const completionReady = appendCompletionQuery.isSuccess;
+  const appendStateQuery = useQuery({
+    queryKey: ["session-append", sessionId],
+    networkMode: "always",
+    queryFn: () => readAppendState({ user_id: DEV_USER_SCOPE, session_id: sessionId }),
+  });
 
   const restoreRef = useRef<RestoreCoordinator | null>(null);
   restoreRef.current ??= createRestoreCoordinator();
@@ -326,6 +370,83 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     restoreRef.current?.invalidate();
     setRest(null);
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    let sequence = 0;
+    let completionIntent: number | null = null;
+    const sourceChanges = new Set<string>();
+    const reconcile = async (scope: typeof positionScope.current) => {
+      const ticket = ++sequence;
+      const intent = scope?.intent;
+      const [mirror, waiting, appendState] = await Promise.all([
+        readMirroredSession<Session>(DEV_USER_SCOPE, sessionId),
+        readAppendCompletions({ user_id: DEV_USER_SCOPE, session_id: sessionId }),
+        readAppendState({ user_id: DEV_USER_SCOPE, session_id: sessionId }),
+      ]);
+      if (!current || positionScope.current !== scope) return;
+      await refreshDraftsFromMirror(sessionId);
+      if (!current || positionScope.current !== scope || ticket !== sequence) return;
+      const changedSources = appendState.entries.filter(
+        (entry) =>
+          sourceChanges.has(entry.intent.transport.client_id) &&
+          entry.execution.reason === "source_changed",
+      );
+      if (changedSources.length) {
+        changedSources.forEach((entry) => sourceChanges.delete(entry.intent.transport.client_id));
+        await refetchAuthoritativeSession(queryClient, sessionId, () => api.session(sessionId));
+        if (!current || positionScope.current !== scope) return;
+        if (scope?.intent === intent)
+          setEditError(errorMessage(new ApiError(409, "", ""), "session"));
+        // The original blocked intent is durable. Reconcile the freshly read cohort;
+        // a successful GET is neither an append retry nor an ACK.
+        void reconcile(scope).catch(() => undefined);
+        return;
+      }
+      // A new gesture may have committed another append/draft while either read was pending.
+      // Re-read current durable state; only the old receipt's UI reset loses authority.
+      if (scope?.intent !== intent) {
+        void reconcile(scope).catch(() => undefined);
+        return;
+      }
+      queryClient.setQueryData(["append-completion", sessionId], waiting);
+      queryClient.setQueryData(["session-append", sessionId], appendState);
+      if (mirror) queryClient.setQueryData(["session", sessionId], mirror);
+      if (completionIntent !== null) {
+        if (scope?.intent === completionIntent) {
+          scope.intent++;
+          setFinishOpen(false);
+          setFinishError(null);
+          setEditingCompleted(false);
+          setActivePosition(null);
+          setExpandedSetId(null);
+          setFocusExpandedSetId(null);
+          dropRest();
+          if (mirror) setSummary({ session: mirror, next_recommendations: [] });
+        } else {
+          setEditingCompleted(true);
+          setSummary(null);
+        }
+        completionIntent = null;
+        void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      }
+    };
+    const onCommit = (event: Event) => {
+      const detail = (event as CustomEvent<SyncResponseEventDetail>).detail;
+      if (!detail.local_session_ids?.includes(sessionId)) return;
+      for (const conflict of detail.conflicts)
+        if (conflict.reason === "source_changed") sourceChanges.add(conflict.client_id);
+      const scope = positionScope.current;
+      if (detail.completed_session_ids?.includes(sessionId))
+        completionIntent = scope?.intent ?? null;
+      void reconcile(scope).catch(() => undefined);
+    };
+    window.addEventListener(SYNC_RESPONSE_EVENT, onCommit);
+    return () => {
+      current = false;
+      window.removeEventListener(SYNC_RESPONSE_EVENT, onCommit);
+    };
+  }, [sessionId, queryClient, refreshDraftsFromMirror, dropRest]);
 
   /**
    * 시트의 종료 관측에 **세션·세트 정체성**을 붙여 게이트로 넘긴다.
@@ -360,7 +481,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     const coordinator = restoreRef.current;
     // 세션 데이터가 지금 보고 있는 세션 것인지 먼저 확인한다(prop 이 앞서 바뀔 수 있다).
-    if (!coordinator || !session || session.id !== sessionId) return;
+    if (!coordinator || !session || session.id !== sessionId || rest) return;
     const token = coordinator.begin(sessionId);
     if (!token) return;
 
@@ -376,7 +497,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       // 복구를 기다리는 사이 사용자가 새 세트를 끝냈으면 그쪽이 최신이다 — 덮지 않는다.
       setRest((previous) => previous ?? stored);
     });
-  }, [session, sessionId]);
+  }, [session, sessionId, rest]);
 
   const catalog = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
   const catalogById = useMemo(
@@ -399,6 +520,24 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   }, [session]);
 
   const orderedSets = useMemo(() => groups.flatMap((group) => group.sets), [groups]);
+  useEffect(() => {
+    if (!appendFocus || appendFocus.sessionId !== sessionId) return;
+    const scope = positionScope.current;
+    if (scope?.intent !== appendFocus.intent) {
+      setAppendFocus(null);
+      return;
+    }
+    const set = orderedSets.find((row) => row.id === appendFocus.plannedId);
+    if (!set) return;
+    const exercise = catalogById.get(set.exercise_id);
+    const input = document.getElementById(
+      primaryInputId(set, setKind(set, exercise?.metric, exercise?.step_kg)),
+    );
+    if (!input) return;
+    input.focus();
+    input.scrollIntoView?.({ block: "center" });
+    setAppendFocus(null);
+  }, [appendFocus, sessionId, orderedSets, catalogById]);
   useEffect(() => {
     if (
       !rest ||
@@ -448,6 +587,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       session.id !== sessionId ||
       sessionQuery.isError ||
       !catalogResolved ||
+      !completionReady ||
+      completionWaiting ||
       positionHydration?.sessionId !== sessionId
     )
       return;
@@ -500,11 +641,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     orderedSets,
     drafts,
     editingCompleted,
+    completionReady,
+    completionWaiting,
   ]);
   useEffect(() => {
     const scope = positionScope.current;
     if (
       !scope?.restored ||
+      !completionReady ||
+      completionWaiting ||
       !activePosition ||
       !session ||
       session.id !== sessionId ||
@@ -541,6 +686,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     };
   }, [
     activePosition,
+    completionReady,
+    completionWaiting,
     session,
     sessionId,
     sessionQuery.isFetching,
@@ -604,7 +751,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   ): Promise<Session> => {
     const exerciseIds = [...new Set(next.planned_sets.map((plannedSet) => plannedSet.exercise_id))];
     const clientId = newClientId();
-    await commitRoutineSnapshot(
+    const committed = await commitRoutineSnapshot(
       DEV_USER_SCOPE,
       sessionId,
       exerciseIds,
@@ -619,28 +766,27 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     // wait for this mutation's acknowledgement so a server conflict can keep the editor open.
     if (typeof navigator === "undefined" || !navigator.onLine) {
       void requestForegroundSync().catch(() => undefined);
-      return next;
+      return committed ?? next;
     }
     let synced: SyncResponse | null = null;
     try {
       synced = await requestForegroundSync();
     } catch {
       // A transport failure does not undo the durable local write; the outbox retries it later.
-      return next;
+      return committed ?? next;
     }
     if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
       throw new ApiError(409, "SYNC_CONFLICT", "routine sync conflict");
     if (synced?.applied.includes(clientId)) {
-      const authoritative = await api.session(sessionId).catch(() => null);
-      // **미러가 거절한 payload 는 화면에도 올리지 않는다.** `mirrorSession` 이 marker 를 세웠으므로
-      // 다음 읽기가 authoritative refetch 를 강제한다. 그때까지는 방금 만든 로컬 스냅샷을 쓴다.
-      if (
-        authoritative &&
-        (await mirrorSession(DEV_USER_SCOPE, sessionId, authoritative).catch(() => false))
-      )
-        return authoritative;
+      const authoritative = await readThroughSession(
+        DEV_USER_SCOPE,
+        sessionId,
+        () => api.session(sessionId),
+        { offlineFallback: false },
+      ).catch(() => null);
+      if (authoritative) return authoritative;
     }
-    return next;
+    return committed ?? next;
   };
 
   const provisionalSets = (exerciseId: string, count: number) => {
@@ -661,6 +807,113 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     ) as unknown as PlannedSet[];
     return { sets, correlations };
   };
+
+  const appendMutation = useMutation({
+    networkMode: "always",
+    mutationFn: async (captured: CapturedAppendSource) => {
+      const scope = positionScope.current;
+      if (!scope || scope.sessionId !== captured.session_id)
+        throw new AppendCreationError("scope_mismatch");
+      const viewAtCreation = queryClient.getQueryData<Session>(["session", sessionId]);
+      const intent = ++scope.intent;
+      const identity = {
+        client_id: newClientId(),
+        correlation_id: newClientId(),
+        updated_at: new Date().toISOString(),
+      };
+      const position = await readPosition(DEV_USER_SCOPE, sessionId);
+      if (positionScope.current !== scope) throw new AppendCreationError("scope_mismatch");
+      const entry = await commitSessionSetAppend(
+        { user_id: DEV_USER_SCOPE, session_id: sessionId },
+        {
+          exercise_id: captured.exercise_id,
+          today: utcDateString(),
+          generation: position.generation,
+          ...identity,
+          captured,
+        },
+      );
+      const mirror = await readMirroredSession<Session>(DEV_USER_SCOPE, sessionId);
+      const state = await readAppendState({ user_id: DEV_USER_SCOPE, session_id: sessionId });
+      return { entry, mirror, state, scope, intent, sessionId, viewAtCreation };
+    },
+    onSuccess: ({
+      entry,
+      mirror,
+      state,
+      scope,
+      intent,
+      sessionId: changedSession,
+      viewAtCreation,
+    }) => {
+      // A mapping/GET can settle while creation's local reads are pending. Reconcile
+      // the immutable creation with that newer view instead of restoring its old ids.
+      const cachedState = queryClient.getQueryData<AppendState>(["session-append", changedSession]);
+      const latestState =
+        cachedState && cachedState.generation > state.generation ? cachedState : state;
+      const currentView = queryClient.getQueryData<Session>(["session", changedSession]);
+      const base = currentView && currentView !== viewAtCreation ? currentView : mirror;
+      const next = base
+        ? {
+            ...base,
+            planned_sets: overlayAppends(
+              { user_id: DEV_USER_SCOPE, session_id: changedSession },
+              base.planned_sets,
+              latestState.entries,
+              latestState.tombstones,
+            ).rows as PlannedSet[],
+          }
+        : null;
+      queryClient.setQueryData(["session-append", changedSession], latestState);
+      if (next) queryClient.setQueryData(["session", changedSession], next);
+      const focusedRow = next?.planned_sets.find(
+        (row) =>
+          row.exercise_id === entry.provisional.exercise_id &&
+          (row.correlation_id === entry.provisional.id || row.id === entry.provisional.id),
+      );
+      if (positionScope.current === scope && scope.intent === intent && focusedRow) {
+        setEditingCompleted(true);
+        setSummary(null);
+        setEditError(null);
+        setExpandedSetId(null);
+        setActivePosition({
+          exercise_id: entry.provisional.exercise_id,
+          planned_set_id: focusedRow.id,
+          expanded: false,
+        });
+        setAppendFocus({ sessionId: changedSession, plannedId: focusedRow.id, intent });
+      }
+      void requestForegroundSync().catch(() => undefined);
+    },
+    onError: async (error, captured) => {
+      const scope = positionScope.current;
+      if (!scope || scope.sessionId !== captured.session_id) return;
+      if (error instanceof AppendCreationError) {
+        if (["source_changed", "source_removed", "set_number_gap"].includes(error.reason)) {
+          // An explicit fresh read accompanies the existing 409 copy; this never retries
+          // creation or replaces the captured source/revision with the new maximum.
+          await refetchAuthoritativeSession(queryClient, captured.session_id, () =>
+            api.session(captured.session_id),
+          );
+          await appendStateQuery.refetch();
+          if (positionScope.current !== scope) return;
+          setEditError(errorMessage(new ApiError(409, "", ""), "session"));
+        } else {
+          setEditError(
+            error.reason === "readonly"
+              ? "세트는 오늘 운동에만 추가할 수 있어요."
+              : error.reason === "set_cap_reached"
+                ? "세트 수는 1~10 사이로 정해 주세요."
+                : error.reason === "unsafe_assistance_snapshot"
+                  ? APPEND_BLOCKED
+                  : APPEND_ELIGIBILITY_MISSING,
+          );
+        }
+        return;
+      }
+      setEditError(errorMessage(error, "session"));
+    },
+  });
 
   const addMutation = useMutation({
     networkMode: "always",
@@ -735,8 +988,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const completeMutation = useMutation({
     networkMode: "always",
     mutationFn: async (pain: number | null) => {
-      const clientId = newClientId();
-      const updatedAt = new Date().toISOString();
+      const waiting = (
+        await sessionDb.outbox.where("user_id").equals(DEV_USER_SCOPE).toArray()
+      ).find(
+        (row) =>
+          row.entity === "session" &&
+          row.entity_id === sessionId &&
+          row.append_dependencies &&
+          (row.payload.pain ?? null) === pain,
+      );
+      const clientId = waiting?.client_id ?? newClientId();
+      const updatedAt = waiting?.updated_at ?? new Date().toISOString();
       await commitSessionCompletion(
         DEV_USER_SCOPE,
         sessionId,
@@ -744,6 +1006,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         clientId,
         updatedAt,
       );
+      await queryClient.fetchQuery({
+        queryKey: ["append-completion", sessionId],
+        // This read is IDB-only; fetchQuery does not inherit the observer's networkMode.
+        networkMode: "always",
+        queryFn: () => readAppendCompletions({ user_id: DEV_USER_SCOPE, session_id: sessionId }),
+      });
       // The local transaction is the success boundary. Offline completion remains visible and retriable.
       let synced = null;
       try {
@@ -763,6 +1031,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
        */
       if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
         throw new ApiError(409, "SYNC_CONFLICT", "completion sync conflict");
+      if ((await sessionDb.outbox.get(clientId))?.append_dependencies)
+        throw new Error("append completion is awaiting acknowledgement");
       const timerCleared = await restTimerStore.clear(sessionId);
       await sessionDb.transaction("rw", sessionDb.syncMeta, () =>
         clearPositionInTransaction(DEV_USER_SCOPE, sessionId),
@@ -927,11 +1197,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   }
 
   const shownSummary =
-    (summary?.session.id === sessionId ? summary : null) ??
-    (session.status === "completed" &&
-    (readOnly || positionScope.current?.sessionId !== sessionId || !editingCompleted)
-      ? { session, next_recommendations: [] }
-      : null);
+    !completionReady || completionWaiting
+      ? null
+      : ((summary?.session.id === sessionId ? summary : null) ??
+        (session.status === "completed" &&
+        (readOnly || positionScope.current?.sessionId !== sessionId || !editingCompleted)
+          ? { session, next_recommendations: [] }
+          : null));
   const summaryContent = shownSummary ? (
     <div inert={modalOpen} className="mx-auto max-w-md p-4">
       {/*
@@ -1003,6 +1275,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
             <header className="flex flex-col gap-1">
               <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
+              {completionWaiting ? (
+                <p role="status" className="text-sm text-fg-muted">
+                  {errorMessage(
+                    appendCompletionQuery.data?.some((row) => row.blocked)
+                      ? new ApiError(409, "SYNC_CONFLICT", "completion blocked")
+                      : new Error("completion pending"),
+                    "complete",
+                  )}
+                </p>
+              ) : null}
               <p className="text-sm text-fg-muted">
                 {completedCount}세트 완료 · 계획 {orderedSets.length}세트
               </p>
@@ -1074,6 +1356,43 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               ) : (
                 groups.map((group, index) => {
                   const locked = group.sets.some((set) => drafts[set.id]?.completed);
+                  const appendContext: AppendContext | null = appendStateQuery.data
+                    ? {
+                        user_id: DEV_USER_SCOPE,
+                        session_id: sessionId,
+                        exercise_id: group.exerciseId,
+                        today: utcDateString(),
+                        scheduled_date: session.scheduled_date,
+                        status: session.status,
+                        snapshot: {
+                          user_id: DEV_USER_SCOPE,
+                          session_id: sessionId,
+                          rows: session.planned_sets,
+                        },
+                        entries: appendStateQuery.data.entries,
+                        tombstones: appendStateQuery.data.tombstones,
+                      }
+                    : null;
+                  const append = appendContext
+                    ? assessAppend(appendContext)
+                    : { ok: false as const, reason: "eligibility_unavailable" };
+                  const blockedAppend =
+                    !append.ok &&
+                    (append.reason === "unsafe_assistance_snapshot" ||
+                      appendStateQuery.data?.entries.some(
+                        (entry) =>
+                          entry.intent.transport.payload.exercise_id === group.exerciseId &&
+                          entry.execution.phase === "blocked",
+                      ));
+                  const appendReason = append.ok
+                    ? null
+                    : append.reason === "readonly"
+                      ? "세트는 오늘 운동에만 추가할 수 있어요."
+                      : append.reason === "set_cap_reached"
+                        ? "세트 수는 1~10 사이로 정해 주세요."
+                        : blockedAppend
+                          ? APPEND_BLOCKED
+                          : APPEND_ELIGIBILITY_MISSING;
                   return (
                     <ExerciseCard
                       key={group.exerciseId}
@@ -1083,6 +1402,22 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                       sets={group.sets}
                       drafts={drafts}
                       readOnly={readOnly}
+                      onAppend={() => {
+                        if (!appendContext) return;
+                        const result = captureAppendSource(appendContext);
+                        if (result.ok) appendMutation.mutate(result.capture);
+                      }}
+                      appendDisabled={!append.ok || appendMutation.isPending}
+                      appendReason={appendReason}
+                      onReloadAppend={
+                        appendReason === APPEND_ELIGIBILITY_MISSING
+                          ? () => {
+                              void refetchAuthoritativeSession(queryClient, sessionId, () =>
+                                api.session(sessionId),
+                              ).then(() => appendStateQuery.refetch());
+                            }
+                          : undefined
+                      }
                       lockedReason={locked ? LOCKED_REASON : null}
                       painScore={painOf(
                         drafts,

@@ -17,6 +17,9 @@ const VALID_SESSION = {
   planned_sets: [
     {
       id: "ps_1",
+      source_revision: "fixture-source-revision",
+      correlation_id: null,
+      append_eligibility: null,
       exercise_id: "e_bench_press",
       set_no: 1,
       target_reps_low: 6,

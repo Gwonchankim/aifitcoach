@@ -20,6 +20,24 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SessionsService } from "../sessions/sessions.service";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
 import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
+import { sourceRevision } from "../sessions/session-set-snapshot";
+import type { SessionSetMetadata } from "../sessions/session-set-metadata";
+import {
+  lockMutationIdentities,
+  lockCorrelationClaims,
+  lockReceiptRows,
+  sessionWriteTransaction,
+  SessionLockHintChanged,
+} from "../sessions/session-write-transaction";
+import { SessionSetAppendService } from "../sessions/session-set-append.service";
+import type { AppendSetDto } from "../sessions/dto/append-set.dto";
+import { readCorrelationClaims } from "../sessions/session-set-receipt";
+import { clientMutationCandidates, isServerSessionEditEvent } from "../sessions/session-edit-event";
+import {
+  SessionDependencyService,
+  type DependencyConflict,
+  type MutationResult,
+} from "./session-dependency";
 
 /**
  * **최초 시도를 포함한 총 시도 횟수**다. 유한해야 한다 — 무한 재시도는 장애를 지연시킬 뿐이다.
@@ -27,7 +45,7 @@ import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
  */
 const SERIALIZATION_ATTEMPTS = 5;
 
-type Conflict = { client_id: string; entity_id: string; reason: string };
+type Conflict = DependencyConflict;
 type Change = {
   entity: string;
   entity_id: string;
@@ -48,6 +66,8 @@ export class SyncService {
     private readonly plannedSets: PlannedSetFactory,
     private readonly sessions: SessionsService,
     private readonly recommendation: RecommendationService,
+    private readonly appendSets: SessionSetAppendService,
+    private readonly dependencies: SessionDependencyService,
   ) {}
 
   async sync(userId: string, dto: SyncRequestDto) {
@@ -56,13 +76,11 @@ export class SyncService {
     const changedSessions = new Set<string>();
     const mutationSessions = new Map<string, string>();
     const recommendations = new Map<string, unknown>();
-    const routineAndSets = dto.mutations.filter((mutation) => mutation.entity !== "session");
-    const completions = dto.mutations.filter((mutation) => mutation.entity === "session");
-    const routineMutations = routineAndSets.filter(
-      (mutation) => mutation.entity === "session_routine",
+    const completions = dto.mutations.filter(
+      (mutation) => mutation.entity === "session" && !mutation.append_dependencies,
     );
-    const performedMutations = routineAndSets.filter(
-      (mutation) => mutation.entity === "performed_set",
+    const routineMutations = dto.mutations.filter(
+      (mutation) => mutation.entity === "session_routine",
     );
 
     // D-24/D-31: routine correlations must exist before any provisional performed_set is resolved.
@@ -79,32 +97,85 @@ export class SyncService {
       }
     }
 
-    const planned_set_mappings = await this.plannedSetMappings(
+    const routineMappings = await this.plannedSetMappings(
       userId,
       routineMutations.flatMap((mutation) => correlationsOf(mutation)),
     );
     const mappedIds = new Map(
-      planned_set_mappings.map((mapping) => [mapping.correlation_id, mapping.planned_set_id]),
+      routineMappings.map((mapping) => [mapping.correlation_id, mapping.planned_set_id]),
     );
 
-    for (const original of performedMutations) {
-      // Normalize before locks, LWW lookup and audit persistence. A correlation UUID must never
-      // become the server logical entity ID in performed_sets or sync_mutations.
-      const authoritativeId =
-        mappedIds.get(original.entity_id) ??
-        (await this.plannedSetIdForCorrelation(userId, original.entity_id));
-      const mutation = authoritativeId ? { ...original, entity_id: authoritativeId } : original;
-      const result = await this.apply(userId, mutation);
-      if (result.applied) {
-        applied.add(original.client_id);
-        if (result.sessionId) {
-          changedSessions.add(result.sessionId);
-          mutationSessions.set(original.client_id, result.sessionId);
+    let pending = dto.mutations.filter(
+      (m) => m.entity === "session_set" || m.entity === "performed_set" || m.append_dependencies,
+    );
+    const pendingConflicts = new Map<string, Conflict>();
+    const appendResults = new Map<
+      string,
+      { sessionId: string; correlationId: string; plannedSetId: string }
+    >();
+    // Each progressing pass removes at least one request. No-progress is a finite deferred reply.
+    while (pending.length) {
+      const next: MutationDto[] = [];
+      for (const original of pending) {
+        let result: MutationResult;
+        if (original.entity === "session_set") {
+          const append = await this.appendSets.apply(
+            userId,
+            original.entity_id,
+            { ...original.payload, client_id: original.client_id } as AppendSetDto,
+            original.updated_at,
+          );
+          result =
+            append.status === "applied"
+              ? { applied: true, sessionId: append.sessionId }
+              : {
+                  applied: false,
+                  conflict: {
+                    ...conflictOf(original, append.reason),
+                    ...(append.status === "pending" ? { retryable: true } : {}),
+                  },
+                };
+          if (append.status === "applied") appendResults.set(original.client_id, append);
+        } else if (original.append_dependencies) {
+          validateMutation(original);
+          result = await this.dependencies.apply(
+            userId,
+            original,
+            (tx, owner, mutation) =>
+              mutation.entity === "performed_set"
+                ? this.applyPerformed(tx, owner, mutation)
+                : this.applySession(tx, owner, mutation),
+            compare,
+          );
+        } else {
+          // Preserve the existing non-dependent normalization and comparator policy.
+          const authoritativeId =
+            mappedIds.get(original.entity_id) ??
+            (await this.plannedSetIdForCorrelation(userId, original.entity_id));
+          result = await this.apply(
+            userId,
+            authoritativeId ? { ...original, entity_id: authoritativeId } : original,
+          );
         }
-      } else if (result.conflict) {
-        conflicts.push({ ...result.conflict, entity_id: original.entity_id });
+        if (result.applied) {
+          applied.add(original.client_id);
+          pendingConflicts.delete(original.client_id);
+          if (result.sessionId) {
+            changedSessions.add(result.sessionId);
+            mutationSessions.set(original.client_id, result.sessionId);
+          }
+        } else if (result.conflict) {
+          pendingConflicts.set(original.client_id, {
+            ...result.conflict,
+            entity_id: original.entity_id,
+          });
+          if (result.conflict.retryable === true) next.push(original);
+        }
       }
+      if (next.length === pending.length) break;
+      pending = next;
     }
+    conflicts.push(...pendingConflicts.values());
 
     for (const mutation of completions) {
       const dependentConflict = conflicts.some(
@@ -131,6 +202,22 @@ export class SyncService {
       for (const [mutationId, changedSessionId] of mutationSessions) {
         if (changedSessionId === sessionId) recommendations.set(mutationId, result);
       }
+    }
+
+    // Request mappings are independent of the changes page/cursor and are projected after facts.
+    const planned_set_mappings = await this.plannedSetMappings(
+      userId,
+      routineMutations.flatMap(correlationsOf),
+    );
+    for (const result of appendResults.values()) {
+      const session = await this.sessions.detail(userId, result.sessionId);
+      const planned = session.planned_sets.find((row) => row.id === result.plannedSetId);
+      if (planned)
+        planned_set_mappings.push({
+          correlation_id: result.correlationId,
+          planned_set_id: planned.id,
+          planned_set: planned,
+        });
     }
 
     const since = parseCursor(dto.since);
@@ -163,30 +250,38 @@ export class SyncService {
       where: { clientCorrelationId: { in: ids }, session: { program: { userId } } },
       orderBy: [{ exerciseId: "asc" }, { setNo: "asc" }],
     });
-    const completedCounts = await this.sessions.completedSessionCounts(userId, [
-      ...new Set(rows.map((row) => row.exerciseId)),
-    ]);
+    // Replay is a current authoritative row, including actual completed facts and its full cohort.
+    const authoritative = new Map<
+      string,
+      Awaited<ReturnType<SessionsService["detail"]>>["planned_sets"][number]
+    >();
+    for (const sessionId of new Set(rows.map((row) => row.sessionId))) {
+      const session = await this.sessions.detail(userId, sessionId);
+      for (const row of session.planned_sets) authoritative.set(row.id, row);
+    }
     const byCorrelation = new Map(rows.map((row) => [row.clientCorrelationId, row]));
     return requested.flatMap((item) => {
       const row = byCorrelation.get(item.correlation_id);
       // A later routine snapshot in the same batch may legitimately remove an unperformed
       // provisional exercise. It has no remaining draft to remap, so no mapping is needed.
       if (!row) return [];
-      if (row.exerciseId !== item.exercise_id || row.setNo !== item.set_no)
+      const planned = authoritative.get(row.id);
+      if (!planned) return [];
+      if (planned.exercise_id !== item.exercise_id || planned.set_no !== item.set_no)
         throw new ConflictException("planned set correlation을 권위 ID로 확인하지 못했다.");
       return [
         {
           correlation_id: item.correlation_id,
           planned_set_id: row.id,
-          planned_set: plannedSetResponse(row, completedCounts.get(row.exerciseId) ?? 0),
+          planned_set: planned,
         },
       ];
     });
   }
 
   /**
-   * RepeatableRead 는 동시 쓰기를 **직렬화 실패(P2034)** 로 거절한다 — 그게 이 격리 수준의 계약이다.
-   * 호출자가 재시도해야 하고, 재시도하지 않으면 정상 동시성이 500 으로 새어 나간다.
+   * 세션 쓰기는 공통 ReadCommitted tx의 잠금 뒤 다시 읽는다. 여전히 발생할 수 있는
+   * 직렬화/유니크 충돌과 변경된 routing hint는 전체 tx를 처음부터 유한 재시도한다.
    * 같은 mutation 은 멱등(client_id 로 판정)이라 재시도해도 두 번 적용되지 않는다.
    */
   private async apply(
@@ -197,12 +292,14 @@ export class SyncService {
       try {
         return await this.applyOnce(userId, mutation);
       } catch (error) {
-        // P2034 = 직렬화 실패. P2002 = RepeatableRead 의 stale 스냅샷 때문에 사전 검사(findUnique)가
-        // 이미 커밋된 행을 못 보고 지나쳐 생긴 unique 충돌이다. **재시도하면 새 스냅샷이 그 행을 보고**
-        // 멱등 경로(적용됨/conflict)로 정상 응답한다 — 둘 다 사용자 오류가 아니다.
+        // P2034 = 직렬화 실패, P2002 = 유니크 충돌. 기존 총 5회 예산 안에서 routing hint와
+        // 잠금 뒤 권위 행을 다시 읽어 멱등 경로(적용됨/conflict)를 재평가한다.
         const retryable =
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          (error.code === "P2034" || error.code === "P2002");
+          error instanceof SessionLockHintChanged ||
+          (error instanceof Prisma.PrismaClientKnownRequestError &&
+            (error.code === "P2034" ||
+              error.code === "P2002" ||
+              (error.code === "P2010" && error.meta?.code === "40001")));
         if (!retryable || attempt >= SERIALIZATION_ATTEMPTS - 1) throw error;
       }
     }
@@ -214,21 +311,41 @@ export class SyncService {
   ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
     validateMutation(mutation);
     try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          await this.lockMutation(tx, userId, mutation);
+      const sessionHint = await this.sessionFor(userId, mutation);
+      if (!sessionHint) throw new NotFoundException("계획 세트를 찾을 수 없다.");
+      return await sessionWriteTransaction(
+        this.prisma,
+        userId,
+        sessionHint,
+        [{ clientId: mutation.client_id, entity: mutation.entity, entityId: mutation.entity_id }],
+        async (tx, lockedSession) => {
+          const correlationIds =
+            mutation.entity === "session_routine"
+              ? [
+                  ...lockedSession.plannedSets.flatMap((row) =>
+                    row.clientCorrelationId ? [row.clientCorrelationId] : [],
+                  ),
+                  ...correlationsOf(mutation).map((row) => row.correlation_id),
+                ]
+              : [];
+          await lockCorrelationClaims(tx, correlationIds);
+          const claims = await readCorrelationClaims(tx, correlationIds);
+          await lockReceiptRows(tx, [mutation.client_id, ...claims.map((row) => row.receipt.id)]);
           const existing = await tx.syncMutation.findUnique({ where: { id: mutation.client_id } });
           if (existing) {
+            if (existing.requestHash !== null || isServerSessionEditEvent(existing))
+              return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
             if (existing.userId !== userId)
               return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
             if (!sameMutation(existing, mutation))
               return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
             return existing.status === "applied"
-              ? { applied: true, sessionId: await this.sessionFor(userId, mutation) }
+              ? { applied: true, sessionId: lockedSession.id }
               : { applied: false, conflict: conflictOf(mutation, "stale_update") };
           }
           const latest = await tx.syncMutation.findFirst({
             where: {
+              ...clientMutationCandidates(lockedSession.id),
               userId,
               entityType: mutation.entity,
               entityId: mutation.entity_id,
@@ -240,24 +357,19 @@ export class SyncService {
             await tx.syncMutation.create({ data: mutationRow(userId, mutation, "conflict") });
             return { applied: false, conflict: conflictOf(mutation, "stale_update") };
           }
-          const sessionId = await this.sessionFor(userId, mutation);
+          const sessionId = lockedSession.id;
           if (mutation.entity === "performed_set") await this.applyPerformed(tx, userId, mutation);
-          if (mutation.entity === "session_routine") await this.applyRoutine(tx, userId, mutation);
+          const routineIdentity =
+            mutation.entity === "session_routine"
+              ? await this.applyRoutine(tx, userId, mutation)
+              : {};
           if (mutation.entity === "session") await this.applySession(tx, userId, mutation);
-          await tx.syncMutation.create({ data: mutationRow(userId, mutation, "applied") });
+          await tx.syncMutation.create({
+            data: { ...mutationRow(userId, mutation, "applied"), ...routineIdentity },
+          });
           return { applied: true, sessionId };
         },
-        {
-          /**
-           * routine apply 는 **읽고(이력·correlation) 쓰는(계획세트) 한 덩어리**다.
-           * 기본 Read Committed 에서는 같은 트랜잭션 안의 두 읽기가 서로 다른 스냅샷을 볼 수 있어
-           * "읽을 때는 없던 correlation 이 쓸 때는 있는" 상태가 된다.
-           *
-           * **주장하는 것은 스냅샷 안정성뿐이다** — 행 잠금이나 직렬화는 주장하지 않는다.
-           * 동시 삽입은 여전히 DB unique 제약이 막고, 그건 사용자에게 409 로 나간다.
-           */
-          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
-        },
+        false,
       );
     } catch (error) {
       if (
@@ -287,6 +399,8 @@ export class SyncService {
       });
       if (existing?.userId !== undefined && existing.userId !== userId)
         return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
+      if (existing && (existing.requestHash || isServerSessionEditEvent(existing)))
+        return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
       if (existing && !sameMutation(existing, mutation))
         return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
       if (existing?.status === "applied")
@@ -308,13 +422,9 @@ export class SyncService {
     // A mutation id is globally unique while LWW is tenant/entity scoped. Lock both in a
     // stable order so concurrent retries and two different entities reusing one id cannot
     // race either unique constraint or the logical-entity read/write section.
-    const keys = [
-      JSON.stringify(["client", mutation.client_id]),
-      JSON.stringify(["entity", userId, mutation.entity, mutation.entity_id]),
-    ].sort();
-    for (const key of keys) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`;
-    }
+    await lockMutationIdentities(tx, userId, [
+      { clientId: mutation.client_id, entity: mutation.entity, entityId: mutation.entity_id },
+    ]);
   }
 
   private async applyPerformed(
@@ -364,7 +474,10 @@ export class SyncService {
     tx: Prisma.TransactionClient,
     userId: string,
     mutation: MutationDto,
-  ): Promise<void> {
+  ): Promise<{
+    correlationClaims: Prisma.InputJsonValue;
+    tombstoneIdentity: Prisma.InputJsonValue;
+  }> {
     const session = await tx.workoutSession.findFirst({
       where: { id: mutation.entity_id, program: { userId } },
       include: {
@@ -391,6 +504,13 @@ export class SyncService {
     const removed = [...current.entries()]
       .filter(([id]) => !exerciseIds.includes(id))
       .flatMap(([, sets]) => sets.map((set) => set.id));
+    const removedIdentities = session.plannedSets
+      .filter((row) => removed.includes(row.id))
+      .map((row) => ({
+        planned_set_id: row.id,
+        correlation_id: row.clientCorrelationId,
+        exercise_id: row.exerciseId,
+      }));
     if (
       removed.length &&
       (await tx.performedSet.count({ where: { plannedSetId: { in: removed } } }))
@@ -426,6 +546,8 @@ export class SyncService {
     const newCorrelationIds = newExerciseIds.flatMap((id) =>
       (byExercise.get(id) ?? []).map((item) => item.correlation_id),
     );
+    if ((await readCorrelationClaims(tx, newCorrelationIds)).length)
+      throw new ConflictException("이미 생성 이력이 있는 correlation이다.");
     // 요청 내부 중복은 **DTO 검증이 유일한 owner** 다(도달 불가한 중복 방어를 두지 않는다).
     if (
       newCorrelationIds.length &&
@@ -480,6 +602,23 @@ export class SyncService {
         });
       }
     }
+    const created = await tx.plannedSet.findMany({
+      where: {
+        sessionId: session.id,
+        clientCorrelationId: { in: newCorrelationIds },
+      },
+      orderBy: { id: "asc" },
+    });
+    return {
+      correlationClaims: created.map((row) => ({
+        correlation_id: row.clientCorrelationId!,
+        session_id: session.id,
+        exercise_id: row.exerciseId,
+        planned_set_id: row.id,
+        creation_revision: sourceRevision(row),
+      })),
+      tombstoneIdentity: { v: 1, removed_sets: removedIdentities },
+    };
   }
 
   private async applySession(
@@ -598,18 +737,35 @@ function toChange(
     op: string;
     payload: Prisma.JsonValue;
     serverSeq: bigint;
+    tombstoneIdentity?: Prisma.JsonValue | null;
+    requestIdentity: Prisma.JsonValue | null;
   },
   recommendation?: unknown,
 ): Change {
+  const removed = asObject(row.tombstoneIdentity ?? null).removed_sets;
+  const tombstones =
+    row.entityType === "session_routine" && Array.isArray(removed) && removed.length
+      ? { tombstones: removed }
+      : {};
+  if (isServerSessionEditEvent(row)) {
+    return {
+      entity: row.entityType,
+      entity_id: row.entityId,
+      op: row.op,
+      data: tombstones,
+      server_seq: row.serverSeq.toString(),
+    };
+  }
   return {
     entity: row.entityType,
     entity_id: row.entityId,
     op: row.op,
     data:
-      row.op === "delete"
+      row.op === "delete" && !Object.keys(tombstones).length
         ? null
         : {
-            ...publicChangePayload(row.entityType, row.payload),
+            ...(row.op === "delete" ? {} : publicChangePayload(row.entityType, row.payload)),
+            ...tombstones,
             ...(recommendation === undefined ? {} : { next_recommendations: recommendation }),
           },
     server_seq: row.serverSeq.toString(),
@@ -718,8 +874,17 @@ function correlationsOf(mutation: MutationDto): PlannedSetCorrelation[] {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function plannedSetResponse(set: PlannedSet, sampleCount: number) {
+export function plannedSetResponse(
+  set: PlannedSet,
+  sampleCount: number,
+  metadata?: SessionSetMetadata,
+) {
   return {
+    ...(metadata ?? {
+      source_revision: sourceRevision(set),
+      correlation_id: set.clientCorrelationId,
+      append_eligibility: null,
+    }),
     id: set.id,
     exercise_id: set.exerciseId,
     set_no: set.setNo,

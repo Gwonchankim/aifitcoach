@@ -772,6 +772,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/sessions/{id}/sets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * 오늘 세션에 원본 처방 세트 한 개 추가
+     * @description 원본 raw snapshot을 복사한다. client_id는 POST와 session_set sync가 공유하는 멱등 키이며 transport updated_at은 append intent hash에 포함하지 않는다. 성공 재전송은 저장된 target identity의 현재 권위 row를 현재 표시 게이트로 반환한다. 당일 scheduled/in_progress/completed에서 허용하며 다음 세션 기본 세트 수에 전파하지 않는다.
+     */
+    post: operations["appendSessionSet"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/sync": {
     parameters: {
       query?: never;
@@ -783,7 +803,7 @@ export interface paths {
     put?: never;
     /**
      * 오프라인 변경 배치 push + 변경 pull
-     * @description client_id는 한 번의 로컬 변경을 식별하는 멱등 키이며 재시도에서만 재사용한다. 같은 entity_id의 변경은 (updated_at, client_id) 순서로 LWW를 판정한다. session_routine → performed_set → session 완료 순으로 적용하고, 완료 전에 같은 세션의 선행 mutation이 충돌하면 완료를 보류한다. pull은 서버 단조 증가 순서의 opaque cursor를 쓴다.
+     * @description client_id는 한 번의 로컬 변경을 식별하는 멱등 키이며 재시도에서만 재사용한다. 기존 entity의 변경은 canonical entity_id에 대해 (updated_at, client_id) 순서로 LWW를 판정한다. session_set은 additive이며 서로 다른 append를 LWW로 버리지 않는다. session_routine → session_set 부모 의존 위상순서 → performed_set → session 완료 순으로 적용한다. append_dependencies의 미도착/pending 선행 변경은 원 UUID로 재시도하며, 완료 생성 시 고정한 performed_client_ids가 적용되기 전에는 완료를 성공시키지 않는다. pull은 서버 단조 증가 순서의 opaque cursor를 쓴다. 성공 replay mapping은 cursor/page와 별개다.
      */
     post: {
       parameters: {
@@ -1700,6 +1720,15 @@ export interface components {
       /** @enum {string|null} */
       assistance_safety_status: "safe" | "unsafe" | null;
       recommendation_gate: components["schemas"]["DisplayGateState"];
+      /** @description 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision. */
+      source_revision: string;
+      /**
+       * Format: uuid
+       * @description 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+       */
+      correlation_id: string | null;
+      /** @description 같은 raw/source/cohort snapshot의 복사 자격. 날짜·cap·소유권의 쓰기 허가는 아니다. */
+      append_eligibility: components["schemas"]["AppendEligibility"] | null;
       performed_set: components["schemas"]["PerformedSetSummary"] | null;
     };
     PerformedSet: {
@@ -1849,7 +1878,7 @@ export interface components {
        */
       client_id: string;
       /** @enum {string} */
-      entity: "performed_set" | "session_routine" | "session";
+      entity: "performed_set" | "session_routine" | "session" | "session_set";
       /**
        * Format: uuid
        * @description performed_set은 planned_set_id, 나머지는 workout_session.id.
@@ -1866,7 +1895,140 @@ export interface components {
       payload:
         | components["schemas"]["PerformedSetMutationPayload"]
         | components["schemas"]["SessionRoutineMutationPayload"]
-        | components["schemas"]["SessionMutationPayload"];
+        | components["schemas"]["SessionMutationPayload"]
+        | components["schemas"]["AppendSetPayload"];
+      append_dependencies?: components["schemas"]["CompletionAppendDependencies"];
+    } & (
+      | components["schemas"]["AppendSetSyncMutation"]
+      | (
+          | {
+              /** @enum {unknown} */
+              entity?: "performed_set" | "session_routine" | "session";
+            }
+          | unknown
+          | {
+              /** @enum {unknown} */
+              entity?: "performed_set";
+              append_dependencies: components["schemas"]["AppendDependencies"];
+            }
+          | {
+              /** @enum {unknown} */
+              entity?: "session";
+              /** @enum {unknown} */
+              op?: "upsert";
+              payload?: {
+                /** @enum {unknown} */
+                status: "completed";
+              };
+              append_dependencies: components["schemas"]["CompletionAppendDependencies"];
+            }
+        )
+    );
+    ServerAppendSource: {
+      /** Format: uuid */
+      source_planned_set_id: string;
+      source_revision: string;
+    };
+    ProvisionalAppendSource: {
+      /** Format: uuid */
+      source_correlation_id: string;
+    };
+    AppendSource:
+      | components["schemas"]["ServerAppendSource"]
+      | components["schemas"]["ProvisionalAppendSource"];
+    AppendSetPayload: {
+      exercise_id: string;
+      /** Format: uuid */
+      correlation_id: string;
+      source: components["schemas"]["AppendSource"];
+    };
+    AppendSetRequest: {
+      /** Format: uuid */
+      client_id: string;
+      exercise_id: string;
+      /** Format: uuid */
+      correlation_id: string;
+      source: components["schemas"]["AppendSource"];
+    };
+    AppendSetResult: {
+      /** Format: uuid */
+      client_id: string;
+      /** Format: uuid */
+      session_id: string;
+      /** Format: uuid */
+      correlation_id: string;
+      /** Format: uuid */
+      planned_set_id: string;
+      planned_set: components["schemas"]["PlannedSet"];
+    };
+    AppendSetSyncMutation: {
+      /** Format: uuid */
+      client_id: string;
+      /** @enum {string} */
+      entity: "session_set";
+      /** Format: uuid */
+      entity_id: string;
+      /** @enum {string} */
+      op: "upsert";
+      /** Format: date-time */
+      updated_at: string;
+      payload: components["schemas"]["AppendSetPayload"];
+    };
+    AppendDependencies: {
+      /** Format: uuid */
+      session_id: string;
+      client_ids: string[];
+    };
+    /** @description 원 transport intent에 고정한 선행 UUID. 완료의 performed_client_ids는 완료 생성 tx까지 이미 커밋한 append 관련 actual을 담고 이후 새 수정으로 확장하지 않는다. */
+    CompletionAppendDependencies: {
+      /** Format: uuid */
+      session_id: string;
+      client_ids: string[];
+      performed_client_ids?: string[];
+    };
+    AppendEligibility: {
+      /** @enum {integer} */
+      version: 1;
+      source_revision: string;
+      cohort_revision: string;
+      /** @enum {string} */
+      status: "allowed" | "blocked";
+      /** @enum {string|null} */
+      reason: "unsafe_assistance_snapshot" | null;
+    } & (
+      | {
+          /** @enum {unknown} */
+          status?: "allowed";
+          /** @enum {unknown} */
+          reason?: null;
+        }
+      | {
+          /** @enum {unknown} */
+          status?: "blocked";
+          /** @enum {unknown} */
+          reason?: "unsafe_assistance_snapshot";
+        }
+    );
+    SessionAppendConflict: {
+      error: {
+        /** @enum {string} */
+        code: "CONFLICT";
+        message: string;
+        details: {
+          /** @enum {string} */
+          reason:
+            | "readonly"
+            | "set_cap_reached"
+            | "set_number_gap"
+            | "source_changed"
+            | "source_removed"
+            | "correlation_mismatch"
+            | "idempotency_payload_mismatch"
+            | "append_target_removed"
+            | "unsafe_assistance_snapshot"
+            | "unresolved_parent";
+        };
+      };
     };
     PerformedSetMutationPayload: {
       actual_weight?: number | null;
@@ -1904,6 +2066,14 @@ export interface components {
       pump?: "low" | "medium" | "high";
       pain?: number;
     };
+    /** @description 같은 삭제 transaction에서 확인한 identity만 전달한다. 세션은 enclosing session_routine change.entity_id로 한정한다. */
+    PlannedSetTombstone: {
+      /** Format: uuid */
+      planned_set_id: string;
+      /** Format: uuid */
+      correlation_id: string | null;
+      exercise_id: string;
+    };
     SyncResponse: {
       applied: string[];
       conflicts: {
@@ -1913,21 +2083,34 @@ export interface components {
         entity_id: string;
         /** @example stale_update */
         reason: string;
+        /** @description append 의존 변경에만 존재. unresolved_parent는 true, 확인된 terminal dependency는 false. */
+        retryable?: boolean;
+        /** Format: uuid */
+        cause_client_id?: string;
+        cause_reason?: string;
       }[];
       changes: {
         /** @enum {string} */
-        entity: "performed_set" | "session_routine" | "session";
-        /** Format: uuid */
+        entity: "performed_set" | "session_routine" | "session" | "session_set";
+        /**
+         * Format: uuid
+         * @description performed_set은 planned_set_id, session/session_routine/session_set은 session ID다.
+         */
         entity_id: string;
         /** @enum {string} */
         op: "upsert" | "delete";
-        data: {
-          [key: string]: unknown;
-        } | null;
+        data:
+          | ({
+              /** @description 기존 session_routine 변경의 실제 삭제 identity. upsert/delete 모두 전달할 수 있으며 과거 metadata 없는 delete는 data:null을 유지한다. GET 누락이나 번호 추정은 삭제 증거가 아니다. 직접 remove/swap의 원격 변경 발행은 이 필드의 구현 범위가 아니다. */
+              tombstones?: components["schemas"]["PlannedSetTombstone"][];
+            } & {
+              [key: string]: unknown;
+            })
+          | null;
         /** @description JSON 정밀도 손실을 피하기 위한 10진 문자열. */
         server_seq: string;
       }[];
-      /** @description 이번 요청의 routine correlation에 대응하는 권위 planned set. 응답 유실 재시도에도 동일하다. */
+      /** @description 이번 요청의 routine/append correlation에 대응하는 현재 권위 planned set. 성공 replay는 stored target identity를 사용하며 cursor와 changes 100건 page에 관계없이 회수된다. */
       planned_set_mappings: components["schemas"]["PlannedSetMapping"][];
       /** @description 마지막으로 관찰한 server_seq를 감싼 opaque cursor. */
       next_cursor: string;
@@ -2072,4 +2255,79 @@ export interface components {
   pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+  appendSessionSet: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
+        "X-CSRF-Token": components["parameters"]["CsrfHeader"];
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AppendSetRequest"];
+      };
+    };
+    responses: {
+      /** @description 원자적 추가 또는 동일 성공 identity의 현재 권위 재전송 */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AppendSetResult"];
+        };
+      };
+      /** @description 잘못된 입력 또는 알 수 없는 필드 */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description 기존 인증 실패 */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description 기존 CSRF 검증 실패 */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description 세션이 없거나 소유하지 않음 */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description 부분 쓰기 없는 거절. Error와 지정 refinement를 모두 만족해야 한다. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+}

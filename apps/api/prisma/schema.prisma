@@ -158,6 +158,7 @@ enum SyncEntityType {
   performed_set
   session
   session_routine
+  session_set
   // ADR-33: legacy DB 값만 유지한다. STEP 6 공개 DTO/OpenAPI에서는 허용하지 않는다.
   profile
 
@@ -517,9 +518,19 @@ model SyncMutation {
   appliedAt       DateTime?      @map("applied_at") @db.Timestamptz(3)
   status          SyncStatus
 
+  // Ticket04 identities only: never a copy of raw prescriptions or pending health payloads.
+  requestHash       String? @map("request_hash")
+  requestIdentity   Json?   @map("request_identity")
+  resultIdentity    Json?   @map("result_identity")
+  correlationClaims Json?   @map("correlation_claims")
+  dependencyIdentity Json?  @map("dependency_identity")
+  conflictReason    String? @map("conflict_reason")
+  tombstoneIdentity Json?   @map("tombstone_identity")
+
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, serverSeq], map: "ix_sync_user_seq")
+  @@index([correlationClaims(ops: JsonbPathOps)], type: Gin, map: "ix_sync_correlation_claims")
   @@map("sync_mutations")
 }
 

@@ -4,10 +4,11 @@ import { RecommendationModule } from "../recommendation/recommendation.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { SyncController } from "./sync.controller";
 import { SyncService } from "./sync.service";
+import { SessionDependencyService } from "./session-dependency";
 
 @Module({
   imports: [ProgramsModule, RecommendationModule, SessionsModule],
   controllers: [SyncController],
-  providers: [SyncService],
+  providers: [SyncService, SessionDependencyService],
 })
 export class SyncModule {}

@@ -9,6 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
 import { utcToday } from "../src/common/date/utc-day";
@@ -76,28 +77,87 @@ describe("production call-site batch · action gate", () => {
     return "other";
   }
 
-  async function countQueries<T>(body: () => Promise<T>): Promise<[T, QueryKinds, number]> {
-    const kinds: QueryKinds = { latest: 0, lifetime: 0, cohort: 0, other: 0 };
-    let calibration = 0;
+  /** Observe actual delegates on both clients; post-lock writers now read through tx.
+   * Forward the original receiver, args, PrismaPromise and transaction options unchanged.
+   */
+  function observeReads(
+    onPerformed: (args: unknown, scope: "root" | "tx") => void,
+    onCalibration: (scope: "root" | "tx") => void,
+  ) {
     const original = prisma.performedSet.findMany.bind(prisma.performedSet);
     const spy = jest.spyOn(prisma.performedSet, "findMany").mockImplementation(((
       args: Parameters<typeof original>[0],
     ) => {
-      kinds[classify(args)] += 1;
+      onPerformed(args, "root");
       return original(args);
     }) as typeof original);
     const calOriginal = prisma.userRirCalibration.findUnique.bind(prisma.userRirCalibration);
     const calSpy = jest.spyOn(prisma.userRirCalibration, "findUnique").mockImplementation(((
       args: unknown,
     ) => {
-      calibration += 1;
+      onCalibration("root");
       return (calOriginal as (a: unknown) => unknown)(args);
     }) as unknown as typeof prisma.userRirCalibration.findUnique);
-    try {
-      return [await body(), kinds, calibration];
-    } finally {
+    type TransactionHost = { $transaction: (...args: unknown[]) => Promise<unknown> };
+    const host = prisma as unknown as TransactionHost;
+    const transaction = host.$transaction.bind(prisma);
+    const transactionSpy = jest.spyOn(host, "$transaction").mockImplementation((...args) => {
+      const callback = args[0];
+      if (typeof callback !== "function") return transaction(...args);
+      return transaction(
+        (tx: Prisma.TransactionClient) =>
+          callback(
+            new Proxy(tx, {
+              get(target, key) {
+                if (key === "performedSet" || key === "userRirCalibration")
+                  return new Proxy(target[key], {
+                    get(delegate, method) {
+                      const value = Reflect.get(delegate, method);
+                      const observed =
+                        (key === "performedSet" && method === "findMany") ||
+                        (key === "userRirCalibration" && method === "findUnique");
+                      if (observed)
+                        return (...queryArgs: unknown[]) => {
+                          if (key === "performedSet") onPerformed(queryArgs[0], "tx");
+                          else onCalibration("tx");
+                          return Reflect.apply(value, delegate, queryArgs);
+                        };
+                      return typeof value === "function" ? value.bind(delegate) : value;
+                    },
+                  });
+                const value = Reflect.get(target, key);
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }),
+          ),
+        ...args.slice(1),
+      );
+    });
+    return () => {
+      transactionSpy.mockRestore();
       spy.mockRestore();
       calSpy.mockRestore();
+    };
+  }
+
+  async function countQueries<T>(body: () => Promise<T>): Promise<[T, QueryKinds, number, number]> {
+    const kinds: QueryKinds = { latest: 0, lifetime: 0, cohort: 0, other: 0 };
+    let calibration = 0;
+    let rootReads = 0;
+    const restore = observeReads(
+      (args, scope) => {
+        kinds[classify(args)] += 1;
+        if (scope === "root") rootReads += 1;
+      },
+      (scope) => {
+        calibration += 1;
+        if (scope === "root") rootReads += 1;
+      },
+    );
+    try {
+      return [await body(), kinds, calibration, rootReads];
+    } finally {
+      restore();
     }
   }
 
@@ -152,7 +212,7 @@ describe("production call-site batch · action gate", () => {
 
     it("어시스트가 대상이면 generate lifetime 1 · materialize lifetime 2 다", async () => {
       const [, gen, genCal] = await countQueries(generate);
-      const [, mat, matCal] = await countQueries(async () => {
+      const [, mat, matCal, matRootReads] = await countQueries(async () => {
         await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
       });
 
@@ -163,11 +223,13 @@ describe("production call-site batch · action gate", () => {
       // materialize 는 **주 단위**로 한 번씩이다(세션·종목 수를 따라가지 않는다).
       expect(mat).toEqual({ latest: WEEKS, lifetime: WEEKS, cohort: 0, other: 0 });
       expect(matCal).toBe(WEEKS);
+      // Latest/lifetime/calibration reads are intentionally inside the post-lock tx.
+      expect(matRootReads).toBe(0);
     });
 
     it("어시스트를 배제하면 lifetime 은 0 이고 latest 는 그대로다", async () => {
       const [, gen, genCal] = await countQueries(() => generateWithout(ASSISTED));
-      const [, mat, matCal] = await countQueries(async () => {
+      const [, mat, matCal, matRootReads] = await countQueries(async () => {
         await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
       });
 
@@ -178,11 +240,12 @@ describe("production call-site batch · action gate", () => {
       expect(genCal).toBe(1);
       expect(mat).toEqual({ latest: WEEKS, lifetime: 0, cohort: 0, other: 0 });
       expect(matCal).toBe(WEEKS);
+      expect(matRootReads).toBe(0);
     });
 
     it("materialize 질의 수는 종목 수와 무관하다", async () => {
       await generate();
-      const [, kinds] = await countQueries(async () => {
+      const [, kinds, , rootReads] = await countQueries(async () => {
         await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
       });
 
@@ -194,6 +257,7 @@ describe("production call-site batch · action gate", () => {
       // 종목이 주 질의 수보다 훨씬 많다 — N+1 이면 여기서 갈린다.
       expect(exercises.length).toBeGreaterThan(WEEKS * 2);
       expect(kinds.latest + kinds.lifetime).toBe(WEEKS * 2);
+      expect(rootReads).toBe(0);
     });
 
     it("즉석 세션(ad-hoc)도 종목 수와 무관하다", async () => {
@@ -324,13 +388,12 @@ describe("production call-site batch · action gate", () => {
       const factory = app.get(PlannedSetFactory);
       let inside = 0;
       let depth = 0;
-      const original = prisma.performedSet.findMany.bind(prisma.performedSet);
-      const querySpy = jest.spyOn(prisma.performedSet, "findMany").mockImplementation(((
-        args: Parameters<typeof original>[0],
-      ) => {
-        if (depth > 0) inside += 1;
-        return original(args);
-      }) as typeof original);
+      const restoreReads = observeReads(
+        () => {
+          if (depth > 0) inside += 1;
+        },
+        () => {},
+      );
       // build 호출 **구간**을 표시한다 — 그 안에서 나간 질의만 factory 의 것이다.
       // 호출 인자는 여기서 직접 모은다(`mockRestore` 가 `mock.calls` 를 지운다).
       const built: { history?: unknown }[] = [];
@@ -356,7 +419,7 @@ describe("production call-site batch · action gate", () => {
           .expect(200);
       } finally {
         buildSpy.mockRestore();
-        querySpy.mockRestore();
+        restoreReads();
       }
 
       // 호출은 실제로 있었고(공허하지 않다), 그 안에서 읽은 이력은 0 이다.
@@ -455,7 +518,7 @@ describe("production call-site batch · action gate", () => {
       expect(() => requireHistory(new Map(), "e_missing")).toThrow(/prefetch 되지 않은/);
     });
 
-    it("sync 트랜잭션은 RepeatableRead 로 고정된다", async () => {
+    it("sync writer 트랜잭션은 잠금 뒤 최신 읽기를 위해 ReadCommitted 로 고정된다", async () => {
       await generate();
       await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
       const [first] = await sessions();
@@ -486,8 +549,9 @@ describe("production call-site batch · action gate", () => {
             ],
           })
           .expect(200);
+        // Approved writer policy: refresh reads after lock waits. Reader RR is a separate path.
         expect(options.filter(Boolean)).toContainEqual(
-          expect.objectContaining({ isolationLevel: "RepeatableRead" }),
+          expect.objectContaining({ isolationLevel: "ReadCommitted" }),
         );
       } finally {
         client.$transaction = originalTx as never;

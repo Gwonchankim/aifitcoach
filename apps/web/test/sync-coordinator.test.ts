@@ -440,6 +440,9 @@ describe("foreground sync coordinator", () => {
       };
       const canonical: PlannedSet = {
         id: serverId,
+        source_revision: "fixture-sync-ack-canonical",
+        correlation_id: null,
+        append_eligibility: null,
         exercise_id: "e_bench_press",
         set_no: 1,
         target_reps_low: 8,

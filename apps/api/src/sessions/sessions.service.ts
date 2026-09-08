@@ -51,9 +51,26 @@ import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
 import { SwapExerciseDto } from "./dto/swap-exercise.dto";
+import { AppendSetDto } from "./dto/append-set.dto";
+import {
+  sessionWriteTransaction,
+  lockCorrelationClaims,
+  lockReceiptRows,
+  lockProgramRows,
+  lockSessionRows,
+  lockPlannedRowsForSessions,
+  retrySessionWrite,
+  SessionLockHintChanged,
+  type LockedSession,
+} from "./session-write-transaction";
+import { readCorrelationClaims } from "./session-set-receipt";
+import { recordSessionEditEvent } from "./session-edit-event";
+import { SessionAppendConflictException } from "../common/http/session-append-conflict";
+import { SessionSetAppendService } from "./session-set-append.service";
+import { sessionSetMetadata, type SessionSetMetadata } from "./session-set-metadata";
 
 /** openapi: components.schemas.PlannedSet */
-export interface PlannedSetResponse {
+export interface PlannedSetResponse extends SessionSetMetadata {
   id: string;
   exercise_id: string;
   set_no: number;
@@ -162,6 +179,7 @@ export class SessionsService {
     private readonly plannedSets: PlannedSetFactory,
     private readonly projector: AggregationProjector,
     private readonly programs: ProgramsService,
+    private readonly appendSets: SessionSetAppendService,
   ) {}
 
   /**
@@ -171,18 +189,40 @@ export class SessionsService {
   async prefetchOne(
     userId: string,
     exercise: { id: string; loadSemantics: "assistance" | "external_load" },
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<{ history: ExerciseHistory; calibration: { rir_bias: number } | undefined }> {
     const [prefetched, calibration] = await Promise.all([
-      this.recommendation.prefetchHistories(userId, [
-        { exerciseId: exercise.id, loadSemantics: exercise.loadSemantics },
-      ]),
-      this.recommendation.calibrationFor(userId),
+      this.recommendation.prefetchHistories(
+        userId,
+        [{ exerciseId: exercise.id, loadSemantics: exercise.loadSemantics }],
+        client,
+      ),
+      this.recommendation.calibrationFor(userId, client),
     ]);
     return { history: requireHistory(prefetched, exercise.id), calibration };
   }
 
   async detail(userId: string, sessionId: string): Promise<SessionResponse> {
-    return this.toResponse(userId, await this.load(userId, sessionId));
+    return this.toResponse(userId, { id: sessionId });
+  }
+
+  async appendSet(userId: string, sessionId: string, dto: AppendSetDto) {
+    const result = await this.appendSets.apply(userId, sessionId, dto);
+    if (result.status !== "applied") {
+      if (result.reason === "validation_failed")
+        throw new BadRequestException("원본 처방 형식이 잘못되었습니다.");
+      throw new SessionAppendConflictException(result.reason);
+    }
+    const session = await this.detail(userId, result.sessionId);
+    const planned = session.planned_sets.find((row) => row.id === result.plannedSetId);
+    if (!planned) throw new SessionAppendConflictException("append_target_removed");
+    return {
+      client_id: result.clientId,
+      session_id: result.sessionId,
+      correlation_id: result.correlationId,
+      planned_set_id: result.plannedSetId,
+      planned_set: planned,
+    };
   }
 
   /** Sync writes can amend an already-completed same-day session; recompute once per batch. */
@@ -209,17 +249,24 @@ export class SessionsService {
     sessionId: string,
     dto: CompleteSessionDto,
   ): Promise<CompleteSessionResponse> {
-    const session = await this.load(userId, sessionId);
-
-    await this.prisma.workoutSession.update({
-      where: { id: session.id },
-      data: {
-        status: "completed",
-        // 최초 완료 시각을 보존한다(재시도가 기록을 앞당기거나 미루면 안 된다).
-        completedAt: session.completedAt ?? new Date(),
-        sessionFeedback: mergeFeedback(session.sessionFeedback, dto),
+    const session = await sessionWriteTransaction(
+      this.prisma,
+      userId,
+      sessionId,
+      [{ entity: "session", entityId: sessionId }],
+      async (tx, current) => {
+        await tx.workoutSession.update({
+          where: { id: current.id },
+          data: {
+            status: "completed",
+            // 최초 완료 시각을 보존한다(재시도가 기록을 앞당기거나 미루면 안 된다).
+            completedAt: current.completedAt ?? new Date(),
+            sessionFeedback: mergeFeedback(current.sessionFeedback, dto),
+          },
+        });
+        return current;
       },
-    });
+    );
 
     const next_recommendations = await this.recompute(userId, session);
     await this.projector.recomputeSession(userId, session.id);
@@ -243,7 +290,73 @@ export class SessionsService {
       program: { goal: Goal };
     },
   ): Promise<ApiRecommendation[]> {
-    const performed = await this.prisma.performedSet.findMany({
+    // The caller's postcommit snapshot is only a routing hint. No fact/entity lock survives here.
+    return retrySessionWrite(async () => {
+      const hint = await this.prisma.workoutSession.findFirst({
+        where: { id: session.id, program: { userId } },
+        select: { programId: true },
+      });
+      if (!hint) throw new NotFoundException("세션을 찾을 수 없다.");
+      return this.prisma.$transaction(
+        async (tx) => {
+          await lockProgramRows(tx, [hint.programId]);
+          const sourceHint = await this.load(userId, session.id, tx);
+          if (sourceHint.programId !== hint.programId) throw new SessionLockHintChanged();
+          // Lock candidate targets before stage3/4. The unchanged mapper below still selects the
+          // first unfinished target; locking the candidate set adds no date/UUID tie-break rule.
+          const exerciseIds = [...new Set(sourceHint.plannedSets.map((set) => set.exerciseId))];
+          const candidates = await tx.workoutSession.findMany({
+            where: {
+              programId: hint.programId,
+              id: { not: sourceHint.id },
+              status: { not: "completed" },
+              scheduledDate: { gte: sourceHint.scheduledDate },
+              plannedSets: { some: { exerciseId: { in: exerciseIds } } },
+            },
+            orderBy: { scheduledDate: "asc" },
+            select: { id: true },
+          });
+          const sessionIds = [sourceHint.id, ...candidates.map((candidate) => candidate.id)];
+          await lockSessionRows(tx, sessionIds);
+          await lockPlannedRowsForSessions(tx, sessionIds);
+          const current = await this.load(userId, session.id, tx);
+          if (current.programId !== hint.programId) throw new SessionLockHintChanged();
+          if (current.status !== "completed") return [];
+          const rows = await tx.plannedSet.findMany({
+            where: { sessionId: { in: sessionIds } },
+            select: { clientCorrelationId: true },
+          });
+          const correlations = rows.flatMap((row) =>
+            row.clientCorrelationId ? [row.clientCorrelationId] : [],
+          );
+          await lockCorrelationClaims(tx, correlations);
+          const claims = await readCorrelationClaims(tx, correlations);
+          await lockReceiptRows(
+            tx,
+            claims.map((claim) => claim.receipt.id),
+          );
+          return this.recomputeFromCurrent(userId, current, tx, sessionIds);
+        },
+        // A preceding fact writer can commit while this tx waits on the unchanged program row.
+        // Refresh post-lock reads instead of retaining that pre-wait snapshot; keep all row locks.
+        { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+      );
+    });
+  }
+
+  private async recomputeFromCurrent(
+    userId: string,
+    session: {
+      id: string;
+      programId: string;
+      scheduledDate: Date;
+      plannedSets: PlannedSet[];
+      program: { goal: Goal };
+    },
+    tx: Prisma.TransactionClient,
+    lockedSessionIds: readonly string[],
+  ): Promise<ApiRecommendation[]> {
+    const performed = await tx.performedSet.findMany({
       where: { completed: true, plannedSet: { sessionId: session.id } },
       select: {
         actualWeight: true,
@@ -256,7 +369,7 @@ export class SessionsService {
       orderBy: { plannedSet: { setNo: "asc" } },
     });
 
-    const calibration = await this.recommendation.calibrationFor(userId);
+    const calibration = await this.recommendation.calibrationFor(userId, tx);
     const performedByExercise = new Map<string, typeof performed>();
     for (const row of performed) {
       const rows = performedByExercise.get(row.plannedSet.exerciseId) ?? [];
@@ -269,7 +382,7 @@ export class SessionsService {
       const row = session.plannedSets.find((set) => set.exerciseId === exerciseId);
       return row ? [{ exerciseId, loadSemantics: row.loadSemantics }] : [];
     });
-    const prefetched = await this.recommendation.prefetchHistories(userId, specs);
+    const prefetched = await this.recommendation.prefetchHistories(userId, specs, tx);
 
     // **1차 패스**: target 을 먼저 전부 찾는다(수행 사실 조회 없이).
     const targets = new Map<
@@ -277,7 +390,7 @@ export class SessionsService {
       { nextSession: NextSession | null; targetSets: PlannedSet[] }
     >();
     for (const exerciseId of performedByExercise.keys()) {
-      const nextSession = await this.prisma.workoutSession.findFirst({
+      const nextSession = await tx.workoutSession.findFirst({
         where: {
           programId: session.programId,
           id: { not: session.id },
@@ -288,6 +401,8 @@ export class SessionsService {
         orderBy: { scheduledDate: "asc" },
         include: { plannedSets: { where: { exerciseId }, orderBy: { setNo: "asc" } } },
       });
+      if (nextSession && !lockedSessionIds.includes(nextSession.id))
+        throw new SessionLockHintChanged();
       targets.set(exerciseId, {
         nextSession,
         targetSets:
@@ -306,7 +421,7 @@ export class SessionsService {
     ];
     const performedFacts = new Set(
       (
-        await this.prisma.performedSet.findMany({
+        await tx.performedSet.findMany({
           where: { plannedSetId: { in: cohortIds }, completed: true },
           select: { plannedSetId: true },
         })
@@ -315,7 +430,7 @@ export class SessionsService {
 
     const next_recommendations: ApiRecommendation[] = [];
     for (const [exerciseId, rows] of performedByExercise) {
-      const exercise = await this.prisma.exercise.findUniqueOrThrow({ where: { id: exerciseId } });
+      const exercise = await tx.exercise.findUniqueOrThrow({ where: { id: exerciseId } });
       const { nextSession, targetSets } = targets.get(exerciseId)!;
       // 목표는 **방금 수행한 세션**의 계획세트에서 읽는다 — 사용자가 실제로 겨눈 값이고,
       // 다음 세션의 값을 읽으면 맨몸 REPS_UP_BODYWEIGHT/TIME_UP 처럼 목표 자체가 움직이는 종목에서
@@ -367,7 +482,7 @@ export class SessionsService {
       });
 
       if (nextSession) {
-        await this.prisma.plannedSet.updateMany({
+        await tx.plannedSet.updateMany({
           where: { sessionId: nextSession.id, exerciseId },
           data: {
             recommendedWeight: recommendation.weight,
@@ -399,80 +514,84 @@ export class SessionsService {
    */
   async createAdHoc(userId: string, dto: CreateAdHocSessionDto): Promise<SessionResponse> {
     await this.programs.ensureCurrentWindow(userId);
-    const program = await this.prisma.program.findFirst({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
-    });
-    if (!program) {
-      throw new NotFoundException("생성된 프로그램이 없다.");
-    }
     const today = utcToday();
-    // 오늘 세션이 둘이면 대시보드의 "오늘"이 갈라진다 → 만들지 않고 기존 세션으로 보낸다.
-    // (여기 조회는 빠른 거절용이고, 실제 보장은 아래 트랜잭션 안의 재확인이 한다.)
-    await this.assertNoSessionToday(this.prisma, program.id, today);
+    const session = await retrySessionWrite(async () => {
+      const hint = await this.prisma.program.findFirst({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!hint) {
+        throw new NotFoundException("생성된 프로그램이 없다.");
+      }
+      return this.prisma.$transaction(async (tx) => {
+        await lockProgramRows(tx, [hint.id]);
+        const program = await tx.program.findFirst({
+          where: { userId },
+          orderBy: { createdAt: "desc" },
+        });
+        if (!program) throw new NotFoundException("생성된 프로그램이 없다.");
+        if (program.id !== hint.id) throw new SessionLockHintChanged();
+        // Same-day uniqueness and all generation inputs are authoritative only after the program lock.
+        await this.assertNoSessionToday(tx, program.id, today);
+        const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+        // 통증 부위는 프로그램 생성 결과(excluded_exercises)에 남아 있는 값을 그대로 다시 쓴다.
+        const painAreas = painAreasOf(program.excludedExercises);
+        const excludedPatterns = excludedPatternsFor(painAreas);
+        const catalog = await tx.exercise.findMany();
+        const allowed = catalog.filter(
+          (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
+        );
+        // 제외로 후보가 모자라면 축소된 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
+        // 다른 부위 종목으로 메우지 않는다 — 사용자가 고른 부위가 아닌 운동이 섞이면 선택의 의미가 없다.
+        const exercises = selectExercises(
+          allowed,
+          patternsForBodyPart(dto.body_part),
+          exerciseCountFor(program.minutesPerDay),
+          {
+            levelRank: DIFFICULTY_RANK[user.experienceLevel],
+            preferStable: prefersStableEquipment(painAreas),
+            substituteMuscles: new Set<string>(),
+          },
+        );
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    // 통증 부위는 프로그램 생성 결과(excluded_exercises)에 남아 있는 값을 그대로 다시 쓴다.
-    const painAreas = painAreasOf(program.excludedExercises);
-    const excludedPatterns = excludedPatternsFor(painAreas);
-    const catalog = await this.prisma.exercise.findMany();
-    const allowed = catalog.filter(
-      (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
-    );
-    // 제외로 후보가 모자라면 축소된 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
-    // 다른 부위 종목으로 메우지 않는다 — 사용자가 고른 부위가 아닌 운동이 섞이면 선택의 의미가 없다.
-    const exercises = selectExercises(
-      allowed,
-      patternsForBodyPart(dto.body_part),
-      exerciseCountFor(program.minutesPerDay),
-      {
-        levelRank: DIFFICULTY_RANK[user.experienceLevel],
-        preferStable: prefersStableEquipment(painAreas),
-        substituteMuscles: new Set<string>(),
-      },
-    );
-
-    // 루프 전에 한 번 — 종목마다 읽으면 즉석 세션도 N+1 이 된다.
-    const prefetched = await this.recommendation.prefetchHistories(
-      userId,
-      exercises.map((item) => ({ exerciseId: item.id, loadSemantics: item.loadSemantics })),
-    );
-    const calibration = await this.recommendation.calibrationFor(userId);
-    const rows: PlannedSetRow[] = [];
-    for (const [orderIndex, exercise] of exercises.entries()) {
-      rows.push(
-        ...(await this.plannedSets.build({
+        // 루프 전에 한 번 — 종목마다 읽으면 즉석 세션도 N+1 이 된다.
+        const prefetched = await this.recommendation.prefetchHistories(
           userId,
-          goal: program.goal,
-          exercise,
-          orderIndex,
-          history: requireHistory(prefetched, exercise.id),
-          calibration,
-        })),
-      );
-    }
+          exercises.map((item) => ({ exerciseId: item.id, loadSemantics: item.loadSemantics })),
+          tx,
+        );
+        const calibration = await this.recommendation.calibrationFor(userId, tx);
+        const rows: PlannedSetRow[] = [];
+        for (const [orderIndex, exercise] of exercises.entries()) {
+          rows.push(
+            ...(await this.plannedSets.build({
+              userId,
+              goal: program.goal,
+              exercise,
+              orderIndex,
+              history: requireHistory(prefetched, exercise.id),
+              calibration,
+            })),
+          );
+        }
 
-    // 세션과 계획세트는 한 덩어리다(계획세트 없는 빈 세션이 남으면 오늘이 통째로 막힌다).
-    const session = await this.prisma.$transaction(async (tx) => {
-      // 동시 요청(더블 탭)이 둘 다 앞의 조회를 통과하면 오늘 세션이 두 개가 된다.
-      // 프로그램 행을 잠그고 그 안에서 다시 확인한다 → 한 쪽만 만들고 다른 쪽은 409.
-      await tx.$queryRaw`SELECT id FROM programs WHERE id = ${program.id}::uuid FOR UPDATE`;
-      await this.assertNoSessionToday(tx, program.id, today);
-      const created = await tx.workoutSession.create({
-        data: {
-          programId: program.id,
-          scheduledDate: today,
-          // focus 는 계약상 자유 문자열이라 고른 부위를 그대로 남긴다(대시보드 routine_summary.focus).
-          focus: dto.body_part,
-          status: "scheduled",
-          // 계획이 아니라 사용자가 그날 추가한 세션이다 → 대시보드가 "계획된 날"에서 뺀다(D-1).
-          origin: "ad_hoc",
-        },
+        // 세션과 계획세트는 한 덩어리다(계획세트 없는 빈 세션이 남으면 오늘이 통째로 막힌다).
+        const created = await tx.workoutSession.create({
+          data: {
+            programId: program.id,
+            scheduledDate: today,
+            // focus 는 계약상 자유 문자열이라 고른 부위를 그대로 남긴다(대시보드 routine_summary.focus).
+            focus: dto.body_part,
+            status: "scheduled",
+            // 계획이 아니라 사용자가 그날 추가한 세션이다 → 대시보드가 "계획된 날"에서 뺀다(D-1).
+            origin: "ad_hoc",
+          },
+        });
+        await tx.plannedSet.createMany({
+          data: rows.map((row) => ({ ...row, sessionId: created.id })),
+        });
+        return created;
       });
-      await tx.plannedSet.createMany({
-        data: rows.map((row) => ({ ...row, sessionId: created.id })),
-      });
-      return created;
     });
 
     return this.detail(userId, session.id);
@@ -499,40 +618,33 @@ export class SessionsService {
     sessionId: string,
     dto: AddExerciseDto,
   ): Promise<SessionResponse> {
-    const session = await this.load(userId, sessionId);
-    assertEditable(session);
-    const exercise = await this.prisma.exercise.findUnique({ where: { id: dto.exercise_id } });
-    if (!exercise) {
-      // 카탈로그에 없는 exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
-      throw new BadRequestException(`운동을 찾을 수 없다: ${dto.exercise_id}`);
-    }
-    assertNotInSession(session.plannedSets, dto.exercise_id);
+    await this.editTransaction(userId, sessionId, dto.exercise_id, async (tx, session) => {
+      assertEditable(session);
+      const exercise = await tx.exercise.findUnique({ where: { id: dto.exercise_id } });
+      if (!exercise) {
+        // 카탈로그에 없는 exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
+        throw new BadRequestException(`운동을 찾을 수 없다: ${dto.exercise_id}`);
+      }
+      assertNotInSession(session.plannedSets, dto.exercise_id);
 
-    const nextOrder = maxOrderIndex(session.plannedSets) + 1;
-    const orderIndex = clamp(dto.position ?? nextOrder, 0, nextOrder);
-    const rows = await this.plannedSets.build({
-      userId,
-      goal: session.program.goal,
-      exercise,
-      orderIndex,
-      ...(await this.prefetchOne(userId, exercise)),
-      ...(dto.sets === undefined || dto.sets === null ? {} : { sets: dto.sets }),
+      const nextOrder = maxOrderIndex(session.plannedSets) + 1;
+      const orderIndex = clamp(dto.position ?? nextOrder, 0, nextOrder);
+      const rows = await this.plannedSets.build({
+        userId,
+        goal: session.program.goal,
+        exercise,
+        orderIndex,
+        ...(await this.prefetchOne(userId, exercise, tx)),
+        ...(dto.sets === undefined || dto.sets === null ? {} : { sets: dto.sets }),
+      });
+
+      if (orderIndex < nextOrder)
+        await tx.plannedSet.updateMany({
+          where: { sessionId: session.id, orderIndex: { gte: orderIndex } },
+          data: { orderIndex: { increment: 1 } },
+        });
+      await this.createPlannedSets(session.id, rows, tx);
     });
-
-    await this.writeAtomically(
-      [
-        ...(orderIndex < nextOrder
-          ? [
-              this.prisma.plannedSet.updateMany({
-                where: { sessionId: session.id, orderIndex: { gte: orderIndex } },
-                data: { orderIndex: { increment: 1 } },
-              }),
-            ]
-          : []),
-        this.createPlannedSets(session.id, rows),
-      ],
-      dto.exercise_id,
-    );
 
     return this.afterEdit(userId, sessionId);
   }
@@ -543,15 +655,20 @@ export class SessionsService {
     sessionId: string,
     exerciseId: string,
   ): Promise<SessionResponse> {
-    const session = await this.load(userId, sessionId);
-    assertEditable(session);
-    const ids = await this.removableSetIds(session.plannedSets, exerciseId);
-    // audit 는 planned row 에 매달린 기술 기록이고 FK 가 RESTRICT 다 — 같은 트랜잭션에서
-    // 먼저 지우지 않으면 정상 편집이 FK 위반으로 실패한다(F-3 fixup).
-    await this.prisma.$transaction([
-      this.deleteAssistanceAudits(ids),
-      this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } }),
-    ]);
+    await this.editTransaction(userId, sessionId, exerciseId, async (tx, session) => {
+      assertEditable(session);
+      const ids = await this.removableSetIds(session.plannedSets, exerciseId, tx);
+      // audit 는 planned row 에 매달린 기술 기록이고 FK 가 RESTRICT 다 — 같은 트랜잭션에서
+      // 먼저 지우지 않으면 정상 편집이 FK 위반으로 실패한다(F-3 fixup).
+      await this.deleteAssistanceAudits(ids, tx);
+      await tx.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } });
+      await recordSessionEditEvent(
+        tx,
+        userId,
+        session.id,
+        session.plannedSets.filter((row) => ids.includes(row.id)),
+      );
+    });
     return this.afterEdit(userId, sessionId);
   }
 
@@ -562,38 +679,40 @@ export class SessionsService {
     exerciseId: string,
     dto: SwapExerciseDto,
   ): Promise<SessionResponse> {
-    const session = await this.load(userId, sessionId);
-    assertEditable(session);
-    const target = await this.prisma.exercise.findUnique({ where: { id: dto.to_exercise_id } });
-    if (!target) {
-      // 카탈로그에 없는 to_exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
-      throw new BadRequestException(`운동을 찾을 수 없다: ${dto.to_exercise_id}`);
-    }
-    if (dto.to_exercise_id !== exerciseId) {
-      assertNotInSession(session.plannedSets, dto.to_exercise_id);
-    }
+    await this.editTransaction(userId, sessionId, dto.to_exercise_id, async (tx, session) => {
+      assertEditable(session);
+      const target = await tx.exercise.findUnique({ where: { id: dto.to_exercise_id } });
+      if (!target) {
+        // 카탈로그에 없는 to_exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
+        throw new BadRequestException(`운동을 찾을 수 없다: ${dto.to_exercise_id}`);
+      }
+      if (dto.to_exercise_id !== exerciseId) {
+        assertNotInSession(session.plannedSets, dto.to_exercise_id);
+      }
 
-    const replaced = session.plannedSets.filter((set) => set.exerciseId === exerciseId);
-    const orderIndex = replaced[0]?.orderIndex ?? maxOrderIndex(session.plannedSets) + 1;
-    const ids = await this.removableSetIds(session.plannedSets, exerciseId);
+      const replaced = session.plannedSets.filter((set) => set.exerciseId === exerciseId);
+      const orderIndex = replaced[0]?.orderIndex ?? maxOrderIndex(session.plannedSets) + 1;
+      const ids = await this.removableSetIds(session.plannedSets, exerciseId, tx);
 
-    const rows = await this.plannedSets.build({
-      userId,
-      goal: session.program.goal,
-      exercise: target,
-      orderIndex,
-      sets: replaced.length,
-      ...(await this.prefetchOne(userId, target)),
+      const rows = await this.plannedSets.build({
+        userId,
+        goal: session.program.goal,
+        exercise: target,
+        orderIndex,
+        sets: replaced.length,
+        ...(await this.prefetchOne(userId, target, tx)),
+      });
+
+      await this.deleteAssistanceAudits(ids, tx);
+      await tx.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } });
+      await this.createPlannedSets(session.id, rows, tx);
+      await recordSessionEditEvent(
+        tx,
+        userId,
+        session.id,
+        session.plannedSets.filter((row) => ids.includes(row.id)),
+      );
     });
-
-    await this.writeAtomically(
-      [
-        this.deleteAssistanceAudits(ids),
-        this.prisma.plannedSet.deleteMany({ where: { sessionId: session.id, id: { in: ids } } }),
-        this.createPlannedSets(session.id, rows),
-      ],
-      dto.to_exercise_id,
-    );
 
     return this.afterEdit(userId, sessionId);
   }
@@ -619,12 +738,31 @@ export class SessionsService {
    * 앱 레벨 중복 가드(assertNotInSession)는 조회 → 삽입 사이에 경합 창이 있다.
    * 동시 요청이 둘 다 통과하면 DB 의 ux_planned_session_exercise_set 이 잡고, 그건 500 이 아니라 409 다.
    */
-  private async writeAtomically(
-    operations: Prisma.PrismaPromise<unknown>[],
+  private async editTransaction(
+    userId: string,
+    sessionId: string,
     exerciseId: string,
+    work: (tx: Prisma.TransactionClient, session: LockedSession) => Promise<void>,
   ): Promise<void> {
     try {
-      await this.prisma.$transaction(operations);
+      await sessionWriteTransaction(
+        this.prisma,
+        userId,
+        sessionId,
+        [{ entity: "session_routine", entityId: sessionId }],
+        async (tx, session) => {
+          const correlations = session.plannedSets.flatMap((row) =>
+            row.clientCorrelationId ? [row.clientCorrelationId] : [],
+          );
+          await lockCorrelationClaims(tx, correlations);
+          const claims = await readCorrelationClaims(tx, correlations);
+          await lockReceiptRows(
+            tx,
+            claims.map((row) => row.receipt.id),
+          );
+          await work(tx, session);
+        },
+      );
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         throw new ConflictException(`이미 이 세션에 포함된 운동입니다: ${exerciseId}`);
@@ -636,8 +774,9 @@ export class SessionsService {
   private createPlannedSets(
     sessionId: string,
     rows: PlannedSetRow[],
+    client: Prisma.TransactionClient = this.prisma,
   ): Prisma.PrismaPromise<unknown> {
-    return this.prisma.plannedSet.createMany({
+    return client.plannedSet.createMany({
       data: rows.map((row) => ({ ...row, sessionId })),
     });
   }
@@ -646,19 +785,26 @@ export class SessionsService {
    * planned row 를 지우기 전에 붙어 있는 assistance audit 를 먼저 지운다.
    * FK 가 `ON DELETE RESTRICT` 라 순서가 계약이다(SECURITY_PIPA.md 퍼지 순서와 같은 방향).
    */
-  private deleteAssistanceAudits(plannedSetIds: string[]): Prisma.PrismaPromise<unknown> {
-    return this.prisma.assistanceAudit.deleteMany({
+  private deleteAssistanceAudits(
+    plannedSetIds: string[],
+    client: Prisma.TransactionClient = this.prisma,
+  ): Prisma.PrismaPromise<unknown> {
+    return client.assistanceAudit.deleteMany({
       where: { plannedSetId: { in: plannedSetIds } },
     });
   }
 
   /** 지울 수 있는 계획세트 id 들. 없는 운동은 404, 이미 수행 기록이 있으면 409(건강 기록 보존). */
-  private async removableSetIds(plannedSets: PlannedSet[], exerciseId: string): Promise<string[]> {
+  private async removableSetIds(
+    plannedSets: PlannedSet[],
+    exerciseId: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<string[]> {
     const ids = plannedSets.filter((set) => set.exerciseId === exerciseId).map((set) => set.id);
     if (ids.length === 0) {
       throw new NotFoundException(`세션에 없는 운동이다: ${exerciseId}`);
     }
-    const performed = await this.prisma.performedSet.count({
+    const performed = await client.performedSet.count({
       where: { plannedSetId: { in: ids } },
     });
     if (performed > 0) {
@@ -668,11 +814,15 @@ export class SessionsService {
   }
 
   /** 소유권 확인은 여기 한 곳. 남의(또는 없는) 세션은 존재를 알리지 않고 404. */
-  private async load(userId: string, sessionId: string) {
+  private async load(
+    userId: string,
+    sessionId: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
     if (!UUID_PATTERN.test(sessionId)) {
       throw new NotFoundException("세션을 찾을 수 없다.");
     }
-    const session = await this.prisma.workoutSession.findFirst({
+    const session = await client.workoutSession.findFirst({
       where: { id: sessionId, program: { userId } },
       include: {
         program: true,
@@ -688,14 +838,19 @@ export class SessionsService {
     return session;
   }
 
-  private async toResponse(
-    userId: string,
-    session: Awaited<ReturnType<SessionsService["load"]>>,
-  ): Promise<SessionResponse> {
-    const counts = await this.completedSessionCounts(userId, [
-      ...new Set(session.plannedSets.map((set) => set.exerciseId)),
-    ]);
-    return toSessionResponse(session, counts);
+  private async toResponse(userId: string, session: { id: string }): Promise<SessionResponse> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const current = await this.load(userId, session.id, tx);
+        const counts = await this.completedSessionCounts(
+          userId,
+          [...new Set(current.plannedSets.map((set) => set.exerciseId))],
+          tx,
+        );
+        return toSessionResponse(current, counts, userId);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   private async gateRecommendations(
@@ -721,9 +876,10 @@ export class SessionsService {
   async completedSessionCounts(
     userId: string,
     exerciseIds: string[],
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, number>> {
     if (exerciseIds.length === 0) return new Map();
-    const sessions = await this.prisma.workoutSession.findMany({
+    const sessions = await client.workoutSession.findMany({
       where: {
         status: "completed",
         program: { userId },
@@ -848,7 +1004,9 @@ function toSessionResponse(
     program: { goal: Goal };
   },
   completedCounts: Map<string, number>,
+  userId: string,
 ): SessionResponse {
+  const metadata = sessionSetMetadata(userId, session.id, session.plannedSets);
   return {
     id: session.id,
     program_id: session.programId,
@@ -859,6 +1017,7 @@ function toSessionResponse(
       const sampleCount = completedCounts.get(set.exerciseId) ?? 0;
       const performed = set.performedSets[0];
       return {
+        ...metadata.get(set.id)!,
         id: set.id,
         exercise_id: set.exerciseId,
         set_no: set.setNo,
