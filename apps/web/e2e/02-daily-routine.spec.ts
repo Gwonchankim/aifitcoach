@@ -265,9 +265,14 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
     .click();
   await expect(page.getByText(/1세트 완료 · 계획 \d+세트/)).toBeVisible();
 
+  await expect(page.getByRole("dialog", { name: /후 휴식/ })).toHaveCount(0);
+  await expect(page.locator("[inert]")).toHaveCount(0);
+  await expect(page.getByLabel(`${exerciseName} 2세트 무게, 킬로그램`)).toBeFocused();
   // 2세트 완료 — 앞 세트 무게가 이어져 프리필된다(§5.2)
   await expect(page.getByLabel(`${exerciseName} 2세트 무게, 킬로그램`)).toHaveValue("40");
   await page.getByLabel(`${exerciseName} 2세트 횟수, 회`).fill("9");
+  await expect(page.getByLabel(`${exerciseName} 2세트 횟수, 회`)).toHaveValue("9");
+  await expect(page.getByLabel(`${exerciseName} 2세트 무게, 킬로그램`)).toHaveValue("40");
   await page.getByRole("button", { name: `${exerciseName} 2세트 완료 처리` }).click();
   await page
     .getByRole("dialog", { name: /후 휴식/ })
