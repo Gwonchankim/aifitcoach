@@ -1053,3 +1053,70 @@ describe("배선 — 휴식 종료의 포커스 예약 전에 모달을 해제�
     },
   );
 });
+
+describe("배선 — 휴식 종료 뒤 새 편집의 포커스를 유지한다", () => {
+  it.each(["next", "fallback"] as const)(
+    "%s 예약은 나중에 연 완료행 편집의 포커스를 빼앗지 않는다",
+    async (branch) => {
+      sessionResponses.set(SESSION_A, () =>
+        Promise.resolve(
+          sessionPayload(
+            SESSION_A,
+            branch === "next"
+              ? [plannedSet(SET_1, 1), plannedSet(SET_2, 2)]
+              : [plannedSet(SET_1, 1)],
+          ),
+        ),
+      );
+      const view = renderSession(SESSION_A);
+      await completeFirstSet();
+      await waitFor(async () => expect(await storedTimer(SESSION_A)).not.toBeNull());
+      const endButton = screen.getByRole("button", { name: "휴식 종료" });
+      await waitFor(() => expect(document.activeElement).toBe(endButton));
+      const { fireEvent } = await import("@testing-library/dom");
+      const clear = vi.spyOn(store.restTimerStore, "clear");
+      const realSetTimeout = window.setTimeout;
+      const realClearTimeout = window.clearTimeout;
+
+      // Reproduce the observed edit-before-delayed-focus order, not browser timing/inert behavior.
+      // Keep Dexie and React real; only hold the existing 20ms timer until the edit commits.
+      vi.useFakeTimers({
+        toFake: ["setTimeout", "clearTimeout"],
+        shouldClearNativeTimers: true,
+      });
+      try {
+        await act(async () => {
+          fireEvent.click(endButton);
+          await clear.mock.results[0].value;
+        });
+        expect(clear).toHaveBeenCalledExactlyOnceWith(SESSION_A);
+        expect(await storedTimer(SESSION_A)).toBeNull();
+        expect(screen.queryByRole("dialog", { name: /1세트 후 휴식/ })).toBeNull();
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /수정하려면 누르세요$/ }));
+        });
+        const edited = screen.getByLabelText("벤치프레스 1세트 무게, 킬로그램");
+        expect(edited.closest("[inert]")).toBeNull();
+        expect(document.activeElement).toBe(edited);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20);
+        });
+        expect(document.activeElement).toBe(edited);
+        expect(edited.closest("[data-session-current]")?.getAttribute("data-session-current")).toBe(
+          "true",
+        );
+      } finally {
+        vi.clearAllTimers();
+        const remainingTimers = vi.getTimerCount();
+        vi.useRealTimers();
+        view.unmount();
+        clear.mockRestore();
+        expect(remainingTimers).toBe(0);
+        expect(vi.isFakeTimers()).toBe(false);
+        expect(window.setTimeout).toBe(realSetTimeout);
+        expect(window.clearTimeout).toBe(realClearTimeout);
+      }
+    },
+  );
+});

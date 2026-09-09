@@ -1138,6 +1138,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   /** 휴식 종료 → 다음 미완료 세트의 첫 입력칸으로 포커스를 옮긴다(§7.1). */
   const closeRest = async () => {
     const from = rest?.plannedSetId;
+    const scope = positionScope.current;
     // 닫는 것은 사용자의 최종 의사다 — 뒤늦은 복구가 되살리지 못하게 먼저 세대를 올린다.
     restoreRef.current?.invalidate();
 
@@ -1154,9 +1155,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     flushSync(() => setRest(null));
     if (!from) return;
 
+    // Closing the modal may restore focus; only later position intents supersede this handoff.
+    const intent = scope?.intent;
     const index = orderedSets.findIndex((set) => set.id === from);
     const next = orderedSets.slice(index + 1).find((set) => !drafts[set.id]?.completed);
     window.setTimeout(() => {
+      if (
+        !scope ||
+        positionScope.current !== scope ||
+        scope.sessionId !== sessionId ||
+        scope.intent !== intent
+      )
+        return;
       const target = next
         ? document.getElementById(
             primaryInputId(
