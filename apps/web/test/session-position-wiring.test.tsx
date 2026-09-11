@@ -882,9 +882,11 @@ it.each(["ACK first", "GET first"])(
       await act(async () => {
         await clients[0].refetchQueries({ queryKey: ["session", sessionId], exact: true });
       });
+      // Query completion precedes the observer's scheduled React notification.
+      // Require the GET alone to render the canonical identity before sending ACK.
+      await waitFor(() => expect(input.id).toBe(`set-${mappings[1].planned_set_id}-weight`));
       expect(input.isConnected).toBe(true);
       expect(document.activeElement).toBe(input);
-      expect(input.id).toBe(`set-${mappings[1].planned_set_id}-weight`);
       expect(await sessionDb.outbox.toArray()).toEqual(originalOutbox);
     }
     await act(async () => {

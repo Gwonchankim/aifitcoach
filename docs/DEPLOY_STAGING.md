@@ -32,6 +32,20 @@
 
 `cloudbuild.staging.yaml`은 runtime·migrate·seed target을 각각 만든다. API 시작 시 마이그레이션이나 시드를 실행하지 않는다. 인스턴스가 동시에 시작할 때 같은 DDL/시드를 실행하지 않도록 **마이그레이션 → 시드 → 검증 → API 배포**를 명시적 Cloud Run Job 순서로 수행한다.
 
+### F3·session_set 전환 시 추가 게이트
+
+위 순서는 구 API와 새 스키마가 호환될 때만 무중단으로 사용할 수 있다. `cec2195` API는 `planned_sets.load_semantics`를 쓰지 않지만 F3 migration은 이 컬럼을 기본값 없는 NOT NULL로 만든다. 따라서 **구 API가 요청을 받는 상태에서 아래 migration 명령을 실행하지 않는다. 이전 API 이미지로만 되돌리는 rollback도 금지한다.**
+
+단일 소유자 환경에는 점검 시간 전환을 제안한다. 실행 전 다음 조건과 쓰기 차단 수단을 확정·검증해야 하며, 이 문서 수정은 운영 보안 설정 변경 승인을 대신하지 않는다.
+
+1. 모든 기기의 미전송 기록 동기화를 완료하고 앱·탭을 닫는다. IndexedDB·사이트 데이터를 삭제하지 않는다.
+2. 복구 가능한 DB 백업과 복원 리허설, 수행 기록 보존 비교 자료를 확보한다.
+3. 구 API로의 신규 쓰기를 서버 측에서 차단하고 진행 중 요청이 끝났음을 확인한다. 탭 닫기나 scale-to-zero만으로 차단 완료로 판단하지 않는다.
+4. 동일 커밋으로 만든 migration·seed·검증 Job을 순서대로 실행한 뒤 새 API와 웹을 전환한다. 실패 시 쓰기를 계속 차단하고 승인된 복구 절차를 따른다.
+5. 모든 기기에서 새 웹 버전을 확인한 뒤 로그인·기록·동기화를 검증하고 쓰기를 재개한다. Service Worker의 `skipWaiting`은 이미 실행 중인 구 JS의 교체를 보장하지 않는다.
+
+구 PWA→신 API, Dexie v3→v4 및 outbox 보존, 새 세트 추가 뒤 재접속을 실제 브라우저에서 검증해야 한다. DB 보정에는 미수행 어시스트 처방 변경이 포함되므로 역마이그레이션을 임의 작성하지 않는다. rollback은 새 스키마를 지원하는 호환 이미지 또는 검증된 복원 절차가 있어야 한다.
+
 ```powershell
 gcloud builds submit --config cloudbuild.staging.yaml `
   --substitutions=_RUNTIME_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api:<TAG>,_MIGRATE_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-migrate:<TAG>,_SEED_IMAGE=asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-seed:<TAG>
@@ -45,7 +59,7 @@ gcloud run jobs execute afc-staging-migrate --region asia-southeast1 --wait
 gcloud run jobs update afc-staging-seed --image asia-southeast1-docker.pkg.dev/<PROJECT>/afc/api-seed:<TAG> `
   --region asia-southeast1
 gcloud run jobs execute afc-staging-seed --region asia-southeast1 --wait
-# 멱등성 live 검증: 한 번 더 실행해도 두 로그 모두 "seeded 105 exercises (table count = 105)"여야 한다.
+# 멱등성 live 검증: 두 실행의 seeded/table count가 배포 커밋 시드의 exercises 개수와 같아야 한다.
 gcloud run jobs execute afc-staging-seed --region asia-southeast1 --wait
 
 # 이미 생성된 API 서비스도 image만 갱신한다. 공개 접근·scale 설정·origin·시크릿 주입을
@@ -65,6 +79,10 @@ gcloud run jobs update afc-staging-schema-verify `
 gcloud run jobs execute afc-staging-schema-verify --region asia-southeast1 --wait
 
 # API 배포 뒤 카탈로그 smoke. 목록은 페이지네이션 전부를 합쳐 count/고유 ID/대체 참조를 확인한다.
+# 반드시 배포한 커밋의 레포 루트에서 실행한다. 개수뿐 아니라 정확한 ID 집합을 비교한다.
+$seed = Get-Content -LiteralPath docs/specs/exercises_seed.json -Raw | ConvertFrom-Json
+$expectedIds = @($seed.exercises.id | Sort-Object -Unique)
+if ($expectedIds.Count -eq 0 -or $expectedIds.Count -ne $seed.exercises.Count) { throw "invalid seed IDs" }
 $base = "https://<VERCEL-PRODUCTION-HOST>/api/v1"
 $all = @(); $cursor = $null
 do {
@@ -73,7 +91,9 @@ do {
   $all += $page.items
   $cursor = $page.next_cursor
 } while ($cursor)
-if ($all.Count -ne 105 -or (@($all.id | Sort-Object -Unique)).Count -ne 105) { throw "exercise count/unique mismatch" }
+$actualIds = @($all.id | Sort-Object -Unique)
+if ($all.Count -ne $expectedIds.Count -or $actualIds.Count -ne $expectedIds.Count) { throw "exercise count/unique mismatch" }
+if (@(Compare-Object $expectedIds $actualIds).Count -ne 0) { throw "exercise ID set mismatch" }
 $ids = @{}; $all.id | ForEach-Object { $ids[$_] = $true }
 $dangling = @($all | ForEach-Object { $_.substitutions } | Where-Object { -not $ids.ContainsKey($_) })
 if ($dangling.Count -ne 0) { throw "dangling substitutions: $($dangling -join ',')" }
