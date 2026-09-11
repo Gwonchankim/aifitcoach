@@ -352,8 +352,7 @@ model Exercise {
   defaultTimeLowSec  Int?            @map("default_time_low_sec")
   defaultTimeHighSec Int?            @map("default_time_high_sec")
   defaultStepKg      Decimal?        @map("default_step_kg") @db.Decimal(5, 2)
-  /// NULL = external_load(기본). 어시스트 종목만 assistance 다.
-  /// canonical. 기본은 external_load 이고 어시스트 머신만 assistance 다.
+  /// Canonical semantics must be explicit; no NULL or database default.
   loadSemantics      LoadSemantics   @map("load_semantics")
   unilateral         Boolean
   substitutions      String[]
