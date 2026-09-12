@@ -3,7 +3,7 @@
  * 전부 순수 함수라 테스트로 고정한다(test/session-set-rules.test.ts).
  */
 import type { Exercise, PlannedSet } from "../../lib/api";
-import { assistanceTransitionAction } from "shared";
+import { assistanceTransitionAction, type DisplayGateState } from "shared";
 
 export type SetKind =
   /** metric=time 종목: 시간(초)만 기록하고 RIR 을 묻지 않는다. */
@@ -39,6 +39,18 @@ export function setKind(
   // 원천에서 잡는다(packages/shared/test/recommend.test.ts "V2 캘리브레이션 상태는 0 sentinel 을 쓰지 않는다").
   if (set.recommended_weight === 0) return "unknown_weight";
   return "weighted";
+}
+
+/** 무게 미정 카드의 게이트별 안내. 임시: V2-GATE-01의 상태별 문구로 교체한다. */
+export function unknownWeightNote(gate: DisplayGateState): string {
+  switch (gate) {
+    case "no_history":
+      return "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요.";
+    case "early":
+      return "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요.";
+    case "ready":
+      return "추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요.";
+  }
 }
 
 export type SetValues = {

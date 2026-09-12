@@ -13,6 +13,7 @@ import {
   setKind,
   setPrefill,
   targetLabel,
+  unknownWeightNote,
   weightBadge,
 } from "../components/session/set-rules";
 
@@ -43,6 +44,30 @@ function plannedSet(overrides: Partial<PlannedSet> = {}): PlannedSet {
     performed_set: overrides.performed_set ?? null,
   };
 }
+
+describe("unknownWeightNote (임시 게이트 안내)", () => {
+  it("no_history는 기존 첫 세션 안내를 유지한다", () => {
+    expect(unknownWeightNote("no_history")).toBe(
+      "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요.",
+    );
+  });
+
+  it("early는 추천 조건과 지금 할 일을 안내한다", () => {
+    expect(unknownWeightNote("early")).toBe(
+      "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요.",
+    );
+  });
+
+  it("ready의 무게 미정은 중립 문구로 안내한다", () => {
+    expect(unknownWeightNote("ready")).toBe(
+      "추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요.",
+    );
+  });
+
+  it("early를 첫 세션이라고 안내하지 않는다", () => {
+    expect(unknownWeightNote("early")).not.toContain("첫 세션");
+  });
+});
 
 describe("setKind (판별 순서 §5.1)", () => {
   it("metric=time 이 무게 판별보다 먼저다", () => {

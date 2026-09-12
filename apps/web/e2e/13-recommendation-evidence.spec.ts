@@ -306,7 +306,13 @@ test("@chromium-only 완료 이력이 다음 세션의 추천 값·근거로 화
   // 실제 UI 단언: 프리필도 근거 문구도 없다.
   await expect(weightInput(page, upName, 1)).toHaveValue("");
   await expect(card(page, upName).getByText(REASON_COPY.WEIGHT_UP_REP_TARGET_MET)).toHaveCount(0);
-  await expect(page.getByText("첫 세션이라 추천 무게가 아직 없어요.").first()).toBeVisible();
+  await expect(
+    card(page, upName).getByText(
+      "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(card(page, upName).getByText("첫 세션이라 추천 무게가 아직 없어요.")).toHaveCount(0);
 
   /* --- 2·3회차로 gate 를 실제 완료 세션으로 연다. 마지막 한 바퀴는 브라우저로 밟는다. --- */
   await recordBoth(second);

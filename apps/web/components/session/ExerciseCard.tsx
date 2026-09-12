@@ -12,14 +12,12 @@ import {
   assistanceBadge,
   reasonLabel,
   setKind,
+  unknownWeightNote,
   weightBadge,
   type SetValues,
 } from "./set-rules";
 import { SetRow } from "./SetRow";
 import type { SetDraft } from "./session-store";
-
-const BASELINE_NOTE =
-  "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요.";
 
 export type ExerciseCardProps = {
   name: string;
@@ -149,7 +147,9 @@ export function ExerciseCard({
           {lockedReason}
         </p>
       ) : null}
-      {showBaselineNote ? <p className="text-sm text-fg-muted">{BASELINE_NOTE}</p> : null}
+      {showBaselineNote ? (
+        <p className="text-sm text-fg-muted">{unknownWeightNote(sets[0].recommendation_gate)}</p>
+      ) : null}
       {suggestedName ? (
         <p className="text-sm text-fg-muted">
           다음 단계로 {suggestedName}
