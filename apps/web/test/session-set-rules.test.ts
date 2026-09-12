@@ -62,8 +62,8 @@ describe("setKind (판별 순서 §5.1)", () => {
     expect(setKind(set)).toBe("time");
   });
 
-  it("recommended_weight null 은 자체중량이다", () => {
-    expect(setKind(plannedSet({ recommended_weight: null }), "reps")).toBe("bodyweight");
+  it("자체중량은 canonical step=null로 판별한다", () => {
+    expect(setKind(plannedSet({ recommended_weight: null }), "reps", null)).toBe("bodyweight");
   });
 
   it("서버 gate로 추천이 null이어도 카탈로그 step이 있으면 무게 입력 운동이다", () => {

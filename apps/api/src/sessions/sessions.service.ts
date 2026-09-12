@@ -22,10 +22,8 @@ import { AggregationProjector } from "../analytics/aggregation.projector";
 import {
   classifySourceCohort,
   classifyTargetCohort,
-  loadKindForSnapshot,
   rawAssistanceSafetyStatus,
   recommendedActionFor,
-  stateForReasonCode,
   toRawTargetRow,
 } from "../programs/assistance-migration";
 import type { AssistanceSafetyStatus } from "../programs/assistance-migration";
@@ -47,6 +45,10 @@ import {
   toHistory,
 } from "../recommendation/recommendation.service";
 import type { ExerciseHistory } from "../recommendation/recommendation.service";
+import {
+  storedRecommendationPresentation,
+  type PrescriptionCatalog,
+} from "../recommendation/recommendation-presentation";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
@@ -81,10 +83,10 @@ export interface PlannedSetResponse extends SessionSetMetadata {
   rest_sec: number;
   target_time_low_sec: number | null;
   target_time_high_sec: number | null;
-  /** null = 자체중량(맨몸·시간 종목). */
+  /** 자체중량·시간 또는 아직 정하지 못한 추천 무게는 null. 부하 축은 load_kind로 구분한다. */
   recommended_weight: number | null;
   recommended_reps: number | null;
-  reason_code: string | null;
+  reason_code: string;
   confidence: number | null;
   rules_version: string;
   /**
@@ -92,8 +94,8 @@ export interface PlannedSetResponse extends SessionSetMetadata {
    * 클라이언트 predicate 가 "이 행을 어시스트로 렌더해야 하는가"를 이걸로 판정한다.
    */
   load_kind: LoadKind;
-  /** 게이트가 처방을 가리면 함께 null 이다(처방의 일부다). */
-  recommendation_state: RecommendationState | null;
+  /** 처방 상태는 분석 게이트와 독립이며 항상 정규화한 값을 공개한다(ADR-70). */
+  recommendation_state: RecommendationState;
   /** non-assisted 는 **반드시 null** — 기본값으로 채우지 않는다(§F). */
   assistance_provenance: AssistanceProvenance | null;
   /** 최소 경계의 종목 전환 제안에만 붙는다. 안전 상태·비어시스트는 null. */
@@ -137,10 +139,6 @@ export interface GatedRecommendation {
   recommendation: ApiRecommendation | null;
 }
 
-/**
- * 저장 snapshot 이 말하는 부하 의미. 행이 없으면 external 로 본다(빈 cohort 는 이미 unsafe 다).
- * 섞여 있으면 cohort 판정이 먼저 unsafe 로 잡으므로 여기서는 첫 행이면 충분하다.
- */
 /**
  * cohort 판정 입력. **server-applied performed fact** 를 행마다 붙인다 —
  * 로컬 pending outbox 는 아직 사실이 아니므로 여기 포함되지 않는다.
@@ -828,7 +826,10 @@ export class SessionsService {
         program: true,
         plannedSets: {
           orderBy: [{ orderIndex: "asc" }, { setNo: "asc" }],
-          include: { performedSets: { orderBy: { performedAt: "desc" }, take: 1 } },
+          include: {
+            exercise: { select: { metric: true, defaultStepKg: true } },
+            performedSets: { orderBy: { performedAt: "desc" }, take: 1 },
+          },
         },
       },
     });
@@ -867,7 +868,10 @@ export class SessionsService {
         exercise_id: recommendation.exercise_id,
         sample_session_count,
         gate_state: displayGateState(sample_session_count),
-        recommendation: applyDisplayGate(sample_session_count, recommendation),
+        recommendation: {
+          ...recommendation,
+          confidence: applyDisplayGate(sample_session_count, recommendation.confidence),
+        },
       };
     });
   }
@@ -992,6 +996,7 @@ function toSessionResponse(
     scheduledDate: Date;
     status: string;
     plannedSets: (PlannedSet & {
+      exercise?: PrescriptionCatalog;
       performedSets: {
         actualWeight: Prisma.Decimal | null;
         actualReps: number | null;
@@ -1016,6 +1021,7 @@ function toSessionResponse(
     planned_sets: session.plannedSets.map((set) => {
       const sampleCount = completedCounts.get(set.exerciseId) ?? 0;
       const performed = set.performedSets[0];
+      const presentation = storedRecommendationPresentation(set, set.exercise);
       return {
         ...metadata.get(set.id)!,
         id: set.id,
@@ -1027,23 +1033,16 @@ function toSessionResponse(
         rest_sec: set.restSec,
         target_time_low_sec: set.targetTimeLowSec,
         target_time_high_sec: set.targetTimeHighSec,
-        recommended_weight: applyDisplayGate(
-          sampleCount,
-          set.recommendedWeight === null ? null : Number(set.recommendedWeight),
-        ),
-        recommended_reps: applyDisplayGate(sampleCount, set.recommendedReps),
-        reason_code: applyDisplayGate(sampleCount, set.reasonCode),
+        recommended_weight: presentation.recommended_weight,
+        recommended_reps: set.recommendedReps,
+        reason_code: set.reasonCode,
         confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
         rules_version: set.rulesVersion,
         // raw 값으로 판정한다 — 게이트된 weight 를 보면 external 행이 bodyweight 로 뒤바뀐다.
-        load_kind: loadKindForSnapshot(set),
-        recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
+        load_kind: presentation.load_kind,
+        recommendation_state: presentation.recommendation_state,
         assistance_provenance: set.assistanceProvenance,
-        // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
-        recommended_action: applyDisplayGate(
-          sampleCount,
-          recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
-        ),
+        recommended_action: recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
         // 게이트 **이전** raw 값으로 판정한다 — 가려진 legacy 처방도 unsafe 로 잡아야 한다.
         assistance_safety_status: rawAssistanceSafetyStatus(
           toRawTargetRow(

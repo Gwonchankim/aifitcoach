@@ -95,13 +95,18 @@ test("minimum pullup+dips suggestions survive GET, reload, offline/reload and re
       expect(rows.length).toBeGreaterThan(0);
       for (const row of rows) {
         expect(row.recommendation_gate).toBe(count === 0 ? "no_history" : "early");
-        expect(row.recommended_weight).toBeNull();
-        expect(row.recommended_action).toBeNull();
+        expect(row.confidence).toBeNull();
+        expect(row.recommendation_state).toBe(count === 0 ? "load_calibration_needed" : "ready");
+        expect(row.recommended_weight).toBe(count === 0 ? null : 2.5);
+        expect(row.recommended_reps).toEqual(expect.any(Number));
+        expect(row.recommended_action).toEqual(
+          count === 0 ? null : { kind: "suggest_exercise_swap", exercise_id: pair.target },
+        );
       }
     }
     await openSession(page, session.id);
     for (const pair of pairs)
-      await expect(page.getByText(pair.text, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(pair.text, { exact: true })).toHaveCount(count === 0 ? 0 : 1);
     // Completed assistance rows must never become a recompute target. Prepare a real future row.
     sessionIds.push(await prepareUnperformedTarget(request, session));
     const mutations = session.planned_sets
@@ -279,7 +284,7 @@ test("catalog pending/failure and defensive action variants never show a guessed
       },
     },
     {
-      label: "gateclosed",
+      label: "legacy-missing-prescription",
       patch: {
         recommendation_gate: "early",
         reason_code: null,

@@ -115,6 +115,54 @@ describe("sessions", () => {
   });
 
   describe("POST /sessions/{sessionId}/complete", () => {
+    it("ADR-70: 완료 1회부터 다음 세션 wire의 처방을 공개하고 분석은 닫아 둔다", async () => {
+      const [first, , next] = await sessions();
+      const exerciseId = first.plannedSets[0].exerciseId;
+      const step = Number(
+        (await prisma.exercise.findUniqueOrThrow({ where: { id: exerciseId } })).defaultStepKg,
+      );
+      await recordSets(first.id, exerciseId, [
+        { w: 60, reps: 12, rir: 2 },
+        { w: 60, reps: 12, rir: 2 },
+        { w: 60, reps: 12, rir: 2 },
+      ]);
+      const completed = await request(app.getHttpServer())
+        .post(`/v1/sessions/${first.id}/complete`)
+        .send({})
+        .expect(200);
+      const detail = await request(app.getHttpServer()).get(`/v1/sessions/${next.id}`).expect(200);
+      const rows = detail.body.planned_sets.filter(
+        (set: { exercise_id: string }) => set.exercise_id === exerciseId,
+      );
+      expect(rows).toHaveLength(3);
+      for (const row of rows) {
+        expect(row).toMatchObject({
+          recommended_weight: 60 + step,
+          recommended_reps: row.target_reps_low,
+          reason_code: "WEIGHT_UP_REP_TARGET_MET",
+          recommendation_state: "ready",
+          recommendation_gate: "early",
+          confidence: null,
+        });
+      }
+      expect(completed.body.next_recommendations[0]).toMatchObject({
+        sample_session_count: 1,
+        gate_state: "early",
+        recommendation: { weight: 60 + step, recommendation_state: "ready", confidence: null },
+      });
+      const analytics = await request(app.getHttpServer())
+        .get("/v1/analytics/e1rm")
+        .query({ exercise_id: exerciseId })
+        .expect(200);
+      expect(analytics.body).toMatchObject({
+        sample_session_count: 1,
+        gate_state: "early",
+        points: [],
+      });
+      const dashboard = await request(app.getHttpServer()).get("/v1/dashboard").expect(200);
+      if (dashboard.body.primary_e1rm) expect(dashboard.body.primary_e1rm.latest_e1rm).toBeNull();
+    });
+
     it("200 + openapi 응답 스키마 + 세션이 completed 로 바뀐다", async () => {
       const [first] = await sessions();
       const exerciseId = first.plannedSets[0].exerciseId;
@@ -136,7 +184,11 @@ describe("sessions", () => {
         exercise_id: exerciseId,
         sample_session_count: 1,
         gate_state: "early",
-        recommendation: null,
+        recommendation: {
+          recommendation_state: "ready",
+          reason_code: "WEIGHT_UP_REP_TARGET_MET",
+          confidence: null,
+        },
       });
     });
 
@@ -162,7 +214,11 @@ describe("sessions", () => {
         exercise_id: exerciseId,
         sample_session_count: 1,
         gate_state: "early",
-        recommendation: null,
+        recommendation: {
+          recommendation_state: "ready",
+          reason_code: "WEIGHT_UP_REP_TARGET_MET",
+          confidence: null,
+        },
       });
 
       const updated = await prisma.plannedSet.findMany({
@@ -230,7 +286,11 @@ describe("sessions", () => {
       expect(response.body.next_recommendations[0]).toMatchObject({
         exercise_id: exerciseId,
         gate_state: "early",
-        recommendation: null,
+        recommendation: {
+          recommendation_state: "substitution_required",
+          reason_code: "SUBSTITUTE_PAIN",
+          confidence: null,
+        },
       });
       const recommendation = await prisma.plannedSet.findFirstOrThrow({
         where: { sessionId: thursday.id, exerciseId },

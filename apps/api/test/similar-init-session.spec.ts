@@ -21,7 +21,7 @@ describe("SIMILAR_INIT persisted session and existing wire gate", () => {
     await app?.close();
   });
 
-  it("persists 45kg from bench history but masks the new incline prescription as no_history", async () => {
+  it("persists and exposes the 45kg incline prescription while no_history masks confidence", async () => {
     await resetUserData(prisma, userId);
     await request(app.getHttpServer()).get("/v1/exercises").expect(200);
     await prisma.program.create({
@@ -93,6 +93,7 @@ describe("SIMILAR_INIT persisted session and existing wire gate", () => {
     expect(planned.reasonCode).toBe("SIMILAR_INIT");
     // 60*(1+(10+2)/30)=84; floorToStep(84*.8/(1+14/30), 2.5)=45.
     expect(Number(planned.recommendedWeight)).toBe(45);
+    expect(planned.recommendedReps).toBe(6);
     expect([planned.targetRepsLow, planned.targetRepsHigh, planned.targetRir]).toEqual([6, 12, 2]);
     expect(planned.rulesVersion).toBe(RULES_VERSION);
     const response = await request(app.getHttpServer())
@@ -102,11 +103,11 @@ describe("SIMILAR_INIT persisted session and existing wire gate", () => {
     expect(wire).toBeDefined();
     expect(wire).toMatchObject({
       recommendation_gate: "no_history",
-      recommended_weight: null,
-      recommended_reps: null,
-      reason_code: null,
+      recommended_weight: 45,
+      recommended_reps: 6,
+      reason_code: "SIMILAR_INIT",
       confidence: null,
-      recommendation_state: null,
+      recommendation_state: "ready",
     });
   });
 });

@@ -480,14 +480,13 @@ describe("M4 G3 assistance append actual HTTP wire matrix", () => {
       assistance_provenance: raw.assistanceProvenance,
       assistance_safety_status: scenario.safety,
       recommendation_gate: sample === 0 ? "no_history" : sample < 3 ? "early" : "ready",
-      // These six independent fields must not be reconstructed from the gate-hidden weight.
-      recommended_weight:
-        sample < 3 || raw.recommendedWeight === null ? null : Number(raw.recommendedWeight),
-      recommended_reps: sample < 3 ? null : raw.recommendedReps,
-      reason_code: sample < 3 ? null : raw.reasonCode,
+      // Prescriptions are independent of analysis maturity (ADR-70).
+      recommended_weight: raw.recommendedWeight === null ? null : Number(raw.recommendedWeight),
+      recommended_reps: raw.recommendedReps,
+      reason_code: raw.reasonCode,
       confidence: sample < 3 ? null : Number(raw.confidence),
-      recommendation_state: sample < 3 ? null : scenario.state,
-      recommended_action: sample < 3 ? null : (scenario.action ?? null),
+      recommendation_state: scenario.state,
+      recommended_action: scenario.action ?? null,
     });
     if (eligibility === null) expect(wire.append_eligibility).toBeNull();
     else {

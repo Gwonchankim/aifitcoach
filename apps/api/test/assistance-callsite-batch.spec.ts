@@ -787,14 +787,17 @@ describe("production call-site batch · action gate", () => {
       )!;
     }
 
-    it("no_history · early 는 action 이 null 이다 — 처방 축이라 함께 가려진다", async () => {
+    it("no_history · early 에서도 유효한 action과 state를 공개한다(ADR-70)", async () => {
       for (const completed of [0, 1]) {
         await resetUserData(prisma, USER_ID);
         const target = await seedMinimumReached(completed);
         const wire = await wireOf(target);
         expect(wire.recommendation_gate).not.toBe("ready");
-        expect(wire.recommended_action).toBeNull();
-        expect(wire.recommendation_state).toBeNull();
+        expect(wire.recommended_action).toEqual({
+          kind: "suggest_exercise_swap",
+          exercise_id: "e_pullup",
+        });
+        expect(wire.recommendation_state).toBe("ready");
         // 구조·안전 축은 게이트되지 않는다.
         expect(wire.load_kind).toBe("assistance");
         expect(wire.assistance_safety_status).not.toBeNull();
@@ -823,8 +826,8 @@ describe("production call-site batch · action gate", () => {
       });
 
       for (const [count, expected] of [
-        [0, null],
-        [1, null],
+        [0, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
+        [1, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
         [3, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
       ] as const) {
         const wire = plannedSetResponse(row, count);

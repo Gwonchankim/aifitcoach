@@ -105,7 +105,11 @@ describe("M-4′ 서버 계약", () => {
       sample_session_count: 1,
       gate_state: "early",
       points: [],
-      next_recommendation: null,
+      next_recommendation: {
+        confidence: null,
+        recommendation_state: "load_calibration_needed",
+        reason_code: "BASELINE",
+      },
     });
   });
 

@@ -12,14 +12,14 @@ import {
   assistanceBadge,
   reasonLabel,
   setKind,
+  recommendationNote,
+  recommendationState,
+  isRecommendationSafetyState,
   weightBadge,
   type SetValues,
 } from "./set-rules";
 import { SetRow } from "./SetRow";
 import type { SetDraft } from "./session-store";
-
-const BASELINE_NOTE =
-  "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요.";
 
 export type ExerciseCardProps = {
   name: string;
@@ -83,10 +83,18 @@ export function ExerciseCard({
   const completedCount = sets.filter((set) => drafts[set.id]?.completed).length;
   const kinds = sets.map((set) => setKind(set, exercise?.metric, exercise?.step_kg));
   // 근거·무게 배지는 카드 단위다 → 이 종목의 축(시간/자체중량/무게)에 맞는 문구만 남긴다.
-  const reason = reasonLabel(sets[0]?.reason_code ?? "", kinds[0], sets[0]);
+  const state = sets[0] ? recommendationState(sets[0]) : null;
+  const reason =
+    state === "ready" || state === null
+      ? reasonLabel(sets[0]?.reason_code ?? "", kinds[0], sets[0])
+      : null;
   // 어시스트는 "덜어주는 kg" 이라 무게 배지 자리에 도움 배지가 온다(F-4b).
-  const badge = (sets[0] ? assistanceBadge(sets[0]) : null) ?? weightBadge(kinds[0] ?? "weighted");
-  const showBaselineNote = kinds.some((kind) => kind === "unknown_weight");
+  const badge =
+    sets[0] && isRecommendationSafetyState(sets[0])
+      ? null
+      : ((sets[0] ? assistanceBadge(sets[0]) : null) ??
+        (sets[0]?.load_kind === "assistance" ? null : weightBadge(kinds[0] ?? "weighted")));
+  const note = sets[0] ? recommendationNote(sets[0]) : null;
   const menuId = `exercise-${sets[0]?.exercise_id ?? "unknown"}-menu`;
   const lockedReasonId = `${menuId}-locked-reason`;
   const action = sets[0] ? assistanceAction(sets[0]) : null;
@@ -149,7 +157,7 @@ export function ExerciseCard({
           {lockedReason}
         </p>
       ) : null}
-      {showBaselineNote ? <p className="text-sm text-fg-muted">{BASELINE_NOTE}</p> : null}
+      {note ? <p className="text-sm text-fg-muted">{note}</p> : null}
       {suggestedName ? (
         <p className="text-sm text-fg-muted">
           다음 단계로 {suggestedName}

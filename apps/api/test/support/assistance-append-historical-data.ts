@@ -12,7 +12,7 @@ import ts from "typescript";
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 const MATRIX = {
   file: "test/session-set-assistance-wire.spec.ts",
-  sha256: "b1e4cce6fb7300da2220261ba6a7c1dd041dd1f6b7e2639bb163689b2c5d6b24",
+  sha256: "ec19104563e8e46bd044d7a908aaba5f5d5258e329ffa8208336f7cdbcd1fe7c",
 };
 const MIGRATION = {
   file: "prisma/migrations/20260827180000_f3_fixup_assistance_lifecycle/migration.sql",

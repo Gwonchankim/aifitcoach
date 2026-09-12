@@ -209,7 +209,10 @@ async function mockM4(
           reps_high: 10,
           sets: 3,
           reason_code: "UP",
-          confidence: 0.8,
+          confidence: null,
+          load_kind: "external",
+          recommendation_state: "ready",
+          recommended_action: null,
           explanation: "42.5kg 추천",
           rules_version: "v1",
         },
@@ -270,7 +273,7 @@ test("M-4 홈은 16px 프레임·7열/4px 리듬·34/1fr/54px 볼륨과 색 역�
   for (const height of metrics.rhythmTargets) expect(height).toBeGreaterThanOrEqual(44);
 });
 
-test("D-39 early는 두 점만 표시하고 e1RM 선·값·추천을 DOM에 만들지 않는다", async ({ page }) => {
+test("ADR-70 early는 다음 추천과 관측 점을 표시하고 e1RM 선·값을 숨긴다", async ({ page }) => {
   await mockM4(page, "early");
   await page.goto("/history?exercise=e_bench_press");
   const early = page.locator('[data-history-gate="early"]');
@@ -278,8 +281,9 @@ test("D-39 early는 두 점만 표시하고 e1RM 선·값·추천을 DOM에 만�
   await expect(early.locator('[data-history-visual="observations-only"] i')).toHaveCount(2);
   await expect(page.locator('[data-history-visual="ready-chart"]')).toHaveCount(0);
   await expect(page.locator("polyline")).toHaveCount(0);
-  await expect(page.getByText(/42\.5kg|42\.5kg 추천/)).toHaveCount(0);
-  await expect(page.getByText("다음 추천")).toHaveCount(0);
+  await expect(early.getByText(/42\.5kg/)).toHaveCount(0);
+  await expect(page.getByText("42.5kg 추천")).toBeVisible();
+  await expect(page.getByText("다음 추천", { exact: true })).toBeVisible();
 });
 
 test("주간 프로그램은 6px 진행·44px 이상 날짜 행을 쓰고 결제·미래 mutation을 노출하지 않는다", async ({

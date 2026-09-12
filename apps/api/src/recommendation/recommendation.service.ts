@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Exercise } from "@prisma/client";
 import {
+  normalizeRecommendationState,
   PAIN_STOP_THRESHOLD,
   recommendNextSet,
   similarSourceE1rm,
@@ -24,6 +25,10 @@ import {
   rulesVersionForLoadSemantics,
 } from "../programs/assistance-migration";
 import { RULES_VERSION } from "../programs/program-rules";
+import {
+  storedRecommendationPresentation,
+  type PrescriptionCatalog,
+} from "./recommendation-presentation";
 
 /** openapi: components.schemas.Recommendation */
 export interface ApiRecommendation {
@@ -38,7 +43,7 @@ export interface ApiRecommendation {
   time_low_sec?: number;
   time_high_sec?: number;
   reason_code: string;
-  confidence: number;
+  confidence: number | null;
   explanation: string;
   rules_version: string;
   /**
@@ -606,10 +611,16 @@ export class RecommendationService {
   }
 
   toApi(exerciseId: string, sets: number, recommendation: Recommendation): ApiRecommendation {
+    const state = normalizeRecommendationState({
+      state: recommendation.recommendation_state,
+      reason: recommendation.reason_code,
+      weight: recommendation.weight,
+      load_kind: recommendation.load_kind,
+    });
     return {
       exercise_id: exerciseId,
       // 맨몸·시간 종목은 weight=null, 시간 종목은 반복 축이 없어 reps_*=null 이다(openapi nullable).
-      weight: recommendation.weight,
+      weight: state === "load_calibration_needed" ? null : recommendation.weight,
       reps_low: recommendation.reps_low ?? null,
       reps_high: recommendation.reps_high ?? null,
       sets,
@@ -628,7 +639,7 @@ export class RecommendationService {
       ),
       rules_version: recommendation.rules_version,
       load_kind: recommendation.load_kind,
-      recommendation_state: recommendation.recommendation_state,
+      recommendation_state: state,
       recommended_action: recommendation.recommended_action ?? null,
     };
   }
@@ -648,15 +659,19 @@ export class RecommendationService {
       confidence: { toString(): string };
       rulesVersion: string;
       loadSemantics?: "assistance" | "external_load";
+      exercise?: PrescriptionCatalog;
     },
   ): ApiRecommendation {
     const reason = planned.reasonCode as ReasonCode;
-    const weight = planned.recommendedWeight === null ? null : Number(planned.recommendedWeight);
-    const loadKind = loadKindFor(planned.loadSemantics ?? "external_load", planned, weight);
-    const state = stateForReason(reason);
+    const presentation = storedRecommendationPresentation(
+      { ...planned, loadSemantics: planned.loadSemantics ?? "external_load" },
+      planned.exercise,
+    );
+    const state = presentation.recommendation_state;
+    const loadKind = presentation.load_kind;
     return {
       exercise_id: exerciseId,
-      weight,
+      weight: presentation.recommended_weight,
       reps_low: planned.recommendedReps,
       reps_high: planned.targetRepsHigh,
       sets,
@@ -674,26 +689,6 @@ export class RecommendationService {
       recommended_action: recommendedActionFor(reason, exerciseId, planned.loadSemantics),
     };
   }
-}
-
-/** 저장 행에서 부하 축의 의미를 되살린다. snapshot 이 원천이고 카탈로그를 다시 읽지 않는다. */
-function loadKindFor(
-  loadSemantics: "assistance" | "external_load",
-  planned: { targetTimeHighSec: number | null },
-  weight: number | null,
-): LoadKind {
-  if (loadSemantics === "assistance") return "assistance";
-  if (planned.targetTimeHighSec !== null) return "not_applicable";
-  return weight === null ? "bodyweight" : "external";
-}
-
-/** reason → 상태. 저장 행에는 상태 컬럼이 없어 reason 이 유일한 원천이다. */
-function stateForReason(reason: ReasonCode): RecommendationState {
-  if (reason === "SUBSTITUTE_PAIN") return "substitution_required";
-  if (reason === "INVALID_INPUT") return "unavailable";
-  if (reason === "ASSISTANCE_CALIBRATION_NEEDED" || reason === "LOAD_CALIBRATION_NEEDED")
-    return "load_calibration_needed";
-  return "ready";
 }
 
 /** 암호문 → 숫자 복호화는 서비스 레이어(여기)에서만 한다. repository/prisma 는 string|null 만 다룬다. */

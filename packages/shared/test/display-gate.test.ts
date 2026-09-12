@@ -5,7 +5,7 @@ import {
   displayGateState,
 } from "../src/display-gate";
 
-describe("3-session display gate", () => {
+describe("3-session analysis gate", () => {
   it.each([
     [0, "no_history"],
     [1, "early"],
@@ -16,7 +16,7 @@ describe("3-session display gate", () => {
     expect(displayGateState(count)).toBe(state);
   });
 
-  it("removes display values before the third session", () => {
+  it("removes analysis values before the third session", () => {
     expect(DISPLAY_GATE_SESSION_THRESHOLD).toBe(3);
     expect(applyDisplayGate(2, 80)).toBeNull();
     expect(applyDisplayGate(3, 80)).toBe(80);

@@ -1702,14 +1702,15 @@ export interface components {
       recommended_weight: number | null;
       recommended_reps: number | null;
       /** @example WEIGHT_UP_REP_TARGET_MET */
-      reason_code: string | null;
+      reason_code: string;
+      /** @description ADR-70 분석값. recommendation_gate가 ready가 아니면 null. */
       confidence: number | null;
       rules_version: string;
       /** @enum {string} */
       load_kind: "external" | "bodyweight" | "assistance" | "not_applicable";
-      /** @enum {string|null} */
+      /** @enum {string} */
       recommendation_state:
-        "ready" | "load_calibration_needed" | "substitution_required" | "unavailable" | null;
+        "ready" | "load_calibration_needed" | "substitution_required" | "unavailable";
       /** @enum {string|null} */
       assistance_provenance: "native" | "remediated" | "legacy_performed" | null;
       recommended_action: {
@@ -1719,6 +1720,7 @@ export interface components {
       } | null;
       /** @enum {string|null} */
       assistance_safety_status: "safe" | "unsafe" | null;
+      /** @description analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다. */
       recommendation_gate: components["schemas"]["DisplayGateState"];
       /** @description 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision. */
       source_revision: string;
@@ -1763,7 +1765,8 @@ export interface components {
       time_low_sec?: number | null;
       time_high_sec?: number | null;
       reason_code: string;
-      confidence: number;
+      /** @description ADR-70 분석값. 완료 세션 3회 미만이면 null이며 내부 confidence 0과 구분한다. */
+      confidence: number | null;
       /** @example 최근 3세트 모두 상단·RIR 2 → +2.5kg */
       explanation: string;
       rules_version: string;
@@ -1776,7 +1779,10 @@ export interface components {
       /** Format: date-time */
       computed_at: string;
     };
-    /** @enum {string} */
+    /**
+     * @description ADR-70 analysis-only. confidence·e1RM·추세만 제어하며 처방 상태와 독립이다.
+     * @enum {string}
+     */
     DisplayGateState: "no_history" | "early" | "ready";
     PerformedSetSummary: {
       actual_weight: number | null;
@@ -1787,12 +1793,14 @@ export interface components {
       /** Format: date-time */
       performed_at: string;
     };
+    /** @description gate_state는 분석 축의 호환 필드명이다. recommendation은 실제 처방이 없는 경우에만 null이다. */
     GatedRecommendation: {
       exercise_id: string;
       sample_session_count: number;
       gate_state: components["schemas"]["DisplayGateState"];
       recommendation: components["schemas"]["Recommendation"] | null;
     };
+    /** @description gate_state는 e1RM·points·confidence만 제어한다. next_recommendation을 분석 게이트로 숨기지 않는다. */
     E1rmAnalytics: {
       exercise_id: string;
       sample_session_count: number;
