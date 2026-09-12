@@ -89,12 +89,40 @@ const cardProps = (set: PlannedSet): ExerciseCardProps => ({
   onComplete: vi.fn(),
   onUncomplete: vi.fn(),
 });
+
+it("missing catalog unavailable retains an empty weight input and one error instruction", () => {
+  const set = minimum("missing", "e_dips", {
+    load_kind: "external",
+    recommendation_state: "unavailable",
+    recommended_weight: null,
+    reason_code: "BASELINE",
+    recommended_action: null,
+  });
+  render(<ExerciseCard {...cardProps(set)} exercise={null} />);
+  expect(screen.getAllByText("입력값을 확인한 뒤 다시 시도하세요.")).toHaveLength(1);
+  expect(screen.getByLabelText("어시스트 운동 1세트 무게, 킬로그램")).toHaveProperty("value", "");
+  expect(screen.queryByText("무게 미정")).toBeNull();
+  expect(screen.queryByText(/다음 단계로/)).toBeNull();
+});
 afterEach(() => {
   cleanup();
   onlineManager.setOnline(true);
 });
 
 describe("D01 actual recommendation card", () => {
+  it("explicit calibration overrides a benign reason and stale assistance weight", () => {
+    render(
+      <ExerciseCard
+        {...cardProps(
+          minimum("e_assisted_dips", "e_dips", { recommendation_state: "load_calibration_needed" }),
+        )}
+      />,
+    );
+    expect(screen.getAllByText("기계에서 편한 도움 무게를 직접 정해요")).toHaveLength(1);
+    expect(screen.queryByText("도움 2.5kg")).toBeNull();
+    expect(screen.queryByText(/다음 단계로/)).toBeNull();
+    expect(screen.queryByText("도움을 더 줄이기 어려워요. 현재 도움 무게를 유지해요")).toBeNull();
+  });
   it.each(pairs)(
     "%s consumes the authoritative %s action as passive canonical %s text",
     (id, target, name) => {
@@ -143,9 +171,6 @@ describe("D01 actual recommendation card", () => {
     ["calibration", { recommendation_state: "calibration_needed" }],
     ["unsafe", { assistance_safety_status: "unsafe" }],
     ["missing safety", { assistance_safety_status: undefined }],
-    ["zero samples", { recommendation_gate: "no_history" }],
-    ["one sample", { recommendation_gate: "early" }],
-    ["two samples", { recommendation_gate: "early" }],
   ])(
     "hides concrete target for %s even when a minimum action is incorrectly supplied",
     (_label, patch) => {
@@ -153,6 +178,15 @@ describe("D01 actual recommendation card", () => {
       expect(assistanceAction(set)).toBeNull();
       render(<ExerciseCard {...cardProps(set)} />);
       expect(screen.queryByText(/다음 단계로/)).toBeNull();
+    },
+  );
+  it.each(["no_history", "early", "ready"] as const)(
+    "shows a valid minimum action at analysis %s",
+    (recommendation_gate) => {
+      const set = minimum("e_assisted_dips", "e_dips", { recommendation_gate });
+      expect(assistanceAction(set)).toEqual(set.recommended_action);
+      render(<ExerciseCard {...cardProps(set)} />);
+      expect(screen.getByText(/다음 단계로 딥스를/)).toBeTruthy();
     },
   );
   it("null minimum action retains only neutral weight-maintenance copy", () => {

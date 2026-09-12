@@ -62,8 +62,8 @@ describe("setKind (판별 순서 §5.1)", () => {
     expect(setKind(set)).toBe("time");
   });
 
-  it("recommended_weight null 은 자체중량이다", () => {
-    expect(setKind(plannedSet({ recommended_weight: null }), "reps")).toBe("bodyweight");
+  it("자체중량은 canonical step=null로 판별한다", () => {
+    expect(setKind(plannedSet({ recommended_weight: null }), "reps", null)).toBe("bodyweight");
   });
 
   it("서버 gate로 추천이 null이어도 카탈로그 step이 있으면 무게 입력 운동이다", () => {
@@ -274,5 +274,22 @@ describe("formatKg", () => {
   it("정수면 소수점을 생략한다", () => {
     expect(formatKg(60)).toBe("60kg");
     expect(formatKg(62.5)).toBe("62.5kg");
+  });
+});
+
+describe("SIMILAR_INIT reference prescription", () => {
+  it("keeps weighted inputs and exact 45kg / 6 reps prefill", () => {
+    const set = plannedSet({
+      reason_code: "SIMILAR_INIT",
+      recommended_weight: 45,
+      recommended_reps: 6,
+      recommendation_gate: "no_history",
+      confidence: null,
+    });
+    expect(setKind(set, "reps", 2.5)).toBe("weighted");
+    expect(setPrefill("weighted", set)).toEqual({ weight: 45, reps: 6, timeSec: null });
+    expect(reasonLabel(set.reason_code, "weighted", set)).toBe(
+      "비슷한 종목 기록으로 잡은 참고값이에요",
+    );
   });
 });

@@ -28,7 +28,7 @@
 | D-36 | 근비대 권장 범위는 10~20 hard sets, 다이어트는 8~14다. 스트렝스는 승인된 근육별 범위가 없어 실제값만 표시하고 범위 경고를 만들지 않는다. |
 | D-37 | `programs`에 `started_at`, `total_weeks=12`, `status`와 신규 생성부터 재생성 입력을 보존한다. 12주 세션을 사전 생성하지 않는다. 주차는 `started_at`과 UTC 오늘로 계산하고, 실제 생성 세션 + 아직 생성하지 않은 미래 주차 `scheduled` 표현을 합성한다. 레거시는 기존 `template` 스냅샷을 lazy 생성 원천으로 쓰므로 lifecycle backfill은 `started_at` 설정만으로 충분하다. 복원 불가능한 옛 generation input을 추측해 채우지 않는다. |
 | D-38 | `/analytics` 3종을 실제 구현하고, e1RM observation, 주별 volume, 날짜별 completion/session summary를 반환한다. 완료 세션 상세는 기존 `GET /sessions/{id}`에 실제 수행값을 붙인다. `/sync` cursor를 이력 조회에 재사용하지 않는다. |
-| D-39 | 게이트 구현은 오직 `packages/shared/display-gate.ts` 한 파일이다. 서버가 종목별 distinct 완료 세션 수로 게이트를 적용한 응답을 내려주며 웹은 서버 결과를 신뢰한다. 오프라인 mirror만 같은 모듈로 판정하고, 서버 응답 도착 시 서버가 권위다. |
+| D-39 | 분석 게이트는 `packages/shared/src/display-gate.ts` 한 파일이다(ADR-70). 처방은 `recommendation-state.ts`의 OR 정규화를 서버 mapper와 Dexie가 공유한다. 서버 응답이 권위다. |
 | D-40 | 4탭 IA는 별도 선행 티켓 T-UI-3으로 먼저 만든다. 오늘/기록/프로그램/내 정보 네 경로를 제공하며 내 정보는 비민감 프로그램 설정의 읽기 전용 최소 화면이다. |
 | D-41 | 홈 상태 중 미수행/진행/완료/부분/휴식/프로그램 없음은 실제 세션과 세트로 파생한다. 계획 충돌은 같은 날짜의 계획/실제 불일치, 공백 복귀는 마지막 완료 뒤 계획 세션 누락을 표시만 하며 추천 감량 수식은 바꾸지 않는다. |
 | D-42 | ADR-24를 유지한다. 계획 충돌·볼륨 범위 이탈은 읽기 전용 경고만 제공하고 세션 재배치나 다음 주 세션 추가 mutation은 만들지 않는다. |
@@ -46,26 +46,15 @@
    corrected RIR bias는 0이고, 아직 존재하지 않는 캘리브레이션 값을 추측하지 않는다.
 7. `avg_rir`은 RIR 입력이 한 건도 없는 근육/주에는 `null`이다. 결측을 0으로 만들지 않는다.
 
-## 4. 3세션 표시 게이트
+## 4. 처방과 3세션 분석 게이트 (ADR-70 구현)
 
-> **V2에서 대체된다 — ADR-70. 아래는 현재 코드가 실제로 하는 동작이다(V1).**
-> V2는 게이트를 두 축으로 쪼갠다. `recommendation_state`
-> (`ready|load_calibration_needed|substitution_required|unavailable`)는 **처방 적용 가능성**을 제어하고,
-> analysis 축(기존 `gate_state`·`recommendation_gate` 필드를 이름 그대로 유지하되 의미를 좁힌 것)이
-> e1RM·points·`confidence`를 제어한다. 네 값 중 **`load_calibration_needed`만이 external weight `null`을
-> 제어하는 load substate**이고, `substitution_required`·`unavailable`은 처방 수행 자체를 막는 safety/error
-> 상태다. 즉 `early`에서도 **`recommended_reps`와 `reason_code`는 응답에 남는다** —
-> external 첫 세션은 무게만 `null`이고 target reps와 `LOAD_CALIBRATION_NEEDED` reason은 반환한다.
-> 응답별 required/nullable 매트릭스는 `docs/PROGRAM_V2_CONTRACT.md` §1.1이다.
-> 이 절의 교체는 V2-GATE-01에서 코드와 함께 한다. 그 전까지 이 문서를 V2 기준으로 읽지 않는다.
-
-- 단위: 종목별 **distinct 완료 세션**, 임계값 3. 세트 수가 아니다.
-- `no_history`: observation 0, e1RM 추이와 다음 추천 없음.
-- `early`: observation 1~2, 날짜 observation만 제공하고 e1RM 수치/선/다음 추천/추천 근거는 서버 응답에서 제거한다.
-- `ready`: observation 3 이상, e1RM points와 게이트된 다음 추천을 제공한다.
-- 온라인 웹은 `gate_state`와 nullable/empty payload를 그대로 렌더한다. 다시 판정하지 않는다.
-- 오프라인 provisional 데이터만 공용 `display-gate.ts`로 판정하고 서버 결과가 오면 교체한다.
-
+- 처방은 `recommendation_state` 4값으로 해석한다. 첫 완료 세션부터 다음 무게·반복·근거·action을 공개한다.
+- external 첫 세션은 무게만 `null`이며 목표 반복을 제공한다. V1 `BASELINE + 0` 저장값은 보존하고 wire에서 `load_calibration_needed + null`로 정규화한다. V1 reason은 `BASELINE`을 유지한다.
+- 분석은 종목별 distinct 완료 세션 3회부터 공개한다. `no_history`는 0회, `early`는 1~2회, `ready`는 3회 이상이다. 첫 두 상태에서 confidence는 null, e1RM points는 빈 배열이며 추세/연결선을 표시하지 않는다.
+- 기존 `recommendation_gate`·`gate_state` 이름은 /v1 호환용으로 유지한다. 의미는 analysis-only이며 추천 객체를 null로 만드는 조건이 아니다.
+- shared `recommendation-state.ts`의 reason OR state 정규화를 서버 응답과 Dexie read/write가 공유한다. 미러는 read-normalize-rewrite로 고친다.
+- `local_ids`의 로컬 provisional은 state/load_kind를 만들지 않는다. 권위 mapping 도착 시 required 상태를 받는다. F 안전 predicate와 snapshot은 그대로 유지한다.
+- 원천: `PROGRAM_V2_CONTRACT.md` §1~§1.3. 상태별 단일 문구는 `UX_STATES.md` §5.2.
 ## 5. 12주 lazy lifecycle
 
 - `started_at`: 프로그램이 시작된 UTC 날짜. 신규 프로그램은 생성 당시 주의 월요일이다.
@@ -135,7 +124,7 @@ red suite는 501 하나로 전부 실패하면 무효다. 최소 다음 축을 �
 |---|---|---|
 | 헤더 | 좌 `오늘`, 우 `8.09 토 · 3주차`(10px mono) | 실제 UTC 오늘과 D-37 `current_week`로 생성. 하드코딩 금지 |
 | 프로그램 없음 | 1.5px 강조 카드; `프로그램 없음` → `주 몇 회 운동할지만 정하면 오늘 할 일이 생깁니다`; 12.5px 설명; `프로그램 만들기` 44px | 실제 program 없음에서 동일 hierarchy/copy. 아래 ad-hoc 진입 CTA는 제외(D-45~D-47) |
-| 빈 상태 안내 | `만들고 나면` 카드, 01 요일 계획 / 02 `세 세션` 뒤 추천·e1RM / 03 리듬·볼륨 | `세 세션`을 유지. D-39와 같은 종목별 distinct 완료 세션 3회임을 테스트로 고정 |
+| 빈 상태 안내 | `만들고 나면` 카드, 01 요일 계획 / 02 추천은 한 세션·e1RM은 세 세션 / 03 리듬·볼륨 | `세 세션`을 유지. D-39와 같은 종목별 distinct 완료 세션 3회임을 테스트로 고정 |
 | 오늘 카드 | 강조 border, padding 13px; kicker+상태 chip 한 줄, 제목 20px, 설명 12px, 종목 리스트, CTA | 세션 사실에서 미수행/진행/완료/부분/휴식/없음을 서버 view model로 파생(D-41). 문자열을 상태별 고정 계약으로 사용 |
 | 미수행 | `오늘 수행할 운동` / `12세트 예정` / `상체 밀기 · 4종목` / `세션 시작` | 실제 planned count·routine·첫 recommendation 사용. recommendation nullable이면 값 문구를 숨김 |
 | 진행 | `진행 중인 세션 · 기기에 저장됨` / `5세트 기록됨` / `이어하기` / 보조 `오늘은 여기까지` | Dexie mirror의 local pending 상태를 표시하고 서버 권위 도착 후 교체. count는 실제 completed sets |
@@ -153,7 +142,7 @@ red suite는 501 하나로 전부 실패하면 무효다. 최소 다음 축을 �
 | 기본 IA | 제목 `기록`, 우측 종목명; content `12px 16px 16px`; 최근 수행 순서의 horizontal exercise chips | `/history`에서 종목별 추이를 기본으로 표시하고 선택 종목을 URL/상태로 보존 |
 | 전체 빈 상태 | `기록 0회`; 19px `첫 세션을 마치면 여기에 추이가 쌓입니다`; `시작하는 법` 01~03; CTA 2개 | 03은 `세 세션`으로 수정. `예전 기록 직접 입력`은 R-21 defer라 제외(D-47); 오늘 세션 링크만 제공 |
 | e1RM 카드 | 강조 border; kicker `추정 1RM · 5주`; delta 11px; 값 `36px` mono; SVG `326×118`, 선 primary 2px, grid 1px | ready에서만 observation chart. point·축은 서버 정렬 그대로, 공백 구간은 선을 잇지 않음 |
-| 1~2회 early | 원본은 `기록 N회` 차트/최신 e1RM과 `지금 알 수 있는 것`의 `다음 추천`·근거까지 노출 | D-39 우선: e1RM 값/선/다음 추천/근거 모두 숨김. 완료 세션 observation 날짜·실제 수행만 표시(D-45) |
+| 1~2회 early | 원본은 `기록 N회` 차트/최신 e1RM과 `지금 알 수 있는 것`의 `다음 추천`·근거까지 노출 | ADR-70: e1RM 값/선/confidence만 숨김. 완료 날짜·실제 수행·다음 추천/근거 표시 |
 | 공백 구간 | `4주간 기록이 없습니다`; 차트 선을 양쪽 segment로 끊고 회색 gap rect/dashed bounds | 실제 observation 날짜 간 공백을 결정론적으로 계산. 감량 추천 수식은 만들지 않고 설명만 제공 |
 | 최근 세션 | 카드 제목 `최근 세션`; 날짜/교체 tag/무게 한 줄, 반복/RIR 둘째 줄; 내부 divider | completion/session detail 실제 데이터. 정렬 completed_at desc + stable id tie-break |
 | 예정 종목 | `아직 수행 전`; 예정일·`시작 무게` 참고값; `오늘 세션으로 앞당기기` | 계획/참고값은 읽기 전용. inline 앞당기기 mutation은 제외하고 활성 세션이 있으면 그 화면 링크만 제공(D-49) |
@@ -183,7 +172,7 @@ D-47~D-49도 2026-08-16 제품 오너 승인으로 확정됐다. 다섯 결정 �
 
 | 결정 | 발견된 충돌 | 권장 처리 |
 |---|---|---|
-| D-45 | 홈은 `세 세션`, 기록 빈/early는 `세 세트`·2회 상태의 다음 추천/e1RM을 노출한다 | **D-39 우선**. 전부 종목별 distinct 완료 세션 3회로 통일하고 early 값/추천/근거를 구조적으로 숨긴다 |
+| D-45 | 홈은 `세 세션`, 기록 빈/early는 `세 세트`·2회 상태의 다음 추천/e1RM을 노출한다 | **D-39 우선**. 전부 종목별 distinct 완료 세션 3회로 통일하고 early 분석 값/선을 구조적으로 숨기고 처방은 공개한다(ADR-70) |
 | D-46 | 홈 계획 충돌 원본은 이어 붙이기·미루기·건너뛰기와 `이대로 반영` mutation을 제공한다 | **D-42 우선**. 충돌/볼륨 영향은 읽기 전용 경고만 표시하고 재배치 mutation을 만들지 않는다 |
 | D-47 **확정** | 홈 `프로그램 없이 … 기록`은 M-UIa D-1에서 제거 확정, 기록 `예전 기록 직접 입력`은 ADR-38/R-21과 충돌한다 | 두 CTA 모두 제외. M-UIa D-1·D-43과 일치시키고 현재 세션/프로그램 생성의 승인된 경로만 제공한다 |
 | D-48 **확정** | 주간 헤더의 `무료`는 실제 결제 상태처럼 보이나 결제·구독은 M-7′ 범위다 | TEST_SCOPE의 결제 보류를 따른다. 결제·가입 chip을 생략하고 M-7′에서 페이월과 실제 구독 상태를 함께 도입한다 |
@@ -198,9 +187,7 @@ D-47~D-49도 2026-08-16 제품 오너 승인으로 확정됐다. 다섯 결정 �
 - D-37 migration은 `started_at`을 earliest session 주(없으면 `created_at` 주)로 채우고 `total_weeks=12`,
   `status`, nullable `generation_input`을 추가한다. 신규 POST는 세션 0행으로 시작하고 첫 조회에서 현재+다음
   주만 만든다. 레거시 `generation_input IS NULL` 프로그램도 저장된 template만으로 같은 lazy 경로를 쓴다.
-- D-39의 판정 함수는 `packages/shared/src/display-gate.ts` 하나다. 세션 상세·완료 추천·analytics·dashboard와
-  D-31 sync mapping 응답까지 서버가 distinct 완료 세션 수로 gate한 값을 내려준다. 웹 요약은 nullable
-  recommendation을 그대로 신뢰하며 자체 임계값 판정을 하지 않는다.
+- ADR-70 분석 판정 함수는 `packages/shared/src/display-gate.ts` 하나다. confidence·e1RM·추세만 종목별 완료 3회 게이트를 받는다. 세션 상세·완료 추천·sync mapping의 처방은 상태 정규화 후 공개한다. 웹은 분석 임계값을 재계산하지 않는다.
 - Sprint 0의 4개 intentional-red 계약은 `m4-server-contract.spec.ts` 일반 게이트로 승격했다. volume과
   completion 실응답도 각각 OpenAPI 키셋까지 검사한다.
 - `analytics-determinism.spec.ts`는 고정 source fact를 정방향/역방향으로 DB에 넣은 두 API 응답의

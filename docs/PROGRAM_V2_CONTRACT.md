@@ -3,7 +3,7 @@
 승인: 사람 결정 2026-08-23 (Claude 초안 + Codex 검토 합의)
 관련 ADR: **ADR-70**(게이트 축 분리·ADR-47 대체), **ADR-71**(제품정책 vs 근거 표기), **ADR-72**(RPE scale id)
 
-이 문서는 V2 계약의 **원천**이다. 코드는 아직 V1이며, 각 절 끝의 `구현 티켓`이 이 계약을 코드로 옮긴다.
+이 문서는 V2 계약의 **원천**이다. 표시 게이트 §1은 V2-GATE-01에서 구현되었다. 활성 rules bundle은 V1이며, 각 절 끝의 `구현 티켓`이 나머지 계약을 코드로 옮긴다.
 **이 문서와 현재 코드가 다르면 코드가 아직 안 따라온 것이다.** 그 반대가 아니다.
 
 ## 0. 이 계약이 반드시 지키는 3문장
@@ -82,7 +82,7 @@ analysis_gate        = no_history | early | ready        # 통계 추정을 보�
 | `ready` | 현재 운동 처방의 **적용 가능한 축이 준비됨** |
 | `load_calibration_needed` | external load만 미정이며 **target reps로 보정 가능** |
 | `substitution_required` | 통증 가드레일로 현재 운동을 중단하고 **무통 대체가 필요** |
-| `unavailable` | 잘못된 입력 또는 **필수 카탈로그 메타데이터 부재**로 안전한 처방을 만들 수 없음 |
+| `unavailable` | 잘못된 입력·필수 카탈로그 메타데이터 부재 또는 구형 캐시의 처방 신호 부재로 안전한 처방을 확인할 수 없음 |
 
 **정규화 우선순위 — 명시 state와 reason을 `OR`로 결합해 위에서부터 판정한다.**
 
@@ -103,6 +103,11 @@ analysis_gate        = no_history | early | ready        # 통계 추정을 보�
 - V1 `BASELINE`이고 canonical exercise가 **external**이며 `weight`가 `0 | null`이면 3번 항목으로 판정한다
   (`load_calibration_needed`).
 - bodyweight·time baseline과 유효한 이력 처방은 4번(`ready`)이다.
+- 구형 표시 게이트가 `state`·`reason`·`weight`를 **모두 `null` 또는 누락**으로 남긴 캐시는
+  modality가 알려져 있어도 `unavailable`이다(네 load kind 모두 동일). 세 신호가 모두 부재한
+  경우만 해당하며 명시 통증·오류·캘리브레이션 우선순위, 명시 `ready`, 정상 `BASELINE`은 보존한다.
+  읽을 때 상태만 보수적으로 수선하고, 최신 authoritative 응답이 미러를 대체하면 정상 처방으로
+  회복한다. 이 수선·회복은 performed 사실·draft·outbox를 변경하지 않는다.
 - **필수 metadata 부재로 위 판별 자체가 불가능하면 `unavailable`로 fail closed**한다. 필드가 없는 구형 PWA
   mirror에서 canonical exercise metadata조차 없는 경우가 여기다. **추측해서 `ready`로 떨어뜨리지 않는다.**
 - 명시 state 값은 그대로 쓰지 않더라도 **enum 유효성은 검증**한다. 알 수 없는 문자열은 신호로 취급하지 않는다.
@@ -138,6 +143,9 @@ analysis_gate        = no_history | early | ready        # 통계 추정을 보�
   reason만 보도록** 바뀌어도 전부 통과한다(benign한 `BASELINE`이 `ready`로 흘러간다).
   ③만 있으면 반대로 "명시 state 선사용"으로 되돌아가도 통과한다.
   `OR` 결합 계약은 **양방향 fixture가 모두 있어야** 방어된다.
+
+  **④ 배포 호환 회귀** — 네 load kind 각각의 null/누락 처방 신호 8종과
+  구형 null 미러 수선 → 최신 authoritative 응답 회복·performed/draft/outbox 불변을 검증한다.
 
 ### 1.3 `recommendation_state`가 실리는 위치
 
@@ -602,7 +610,7 @@ TIME_UP  TIME_HOLD  TIME_DOWN
 
 | 예약 코드 | 막고 있는 것 | 소유 |
 |---|---|---|
-| `SIMILAR_INIT` | 유사 운동 e1RM 입력 | 별도 기능 티켓 |
+| `SIMILAR_INIT` — SIM-01/02로 이동 | SIM-01에서 입력·계산식·골든 계약 동결, SIM-02에서 runtime 승격(위 16/4종은 V2-REASON-01 완료 시점) | `SIM-01` / `SIM-02` |
 | `VOLUME_SPIKE_CAP` | 엔진 입력 채널 + **오프라인 미러 대책**(집계 `muscle_weekly_load` 는 이미 있음) | `V2-PLAN-02` |
 | `DELOAD_SUGGESTED` | 다세션 추세·피로 입력 | P3 회복 주간 |
 | `CALIBRATION_STALE` | **stale 정책 사람 승인** | 승인 후 별도 티켓 |

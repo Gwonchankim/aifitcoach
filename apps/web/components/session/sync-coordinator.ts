@@ -15,6 +15,7 @@ import {
   type OutboxMutation,
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
+import { normalizeSessionRecommendations } from "./recommendation-mirror";
 import { remapPositionsInTransaction } from "./session-position";
 import {
   acknowledgeAppendsInTransaction,
@@ -493,7 +494,11 @@ export class SyncCoordinator {
       if (changed)
         await sessionDb.sessions.put({
           ...mirror,
-          session: { ...mirror.session, planned_sets },
+          session: normalizeSessionRecommendations(
+            { ...mirror.session, planned_sets },
+            [],
+            localIds,
+          ),
           updated_at: new Date(this.clock.now()).toISOString(),
           ...(localIds.size > 0 ? { local_ids: [...localIds] } : { local_ids: undefined }),
           ...(mirror.append_ids

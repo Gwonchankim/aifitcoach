@@ -384,7 +384,7 @@ async function preparePendingAppend() {
       reason: null,
     },
     confidence: 0.3,
-    recommendation_state: null,
+    recommendation_state: "ready" as const,
     assistance_provenance: null,
     assistance_safety_status: null,
     recommended_action: null,

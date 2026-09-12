@@ -34,7 +34,7 @@ function row(n = 1, patch: Partial<AppendRow> = {}): AppendRow {
     confidence: 0.3,
     rules_version: "2026.08.1",
     load_kind: "external",
-    recommendation_state: null,
+    recommendation_state: "ready" as const,
     recommended_action: null,
     assistance_provenance: null,
     assistance_safety_status: null,
@@ -270,11 +270,11 @@ describe("append copy eligibility and fixed source", () => {
           assistance_provenance: "native",
           assistance_safety_status: "safe",
           recommendation_gate,
-          recommended_weight: recommendation_gate === "ready" ? 20 : null,
-          recommended_reps: recommendation_gate === "ready" ? 9 : null,
-          reason_code: recommendation_gate === "ready" ? "ASSISTANCE_DOWN_REP_TARGET_MET" : null,
+          recommended_weight: 20,
+          recommended_reps: 9,
+          reason_code: "ASSISTANCE_DOWN_REP_TARGET_MET",
           confidence: recommendation_gate === "ready" ? 0.8 : null,
-          recommendation_state: recommendation_gate === "ready" ? "ready" : null,
+          recommendation_state: "ready",
         });
         const entry = create({ ...context([source]), exercise_id });
         for (const field of [

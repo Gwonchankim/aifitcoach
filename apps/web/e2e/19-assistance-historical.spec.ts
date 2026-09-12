@@ -149,45 +149,34 @@ function assertWire(set: PlannedSet, mode: Mode, sample: number) {
     target_time_low_sec: null,
     target_time_high_sec: null,
     recommendation_gate: sample === 0 ? "no_history" : sample < 3 ? "early" : "ready",
-    ...(sample < 3
+    ...(mode === "external"
       ? {
-          recommended_weight: null,
-          recommended_reps: null,
-          reason_code: null,
-          confidence: null,
-          recommendation_state: null,
+          recommended_weight: 56.25,
+          recommended_reps: 9,
+          reason_code: "ASSISTANCE_MINIMUM_REACHED",
+          confidence: sample < 3 ? null : 0.63,
+          recommendation_state: "ready",
           recommended_action: null,
         }
-      : mode === "external"
-        ? {
-            recommended_weight: 56.25,
-            recommended_reps: 9,
-            reason_code: "ASSISTANCE_MINIMUM_REACHED",
-            confidence: 0.63,
-            recommendation_state: "ready",
-            recommended_action: null,
-          }
-        : {
-            recommended_weight: null,
-            recommended_reps: 9,
-            reason_code: "ASSISTANCE_CALIBRATION_NEEDED",
-            confidence: 0,
-            recommendation_state: "load_calibration_needed",
-            recommended_action: null,
-          }),
+      : {
+          recommended_weight: null,
+          recommended_reps: 9,
+          reason_code: "ASSISTANCE_CALIBRATION_NEEDED",
+          confidence: sample < 3 ? null : 0,
+          recommendation_state: "load_calibration_needed",
+          recommended_action: null,
+        }),
   });
   expect(set.performed_set).toBeNull();
 }
-async function assertInputs(page: Page, set: PlannedSet, mode: Mode, sample: number) {
+async function assertInputs(page: Page, set: PlannedSet, mode: Mode) {
   await expect(row(page, set.id)).toHaveCount(1);
   await expect(input(page, set.id, "weight")).toHaveAttribute(
     "placeholder",
     mode === "external" ? "무게" : "도움",
   );
-  await expect(input(page, set.id, "weight")).toHaveValue(
-    mode === "external" && sample === 3 ? "56.25" : "",
-  );
-  await expect(input(page, set.id, "reps")).toHaveValue(sample === 3 ? "9" : "");
+  await expect(input(page, set.id, "weight")).toHaveValue(mode === "external" ? "56.25" : "");
+  await expect(input(page, set.id, "reps")).toHaveValue("9");
   await expect(page.getByText(/^다음 단계로 .*을?를? 고려해 보세요/)).toHaveCount(0);
 }
 
@@ -227,8 +216,7 @@ test.describe("M4 historical INSERT fixture: display gate only, scheduled target
         id = setup.sessionId;
         for (const target of setup.targets) assertWire(target, scenario.mode, scenario.sample);
         await openSession(page, id);
-        for (const target of setup.targets)
-          await assertInputs(page, target, scenario.mode, scenario.sample);
+        for (const target of setup.targets) await assertInputs(page, target, scenario.mode);
         const initial = await appendObservation(page, id);
         evidence.initialLocal = initial;
         expect(initial.drafts).toEqual([]);
@@ -311,7 +299,7 @@ test.describe("M4 historical INSERT fixture: display gate only, scheduled target
           expect(child.set_no).toBe(2);
           expect(child.correlation_id).toBe(mutation.payload.correlation_id);
           assertWire(child, scenario.mode, scenario.sample);
-          await assertInputs(page, child, scenario.mode, scenario.sample);
+          await assertInputs(page, child, scenario.mode);
           appended.push(child);
         }
         await expect.poll(async () => (await appendObservation(page, id!)).outbox.length).toBe(0);
@@ -330,7 +318,7 @@ test.describe("M4 historical INSERT fixture: display gate only, scheduled target
         }
         await page.reload();
         for (const set of [...setup.targets, ...appended])
-          await assertInputs(page, set, scenario.mode, scenario.sample);
+          await assertInputs(page, set, scenario.mode);
         await expect
           .poll(async () => (await appendObservation(page, id!)).position?.position)
           .toEqual(committed.position?.position);

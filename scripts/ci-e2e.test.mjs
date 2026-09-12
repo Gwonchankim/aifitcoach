@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { phases, phaseArgs } from "./ci-e2e.mjs";
 
 test("both browsers retain separate native and historical fresh-principal phases", () => {
-  assert.equal(phases.length, 7);
-  assert.equal(new Set(phases.map((phase) => phase.name)).size, 7);
+  assert.equal(phases.length, 8);
+  assert.equal(new Set(phases.map((phase) => phase.name)).size, 8);
   for (const project of ["chromium-mobile", "webkit-ios"]) {
     for (const spec of ["18-assistance-append.spec.ts", "19-assistance-historical.spec.ts"]) {
       assert.equal(
@@ -13,6 +13,13 @@ test("both browsers retain separate native and historical fresh-principal phases
       );
     }
   }
+});
+
+test("similar-init journey runs once with its own principal", () => {
+  const selected = phases.filter((phase) => phase.args.includes("20-similar-init.spec.ts"));
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].project, "chromium-mobile");
+  assert.notEqual(selected[0].core, true);
 });
 
 test("core selection includes 00 through 17 on both OS paths, excludes fresh-principal specs", () => {

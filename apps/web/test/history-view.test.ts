@@ -43,25 +43,25 @@ function analytics(gate_state: E1rmAnalytics["gate_state"]): E1rmAnalytics {
 }
 
 describe("server-authoritative history display gate", () => {
-  it("0회는 값·선·추천을 모두 숨긴다", () => {
+  it("0회에도 존재하는 처방은 공개하고 분석 값·선은 숨긴다", () => {
     expect(historyVisibility(analytics("no_history"))).toEqual({
       showObservationDots: false,
       showTrendLine: false,
       showE1rmValues: false,
-      showRecommendation: false,
+      showRecommendation: true,
     });
   });
 
-  it("1~2회는 observation 점만 보이고 값·선·42.5kg 추천을 구조적으로 숨긴다", () => {
+  it("1~2회는 observation 점과 다음 추천을 보이고 분석 값·선은 숨긴다", () => {
     expect(historyVisibility(analytics("early"))).toEqual({
       showObservationDots: true,
       showTrendLine: false,
       showE1rmValues: false,
-      showRecommendation: false,
+      showRecommendation: true,
     });
   });
 
-  it("3회 이상 ready에서만 추이와 서버 추천을 연다", () => {
+  it("3회 이상 ready에서는 추이도 연다", () => {
     expect(historyVisibility(analytics("ready"))).toEqual({
       showObservationDots: false,
       showTrendLine: true,

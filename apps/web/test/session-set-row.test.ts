@@ -335,4 +335,44 @@ describe("운동 카드", () => {
     expect(html).not.toContain("벤치프레스 메뉴");
     expect(html).not.toContain('role="menu"');
   });
+  it.each(["no_history", "early", "ready"] as const)(
+    "SIMILAR_INIT: %s uses one reference badge and one helper paragraph",
+    (recommendation_gate) => {
+      const html = card({
+        sets: sets.map((set) => ({
+          ...set,
+          reason_code: "SIMILAR_INIT",
+          recommended_weight: 45,
+          recommended_reps: 6,
+          recommendation_gate,
+        })),
+      });
+      expect((html.match(/aria-label="유사 운동 기록 기반 참고값"/g) ?? []).length).toBe(1);
+      expect(visibleText(html)).toContain("참고값");
+      expect(visibleText(html)).toContain("비슷한 종목 기록으로 잡은 참고값이에요");
+      expect(
+        (
+          html.match(
+            /<p[^>]*>비슷한 종목 기록으로 잡은 값이에요. 다음 세션부터 실제 기록으로 조정돼요.<\/p>/g,
+          ) ?? []
+        ).length,
+      ).toBe(1);
+      expect(html).toContain('value="45"');
+      expect(html).toContain('value="6"');
+      expect(html).not.toContain("참고값으로 시작");
+      expect(html).not.toContain("첫 세트 후");
+      expect(html).not.toContain("추천 무게가 아직 없어요");
+    },
+  );
+
+  it.each(["BASELINE", "ADD_ONE_REP", "TOO_HARD"])(
+    "%s does not acquire a reference badge or helper",
+    (reason_code) => {
+      const html = card({
+        sets: sets.map((set) => ({ ...set, reason_code, recommended_weight: 45 })),
+      });
+      expect(html).not.toContain("유사 운동 기록 기반 참고값");
+      expect(html).not.toContain("다음 세션부터 실제 기록으로 조정돼요");
+    },
+  );
 });

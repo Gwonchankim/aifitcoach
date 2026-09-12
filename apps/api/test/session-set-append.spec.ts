@@ -185,8 +185,8 @@ describe("session set append direct API / raw reader / receipt atomicity", () =>
       source_revision: sourceRevision(source),
       correlation_id: null,
       recommendation_gate: "no_history",
-      recommended_weight: null,
-      reason_code: null,
+      recommended_weight: 56.25,
+      reason_code: "BASELINE",
       append_eligibility: {
         version: 1,
         source_revision: sourceRevision(source),
@@ -371,7 +371,10 @@ describe("session set append direct API / raw reader / receipt atomicity", () =>
         performed_set: null,
         append_eligibility: { status: "allowed", reason: null },
         recommendation_gate: "no_history",
-        recommended_action: null,
+        recommended_action:
+          raw.reasonCode === "ASSISTANCE_MINIMUM_REACHED"
+            ? { kind: "suggest_exercise_swap", exercise_id: "e_dips" }
+            : null,
       });
       await noFacts(session.id);
     },

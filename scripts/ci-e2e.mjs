@@ -25,6 +25,7 @@ export const phases = [
   { name: "historical-c", project: "chromium-mobile", args: ["19-assistance-historical.spec.ts"] },
   { name: "native-w", project: "webkit-ios", args: ["18-assistance-append.spec.ts"] },
   { name: "historical-w", project: "webkit-ios", args: ["19-assistance-historical.spec.ts"] },
+  { name: "similar-c", project: "chromium-mobile", args: ["20-similar-init.spec.ts"] },
 ];
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

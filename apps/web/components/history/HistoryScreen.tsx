@@ -295,7 +295,7 @@ export function HistoryScreen({ initialExerciseId }: { initialExerciseId?: strin
             첫 세션을 마치면 여기에 추이가 쌓입니다
           </h2>
           <p className="text-sm text-ink-2">
-            같은 종목을 세 세션 완료하면 추정 1RM과 다음 추천을 보여드려요.
+            다음 추천은 한 세션부터, 추정 1RM과 추이는 세 세션부터 보여드려요.
           </p>
           <Link
             className="flex min-h-12 items-center justify-center rounded-control bg-action px-4 font-semibold text-action-fg"
@@ -364,7 +364,7 @@ export function HistoryScreen({ initialExerciseId }: { initialExerciseId?: strin
                 <h2 className="mt-1 text-xl font-bold text-fg">세 세션부터 추이를 연결해요</h2>
               </div>
               <ObservationDots analytics={analytics.data.data} />
-              <p className="text-sm text-ink-2">지금은 완료한 날짜와 실제 수행만 보여드려요.</p>
+              <p className="text-sm text-ink-2">완료한 날짜와 실제 수행 기록을 보여드려요.</p>
             </Card>
           ) : null}
 
@@ -383,12 +383,13 @@ export function HistoryScreen({ initialExerciseId }: { initialExerciseId?: strin
                 </p>
               </div>
               <TrendChart analytics={analytics.data.data} />
-              {visibility.showRecommendation && analytics.data.data.next_recommendation ? (
-                <div className="border-t border-border-weak pt-3 text-sm text-ink-2">
-                  <p className="font-semibold text-fg">다음 추천</p>
-                  <p className="mt-1">{analytics.data.data.next_recommendation.explanation}</p>
-                </div>
-              ) : null}
+            </Card>
+          ) : null}
+
+          {visibility?.showRecommendation && analytics.data.data.next_recommendation ? (
+            <Card density="tight" className="text-sm text-ink-2">
+              <p className="font-semibold text-fg">다음 추천</p>
+              <p className="mt-1">{analytics.data.data.next_recommendation.explanation}</p>
             </Card>
           ) : null}
 
