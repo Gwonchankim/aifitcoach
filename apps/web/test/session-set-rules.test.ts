@@ -276,3 +276,20 @@ describe("formatKg", () => {
     expect(formatKg(62.5)).toBe("62.5kg");
   });
 });
+
+describe("SIMILAR_INIT reference prescription", () => {
+  it("keeps weighted inputs and exact 45kg / 6 reps prefill", () => {
+    const set = plannedSet({
+      reason_code: "SIMILAR_INIT",
+      recommended_weight: 45,
+      recommended_reps: 6,
+      recommendation_gate: "no_history",
+      confidence: null,
+    });
+    expect(setKind(set, "reps", 2.5)).toBe("weighted");
+    expect(setPrefill("weighted", set)).toEqual({ weight: 45, reps: 6, timeSec: null });
+    expect(reasonLabel(set.reason_code, "weighted", set)).toBe(
+      "비슷한 종목 기록으로 잡은 참고값이에요",
+    );
+  });
+});

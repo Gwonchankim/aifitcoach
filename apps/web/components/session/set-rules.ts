@@ -156,7 +156,12 @@ export function weightAxisLabel(set: PlannedSet): string {
 }
 
 /** 무게 배지 문구. 숫자 무게는 배지 대신 입력칸 프리필로 보여준다. */
-export function weightBadge(kind: SetKind): { text: string; label: string } | null {
+export function weightBadge(
+  kind: SetKind,
+  set?: PlannedSet,
+): { text: string; label: string } | null {
+  if (set?.reason_code === "SIMILAR_INIT")
+    return { text: "참고값", label: "유사 운동 기록 기반 참고값" };
   if (kind === "bodyweight") return { text: "자체중량", label: "자체중량 운동, 무게 입력 없음" };
   if (kind === "unknown_weight") return { text: "무게 미정", label: "추천 무게 없음, 직접 입력" };
   return null;
@@ -295,6 +300,7 @@ export function targetLabel(kind: SetKind, set: PlannedSet): string {
  * 보정 안내는 상태 문구와 같은 원천이며 카드에서는 한 번만 렌더한다(ADR-70).
  */
 const REASON_TEXT: Record<string, string> = {
+  SIMILAR_INIT: "비슷한 종목 기록으로 잡은 참고값이에요",
   LOAD_CALIBRATION_NEEDED: LOAD_CALIBRATION_COPY,
   BASELINE: "첫 세션이라 무게를 직접 정해요",
   WEIGHT_UP_REP_TARGET_MET: "지난번 목표 반복을 모두 채워서 무게를 올렸어요",

@@ -93,7 +93,9 @@ export function ExerciseCard({
     sets[0] && isRecommendationSafetyState(sets[0])
       ? null
       : ((sets[0] ? assistanceBadge(sets[0]) : null) ??
-        (sets[0]?.load_kind === "assistance" ? null : weightBadge(kinds[0] ?? "weighted")));
+        (sets[0]?.load_kind === "assistance"
+          ? null
+          : weightBadge(kinds[0] ?? "weighted", sets[0])));
   const note = sets[0] ? recommendationNote(sets[0]) : null;
   const menuId = `exercise-${sets[0]?.exercise_id ?? "unknown"}-menu`;
   const lockedReasonId = `${menuId}-locked-reason`;
@@ -158,6 +160,11 @@ export function ExerciseCard({
         </p>
       ) : null}
       {note ? <p className="text-sm text-fg-muted">{note}</p> : null}
+      {sets[0]?.reason_code === "SIMILAR_INIT" ? (
+        <p className="text-sm text-fg-muted">
+          비슷한 종목 기록으로 잡은 값이에요. 다음 세션부터 실제 기록으로 조정돼요.
+        </p>
+      ) : null}
       {suggestedName ? (
         <p className="text-sm text-fg-muted">
           다음 단계로 {suggestedName}
