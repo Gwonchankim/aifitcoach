@@ -235,7 +235,7 @@ describe("테넌시 격리 (user_id)", () => {
       expect(added.length).toBeGreaterThan(0);
       for (const set of added) {
         expect(set).toMatchObject({
-          reason_code: null,
+          reason_code: "BASELINE",
           recommended_weight: null,
           recommendation_gate: "no_history",
         });
@@ -264,7 +264,7 @@ describe("테넌시 격리 (user_id)", () => {
       expect(swapped.length).toBeGreaterThan(0);
       for (const set of swapped) {
         expect(set).toMatchObject({
-          reason_code: null,
+          reason_code: "BASELINE",
           recommended_weight: null,
           recommendation_gate: "no_history",
         });

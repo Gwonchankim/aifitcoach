@@ -7,10 +7,12 @@ import {
 import { Prisma, type PlannedSet, type SyncEntityType, type SyncOp } from "@prisma/client";
 import { applyDisplayGate, displayGateState } from "shared";
 import {
-  loadKindForSnapshot,
+  storedRecommendationPresentation,
+  type PrescriptionCatalog,
+} from "../recommendation/recommendation-presentation";
+import {
   rawAssistanceSafetyStatus,
   recommendedActionFor,
-  stateForReasonCode,
   toRawTargetRow,
 } from "../programs/assistance-migration";
 import { encryptNumber } from "../common/crypto/field-encryption";
@@ -878,7 +880,9 @@ export function plannedSetResponse(
   set: PlannedSet,
   sampleCount: number,
   metadata?: SessionSetMetadata,
+  exercise?: PrescriptionCatalog,
 ) {
+  const presentation = storedRecommendationPresentation(set, exercise);
   return {
     ...(metadata ?? {
       source_revision: sourceRevision(set),
@@ -894,23 +898,16 @@ export function plannedSetResponse(
     rest_sec: set.restSec,
     target_time_low_sec: set.targetTimeLowSec,
     target_time_high_sec: set.targetTimeHighSec,
-    recommended_weight: applyDisplayGate(
-      sampleCount,
-      set.recommendedWeight === null ? null : Number(set.recommendedWeight),
-    ),
-    recommended_reps: applyDisplayGate(sampleCount, set.recommendedReps),
-    reason_code: applyDisplayGate(sampleCount, set.reasonCode),
+    recommended_weight: presentation.recommended_weight,
+    recommended_reps: set.recommendedReps,
+    reason_code: set.reasonCode,
     confidence: applyDisplayGate(sampleCount, Number(set.confidence)),
     rules_version: set.rulesVersion,
     // 오프라인 미러도 같은 축을 받아야 predicate 를 돌릴 수 있다(F-4a, server-first 경계).
-    load_kind: loadKindForSnapshot(set),
-    recommendation_state: applyDisplayGate(sampleCount, stateForReasonCode(set.reasonCode)),
+    load_kind: presentation.load_kind,
+    recommendation_state: presentation.recommendation_state,
     assistance_provenance: set.assistanceProvenance,
-    // action 은 처방 축이라 state/reason/weight 와 **같은 게이트**를 받는다.
-    recommended_action: applyDisplayGate(
-      sampleCount,
-      recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
-    ),
+    recommended_action: recommendedActionFor(set.reasonCode, set.exerciseId, set.loadSemantics),
     // sync 로 만들어진 행은 아직 수행 사실이 없다(방금 생성된 planned row 의 매핑이다).
     assistance_safety_status: rawAssistanceSafetyStatus(toRawTargetRow(set, false)),
     recommendation_gate: displayGateState(sampleCount),
