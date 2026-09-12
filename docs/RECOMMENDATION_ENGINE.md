@@ -2,6 +2,7 @@
 
 > 계약(테스트): `specs/golden_tests.json`. 이 규칙과 그 테스트를 **모두** 만족해야 한다.
 > `rules_version = "2026.08.1"`. 규칙 변경 시 버전과 골든 테스트를 함께 갱신한다.
+> SIMILAR_INIT은 `similar` 객체 유무가 입력 스위치이며 버전 무분기다(ADR-79).
 > 2026.08.1 = 2026.07.1 + "맨몸(체중 부하) 종목"·"시간 종목" **가산 규칙**. 기존(가중·반복) 입력의 출력은
 > 하나도 바뀌지 않는다(골든 18건 무변경, 신규 7건 추가). apps/api가 맨몸·시간 처방을 실제로 내보내기 시작한
 > 시점(STEP 4)에 `RULES_VERSION`·golden·openapi를 함께 올렸다.
@@ -16,7 +17,8 @@ recommendNextSet(input): Recommendation
 //           target:{reps_low?, reps_high?, rir?,           // metric='reps'
 //                   time_low_sec?, time_high_sec?},        // metric='time'
 //           last_sets:[{w?,reps?,rir?,time_sec?}],
-//           calibration?:{rir_bias}, safety?:{pain_score}, rules_version }
+//           calibration?:{rir_bias}, safety?:{pain_score},
+//           similar?:{source_exercise_id, source_e1rm, ratio}, rules_version }
 // output: { weight:number|null, reps_low?, reps_high?, sets?,   // weight null = 자체중량
 //           time_low_sec?, time_high_sec?,                      // metric='time'
 //           reason_code, confidence, rules_version }
@@ -142,7 +144,86 @@ ELSE:                                                  # on-target
 - 12세트 초과 후 성장 정체 시 세트 추가보다 부하/반복 진행 우선.
 
 ## 유사 운동 초기값 (기록 없음)
-- 같은 `movement_pattern`·주동근 운동의 e1RM 비율로 보수적 초기값 + 신뢰도(예 60~80%). **1:1 변환 금지**. reason = SIMILAR_INIT **(예약 — 아직 emit 경로 없음)**.
+
+### 입력
+
+```ts
+/** 같은 종목 무이력일 때만 쓰는 참고값 원천. 서버가 화이트리스트로 조립한다. 실제 기록이 있으면 무시된다.
+ *  객체 유무가 스위치다(calibration·safety 와 같은 방식). rules_version 으로 분기하지 않는다. */
+similar?: { source_exercise_id: string; source_e1rm: number; ratio: number };
+```
+
+### 발동 조건(전부)
+
+| # | 조건 | 미충족 시 |
+| --- | --- | --- |
+| 1 | `step_kg > 0`, `load_semantics = external_load`, `metric = reps` | `similar` 무시 |
+| 2 | 작업세트(`toWorkingSets(last_sets)`)가 비어 있다 | `similar` 무시, 기존 진행 규칙 |
+| 3 | 안전 가드레일(통증)·입력 검증(INVALID_INPUT)을 **통과한 뒤** 평가 | 안전·오류 결과가 우선 |
+| 4 | `source_e1rm > 0` 이고 `0 < ratio < 1` | `similar` 무시 → 무이력 경로(V1 `BASELINE` 0 / V2 `LOAD_CALIBRATION_NEEDED` null) |
+| 5 | 계산된 `weight >= step_kg` | 무시 → 무이력 경로 |
+
+### 계산
+
+```text
+top_reps   = target.reps_high + target.rir
+load       = source_e1rm × ratio / (1 + top_reps / 30)
+weight     = floor_to_step(load, step_kg)          # 내림. EPS 처리로 정확히 격자 위인 값을 내리지 않는다
+reps_low   = target.reps_low ; reps_high = target.reps_high
+reason_code = SIMILAR_INIT ; recommendation_state = ready ; load_kind = external
+confidence  = 0.4 (exact) ; e1rm = undefined ; suggest_substitution 없음 ; recommended_action 없음
+```
+
+두 bundle(`2026.08.1`·`2026.09.0`, 그리고 `.08.2`·`.09.1`)에서 **동일**하게 동작한다. 어시스트 경로(`recommendAssistance`)·시간 경로(`recommendTime`)는 `similar` 를 읽지 않는다.
+
+
+### 명시 쌍 화이트리스트
+
+기본 계수 **0.8**. 예외만 표기. 카탈로그 `docs/specs/exercises_seed.json` 기준.
+
+| 대상 | 소스(우선순위 순) | 계수 |
+| --- | --- | --- |
+| e_incline_bench_press | e_bench_press | 0.8 |
+| e_decline_bench_press | e_bench_press | 0.8 |
+| e_bench_press | e_incline_bench_press, e_decline_bench_press | 0.8 |
+| e_front_squat | e_back_squat | 0.8 |
+| e_back_squat | e_front_squat | 0.8 |
+| e_sumo_deadlift | e_deadlift | 0.8 |
+| e_trap_bar_deadlift | e_deadlift | 0.8 |
+| e_deadlift | e_trap_bar_deadlift, e_sumo_deadlift | 0.8 |
+| e_rdl | e_deadlift | **0.7** |
+| e_push_press | e_ohp | 0.8 |
+| e_ohp | e_push_press | **0.7** |
+| e_pendlay_row | e_barbell_row | 0.8 |
+| e_t_bar_row | e_barbell_row | 0.8 |
+| e_barbell_row | e_pendlay_row, e_t_bar_row | 0.8 |
+| e_neutral_grip_pulldown | e_lat_pulldown | 0.8 |
+| e_lat_pulldown | e_neutral_grip_pulldown | 0.8 |
+| e_rope_pushdown | e_triceps_pushdown | 0.8 |
+| e_triceps_pushdown | e_rope_pushdown | 0.8 |
+| e_preacher_curl | e_barbell_curl | 0.8 |
+| e_barbell_curl | e_preacher_curl | 0.8 |
+
+표 불변식(SIM-02 가 린트 테스트로 고정): 같은 `movement_pattern`·같은 `mechanic`·`primary_muscles` 교집합 ≥1·양쪽 `external_load`·`default_step_kg > 0`·`metric=reps`·`ratio ∈ (0,1)`·자기 참조 없음.
+
+계수는 검증된 환산 상수가 아닌 **보수 휴리스틱**이다(2026-09-12 승인). 패턴·근육 자동 매칭 대신 위 표의 소스 우선순위를 따른다.
+쌍 표 코드와 린트 테스트는 SIM-02에서 구현한다.
+
+### 제외 대상과 이유
+
+| 제외 | 이유 |
+| --- | --- |
+| 바벨 ↔ 머신(체스트프레스 머신·핵스쿼트·레그프레스 등) | 머신은 헬스장마다 지레비가 달라 e1RM 비율이 성립하지 않는다 |
+| 덤벨 종목 전부 | 덤벨 무게 단위 규약(한쪽/합계) 확정 전까지 제외 |
+| 스미스 머신 | 바 무게 표기 규약 확정 전까지 제외 |
+| 케이블 스택 불명 쌍(화이트리스트의 랫풀다운·푸시다운 그립 변경 쌍 제외) | 같은 스택인지 보장 못 함. 랫풀다운↔뉴트럴 그립, 트라이셉스↔로프 푸시다운은 같은 기구에서 손잡이만 바꾸는 쌍이라 포함 |
+| 맨몸·어시스트·시간 | 발동 조건 1: 외부 부하·반복·양수 스텝 조건에 해당하지 않음 |
+| 카탈로그 `substitutions` 필드 재사용 | 통증 대체용이라 패턴이 다른 쌍이 섞여 있다(랫풀다운→시티드 로우, RDL→레그컬). 그대로 못 쓴다 |
+
+### 소스 e1RM 원천
+
+서버는 같은 사용자의 소스 종목 **최신 완료 세션**에서 shared `estimateE1rm(sets, rir_bias)`로 재계산한다.
+projector의 `estimated_1rm` 행을 사용하지 않아 재빌드 시점에 의존하지 않는다(입력 채널 구현: SIM-03).
 
 ## 디로드 트리거 (P1)
 - 다음 중 3개↑: 반복 2세션 연속 하락 / e1RM 2주 정체·하락 / 주관 피로↑ / 수면↓ / 통증↑ → 볼륨 감소형 디로드 제안(세트 ~50%↓, 강도 유지). 완전 휴식 아님. 주기 대략 5~6주. reason = DELOAD_SUGGESTED **(예약 — 아직 emit 경로 없음)**.
@@ -155,7 +236,7 @@ ELSE:                                                  # on-target
 
 ## reason_code 목록
 
-**runtime `REASON_CODES` = 실제로 반환될 수 있는 16종.** 이 목록에 무언가를 추가하려면
+**runtime `REASON_CODES` 계약 = 17종(SIMILAR_INIT 포함).** 이 목록에 무언가를 추가하려면
 **emit 경로와 테스트를 함께** 만들어야 한다 — `packages/shared/test/reason-codes.test.ts`가
 "union == 실제 emit 집합"을 exact로 강제하므로, 경로 없는 코드를 넣으면 즉시 실패한다.
 
@@ -164,11 +245,14 @@ WEIGHT_UP_REP_TARGET_MET, ADD_ONE_REP, HOLD_RIR_LOW, TOO_HARD,
 LOAD_CALIBRATION_NEEDED, BASELINE, INVALID_INPUT, SUBSTITUTE_PAIN,
 RIR_TOO_EASY_INCREASE, RIR_TOO_HARD_REDUCE,
 REPS_UP_BODYWEIGHT, PROGRESSION_CAP_BODYWEIGHT, SUBSTITUTE_TOO_HARD_BODYWEIGHT,
-TIME_UP, TIME_HOLD, TIME_DOWN
+TIME_UP, TIME_HOLD, TIME_DOWN, SIMILAR_INIT
 ```
 
-> **예약 `RESERVED_REASON_CODES` — 응답에 나오지 않는다(정확히 4종).**
-> `SIMILAR_INIT`(유사 운동 초기값) · `VOLUME_SPIKE_CAP`(안전 가드레일 2) ·
+> SIM-01은 문서·골든을 먼저 동결하는 red 커밋이다. `SIMILAR_INIT`의 실제 runtime 승격과
+> emit 경로·타입·reason-codes 테스트 변경은 SIM-02에서 함께 수행한다.
+
+> **예약 `RESERVED_REASON_CODES` — 응답에 나오지 않는다(계약상 정확히 3종).**
+> `VOLUME_SPIKE_CAP`(안전 가드레일 2) ·
 > `DELOAD_SUGGESTED`(디로드 트리거 P1) · `CALIBRATION_STALE`(stale 정책 사람 승인 전).
 > union에 남겨 두면 모든 소비자가 "가능한 응답"으로 처리해야 하므로 예약이 아니라 부채가 된다.
 > 되살릴 때는 **입력·emit 경로·테스트와 함께 원자적으로** 옮긴다.

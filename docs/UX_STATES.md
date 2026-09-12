@@ -807,6 +807,7 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 | `reason_code` | 화면 문구 |
 |---|---|
 | `BASELINE` | 첫 세션이라 무게를 직접 정해요 |
+| `SIMILAR_INIT` | 비슷한 종목 기록으로 잡은 참고값이에요 |
 | `WEIGHT_UP_REP_TARGET_MET` | 지난번 목표 반복을 모두 채워서 무게를 올렸어요 |
 | `ADD_ONE_REP` | 무게는 그대로, 반복을 1회 늘려요 |
 | `HOLD_RIR_LOW` | 지난번이 힘들어 보여 무게를 유지해요 |

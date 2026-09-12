@@ -53,6 +53,196 @@
     { "id": "GC-51", "rules_version": "2026.08.1", "input": { "goal": "hypertrophy", "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5, "load_semantics": "assistance" }, "target": { "reps_low": 8, "reps_high": 12, "rir": 2 }, "last_sets": [ {"w":20,"reps":12}, {"w":20,"reps":12}, {"w":20,"reps":12} ], "assistance": { "has_valid_positive_assistance": true } }, "expect": { "weight": 22.5, "reps_low": 8, "reason_code": "WEIGHT_UP_REP_TARGET_MET", "load_kind": "external", "recommendation_state": "ready", "note": "활성 2026.08.1 의미 불변: 같은 입력이라도 legacy 는 일반 가중 운동으로 해석한다. 이 케이스가 없으면 .08.1 을 조용히 바꿔도 골든이 통과한다" } },
     { "id": "GC-52", "rules_version": "2026.08.2", "input": { "goal": "hypertrophy", "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5, "load_semantics": "assistance" }, "target": { "reps_low": 8, "reps_high": 12, "rir": 2 }, "calibration": { "rir_bias": 0 }, "last_sets": [ {"w":20,"reps":10,"rir":2}, {"w":20,"reps":10,"rir":2} ], "assistance": { "has_valid_positive_assistance": true } }, "expect": { "weight": 20, "reps_low": 11, "reason_code": "ADD_ONE_REP", "load_kind": "assistance", "recommendation_state": "ready", "note": "중립 코드는 그대로 쓴다. on-target 은 별도 assistance reason 을 만들지 않는다" } },
     { "id": "GC-53", "rules_version": "2026.08.2", "input": { "goal": "hypertrophy", "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5, "load_semantics": "assistance" }, "target": { "reps_low": 8, "reps_high": 12, "rir": 2 }, "last_sets": [ {"w":20,"reps":10,"rir":0}, {"w":20,"reps":10,"rir":0} ], "assistance": { "has_valid_positive_assistance": true } }, "expect": { "weight": 20, "reps_low": 8, "reason_code": "HOLD_RIR_LOW", "load_kind": "assistance", "recommendation_state": "ready", "note": "반복은 지켰고 RIR 만 낮다 → 중립 유지. calibration 이 없어 RIR 축을 쓰지 않는다" } },
-    {"id":"GC-54","rules_version":"2026.08.2","input":{"goal":"hypertrophy","exercise":{"type":"compound","region":"upper","step_kg":2.5,"load_semantics":"assistance","id":"e_assisted_dips"},"target":{"reps_low":8,"reps_high":12,"rir":2},"last_sets":[{"w":2.5,"reps":12},{"w":2.5,"reps":12}],"assistance":{"has_valid_positive_assistance":true}},"expect":{"weight":2.5,"reps_low":8,"reason_code":"ASSISTANCE_MINIMUM_REACHED","load_kind":"assistance","recommendation_state":"ready","note":"최소 도움값은 유지하고 해당 운동군의 맨몸 딥스만 제안한다. 자동 전환은 없다.","recommended_action":{"kind":"suggest_exercise_swap","exercise_id":"e_dips"}}}
+    {"id":"GC-54","rules_version":"2026.08.2","input":{"goal":"hypertrophy","exercise":{"type":"compound","region":"upper","step_kg":2.5,"load_semantics":"assistance","id":"e_assisted_dips"},"target":{"reps_low":8,"reps_high":12,"rir":2},"last_sets":[{"w":2.5,"reps":12},{"w":2.5,"reps":12}],"assistance":{"has_valid_positive_assistance":true}},"expect":{"weight":2.5,"reps_low":8,"reason_code":"ASSISTANCE_MINIMUM_REACHED","load_kind":"assistance","recommendation_state":"ready","note":"최소 도움값은 유지하고 해당 운동군의 맨몸 딥스만 제안한다. 자동 전환은 없다.","recommended_action":{"kind":"suggest_exercise_swap","exercise_id":"e_dips"}}},
+    {
+      "id": "GC-55",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": 52.5, "reps_low": 8, "reps_high": 12,
+        "reason_code": "SIMILAR_INIT", "recommendation_state": "ready", "load_kind": "external",
+        "confidence": 0.4,
+        "note": "80 / (1 + 14/30) = 54.5 → 2.5 격자 내림 52.5. 반올림이면 55, 분모에 rir 을 빼먹으면 57.14 → 내림 55. e1rm 은 내지 않는다(SIM-02 단위 테스트)"
+      }
+    },
+    {
+      "id": "GC-56",
+      "rules_version": "2026.09.0",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": 52.5, "reps_low": 8, "reason_code": "SIMILAR_INIT",
+        "recommendation_state": "ready", "load_kind": "external", "confidence": 0.4,
+        "note": "V2 에서도 같은 값. LOAD_CALIBRATION_NEEDED 로 새면 실패"
+      }
+    },
+    {
+      "id": "GC-57",
+      "input": {
+        "goal": "strength",
+        "exercise": { "type": "compound", "region": "lower", "step_kg": 5 },
+        "target": { "reps_low": 3, "reps_high": 5, "rir": 3 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_back_squat", "source_e1rm": 145, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": 90, "reps_low": 3, "reason_code": "SIMILAR_INIT", "recommendation_state": "ready",
+        "note": "116 / (1 + 8/30) = 91.6 → 5 격자 내림 90. 반올림도 90 이라 GC-55 와 함께 봐야 내림이 고정된다. 하체 step 5 격자 검증"
+      }
+    },
+    {
+      "id": "GC-58",
+      "input": {
+        "goal": "diet",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 3 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.75 }
+      },
+      "expect": {
+        "weight": 50, "reason_code": "SIMILAR_INIT",
+        "note": "75 / (1 + 15/30) = 50.0 정확히 격자 위. 부동소수 오차로 47.5 로 내려가면 실패(EPS 계약)"
+      }
+    },
+    {
+      "id": "GC-59",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [{ "w": 60, "reps": 10, "rir": 2 }],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": 60, "reps_low": 11, "reason_code": "ADD_ONE_REP", "recommendation_state": "ready",
+        "note": "실측이 있으면 similar 는 무시된다. 참고값이 실측을 덮는 회귀를 잡는다"
+      }
+    },
+    {
+      "id": "GC-60",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": null },
+        "target": { "reps_low": 6, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_dips", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": null, "reps_low": 6, "reason_code": "BASELINE", "recommendation_state": "ready", "load_kind": "bodyweight",
+        "note": "맨몸은 처방할 부하가 없다. similar 를 읽지 않는다"
+      }
+    },
+    {
+      "id": "GC-61",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "isolation", "region": "core", "step_kg": null, "metric": "time" },
+        "target": { "time_low_sec": 20, "time_high_sec": 60 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_side_plank", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": null, "time_low_sec": 20, "time_high_sec": 60, "reason_code": "BASELINE", "load_kind": "not_applicable",
+        "note": "시간 종목 경로는 similar 를 읽지 않는다"
+      }
+    },
+    {
+      "id": "GC-62",
+      "rules_version": "2026.08.2",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5, "load_semantics": "assistance", "id": "e_assisted_pullup" },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "assistance": { "has_valid_positive_assistance": false },
+        "similar": { "source_exercise_id": "e_lat_pulldown", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "weight": null, "reason_code": "ASSISTANCE_CALIBRATION_NEEDED", "load_kind": "assistance", "recommendation_state": "load_calibration_needed",
+        "note": "어시스트 축은 부호가 반대라 외부 부하 e1RM 을 도움 kg 으로 바꾸지 않는다"
+      }
+    },
+    {
+      "id": "GC-63",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 1.0 }
+      },
+      "expect": {
+        "weight": 0, "reps_low": 8, "reason_code": "BASELINE", "recommendation_state": "load_calibration_needed",
+        "note": "1:1 변환 금지. ratio >= 1 은 무시하고 V1 무이력(0 sentinel) 으로 fall back. INVALID_INPUT 으로 처방을 깨지 않는다"
+      }
+    },
+    {
+      "id": "GC-64",
+      "rules_version": "2026.09.0",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 1.0 }
+      },
+      "expect": {
+        "weight": null, "reps_low": 8, "reason_code": "LOAD_CALIBRATION_NEEDED", "recommendation_state": "load_calibration_needed", "confidence": 0,
+        "note": "GC-63 의 V2 판. fall back 결과가 GC-15 와 동일해야 한다"
+      }
+    },
+    {
+      "id": "GC-65",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 4, "ratio": 0.5 }
+      },
+      "expect": {
+        "weight": 0, "reason_code": "BASELINE", "recommendation_state": "load_calibration_needed",
+        "note": "2 / 1.4667 = 1.36 → 내림 0 < step 2.5. 바닥 미만은 참고값이 아니다 → fall back"
+      }
+    },
+    {
+      "id": "GC-66",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "safety": { "pain_score": 5 },
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "reason_code": "SUBSTITUTE_PAIN", "recommendation_state": "substitution_required", "suggest_substitution": true,
+        "note": "안전 가드레일이 참고값보다 우선. 통증인데 새 종목 시작 무게를 주지 않는다"
+      }
+    },
+    {
+      "id": "GC-67",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": { "type": "compound", "region": "upper", "step_kg": 0 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
+        "last_sets": [],
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.8 }
+      },
+      "expect": {
+        "reason_code": "INVALID_INPUT", "recommendation_state": "unavailable",
+        "note": "입력 검증이 참고값보다 우선. step 0 격자로 참고값을 계산하지 않는다"
+      }
+    }
   ]
 }

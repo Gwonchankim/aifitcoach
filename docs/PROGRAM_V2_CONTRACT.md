@@ -602,7 +602,7 @@ TIME_UP  TIME_HOLD  TIME_DOWN
 
 | 예약 코드 | 막고 있는 것 | 소유 |
 |---|---|---|
-| `SIMILAR_INIT` | 유사 운동 e1RM 입력 | 별도 기능 티켓 |
+| `SIMILAR_INIT` — SIM-01/02로 이동 | SIM-01에서 입력·계산식·골든 계약 동결, SIM-02에서 runtime 승격(위 16/4종은 V2-REASON-01 완료 시점) | `SIM-01` / `SIM-02` |
 | `VOLUME_SPIKE_CAP` | 엔진 입력 채널 + **오프라인 미러 대책**(집계 `muscle_weekly_load` 는 이미 있음) | `V2-PLAN-02` |
 | `DELOAD_SUGGESTED` | 다세션 추세·피로 입력 | P3 회복 주간 |
 | `CALIBRATION_STALE` | **stale 정책 사람 승인** | 승인 후 별도 티켓 |
