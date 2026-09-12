@@ -227,7 +227,7 @@
 | 빈 ① | 프로그램 없음(선행 404) | 온보딩 카드 하나만 | "운동 계획을 먼저 만들어 주세요." / [계획 만들기] |
 | 빈 ② | `streak_days = 0` | 스트릭 칩을 숨기지 않고 0으로 표시 | "연속 0일 — 오늘부터 시작해요" |
 | 빈 ③ | `weekly_completion_rate = 0`이고 이번 주 계획도 0 | 완료율 카드 대신 안내 | "이번 주 기록이 아직 없어요." |
-| 빈 ④ | 같은 종목의 distinct 완료 세션 3회 미만(서버 `no_history`/`early`) | 값·선·다음 추천 없이 observation 안내(빈 축 금지) | "같은 종목 기록이 세 세션 이상 쌓이면 변화를 보여드릴게요." |
+| 빈 ④ | 같은 종목의 distinct 완료 세션 3회 미만(서버 `no_history`/`early`) | 분석 값·선 없이 observation 안내; 다음 추천은 독립 공개(빈 축 금지) | "같은 종목 기록이 세 세션 이상 쌓이면 변화를 보여드릴게요." |
 | 빈 ⑤ | `tomorrow.status = rest` | 내일 카드 | "내일은 휴식이에요." |
 | 로딩 | 첫 조회 | 카드 스켈레톤(오늘/내일/지표 3개) | — |
 | 에러 | 500 | 카드 단위로 실패 격리 — 오늘 카드가 실패해도 나머지는 렌더 | "지금은 불러오지 못했어요." / [다시 시도] |
@@ -235,10 +235,7 @@
 | 오프라인 | 캐시 없음 | 전체 빈 상태 | "인터넷이 연결되면 요약을 보여드릴게요." |
 | 부분 수행 | 오늘 일부만 완료했고 아직 운동 종료 전(`today.status = workout`이지만 로컬에 완료 세트 있음) | 오늘 카드에 진행 배지 | "진행 중 · {완료}/{전체} 세트" / [이어서 하기] |
 
-> **V2 예정 — 빈 ④ 행은 ADR-70이 대체한다(현재 코드는 아직 V1).** V2에서는 analysis 축이 e1RM 값·선·추세와
-> `confidence` 숫자만 막는다. **external 첫 세션에도 target reps와 calibration reason은 표시한다 — load 값만
-> 미준비다.** 무게는 `recommendation_state=load_calibration_needed`인 동안에만 비고, 반복 목표와 근거 문구는
-> 첫 세션부터 있다. 계약은 `docs/PROGRAM_V2_CONTRACT.md` §1·§1.1, 실제 교체는 V2-GATE-01에서 코드와 함께 한다.
+> **ADR-70 구현됨:** 빈 ④는 분석만 제어한다. 처방은 첫 완료 세션부터 공개하고 external 보정 중에는 목표 반복·reason을 유지한다. V1 BASELINE reason은 보존한다. PROGRAM_V2_CONTRACT §1~§1.3이 원천이다.
 
 - **AC-S3-1** `today.status`가 `done`일 때 [운동 시작] CTA가 보이지 않는다.
 - **AC-S3-2** 지표 카드 하나가 실패해도 다른 카드는 정상 렌더된다(전체 화면 에러 금지).
@@ -339,6 +336,7 @@
 | `무게 미정`(BASELINE) · `자체중량` · 근거(`reason_code`) | **운동 카드 헤더에 1회만.** 세트 행에는 반복하지 않는다 |
 | 예외 | 같은 카드 안에서 세트마다 종류가 다를 때만(예: 1세트만 BASELINE) **그 세트에만** 행 배지를 둔다 |
 | `완료` | 행 배지로 만들지 않는다. 축약 행의 텍스트 끝에 `· 완료`로 들어간다(§2.4.3, §7.6 "색만으로 구분 금지" 충족) |
+| 참고값 (`SIMILAR_INIT`) | 무게 배지 자리에 `참고값` compact 배지 1개(키커·종목 칩 통합, aria-label `유사 운동 기록 기반 참고값`). ready 상태 안내는 없음. 보조 문구는 `<p>` 1개: "비슷한 종목 기록으로 잡은 값이에요. 다음 세션부터 실제 기록으로 조정돼요."(자연 줄바꿈 허용) |
 | 통증 점수 | 카드 헤더의 진행·배지 줄 |
 
 **직전 기록 압축**(F1-0)
@@ -742,27 +740,39 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 
 ```
 1) metric === "time"                      → 시간 종목   (§5.4)
-2) recommended_weight === null            → 자체중량    (§5.3)
-3) recommended_weight === 0 && reason_code === "BASELINE" → 무게 미정 (§5.2)
+2) canonical step_kg === null             → 자체중량    (§5.3)
+3) external/assistance + weight === null 또는 weight === 0 → 무게 미정 (§5.2)
 4) 그 외                                   → 일반(가중·반복)
 ```
 - `metric`의 1차 출처는 카탈로그 `Exercise.metric`이다. 카탈로그를 아직 못 받았다면 `target_time_low_sec != null`을 폴백 판별로 쓴다.
 - `PlannedSet`의 반복 축(`target_reps_*`, `recommended_reps`, `target_rir`)은 nullable이다. **null인 축은 렌더하지 않는다**(`-`, `0`, `null` 출력 금지).
 
-### 5.2 `BASELINE` 첫 세션 — `weight: 0` (0kg 표시 금지)
+### 5.2 무게 미정·처방 상태 (0kg 표시 금지, ADR-70)
 
 > 추천 엔진은 기록이 없을 때 `weight = 0` + `reason_code = "BASELINE"`을 반환한다. **이건 "0kg을 들어라"가 아니라 "무게 미정"이다**(PROGRESS STEP 3 계약 메모).
+> V1 저장값과 reason은 보존하고 응답에서는 external baseline을 `weight: null` + `load_calibration_needed`로 정규화한다. V2의 null도 같은 상태로 표시한다.
 
 | 요소 | 규칙 |
 |---|---|
 | 무게 표시 | `무게 미정` 배지를 **운동 카드 헤더에 1회만** 둔다(세트 행 반복 금지, §2.4.1). **`0kg`·`0`·`-` 절대 금지** |
 | 무게 입력칸 | 빈 칸 + placeholder `무게`. **프리필하지 않는다** |
-| 보조 문구(운동 카드 1회) | "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요." |
-| 게이트 상태별 무게 미정 안내 — **임시(V2-GATE-01에서 교체)** | `unknown_weight` 축에만 적용. `no_history`: "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요." / `early`: "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요." / `ready`: "추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요." |
+| 상태별 안내(ADR-70, 카드당 단일 선택) | 분석 게이트와 무관하게 아래 결정표를 사용한다. T-COPY-01 임시 문구를 대체한다. |
 | 완료 체크 | 무게가 비어 있으면 체크를 막고 입력칸으로 포커스 이동 + "무게를 입력해 주세요." |
 | 반복 | `recommended_reps`/`target_reps_low~high`는 정상 표시 |
 | RIR | 정상적으로 묻는다 |
 | 2세트 이후 | 같은 운동의 앞 세트에 입력한 무게를 다음 세트 입력칸에 프리필한다 `[해석]`(같은 세션 내 반복 입력을 줄이기 위함) |
+
+| recommendation_state / 부하 축 | 상태 안내 |
+|---|---|
+| ready | 추가 안내 없음. 기존 근거 배지만 표시 |
+| load_calibration_needed / external | 추천 무게가 아직 없어요. 가볍게 워밍업하며 목표 반복을 수행할 무게를 정해 주세요. |
+| load_calibration_needed / assistance | 기계에서 편한 도움 무게를 직접 정해요 |
+| substitution_required | 통증이 있어 이 운동을 중단하고 무통 대체 운동으로 바꾸세요. |
+| unavailable | 입력값을 확인한 뒤 다시 시도하세요. |
+| ready / external / weight 0 예외 | 추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요. |
+| local_ids provisional (처방 없음) | 기존 렌더 유지. 상태 안내 추가 없음 |
+
+보정·통증·오류 상태에서는 근거 배지와 상태 문구를 중복 표시하지 않는다. 통증·오류 상태의 프리필/추천값/action은 숨긴다. metadata가 없는 서버 행은 external + unavailable로 무게 입력 능력을 보존한다. 어시스트에 generic 워밍업 안내를 붙이지 않는다.
 
 - **AC-E-1** `reason_code = BASELINE`인 세트 어디에도 문자열 `0kg`이 렌더되지 않는다.
 - **AC-E-2** 무게가 비어 있는 BASELINE 세트는 완료 체크가 되지 않는다.
@@ -808,6 +818,7 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 | `reason_code` | 화면 문구 |
 |---|---|
 | `BASELINE` | 첫 세션이라 무게를 직접 정해요 |
+| `SIMILAR_INIT` | 비슷한 종목 기록으로 잡은 참고값이에요 |
 | `WEIGHT_UP_REP_TARGET_MET` | 지난번 목표 반복을 모두 채워서 무게를 올렸어요 |
 | `ADD_ONE_REP` | 무게는 그대로, 반복을 1회 늘려요 |
 | `HOLD_RIR_LOW` | 지난번이 힘들어 보여 무게를 유지해요 |
@@ -837,14 +848,14 @@ closed ──(세트 완료 체크)──> running ──(remaining <= 0)──>
 
 **V2 추가 (ADR-70, 소유 티켓 V2-GATE-01)** — `LOAD_CALIBRATION_NEEDED`의 확정 문구:
 
-> 첫 운동이라 추천 무게를 정하는 중이에요. 가벼운 무게부터 시작해 목표 반복을 3~4회 여유 있게 할 수 있는 무게를 입력해 주세요.
+> 추천 무게가 아직 없어요. 가볍게 워밍업하며 목표 반복을 수행할 무게를 정해 주세요.
 
 - **weight axis 전용**이다. `target reps`는 계속 표시한다 — 이 상태는 무게만 미정이라는 뜻이다.
 - analysis·e1RM 근거로 취급하지 않는다(`analysis_gate`와 무관하게 첫 세션부터 표시).
 - 목록 밖 값 숨김 규칙(AC-E-6)은 그대로 적용된다.
 - 소유 분담: **V2-ENGINE-01**이 reason을 생성하고 골든으로 고정한다.
   **V2-GATE-01**이 이 표·웹 `REASON_TEXT`·단위 테스트·E2E를 갱신한다.
-  V2-ENGINE-01 시점에는 이 문구가 아직 화면에 없다.
+  V2-GATE-01에서 구현됨. 상태 안내와 동일 상수를 사용하며 카드에 한 번만 표시한다.
 
 - **AC-E-6** 알 수 없는 `reason_code`가 와도 화면에 영문 코드가 노출되지 않는다.
 
@@ -1131,17 +1142,13 @@ Enter로 [휴식 종료] → 다음 세트 입력칸에 포커스 → … → [�
 
 ## 11. M-4′ 집계 화면 상태 계약
 
-- 온라인 기록/e1RM/추천은 서버가 `no_history|early|ready`로 게이트한 응답을 그대로 렌더한다.
+- 분석(e1RM·confidence·추세)만 서버의 `no_history|early|ready`를 따른다. 다음 추천은 객체가 존재하면 첫 완료 세션부터 표시한다(ADR-70).
 - 오프라인 read-through는 마지막 서버 snapshot의 gate와 nullable 값을 그대로 보존하며 `stale`과
   `synced_at`을 함께 표시한다. 미전송 outbox를 서버 집계에 합쳐 권위값처럼 보이지 않는다.
 - 향후 별도 provisional 집계를 추가할 때만 `packages/shared/display-gate.ts`를 사용하고, 서버 응답이
   도착하면 provisional 전체를 서버 snapshot으로 교체한다(D-39·D-52).
 - `early`(종목별 완료 세션 1~2회)는 날짜 점과 “N회 기록됨. 세 세션부터 추이를 보여드립니다.”를
-  표시하되 e1RM 숫자·연결선·다음 추천·추천 근거를 DOM에 두지 않는다.
-  > **V2 예정(ADR-70) — 현재 코드는 아직 V1.** V2의 `early`는 e1RM 숫자·연결선·`confidence`만 DOM에서 빼고
-  > **다음 추천과 추천 근거는 첫 세션부터 DOM에 둔다.** external 첫 세션은 무게만 비고 target reps와
-  > `LOAD_CALIBRATION_NEEDED` 근거는 그대로 표시한다 — load 값만 미준비라는 뜻이다.
-  > `docs/PROGRAM_V2_CONTRACT.md` §1·§1.1. 실제 교체는 V2-GATE-01에서 코드와 함께 한다.
+  표시하되 e1RM 숫자·연결선·confidence는 DOM에 두지 않는다. 다음 추천과 근거는 독립 공개한다. external 보정 중에는 목표 반복을 남기며 V1 BASELINE reason을 보존한다(ADR-70, 구현됨).
 - 주간 프로그램의 미래 lazy 주차는 `예정`으로 표시하고 session ID나 저장된 세션인 것처럼 행동하지 않는다.
 - 계획 충돌·볼륨 범위 이탈은 읽기 전용 안내다. 일정 재배치 CTA를 만들지 않는다(ADR-24/D-42).
 - 기록 상세는 계획 대비 실제를 읽기 전용으로 보여준다. 과거 날짜 수행값을 수정·추가하는 UI는 만들지 않는다.

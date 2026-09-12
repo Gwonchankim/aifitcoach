@@ -11,6 +11,7 @@ import {
   readAppendState,
 } from "./session-set-append-db";
 import { overlayAppends, type AppendDependencies } from "./session-set-append";
+import { normalizeSessionRecommendations } from "./recommendation-mirror";
 
 export const DEV_USER_SCOPE = "dev-user";
 
@@ -438,7 +439,7 @@ export async function commitAuthoritativeSession(
       await sessionDb.sessions.put({
         user_id: userId,
         session_id: sessionId,
-        session: merged.session,
+        session: normalizeSessionRecommendations(merged.session, [], new Set(merged.local_ids)),
         ...(merged.append_ids !== undefined ? { append_ids: merged.append_ids } : {}),
         ...(merged.local_ids !== undefined ? { local_ids: merged.local_ids } : {}),
         updated_at: new Date().toISOString(),
@@ -584,7 +585,7 @@ export async function mirrorSession(
   await sessionDb.sessions.put({
     user_id: userId,
     session_id: sessionId,
-    session,
+    session: normalizeSessionRecommendations(session, [], localIds),
     updated_at: new Date().toISOString(),
     // 로컬 봉투는 **로컬 생성분이 있을 때만** 붙는다. authoritative 응답이 오면 자연히 사라진다.
     ...(localIds && localIds.size > 0 ? { local_ids: [...localIds] } : {}),
@@ -593,21 +594,37 @@ export async function mirrorSession(
 }
 
 export async function readMirroredSession<T>(userId: string, sessionId: string): Promise<T | null> {
-  const mirror = await sessionDb.sessions.get([userId, sessionId]);
-  if (mirror?.append_ids?.length) {
-    const rows = (mirror.session as Session).planned_sets;
-    if (
-      !Array.isArray(rows) ||
-      !isSafeAppendMirror(
-        rows,
-        mirror.local_ids ?? [],
-        mirror.append_ids,
-        await readAppendState({ user_id: userId, session_id: sessionId }),
-      )
-    )
-      return null;
-  }
-  return (mirror?.session as T | undefined) ?? null;
+  return sessionDb.transaction(
+    "rw",
+    [sessionDb.sessions, sessionDb.catalogs, sessionDb.syncMeta],
+    async () => {
+      const mirror = await sessionDb.sessions.get([userId, sessionId]);
+      if (mirror?.append_ids?.length) {
+        const rows = (mirror.session as Session).planned_sets;
+        if (
+          !Array.isArray(rows) ||
+          !isSafeAppendMirror(
+            rows,
+            mirror.local_ids ?? [],
+            mirror.append_ids,
+            await readAppendState({ user_id: userId, session_id: sessionId }),
+          )
+        )
+          return null;
+      }
+      if (!mirror) return null;
+      const catalog = (await sessionDb.catalogs.get(userId))?.catalog ?? [];
+      const normalized = normalizeSessionRecommendations(
+        mirror.session,
+        catalog,
+        new Set(mirror.local_ids),
+      );
+      if (JSON.stringify(normalized) !== JSON.stringify(mirror.session)) {
+        await sessionDb.sessions.put({ ...mirror, session: normalized });
+      }
+      return normalized as T;
+    },
+  );
 }
 
 /**
@@ -798,7 +815,7 @@ export async function commitRoutineSnapshot(
           await sessionDb.sessions.put({
             user_id: userId,
             session_id: sessionId,
-            session: nextSession,
+            session: normalizeSessionRecommendations(nextSession, [], merged),
             updated_at: updatedAt,
             ...(merged.size > 0 ? { local_ids: [...merged] } : {}),
             ...(previous?.append_ids !== undefined ? { append_ids: appendIds } : {}),

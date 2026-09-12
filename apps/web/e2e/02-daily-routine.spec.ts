@@ -69,7 +69,13 @@ test("루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세
   // ---- 항목 3: 종목 타입별 렌더 ----
   // (a) 일반/무게 미정 — BASELINE 이라 "무게 미정" 배지 + 무게 입력칸이 있고 0kg 은 없다
   await expect(page.getByText("무게 미정").first()).toBeVisible();
-  await expect(page.getByText("첫 세션이라 추천 무게가 아직 없어요.").first()).toBeVisible();
+  await expect(
+    page
+      .getByText(
+        "추천 무게가 아직 없어요. 가볍게 워밍업하며 목표 반복을 수행할 무게를 정해 주세요.",
+      )
+      .first(),
+  ).toBeVisible();
 
   // (b) 맨몸(풀업) — "자체중량" 배지는 **카드에 1번**(F1-0), 무게 입력칸 없음(AC-E-3)
   const pullup = setRow(page, "풀업", 1);

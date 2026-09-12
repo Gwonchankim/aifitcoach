@@ -100,9 +100,11 @@ function assertPublic(set: PlannedSet, sample: number) {
   expect(set.recommendation_gate).toBe(
     sample === 0 ? "no_history" : sample < 3 ? "early" : "ready",
   );
-  if (sample < 3) {
+  if (sample < 3) expect(set.confidence).toBeNull();
+  expect(typeof set.recommended_reps).toBe("number");
+  if (sample === 0) {
+    expect(set.recommendation_state).toBe("load_calibration_needed");
     expect(set.recommended_weight).toBeNull();
-    expect(set.recommended_reps).toBeNull();
     expect(set.recommended_action).toBeNull();
   } else {
     expect(set.recommendation_state).toBe("ready");

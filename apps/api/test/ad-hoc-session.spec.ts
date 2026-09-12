@@ -119,7 +119,7 @@ describe("즉석 세션 (F8-1)", () => {
       target_reps_high: 12,
       target_rir: 2,
       rest_sec: 120,
-      reason_code: null,
+      reason_code: "BASELINE",
       recommendation_gate: "no_history",
       rules_version: "2026.08.1",
     });

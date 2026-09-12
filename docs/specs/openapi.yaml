@@ -1143,17 +1143,18 @@ components:
         target_time_high_sec: { type: integer, nullable: true }
         recommended_weight: { type: number, nullable: true }
         recommended_reps: { type: integer, nullable: true }
-        reason_code: { type: string, nullable: true, example: WEIGHT_UP_REP_TARGET_MET }
-        confidence: { type: number, nullable: true }
+        reason_code: { type: string, example: WEIGHT_UP_REP_TARGET_MET }
+        confidence:
+          type: number
+          nullable: true
+          description: ADR-70 분석값. recommendation_gate가 ready가 아니면 null.
         rules_version: { type: string }
         # 부하 축의 의미. 구조적 사실이라 표시 게이트에 가려지지 않는다.
         load_kind: { type: string, enum: [external, bodyweight, assistance, not_applicable] }
-        # 게이트가 처방을 가리면 함께 null 이다(처방의 일부다).
-        # nullable + enum 은 목록에 null 을 넣어야 검증기가 통과시킨다(OAS 3.0).
+        # 처방 상태는 분석 게이트와 독립이며 첫 세션부터 반환한다(ADR-70).
         recommendation_state:
           type: string
-          nullable: true
-          enum: [ready, load_calibration_needed, substitution_required, unavailable, null]
+          enum: [ready, load_calibration_needed, substitution_required, unavailable]
         # non-assisted 는 반드시 null 이다 — 빈 문자열·기본값으로 채우지 않는다(§F).
         assistance_provenance:
           type: string
@@ -1173,7 +1174,10 @@ components:
           type: string
           nullable: true
           enum: [safe, unsafe, null]
-        recommendation_gate: { $ref: '#/components/schemas/DisplayGateState' }
+        recommendation_gate:
+          allOf:
+            - $ref: '#/components/schemas/DisplayGateState'
+          description: analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다.
         source_revision:
           type: string
           minLength: 1
@@ -1210,7 +1214,7 @@ components:
 
     Recommendation:
       type: object
-      # weight=null 은 자체중량(맨몸·시간 종목) — 추가 부하를 처방하지 않는다는 뜻이다.
+      # weight=null 은 외부 부하 보정 대기 또는 추가 부하가 없는 맨몸·시간 종목이다.
       # metric=time 종목은 reps_low/reps_high 가 null 이고 time_low_sec/time_high_sec 를 채운다.
       required:
         [
@@ -1249,7 +1253,10 @@ components:
         time_low_sec: { type: integer, nullable: true }
         time_high_sec: { type: integer, nullable: true }
         reason_code: { type: string }
-        confidence: { type: number }
+        confidence:
+          type: number
+          nullable: true
+          description: ADR-70 분석값. 완료 세션 3회 미만이면 null이며 내부 confidence 0과 구분한다.
         explanation: { type: string, example: '최근 3세트 모두 상단·RIR 2 → +2.5kg' }
         rules_version: { type: string }
 
@@ -1265,6 +1272,7 @@ components:
     DisplayGateState:
       type: string
       enum: [no_history, early, ready]
+      description: ADR-70 analysis-only. confidence·e1RM·추세만 제어하며 처방 상태와 독립이다.
 
     PerformedSetSummary:
       type: object
@@ -1280,6 +1288,7 @@ components:
 
     GatedRecommendation:
       type: object
+      description: gate_state는 분석 축의 호환 필드명이다. recommendation은 실제 처방이 없는 경우에만 null이다.
       required: [exercise_id, sample_session_count, gate_state, recommendation]
       properties:
         exercise_id: { type: string }
@@ -1292,6 +1301,7 @@ components:
 
     E1rmAnalytics:
       type: object
+      description: gate_state는 e1RM·points·confidence만 제어한다. next_recommendation을 분석 게이트로 숨기지 않는다.
       required:
         [exercise_id, sample_session_count, gate_state, observations, points, next_recommendation]
       properties:

@@ -82,6 +82,7 @@ export class AnalyticsService {
       };
     });
 
+    const next = await this.nextRecommendation(userId, query.exercise_id);
     return {
       exercise_id: query.exercise_id,
       sample_session_count,
@@ -89,8 +90,9 @@ export class AnalyticsService {
       observations,
       points:
         gate_state === "ready" ? projected.filter((point) => inRange(dateOnly(point.date))) : [],
-      next_recommendation:
-        gate_state === "ready" ? await this.nextRecommendation(userId, query.exercise_id) : null,
+      next_recommendation: next
+        ? { ...next, confidence: applyDisplayGate(sample_session_count, next.confidence) }
+        : null,
     };
   }
 
@@ -231,6 +233,7 @@ export class AnalyticsService {
         },
       },
       orderBy: [{ session: { scheduledDate: "asc" } }, { setNo: "asc" }],
+      include: { exercise: { select: { metric: true, defaultStepKg: true } } },
     });
     const first = sets[0];
     if (!first) return null;

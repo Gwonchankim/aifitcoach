@@ -242,9 +242,10 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         );
         expect(item.sample_session_count).toBe(count);
         expect(item.gate_state).toBe(displayGateState(count));
-        expect(item.recommendation).toEqual(
-          applyDisplayGate(count, recommendations.toApi(id, 1, oracle)),
-        );
+        expect(item.recommendation).toEqual({
+          ...recommendations.toApi(id, 1, oracle),
+          confidence: applyDisplayGate(count, oracle.confidence),
+        });
       }
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
       expect(row.loadSemantics).toBe("assistance");
@@ -281,9 +282,7 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         "recommendation_gate",
       ])
         expect(wire[key]).toEqual(sync[key as keyof typeof sync]);
-      expect(wire.recommended_action).toEqual(
-        applyDisplayGate(count, oracle.recommended_action ?? null),
-      );
+      expect(wire.recommended_action).toEqual(oracle.recommended_action ?? null);
       expect(wire.assistance_safety_status).toBe(
         rawAssistanceSafetyStatus(toRawTargetRow(row, false)),
       );
@@ -292,7 +291,10 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         .get(`/v1/analytics/e1rm?exercise_id=${id}`)
         .expect(200);
       expect(analytics.body.sample_session_count).toBe(count);
-      expect(analytics.body.next_recommendation).toEqual(applyDisplayGate(count, persisted));
+      expect(analytics.body.next_recommendation).toEqual({
+        ...persisted,
+        confidence: applyDisplayGate(count, persisted.confidence),
+      });
       evidence(`${id}-sample-${count}`, {
         id,
         count,

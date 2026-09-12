@@ -143,7 +143,12 @@ describe("맨몸·시간 종목 E2E", () => {
     expect(dips).toMatchObject({
       sample_session_count: 1,
       gate_state: "early",
-      recommendation: null,
+      recommendation: {
+        reason_code: "REPS_UP_BODYWEIGHT",
+        weight: null,
+        recommendation_state: "ready",
+        confidence: null,
+      },
     });
 
     const next = await prisma.plannedSet.findMany({
@@ -166,7 +171,12 @@ describe("맨몸·시간 종목 E2E", () => {
 
     expect(body.next_recommendations.find((item) => item.exercise_id === "e_dips")).toMatchObject({
       gate_state: "early",
-      recommendation: null,
+      recommendation: {
+        reason_code: "SUBSTITUTE_TOO_HARD_BODYWEIGHT",
+        weight: null,
+        recommendation_state: "ready",
+        confidence: null,
+      },
     });
     const next = await prisma.plannedSet.findFirstOrThrow({
       where: { sessionId: second.id, exerciseId: "e_dips" },
@@ -184,7 +194,12 @@ describe("맨몸·시간 종목 E2E", () => {
 
     expect(body.next_recommendations.find((item) => item.exercise_id === "e_plank")).toMatchObject({
       gate_state: "early",
-      recommendation: null,
+      recommendation: {
+        reason_code: "TIME_UP",
+        weight: null,
+        recommendation_state: "ready",
+        confidence: null,
+      },
     });
 
     const next = await prisma.plannedSet.findMany({
@@ -206,7 +221,12 @@ describe("맨몸·시간 종목 E2E", () => {
     const hold = await complete(first.id);
     expect(hold.next_recommendations[0]).toMatchObject({
       gate_state: "early",
-      recommendation: null,
+      recommendation: {
+        reason_code: "TIME_HOLD",
+        weight: null,
+        recommendation_state: "ready",
+        confidence: null,
+      },
     });
     const held = await prisma.plannedSet.findFirstOrThrow({
       where: { sessionId: second.id, exerciseId: "e_plank" },
@@ -222,7 +242,12 @@ describe("맨몸·시간 종목 E2E", () => {
     const down = await complete(second.id);
     expect(down.next_recommendations[0]).toMatchObject({
       gate_state: "early",
-      recommendation: null,
+      recommendation: {
+        reason_code: "TIME_DOWN",
+        weight: null,
+        recommendation_state: "ready",
+        confidence: null,
+      },
     });
     const lowered = await prisma.plannedSet.findFirstOrThrow({
       where: { sessionId: third.id, exerciseId: "e_plank" },
@@ -281,7 +306,7 @@ describe("맨몸·시간 종목 E2E", () => {
       target_reps_low: 6,
       target_reps_high: 12,
       recommended_weight: null,
-      recommended_reps: null,
+      recommended_reps: 6,
       recommendation_gate: "no_history",
     });
   });

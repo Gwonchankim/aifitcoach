@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import request from "supertest";
+import { similarSourcesFor } from "shared";
 import { devUserId } from "../src/auth/dev-user";
 import { utcToday } from "../src/common/date/utc-day";
 import { PlannedSetFactory } from "../src/programs/planned-set.factory";
@@ -61,14 +62,32 @@ describe("production call-site batch · action gate", () => {
    * **질의 종류별로 나눠 센다.** 총합 상한만 보면 latest 를 batch 하고 lifetime 을 N+1 로 두는
    * 부분 batching 을 못 잡는다. 코드 계약과 정확히 대응하는 shape 로 구분한다:
    *   - latest  : `where.OR[].plannedSet.exerciseId` (spec 별 분기)
+   *   - similar : `where.OR[].plannedSet.exerciseId.in` + external_load (소스 합집합)
    *   - lifetime: `where.plannedSet.exerciseId.in` + `loadSemantics: assistance`
    *   - cohort  : `where.plannedSetId.in` (수행 사실 존재 확인)
    */
-  type QueryKinds = { latest: number; lifetime: number; cohort: number; other: number };
+  type QueryKinds = {
+    latest: number;
+    lifetime: number;
+    similar: number;
+    cohort: number;
+    other: number;
+  };
 
   function classify(args: unknown): keyof QueryKinds {
     const where = (args as { where?: Record<string, unknown> } | undefined)?.where ?? {};
-    if (Array.isArray(where.OR)) return "latest";
+    if (Array.isArray(where.OR)) {
+      if (
+        where.OR.length > 0 &&
+        where.OR.every(
+          (branch: { plannedSet?: { exerciseId?: { in?: string[] }; loadSemantics?: string } }) =>
+            Array.isArray(branch.plannedSet?.exerciseId?.in) &&
+            branch.plannedSet?.loadSemantics === "external_load",
+        )
+      )
+        return "similar";
+      return "latest";
+    }
     const planned = where.plannedSet as
       { exerciseId?: unknown; loadSemantics?: unknown } | undefined;
     if (planned?.loadSemantics === "assistance" && planned.exerciseId !== undefined)
@@ -141,7 +160,7 @@ describe("production call-site batch · action gate", () => {
   }
 
   async function countQueries<T>(body: () => Promise<T>): Promise<[T, QueryKinds, number, number]> {
-    const kinds: QueryKinds = { latest: 0, lifetime: 0, cohort: 0, other: 0 };
+    const kinds: QueryKinds = { latest: 0, lifetime: 0, similar: 0, cohort: 0, other: 0 };
     let calibration = 0;
     let rootReads = 0;
     const restore = observeReads(
@@ -164,7 +183,7 @@ describe("production call-site batch · action gate", () => {
   /** 뒤 호환: 총합만 필요한 곳. */
   async function countPerformedQueries<T>(body: () => Promise<T>): Promise<[T, number]> {
     const [value, kinds] = await countQueries(body);
-    return [value, kinds.latest + kinds.lifetime + kinds.cohort + kinds.other];
+    return [value, kinds.latest + kinds.lifetime + kinds.similar + kinds.cohort + kinds.other];
   }
 
   async function generate(): Promise<void> {
@@ -188,10 +207,11 @@ describe("production call-site batch · action gate", () => {
   }
 
   describe("① 프로그램 생성 endpoint — query-kind exact count", () => {
-    it("POST /programs/generate 는 latest 1 · calibration 1 이다", async () => {
+    it("POST /programs/generate 는 latest 1 · similar 1 · calibration 2 이다", async () => {
       const [, kinds, calibration] = await countQueries(generate);
       expect(kinds.latest).toBe(1);
-      expect(calibration).toBe(1);
+      expect(kinds.similar).toBe(1);
+      expect(calibration).toBe(2); // caller 1 + attachSimilar 1
       // 생성 시점에는 아직 planned row 가 없어 cohort 질의도 없다.
       expect(kinds.cohort).toBe(0);
     });
@@ -218,11 +238,11 @@ describe("production call-site batch · action gate", () => {
 
       // **비공허성 선행 확인**: 어시스트가 실제로 대상이어야 아래 단언이 의미를 가진다.
       expect(await assistedIsTargeted()).toBe(true);
-      expect(gen).toEqual({ latest: 1, lifetime: 1, cohort: 0, other: 0 });
-      expect(genCal).toBe(1);
+      expect(gen).toEqual({ latest: 1, lifetime: 1, similar: 1, cohort: 0, other: 0 });
+      expect(genCal).toBe(2);
       // materialize 는 **주 단위**로 한 번씩이다(세션·종목 수를 따라가지 않는다).
-      expect(mat).toEqual({ latest: WEEKS, lifetime: WEEKS, cohort: 0, other: 0 });
-      expect(matCal).toBe(WEEKS);
+      expect(mat).toEqual({ latest: WEEKS, lifetime: WEEKS, similar: WEEKS, cohort: 0, other: 0 });
+      expect(matCal).toBe(WEEKS * 2);
       // Latest/lifetime/calibration reads are intentionally inside the post-lock tx.
       expect(matRootReads).toBe(0);
     });
@@ -236,16 +256,16 @@ describe("production call-site batch · action gate", () => {
       // 대조군이 실제로 어시스트 없는 프로그램인지 확인한다.
       expect(await assistedIsTargeted()).toBe(false);
       // lifetime 만 사라진다 — latest·calibration 은 어시스트와 무관하게 같은 횟수다.
-      expect(gen).toEqual({ latest: 1, lifetime: 0, cohort: 0, other: 0 });
-      expect(genCal).toBe(1);
-      expect(mat).toEqual({ latest: WEEKS, lifetime: 0, cohort: 0, other: 0 });
-      expect(matCal).toBe(WEEKS);
+      expect(gen).toEqual({ latest: 1, lifetime: 0, similar: 1, cohort: 0, other: 0 });
+      expect(genCal).toBe(2);
+      expect(mat).toEqual({ latest: WEEKS, lifetime: 0, similar: WEEKS, cohort: 0, other: 0 });
+      expect(matCal).toBe(WEEKS * 2);
       expect(matRootReads).toBe(0);
     });
 
     it("materialize 질의 수는 종목 수와 무관하다", async () => {
       await generate();
-      const [, kinds, , rootReads] = await countQueries(async () => {
+      const [, kinds, calibration, rootReads] = await countQueries(async () => {
         await request(app.getHttpServer()).get("/v1/programs/current").expect(200);
       });
 
@@ -257,6 +277,14 @@ describe("production call-site batch · action gate", () => {
       // 종목이 주 질의 수보다 훨씬 많다 — N+1 이면 여기서 갈린다.
       expect(exercises.length).toBeGreaterThan(WEEKS * 2);
       expect(kinds.latest + kinds.lifetime).toBe(WEEKS * 2);
+      expect(kinds).toEqual({
+        latest: WEEKS,
+        lifetime: WEEKS,
+        similar: WEEKS,
+        cohort: 0,
+        other: 0,
+      });
+      expect(calibration).toBe(WEEKS * 2);
       expect(rootReads).toBe(0);
     });
 
@@ -274,7 +302,7 @@ describe("production call-site batch · action gate", () => {
         }),
       ).toBe(0);
 
-      const [created, calls] = await countPerformedQueries(async () => {
+      const [created, kinds, calibration, rootReads] = await countQueries(async () => {
         const response = await request(app.getHttpServer())
           .post("/v1/sessions/ad-hoc")
           .send({ body_part: "legs" })
@@ -286,8 +314,36 @@ describe("production call-site batch · action gate", () => {
       expect(picked).toBeGreaterThan(1);
       // ad-hoc 은 lazy materialize(주 2회) + 자기 prefetch 1회를 함께 탄다 —
       // **종목 수를 따라가지 않는 것**이 핵심이다.
-      expect(calls).toBeLessThanOrEqual(4);
-      expect(calls).toBeLessThan(picked * 2);
+      expect(kinds).toEqual({
+        latest: WEEKS + 1,
+        lifetime: 0,
+        similar: WEEKS + 1,
+        cohort: 0,
+        other: 0,
+      });
+      expect(calibration).toBe((WEEKS + 1) * 2);
+      expect(rootReads).toBe(0);
+      expect(kinds.latest + kinds.similar).toBeLessThan(picked * 2);
+    });
+
+    it("무이력 external 대상 둘이 같은 소스를 공유해도 similar 질의는 정확히 1회다", async () => {
+      const ids = ["e_incline_bench_press", "e_decline_bench_press"];
+      for (const id of ids)
+        expect(similarSourcesFor(id)).toEqual([{ source: "e_bench_press", ratio: 0.8 }]);
+      const [map, kinds, calibration, rootReads] = await countQueries(() =>
+        prisma.$transaction((tx) =>
+          app.get(RecommendationService).prefetchHistories(
+            USER_ID,
+            ids.map((exerciseId) => ({ exerciseId, loadSemantics: "external_load" })),
+            tx,
+          ),
+        ),
+      );
+      expect(map.size).toBe(2);
+      for (const id of ids) expect(requireHistory(map, id).lastSets).toEqual([]);
+      expect(kinds).toEqual({ latest: 1, lifetime: 0, similar: 1, cohort: 0, other: 0 });
+      expect(calibration).toBe(1); // prefetch 자체: attachSimilar만 호출하고 별도 caller 조회는 없다.
+      expect(rootReads).toBe(0);
     });
 
     /**
@@ -332,6 +388,7 @@ describe("production call-site batch · action gate", () => {
       async (_label, fixed, lifetime) => {
         const { id, present } = await sessionWithoutAssisted();
         const added = fixed ?? (await plainOutside(present));
+        expect(similarSourcesFor(added)).toEqual([]);
 
         const [, kinds, calibration] = await countQueries(async () => {
           await request(app.getHttpServer())
@@ -340,7 +397,7 @@ describe("production call-site batch · action gate", () => {
             .expect(200);
         });
 
-        expect(kinds).toEqual({ latest: 1, lifetime, cohort: 0, other: 0 });
+        expect(kinds).toEqual({ latest: 1, lifetime, similar: 0, cohort: 0, other: 0 });
         expect(calibration).toBe(1);
         // 실제로 들어갔는지 — 안 들어갔으면 위 숫자는 아무것도 뜻하지 않는다.
         expect(await prisma.plannedSet.count({ where: { sessionId: id, exerciseId: added } })).toBe(
@@ -357,6 +414,7 @@ describe("production call-site batch · action gate", () => {
       async (_label, fixed, lifetime) => {
         const { id, present } = await sessionWithoutAssisted();
         const to = fixed ?? (await plainOutside(present));
+        expect(similarSourcesFor(to)).toEqual([]);
         const from = present[0];
 
         const [, kinds, calibration] = await countQueries(async () => {
@@ -366,7 +424,7 @@ describe("production call-site batch · action gate", () => {
             .expect(200);
         });
 
-        expect(kinds).toEqual({ latest: 1, lifetime, cohort: 0, other: 0 });
+        expect(kinds).toEqual({ latest: 1, lifetime, similar: 0, cohort: 0, other: 0 });
         expect(calibration).toBe(1);
         // 교체가 실제로 일어났다 — 나간 종목은 없고 들어온 종목이 있다.
         expect(await prisma.plannedSet.count({ where: { sessionId: id, exerciseId: from } })).toBe(
@@ -729,14 +787,17 @@ describe("production call-site batch · action gate", () => {
       )!;
     }
 
-    it("no_history · early 는 action 이 null 이다 — 처방 축이라 함께 가려진다", async () => {
+    it("no_history · early 에서도 유효한 action과 state를 공개한다(ADR-70)", async () => {
       for (const completed of [0, 1]) {
         await resetUserData(prisma, USER_ID);
         const target = await seedMinimumReached(completed);
         const wire = await wireOf(target);
         expect(wire.recommendation_gate).not.toBe("ready");
-        expect(wire.recommended_action).toBeNull();
-        expect(wire.recommendation_state).toBeNull();
+        expect(wire.recommended_action).toEqual({
+          kind: "suggest_exercise_swap",
+          exercise_id: "e_pullup",
+        });
+        expect(wire.recommendation_state).toBe("ready");
         // 구조·안전 축은 게이트되지 않는다.
         expect(wire.load_kind).toBe("assistance");
         expect(wire.assistance_safety_status).not.toBeNull();
@@ -765,8 +826,8 @@ describe("production call-site batch · action gate", () => {
       });
 
       for (const [count, expected] of [
-        [0, null],
-        [1, null],
+        [0, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
+        [1, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
         [3, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
       ] as const) {
         const wire = plannedSetResponse(row, count);
