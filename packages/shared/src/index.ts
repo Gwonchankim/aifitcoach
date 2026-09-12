@@ -4,6 +4,7 @@ export * from "./assistance";
 export * from "./assistance-safety";
 export * from "./safety";
 export * from "./display-gate";
+export * from "./recommendation-state";
 export * from "./rules-version";
 export * from "./session-plan";
 export { correctedRir, estimateE1rm, recommendNextSet } from "./recommend";
