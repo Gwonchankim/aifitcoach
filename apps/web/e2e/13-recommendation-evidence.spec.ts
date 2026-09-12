@@ -28,6 +28,7 @@
  * 한 세션 안에서 같이 진행해도 섞이지 않는다 — 그리고 이 스펙은 섞이지 않는다는 것 자체를 단언한다.
  */
 import { randomUUID } from "node:crypto";
+import AxeBuilder from "@axe-core/playwright";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { API_V1, openSession, seedProgram, todaySession } from "./helpers";
@@ -46,6 +47,8 @@ type ApiPlannedSet = {
   recommended_reps: number | null;
   reason_code: string | null;
   recommendation_gate: string;
+  recommendation_state: string;
+  confidence: number | null;
   load_kind: string;
   performed_set: {
     actual_weight: number | null;
@@ -263,11 +266,13 @@ test("@chromium-only 완료 이력이 다음 세션의 추천 값·근거로 화
   const repsHigh = upSets[0].target_reps_high!;
   const repsLow = downSets[0].target_reps_low!;
 
-  // 출발점: 완료 이력이 0 이라 gate 가 값과 이유를 **둘 다** 가린다(reason_code 도 null 이다).
+  // 첫 처방은 load만 미준비다. target reps와 V1 reason은 공개한다(ADR-70).
   expect(upSets[0]).toMatchObject({
     recommendation_gate: "no_history",
     recommended_weight: null,
-    reason_code: null,
+    reason_code: "BASELINE",
+    recommendation_state: "load_calibration_needed",
+    confidence: null,
   });
 
   /** 한 바퀴: 쉬운 완료(목표 반복 모두 채움) + 어려운 완료(하단 -2, RIR 0). */
@@ -287,32 +292,49 @@ test("@chromium-only 완료 이력이 다음 세션의 추천 값·근거로 화
 
   const afterFirst = await recordBoth(first);
 
-  /* --- display gate 미충족: 값은 계산됐지만 화면에 나오지 않는다 --- */
+  expect(upSets[0].recommended_reps).toBe(upSets[0].target_reps_low);
+  /* --- 첫 완료부터 처방 공개, 분석만 early --- */
   const gated = afterFirst.next_recommendations.find((r) => r.exercise_id === upId)!;
   expect(gated, "완료 1회 = early gate").toMatchObject({
     sample_session_count: 1,
     gate_state: "early",
-    recommendation: null,
+    recommendation: {
+      weight: stepUp(WEIGHT, upStep),
+      reason_code: "WEIGHT_UP_REP_TARGET_MET",
+      recommendation_state: "ready",
+      confidence: null,
+    },
   });
 
   const second = await freshSession(request, [upId, downId]);
   const secondUp = setsFor(second, upId)[0];
-  // 계산은 됐다(세션 생성이 이력을 반영한다). 그러나 gate 가 값을 내보내지 않는다.
+  // 다음 세션의 wire 값도 동일한 엔진 결과를 전달한다.
   expect(secondUp.recommendation_gate).toBe("early");
-  expect(secondUp.recommended_weight).toBeNull();
-  expect(secondUp.reason_code).toBeNull();
+  expect(secondUp.recommended_weight).toBe(stepUp(WEIGHT, upStep));
+  expect(secondUp.reason_code).toBe("WEIGHT_UP_REP_TARGET_MET");
+  expect(secondUp.recommendation_state).toBe("ready");
+  expect(secondUp.confidence).toBeNull();
+  const earlyAnalyticsResponse = await request.get(`${API_V1}/analytics/e1rm?exercise_id=${upId}`);
+  expect(earlyAnalyticsResponse.ok()).toBe(true);
+  expect(await earlyAnalyticsResponse.json()).toMatchObject({
+    gate_state: "early",
+    sample_session_count: 1,
+    points: [],
+    next_recommendation: { recommendation_state: "ready", confidence: null },
+  });
 
   await openSession(page, second.id);
-  // 실제 UI 단언: 프리필도 근거 문구도 없다.
-  await expect(weightInput(page, upName, 1)).toHaveValue("");
-  await expect(card(page, upName).getByText(REASON_COPY.WEIGHT_UP_REP_TARGET_MET)).toHaveCount(0);
+  await expect(weightInput(page, upName, 1)).toHaveValue(String(stepUp(WEIGHT, upStep)));
+  await expect(repsInput(page, upName, 1)).toHaveValue(String(secondUp.recommended_reps));
+  await expect(card(page, upName).getByText(REASON_COPY.WEIGHT_UP_REP_TARGET_MET)).toBeVisible();
   await expect(
     card(page, upName).getByText(
       "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요.",
       { exact: true },
     ),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(card(page, upName).getByText("첫 세션이라 추천 무게가 아직 없어요.")).toHaveCount(0);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
   /* --- 2·3회차로 gate 를 실제 완료 세션으로 연다. 마지막 한 바퀴는 브라우저로 밟는다. --- */
   await recordBoth(second);
