@@ -105,13 +105,13 @@
       "input": {
         "goal": "diet",
         "exercise": { "type": "compound", "region": "upper", "step_kg": 2.5 },
-        "target": { "reps_low": 8, "reps_high": 12, "rir": 3 },
+        "target": { "reps_low": 8, "reps_high": 12, "rir": 2 },
         "last_sets": [],
-        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 100, "ratio": 0.75 }
+        "similar": { "source_exercise_id": "e_bench_press", "source_e1rm": 55, "ratio": 0.8 }
       },
       "expect": {
-        "weight": 50, "reason_code": "SIMILAR_INIT",
-        "note": "75 / (1 + 15/30) = 50.0 정확히 격자 위. 부동소수 오차로 47.5 로 내려가면 실패(EPS 계약)"
+        "weight": 30, "reason_code": "SIMILAR_INIT",
+        "note": "44 / (1 + 14/30) = 30 이지만 부동소수로 29.999999999999996 이 나온다. EPS(1e-9) 없이 Math.floor 하면 27.5. 정확히 격자 위인 값을 내리지 않는 EPS 계약을 잡는다"
       }
     },
     {

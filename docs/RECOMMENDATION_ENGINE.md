@@ -236,7 +236,7 @@ projector의 `estimated_1rm` 행을 사용하지 않아 재빌드 시점에 의�
 
 ## reason_code 목록
 
-**runtime `REASON_CODES` 계약 = 17종(SIMILAR_INIT 포함).** 이 목록에 무언가를 추가하려면
+**runtime `REASON_CODES` 계약 = 기본 17종(SIMILAR_INIT 포함) + 어시스트 6종 = 전체 23종 / 예약 3종.** 이 목록에 무언가를 추가하려면
 **emit 경로와 테스트를 함께** 만들어야 한다 — `packages/shared/test/reason-codes.test.ts`가
 "union == 실제 emit 집합"을 exact로 강제하므로, 경로 없는 코드를 넣으면 즉시 실패한다.
 
@@ -245,11 +245,15 @@ WEIGHT_UP_REP_TARGET_MET, ADD_ONE_REP, HOLD_RIR_LOW, TOO_HARD,
 LOAD_CALIBRATION_NEEDED, BASELINE, INVALID_INPUT, SUBSTITUTE_PAIN,
 RIR_TOO_EASY_INCREASE, RIR_TOO_HARD_REDUCE,
 REPS_UP_BODYWEIGHT, PROGRESSION_CAP_BODYWEIGHT, SUBSTITUTE_TOO_HARD_BODYWEIGHT,
-TIME_UP, TIME_HOLD, TIME_DOWN, SIMILAR_INIT
+TIME_UP, TIME_HOLD, TIME_DOWN, SIMILAR_INIT,
+ASSISTANCE_CALIBRATION_NEEDED, ASSISTANCE_DOWN_REP_TARGET_MET,
+ASSISTANCE_DOWN_RIR_EASY, ASSISTANCE_UP_RIR_HARD, ASSISTANCE_UP_TOO_HARD,
+ASSISTANCE_MINIMUM_REACHED
 ```
 
 > SIM-01은 문서·골든을 먼저 동결하는 red 커밋이다. `SIMILAR_INIT`의 실제 runtime 승격과
 > emit 경로·타입·reason-codes 테스트 변경은 SIM-02에서 함께 수행한다.
+> SIM-02 승격 전까지 실제 코드는 runtime 22종(기본 16 + 어시스트 6) / 예약 4종이다.
 
 > **예약 `RESERVED_REASON_CODES` — 응답에 나오지 않는다(계약상 정확히 3종).**
 > `VOLUME_SPIKE_CAP`(안전 가드레일 2) ·
