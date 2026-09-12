@@ -77,6 +77,8 @@ test("S2 프로그램 확인", async ({ page }) => {
 test("M-4 기록", async ({ page }) => {
   await page.goto("/history");
   await expect(page.getByRole("heading", { name: "기록", exact: true })).toBeVisible();
+  const exerciseSelection = page.getByRole("group", { name: "종목 선택", exact: true });
+  await expect(exerciseSelection.getByRole("button").first()).toBeVisible();
   await scan(page, "M4-history");
 });
 

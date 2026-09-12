@@ -266,7 +266,7 @@ export function HistoryScreen({ initialExerciseId }: { initialExerciseId?: strin
       ) : null}
 
       {candidateIds.length > 0 ? (
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4" aria-label="종목 선택">
+        <div role="group" className="-mx-4 flex gap-2 overflow-x-auto px-4" aria-label="종목 선택">
           {candidateIds.map((id) => {
             const exercise = catalog.data?.find((item) => item.id === id);
             if (!exercise) return null;
