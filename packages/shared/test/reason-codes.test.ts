@@ -24,6 +24,17 @@ const REPS_TARGET = { reps_low: 8, reps_high: 12, rir: 2 };
 /** 각 시나리오는 결정표의 한 분기를 정확히 밟는다. */
 const SCENARIOS: { label: string; input: RecommendationInput }[] = [
   {
+    label: "유사 운동 무이력 → 참고값",
+    input: {
+      goal: "hypertrophy",
+      exercise: EXTERNAL,
+      target: REPS_TARGET,
+      last_sets: [],
+      similar: { source_exercise_id: "e_bench_press", source_e1rm: 100, ratio: 0.8 },
+      rules_version: RULES_BUNDLE_V1,
+    },
+  },
+  {
     label: "external 상단 도달 → 증량",
     input: {
       goal: "hypertrophy",
@@ -294,11 +305,10 @@ describe("RESERVED_REASON_CODES 계약", () => {
     expect(overlap, `예약 코드가 runtime union 에도 있다: ${overlap.join(", ")}`).toEqual([]);
   });
 
-  it("예약 목록이 정확히 4종이다", () => {
+  it("예약 목록이 정확히 3종이다", () => {
     expect([...RESERVED_REASON_CODES].sort()).toEqual([
       "CALIBRATION_STALE",
       "DELOAD_SUGGESTED",
-      "SIMILAR_INIT",
       "VOLUME_SPIKE_CAP",
     ]);
   });

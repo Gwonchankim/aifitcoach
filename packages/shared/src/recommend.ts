@@ -19,6 +19,7 @@ import type {
 const CONFIDENCE = {
   full: 0.85, // 모든 작업세트에 RIR 있음
   missingRir: 0.7, // RIR 결측 → 하향 (GC-16: <= 0.8)
+  similar: 0.4, // 자기 이력 없이 유사 종목에서 추정한 참고값
   baseline: 0.5, // 기록 없음 (GC-15: <= 0.6)
 } as const;
 
@@ -219,6 +220,36 @@ export function recommendNextSet(input: RecommendationInput): Recommendation {
       reason_code: "INVALID_INPUT",
       confidence: CONFIDENCE.baseline,
     };
+  }
+
+  // 유사 운동 참고값 — 안전·검증을 통과한 외부 부하 무이력에만 적용한다.
+  const similar = input.similar;
+  if (
+    sets.length === 0 &&
+    step !== null &&
+    step > 0 &&
+    (exercise.load_semantics ?? "external_load") === "external_load" &&
+    similar !== undefined &&
+    Number.isFinite(similar.source_e1rm) &&
+    similar.source_e1rm > 0 &&
+    Number.isFinite(similar.ratio) &&
+    similar.ratio > 0 &&
+    similar.ratio < 1
+  ) {
+    const load = (similar.source_e1rm * similar.ratio) / (1 + (repsHigh + targetRir) / 30);
+    const weight = floorToStep(load, step);
+    if (weight >= step) {
+      return {
+        weight,
+        reps_low: repsLow,
+        reps_high: repsHigh,
+        rules_version,
+        load_kind: "external",
+        recommendation_state: "ready",
+        reason_code: "SIMILAR_INIT",
+        confidence: CONFIDENCE.similar,
+      };
+    }
   }
 
   // 3) 기록 없음 — 보수적 첫 세션(무게는 사용자 입력/워밍업으로 결정).

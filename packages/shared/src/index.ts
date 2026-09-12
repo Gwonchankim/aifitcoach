@@ -9,3 +9,4 @@ export * from "./session-plan";
 export { correctedRir, estimateE1rm, recommendNextSet } from "./recommend";
 export type { E1rmSet } from "./recommend";
 export * from "./routine-plan";
+export * from "./similar-init";

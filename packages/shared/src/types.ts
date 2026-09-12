@@ -54,6 +54,7 @@ export const REASON_CODES = [
   "TIME_UP",
   "TIME_HOLD",
   "TIME_DOWN",
+  "SIMILAR_INIT",
   // 어시스트 전용(2026.08.2+). generic sign flip 금지 — 방향이 반대라 문구를 재사용할 수 없다.
   "ASSISTANCE_CALIBRATION_NEEDED",
   "ASSISTANCE_DOWN_REP_TARGET_MET",
@@ -72,7 +73,6 @@ export type ReasonCode = (typeof REASON_CODES)[number];
  * 되살릴 때는 **입력·emit 경로·테스트와 함께 원자적으로** union 으로 옮긴다. 여기 있는 동안은
  * 사용자 설명 map 과 실제 응답 어디에도 넣지 않는다(V2-REASON-01).
  *
- * - `SIMILAR_INIT` — 유사 운동 e1RM 초기값. 소유: 별도 기능 티켓
  * - `VOLUME_SPIKE_CAP` — 주간 볼륨 급증 캡. 집계 데이터(`muscle_weekly_load`)는 있으나
  *   엔진 입력 채널과 **오프라인 미러 대책이 없다**. 소유: `V2-PLAN-02`
  * - `DELOAD_SUGGESTED` — 디로드 제안. 다세션 추세·피로 입력 없음. 소유: P3 회복 주간
@@ -84,7 +84,6 @@ export type ReasonCode = (typeof REASON_CODES)[number];
  * 넘긴다는 것이 설계이므로 되살릴 계획 자체가 없다.
  */
 export const RESERVED_REASON_CODES = [
-  "SIMILAR_INIT",
   "VOLUME_SPIKE_CAP",
   "DELOAD_SUGGESTED",
   "CALIBRATION_STALE",
@@ -123,6 +122,8 @@ export interface RecommendationInput {
   };
   last_sets: PerformedSet[];
   calibration?: { rir_bias: number };
+  /** 같은 종목 무이력 참고값. 객체 유무가 스위치이며 rules_version으로 분기하지 않는다. */
+  similar?: { source_exercise_id: string; source_e1rm: number; ratio: number };
   /**
    * 최근 완료 세션의 안전 신호. `pain_failure_code` 는 **API encryption adapter** 가
    * 복호화에 실패했을 때만 채운다 — `shared` 는 암호문을 직접 다루지 않는다(F-1 경계).

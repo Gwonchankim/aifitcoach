@@ -210,6 +210,7 @@ export function compareEarliestFirst(
 
 /** reason_code → 사용자에게 보여줄 근거 문장(openapi Recommendation.explanation). 표시 문구일 뿐 규칙이 아니다. */
 const EXPLANATION: Record<ReasonCode, string> = {
+  SIMILAR_INIT: "비슷한 종목 기록으로 잡은 참고 무게다. 실제 기록이 생기면 그것을 따른다.",
   WEIGHT_UP_REP_TARGET_MET: "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
   ADD_ONE_REP: "무게는 유지하고 목표 반복을 1회 늘린다.",
   HOLD_RIR_LOW: "반복은 지켰지만 RIR 이 낮아 무게를 유지한다.",

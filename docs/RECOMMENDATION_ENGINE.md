@@ -251,9 +251,8 @@ ASSISTANCE_DOWN_RIR_EASY, ASSISTANCE_UP_RIR_HARD, ASSISTANCE_UP_TOO_HARD,
 ASSISTANCE_MINIMUM_REACHED
 ```
 
-> SIM-01은 문서·골든을 먼저 동결하는 red 커밋이다. `SIMILAR_INIT`의 실제 runtime 승격과
-> emit 경로·타입·reason-codes 테스트 변경은 SIM-02에서 함께 수행한다.
-> SIM-02 승격 전까지 실제 코드는 runtime 22종(기본 16 + 어시스트 6) / 예약 4종이다.
+> SIM-01에서 동결한 `SIMILAR_INIT`의 runtime 승격·emit 경로·타입·reason-codes 테스트를
+> SIM-02에서 함께 구현했다. 실제 코드는 runtime 23종(기본 17 + 어시스트 6) / 예약 3종이다.
 
 > **예약 `RESERVED_REASON_CODES` — 응답에 나오지 않는다(계약상 정확히 3종).**
 > `VOLUME_SPIKE_CAP`(안전 가드레일 2) ·

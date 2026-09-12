@@ -748,3 +748,77 @@ describe("RIR 보수 경로 계약 (두 bundle 동일)", () => {
     expect(measured.weight).toBe(62.5);
   });
 });
+
+describe("SIMILAR_INIT", () => {
+  const similarInput = {
+    ...base,
+    last_sets: [],
+    similar: { source_exercise_id: "e_bench_press", source_e1rm: 100, ratio: 0.8 },
+  };
+
+  it("참고값은 e1rm·대체 제안·행동을 내지 않는다", () => {
+    const out = recommendNextSet(similarInput);
+    expect(out.reason_code).toBe("SIMILAR_INIT");
+    expect(out.e1rm).toBeUndefined();
+    expect(out.suggest_substitution).toBeUndefined();
+    expect(out.recommended_action).toBeUndefined();
+  });
+
+  it("네 bundle 모두 동일한 참고값을 내고 요청 버전을 보존한다", () => {
+    const expected = recommendNextSet(similarInput);
+    expect(expected).toMatchObject({ weight: 52.5, reason_code: "SIMILAR_INIT", confidence: 0.4 });
+    for (const rules_version of ["2026.08.1", "2026.09.0", "2026.08.2", "2026.09.1"]) {
+      expect(recommendNextSet({ ...similarInput, rules_version })).toEqual({
+        ...expected,
+        rules_version,
+      });
+    }
+  });
+
+  it("similar undefined는 기존 무이력 출력과 JSON 바이트가 같다", () => {
+    for (const rules_version of ["2026.08.1", "2026.09.0", "2026.08.2", "2026.09.1"]) {
+      const withoutSimilar = { ...base, last_sets: [], rules_version };
+      expect(JSON.stringify(recommendNextSet({ ...withoutSimilar, similar: undefined }))).toBe(
+        JSON.stringify(recommendNextSet(withoutSimilar)),
+      );
+    }
+  });
+
+  it.each([
+    { source_e1rm: 0, ratio: 0.8 },
+    { source_e1rm: -1, ratio: 0.8 },
+    { source_e1rm: NaN, ratio: 0.8 },
+    { source_e1rm: Infinity, ratio: 0.8 },
+    { source_e1rm: 100, ratio: 0 },
+    { source_e1rm: 100, ratio: -0.1 },
+    { source_e1rm: 100, ratio: NaN },
+    { source_e1rm: 100, ratio: Infinity },
+  ])("무효 참고값은 기존 무이력 경로로 돌아간다: %j", (source) => {
+    for (const rules_version of ["2026.08.1", "2026.09.0"]) {
+      const input = { ...base, last_sets: [], rules_version };
+      expect(
+        recommendNextSet({
+          ...input,
+          similar: { source_exercise_id: "e_bench_press", ...source },
+        }),
+      ).toEqual(recommendNextSet(input));
+    }
+  });
+
+  it("유효 작업세트가 없는 원시 기록에는 참고값을 쓴다", () => {
+    expect(recommendNextSet({ ...similarInput, last_sets: [{ w: 60, reps: 0 }] }).reason_code).toBe(
+      "SIMILAR_INIT",
+    );
+  });
+
+  it("legacy bundle의 어시스트도 외부 부하 참고값을 읽지 않는다", () => {
+    const input = {
+      ...base,
+      exercise: { ...base.exercise, load_semantics: "assistance" as const },
+      last_sets: [],
+    };
+    expect(recommendNextSet({ ...input, similar: similarInput.similar })).toEqual(
+      recommendNextSet(input),
+    );
+  });
+});
