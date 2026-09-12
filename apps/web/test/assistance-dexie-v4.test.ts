@@ -550,9 +550,10 @@ describe("게이트된 payload — 서버 verdict 가 권위다", () => {
 
   it("게이트된 화면도 읽기 경로를 통과한다", async () => {
     const payload = sessionPayload("s-gated", [gatedAssistedRow()]);
-    await expect(readThroughSession(USER, "s-gated", async () => payload)).resolves.toEqual(
-      payload,
-    );
+    await expect(readThroughSession(USER, "s-gated", async () => payload)).resolves.toEqual({
+      ...payload,
+      planned_sets: [{ ...gatedAssistedRow(), recommendation_state: "ready" }],
+    });
   });
 
   it.each([

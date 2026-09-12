@@ -457,7 +457,7 @@ describe("foreground sync coordinator", () => {
         confidence: 0.3,
         rules_version: "2026.08.1",
         load_kind: "external",
-        recommendation_state: null,
+        recommendation_state: "ready" as const,
         assistance_provenance: null,
         recommended_action: null,
         assistance_safety_status: null,

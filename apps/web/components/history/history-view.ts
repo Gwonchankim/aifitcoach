@@ -22,14 +22,14 @@ export function historyVisibility(analytics: E1rmAnalytics): HistoryVisibility {
       showObservationDots: true,
       showTrendLine: false,
       showE1rmValues: false,
-      showRecommendation: false,
+      showRecommendation: analytics.next_recommendation !== null,
     };
   }
   return {
     showObservationDots: false,
     showTrendLine: false,
     showE1rmValues: false,
-    showRecommendation: false,
+    showRecommendation: analytics.next_recommendation !== null,
   };
 }
 

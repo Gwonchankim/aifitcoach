@@ -3,7 +3,7 @@
  * 전부 순수 함수라 테스트로 고정한다(test/session-set-rules.test.ts).
  */
 import type { Exercise, PlannedSet } from "../../lib/api";
-import { assistanceTransitionAction, type DisplayGateState } from "shared";
+import { assistanceTransitionAction, normalizeRecommendationState } from "shared";
 
 export type SetKind =
   /** metric=time 종목: 시간(초)만 기록하고 RIR 을 묻지 않는다. */
@@ -17,8 +17,8 @@ export type SetKind =
 
 /**
  * UX_STATES §5.1 의 판별 순서를 그대로 따른다.
- * metric/step_kg는 카탈로그가 1차 출처다. D-39 gate가 외부 부하 운동의 recommended_weight도 null로
- * 숨길 수 있으므로, null 추천값만 보고 자체중량으로 판정하면 무게 입력칸이 사라진다.
+ * metric/step_kg는 카탈로그가 1차 출처다. 보정이 필요한 외부 부하의 추천 무게도 null이므로,
+ * null 추천값만 보고 자체중량으로 판정하면 무게 입력칸이 사라진다.
  */
 export function setKind(
   set: PlannedSet,
@@ -27,6 +27,12 @@ export function setKind(
 ): SetKind {
   const isTime = metric === "time" || (metric == null && set.target_time_low_sec != null);
   if (isTime) return "time";
+  if (
+    stepKg === undefined &&
+    (set.load_kind === "external" || set.load_kind === "assistance") &&
+    set.recommended_weight === null
+  )
+    return "unknown_weight";
   if (stepKg === null) return "bodyweight";
   if (stepKg !== undefined && set.recommended_weight === null) return "unknown_weight";
   if (set.recommended_weight === null) return "bodyweight";
@@ -41,16 +47,41 @@ export function setKind(
   return "weighted";
 }
 
-/** 무게 미정 카드의 게이트별 안내. 임시: V2-GATE-01의 상태별 문구로 교체한다. */
-export function unknownWeightNote(gate: DisplayGateState): string {
-  switch (gate) {
-    case "no_history":
-      return "첫 세션이라 추천 무게가 아직 없어요. 가볍게 워밍업하면서 오늘의 무게를 정해 보세요.";
-    case "early":
-      return "같은 운동을 세 세션 완료하면 무게와 횟수를 추천해 드려요. 이번에도 직접 정해 주세요.";
+export const LOAD_CALIBRATION_COPY =
+  "추천 무게가 아직 없어요. 가볍게 워밍업하며 목표 반복을 수행할 무게를 정해 주세요.";
+
+/** Local provisional rows have no prescription. Never synthesize one while rendering. */
+export function recommendationState(set: PlannedSet) {
+  if (set.recommendation_state == null && set.load_kind == null) return null;
+  return normalizeRecommendationState({
+    state: set.recommendation_state,
+    reason: set.reason_code,
+    weight: set.recommended_weight,
+    load_kind: set.load_kind,
+  });
+}
+
+/** A single state instruction per card, independent of the analysis gate (ADR-70). */
+export function recommendationNote(set: PlannedSet): string | null {
+  switch (recommendationState(set)) {
+    case "substitution_required":
+      return ASSISTANCE_PAIN_COPY;
+    case "unavailable":
+      return ASSISTANCE_INVALID_COPY;
+    case "load_calibration_needed":
+      return isAssistanceSet(set) ? "기계에서 편한 도움 무게를 직접 정해요" : LOAD_CALIBRATION_COPY;
     case "ready":
-      return "추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요.";
+      return set.load_kind === "external" && set.recommended_weight === 0
+        ? "추천 무게를 정하지 못했어요. 오늘의 무게를 직접 정해 주세요."
+        : null;
+    default:
+      return null;
   }
+}
+
+export function isRecommendationSafetyState(set: PlannedSet): boolean {
+  const state = recommendationState(set);
+  return state === "substitution_required" || state === "unavailable";
 }
 
 export type SetValues = {
@@ -80,9 +111,13 @@ export type SetPrefill = { weight: number | null; reps: number | null; timeSec: 
  * 무게 미정(`unknown_weight`)은 **프리필이 없다** — V1 의 0 도 V2 의 null 도 기록값으로 쓰지 않는다(AC-E-1).
  */
 export function setPrefill(kind: SetKind, set: PlannedSet): SetPrefill {
+  if (isRecommendationSafetyState(set)) return { weight: null, reps: null, timeSec: null };
   return {
     // 안전 상태에서는 무게 축을 통째로 숨긴다 — 서버가 값을 실어 보내도 쓰지 않는다(fail closed).
-    weight: kind === "weighted" && !isAssistanceSafetyState(set) ? set.recommended_weight : null,
+    weight:
+      kind === "weighted" && recommendationState(set) !== "load_calibration_needed"
+        ? set.recommended_weight
+        : null,
     reps: kind === "time" ? null : set.recommended_reps,
     timeSec: kind === "time" ? (set.target_time_low_sec ?? null) : null,
   };
@@ -150,11 +185,7 @@ export function isAssistanceSet(set: PlannedSet): boolean {
 
 /** 두 안전 상태(통증 · 입력 오류)인가. 여기서는 무게·action·증감 문구를 전부 숨긴다. */
 export function isAssistanceSafetyState(set: PlannedSet): boolean {
-  if (!isAssistanceSet(set)) return false;
-  return (
-    set.recommendation_state === "substitution_required" ||
-    set.recommendation_state === "unavailable"
-  );
+  return isAssistanceSet(set) && isRecommendationSafetyState(set);
 }
 
 /**
@@ -162,7 +193,7 @@ export function isAssistanceSafetyState(set: PlannedSet): boolean {
  * 둘 다 어시스트 처방이 아니다. 표시하면 그 자체로 거짓말이 된다.
  */
 export function assistanceBadge(set: PlannedSet): { text: string; label: string } | null {
-  if (!isAssistanceSet(set) || isAssistanceSafetyState(set)) return null;
+  if (!isAssistanceSet(set) || recommendationState(set) !== "ready") return null;
   const weight = set.recommended_weight;
   if (typeof weight !== "number" || weight <= 0) return null;
   return {
@@ -174,7 +205,7 @@ export function assistanceBadge(set: PlannedSet): { text: string; label: string 
 /** 안전 상태의 확정 문구. 그 외에는 null 이라 기존 근거 문구 경로로 돌아간다. */
 export function assistanceSafetyCopy(set: PlannedSet): string | null {
   if (!isAssistanceSafetyState(set)) return null;
-  return set.recommendation_state === "substitution_required"
+  return recommendationState(set) === "substitution_required"
     ? ASSISTANCE_PAIN_COPY
     : ASSISTANCE_INVALID_COPY;
 }
@@ -188,7 +219,6 @@ export function assistanceAction(set: PlannedSet): PlannedSet["recommended_actio
   if (
     set.reason_code !== "ASSISTANCE_MINIMUM_REACHED" ||
     set.recommendation_state !== "ready" ||
-    set.recommendation_gate !== "ready" ||
     set.assistance_safety_status !== "safe"
   )
     return null;
@@ -225,6 +255,7 @@ const ASSISTANCE_REASON_TEXT: Record<string, string> = {
  * 목표 RIR 은 여기 넣지 않는다 — F1-1 이후 RIR 입력칸 옆에 붙어 있어서 두 번 나오면 안 된다.
  */
 export function targetLabel(kind: SetKind, set: PlannedSet): string {
+  if (isRecommendationSafetyState(set)) return "";
   const parts: string[] = [];
 
   if (kind === "time") {
@@ -248,7 +279,12 @@ export function targetLabel(kind: SetKind, set: PlannedSet): string {
     parts.push(assistance.text);
     return parts.join(" · ");
   }
-  if (kind === "weighted" && !isAssistanceSet(set) && set.recommended_weight != null) {
+  if (
+    kind === "weighted" &&
+    !isAssistanceSet(set) &&
+    recommendationState(set) === "ready" &&
+    set.recommended_weight != null
+  ) {
     parts.push(`추천 ${formatKg(set.recommended_weight)}`);
   }
   return parts.join(" · ");
@@ -256,10 +292,10 @@ export function targetLabel(kind: SetKind, set: PlannedSet): string {
 
 /**
  * UX_STATES §5.5. 목록 밖 코드는 근거 영역을 숨긴다(영문 코드 노출 금지).
- * `LOAD_CALIBRATION_NEEDED` 는 여기 없다 — 활성 bundle 이 V1 이라 웹에 도달하지 않고,
- * 확정 문구·축 매핑·E2E 는 V2-GATE-01 소유다. 도달하더라도 목록 밖 규칙으로 근거 영역이 비어 있다.
+ * 보정 안내는 상태 문구와 같은 원천이며 카드에서는 한 번만 렌더한다(ADR-70).
  */
 const REASON_TEXT: Record<string, string> = {
+  LOAD_CALIBRATION_NEEDED: LOAD_CALIBRATION_COPY,
   BASELINE: "첫 세션이라 무게를 직접 정해요",
   WEIGHT_UP_REP_TARGET_MET: "지난번 목표 반복을 모두 채워서 무게를 올렸어요",
   ADD_ONE_REP: "무게는 그대로, 반복을 1회 늘려요",
@@ -282,6 +318,7 @@ const REASON_TEXT: Record<string, string> = {
  * 여기 없는 코드는 축을 가리지 않는 중립 문구다(RIR·디로드·캘리브레이션 등).
  */
 const REASON_AXIS: Record<string, "weight" | "reps" | "time"> = {
+  LOAD_CALIBRATION_NEEDED: "weight",
   BASELINE: "weight",
   WEIGHT_UP_REP_TARGET_MET: "weight",
   ADD_ONE_REP: "weight",

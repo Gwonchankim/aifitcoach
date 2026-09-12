@@ -49,7 +49,7 @@ const row = (n = 1): PlannedSet => ({
   confidence: 0.3,
   rules_version: "2026.08.1",
   load_kind: "external",
-  recommendation_state: null,
+  recommendation_state: "ready" as const,
   assistance_provenance: null,
   assistance_safety_status: null,
   recommended_action: null,
@@ -565,6 +565,7 @@ it("preserves routine local_ids with the current mixed mirror when a GET predate
     id: id(700),
     exercise_id: "curl",
     load_kind: undefined,
+    recommendation_state: undefined,
     source_revision: undefined,
     append_eligibility: null,
     recommended_weight: 0,
@@ -618,7 +619,7 @@ it("maps an append timer with exact deadline and a late old-ID timer save after 
   });
 });
 
-it("copies a server-gated assistance snapshot only through its exact local append envelope", async () => {
+it("copies an early-analysis assistance prescription only through its exact local append envelope", async () => {
   const source = {
     ...row(),
     load_kind: "assistance" as const,
@@ -626,9 +627,9 @@ it("copies a server-gated assistance snapshot only through its exact local appen
     assistance_provenance: "native" as const,
     assistance_safety_status: "safe" as const,
     recommendation_gate: "early" as const,
-    recommended_weight: null,
-    recommended_reps: null,
-    reason_code: null,
+    recommended_weight: 20,
+    recommended_reps: 9,
+    reason_code: "ASSISTANCE_DOWN_REP_TARGET_MET",
     confidence: null,
   };
   await mirrorSession(scope.user_id, scope.session_id, session([source]));
@@ -637,11 +638,11 @@ it("copies a server-gated assistance snapshot only through its exact local appen
     throw new Error("offline");
   });
   expect(offline.planned_sets[1]).toMatchObject({
-    recommended_weight: null,
-    recommended_reps: null,
-    reason_code: null,
+    recommended_weight: 20,
+    recommended_reps: 9,
+    reason_code: "ASSISTANCE_DOWN_REP_TARGET_MET",
     confidence: null,
-    recommendation_state: null,
+    recommendation_state: "ready" as const,
     recommended_action: null,
     performed_set: null,
   });
@@ -1170,6 +1171,7 @@ it("retains a mixed routine envelope through append then routine creation and a 
     id: id(700),
     exercise_id: "curl",
     load_kind: undefined,
+    recommendation_state: undefined,
     source_revision: undefined,
     append_eligibility: null,
     recommended_weight: 0,
@@ -1201,6 +1203,7 @@ it("a routine edit from an older render retains the latest appended row without 
     id: id(700),
     exercise_id: "curl",
     load_kind: undefined,
+    recommendation_state: undefined,
     source_revision: undefined,
     append_eligibility: null,
     recommended_weight: 0,
