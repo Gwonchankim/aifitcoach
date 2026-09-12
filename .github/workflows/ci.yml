@@ -56,6 +56,14 @@ jobs:
             apps/web/e2e/.artifacts
             apps/web/e2e/.report
             apps/web/e2e/.artifacts-ci
-            apps/web/C:/Users/amole/.traycer/evidence
+          include-hidden-files: true
+          retention-days: 7
+      # A separate root prevents the Linux-only C: directory from entering archive paths.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-owned-evidence
+          path: apps/web/C:/Users/amole/.traycer/evidence
+          include-hidden-files: true
           retention-days: 7
     # NOTE: recommendation-engine golden tests MUST run here and block merge on failure.
