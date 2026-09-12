@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import type { Exercise } from "@prisma/client";
-import { PAIN_STOP_THRESHOLD, recommendNextSet } from "shared";
+import {
+  PAIN_STOP_THRESHOLD,
+  recommendNextSet,
+  similarSourceE1rm,
+  similarSourcesFor,
+} from "shared";
 import type {
   Goal,
   LoadKind,
@@ -60,6 +65,7 @@ export interface AssistanceEvidence {
 
 export interface ExerciseHistory {
   lastSets: PerformedSet[];
+  similar?: RecommendationInput["similar"];
   /**
    * 직전 세션의 통증 관측값. **숫자가 아니라 tagged 값**이다 —
    * "없음"·"0점"·"못 읽음"은 서로 다른 사실이고, 못 읽은 것을 없는 것으로 읽으면
@@ -299,18 +305,15 @@ export class RecommendationService {
     exerciseId: string,
     loadSemantics: "assistance" | "external_load" = "external_load",
   ): Promise<ExerciseHistory> {
-    const base = await this.latestSessionHistory(userId, exerciseId);
-    if (loadSemantics !== "assistance") return base;
-    const evidence = await this.assistanceEvidenceFor(userId, exerciseId);
-    return {
-      ...base,
-      assistance: { has_valid_positive_assistance: evidence.has_valid_positive_assistance },
-    };
+    return requireHistory(
+      await this.prefetchHistories(userId, [{ exerciseId, loadSemantics }]),
+      exerciseId,
+    );
   }
 
   /**
    * **production loop 용 batch prefetch.** 종목마다 `historyFor` 를 부르면 프로그램 생성·recompute 가
-   * 종목 수만큼 질의한다. 요청 spec 전체를 **고정 횟수**(latest 1 + lifetime 1)로 읽어 map 으로 준다.
+   * 종목 수만큼 질의한다. 실측 조회는 latest 1 + lifetime 1 + similar 1 이내로 map 을 만든다.
    *
    * `loadSemantics` 는 **그 행이 저장될/저장된 의미**다 — 카탈로그가 나중에 바뀌어도 과거 기록의
    * 해석이 흔들리지 않게 latest history 도 **같은 semantics 의 실측만** 쓴다.
@@ -372,38 +375,65 @@ export class RecommendationService {
           : history,
       );
     }
-    return map;
+    return this.attachSimilar(userId, wanted, map, client);
   }
 
-  private async latestSessionHistory(userId: string, exerciseId: string): Promise<ExerciseHistory> {
-    const rows = await this.prisma.performedSet.findMany({
+  /** 무이력 external 대상만 소스를 일괄 조회한다. 두 이력 경로가 이 조립 규칙을 공유한다. */
+  private async attachSimilar(
+    userId: string,
+    specs: ExerciseSpec[],
+    map: HistoryMap,
+    client: DbClient,
+  ): Promise<HistoryMap> {
+    const targets = specs.filter(
+      (spec) =>
+        spec.loadSemantics === "external_load" &&
+        requireHistory(map, spec.exerciseId).lastSets.length === 0 &&
+        similarSourcesFor(spec.exerciseId).length > 0,
+    );
+    if (targets.length === 0) return map;
+    const sources = [
+      ...new Set(
+        targets.flatMap((spec) => similarSourcesFor(spec.exerciseId).map(({ source }) => source)),
+      ),
+    ];
+    const rows = await client.performedSet.findMany({
       where: {
         completed: true,
-        plannedSet: { exerciseId, session: { status: "completed", program: { userId } } },
+        OR: [
+          {
+            plannedSet: {
+              exerciseId: { in: sources },
+              loadSemantics: "external_load",
+              session: { status: "completed", program: { userId } },
+            },
+          },
+        ],
       },
-      select: {
-        actualWeight: true,
-        actualReps: true,
-        actualRir: true,
-        actualTimeSec: true,
-        painScore: true,
-        plannedSet: {
-          select: { setNo: true, sessionId: true, session: { select: { scheduledDate: true } } },
-        },
-      },
+      // 소스의 통증은 초기 무게 계산에 필요하지 않다. 읽거나 대상 이력에 복사하지 않는다.
+      select: { ...LATEST_HISTORY_SELECT, painScore: false },
     });
-    if (rows.length === 0) {
-      return NO_HISTORY;
+    const calibration = await this.calibrationFor(userId, client);
+    const bySource = new Map<string, LatestHistoryRow[]>();
+    for (const row of rows) {
+      const list = bySource.get(row.plannedSet.exerciseId) ?? [];
+      list.push({ ...row, painScore: null });
+      bySource.set(row.plannedSet.exerciseId, list);
     }
-
-    const latest = rows.reduce((a, b) =>
-      b.plannedSet.session.scheduledDate > a.plannedSet.session.scheduledDate ? b : a,
-    );
-    const latestRows = rows
-      .filter((row) => row.plannedSet.sessionId === latest.plannedSet.sessionId)
-      .sort((a, b) => a.plannedSet.setNo - b.plannedSet.setNo);
-
-    return toHistory(latestRows);
+    for (const spec of targets) {
+      for (const { source, ratio } of similarSourcesFor(spec.exerciseId)) {
+        const history = latestHistoryFrom(bySource.get(source) ?? []);
+        const e1rm = similarSourceE1rm(history.lastSets, calibration?.rir_bias ?? 0);
+        if (e1rm !== undefined && e1rm > 0) {
+          map.set(spec.exerciseId, {
+            ...requireHistory(map, spec.exerciseId),
+            similar: { source_exercise_id: source, source_e1rm: e1rm, ratio },
+          });
+          break;
+        }
+      }
+    }
+    return map;
   }
 
   /**
@@ -561,6 +591,7 @@ export class RecommendationService {
       },
       target,
       last_sets: history.lastSets,
+      ...(!assisted && history.similar ? { similar: history.similar } : {}),
       ...(calibration ? { calibration } : {}),
       ...safetyInputFor(history.pain),
       ...(history.assistance ? { assistance: history.assistance } : {}),

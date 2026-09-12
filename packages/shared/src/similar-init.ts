@@ -1,3 +1,11 @@
+import { estimateE1rm, toWorkingSets } from "./recommend";
+import type { PerformedSet } from "./types";
+
+/** 소스 실측은 추천 엔진과 동일한 작업세트 필터·RIR 보정으로 계산한다. */
+export function similarSourceE1rm(sets: PerformedSet[], rirBias: number): number | undefined {
+  return estimateE1rm(toWorkingSets(sets), rirBias);
+}
+
 /** 승인된 보수 휴리스틱. 자동 매칭하지 않는다(RECOMMENDATION_ENGINE.md). */
 export const SIMILAR_INIT_DEFAULT_RATIO = 0.8;
 

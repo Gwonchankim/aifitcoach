@@ -85,7 +85,7 @@ export interface E1rmSet {
 }
 
 /** reps<=0(미수행·오입력) 세트는 계산에서 제외한다(GC-17). */
-function toWorkingSets(sets: PerformedSet[]): E1rmSet[] {
+export function toWorkingSets(sets: PerformedSet[]): E1rmSet[] {
   return sets
     .filter(
       (s) =>

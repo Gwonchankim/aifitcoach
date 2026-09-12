@@ -222,8 +222,7 @@ confidence  = 0.4 (exact) ; e1rm = undefined ; suggest_substitution 없음 ; rec
 
 ### 소스 e1RM 원천
 
-서버는 같은 사용자의 소스 종목 **최신 완료 세션**에서 shared `estimateE1rm(sets, rir_bias)`로 재계산한다.
-projector의 `estimated_1rm` 행을 사용하지 않아 재빌드 시점에 의존하지 않는다(입력 채널 구현: SIM-03).
+서버의 단건·batch 이력 조회는 공통 `attachSimilar`에서 **external_load 대상 · lastSets가 빈 배열 · 승인 소스 후보 존재**를 모두 만족할 때만 `similar`를 붙인다. 세트가 있으나 전부 무효인 대상에는 붙이지 않는다. 같은 사용자의 완료 실측 중 저장된 `plannedSet.loadSemantics = external_load` 행만 읽고, 예정일 desc → 완료시각 desc → 세션 id desc로 소스의 최신 완료 세션을 고른다. shared `similarSourceE1rm`은 엔진과 같은 작업세트 필터·e1RM 계산과 `calibrationFor(userId)`의 RIR bias(없으면 0)를 적용하며, 표 순서대로 첫 양수 e1RM 후보를 채택한다. 후보의 최신 세션이 없거나 무효이면 다음 후보로 넘어가고, 전부 무효이면 `similar`를 생략한다. 후보 합집합을 한 번에 조회하여 `performedSet.findMany`는 latest·lifetime·similar 합계 최대 3회, 캘리브레이션 조회는 같은 transaction client에서 별도 최대 1회다. 후보 대상이 없으면 소스·캘리브레이션 조회를 생략한다. projector의 `estimated_1rm` 행을 사용하지 않아 재빌드 시점에 의존하지 않는다.
 
 ## 디로드 트리거 (P1)
 - 다음 중 3개↑: 반복 2세션 연속 하락 / e1RM 2주 정체·하락 / 주관 피로↑ / 수면↓ / 통증↑ → 볼륨 감소형 디로드 제안(세트 ~50%↓, 강도 유지). 완전 휴식 아님. 주기 대략 5~6주. reason = DELOAD_SUGGESTED **(예약 — 아직 emit 경로 없음)**.
