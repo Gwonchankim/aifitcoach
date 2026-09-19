@@ -1491,10 +1491,218 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/programs/{id}/weeks/current": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Materialized actual week, not immutable Program.sessions template. Reader uses program-scoped lazy generation lock. */
+    get: operations["getActualCurrentWeek"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/programs/{id}/week-swaps/candidates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Eligibility includes post-swap neighboring actual-week resistance/cardio recovery. Final transaction must recheck. */
+    get: operations["getWeekSwapCandidates"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/programs/{id}/week-swaps": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Lock current program then sorted pair of sessions; reread actual neighbors and revisions, exchange only dates atomically. Other-program neighbors are snapshot reads. Exact stored response replay. */
+    post: operations["swapCurrentWeek"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    WeekExercise: {
+      exercise_id: string;
+      planned_set_ids: string[];
+      set_count: number;
+    };
+    ActualWeekSession: {
+      /** Format: uuid */
+      id: string;
+      /** Format: date */
+      scheduled_date: string;
+      focus: string;
+      /** @enum {string} */
+      status: "scheduled" | "in_progress" | "completed";
+      revision: string;
+      planned_set_ids: string[];
+      exercises: components["schemas"]["WeekExercise"][];
+      /** @enum {string} */
+      origin: "planned" | "ad_hoc";
+    };
+    CurrentProgramWeek: {
+      /** Format: uuid */
+      program_id: string;
+      /** Format: date */
+      week_start: string;
+      sessions: components["schemas"]["ActualWeekSession"][];
+    };
+    WeekSwapRequest: {
+      /** Format: uuid */
+      client_id: string;
+      /** Format: uuid */
+      today_session_id: string;
+      /** Format: uuid */
+      target_session_id: string;
+      today_revision: string;
+      target_revision: string;
+    };
+    WeekSwapResult: {
+      /** Format: uuid */
+      client_id: string;
+      /** Format: uuid */
+      program_id: string;
+      /** Format: date */
+      week_start: string;
+      /** Format: uuid */
+      today_session_id: string;
+      sessions: components["schemas"]["ActualWeekSession"][];
+    };
+    WeekSwapCandidate: {
+      session: components["schemas"]["ActualWeekSession"];
+      eligible: boolean;
+      /** @enum {string|null} */
+      reason:
+        | null
+        | "readonly"
+        | "not_scheduled"
+        | "performed_history"
+        | "wrong_week"
+        | "ambiguous_schedule"
+        | "recovery_unverifiable"
+        | "recovery_gap_violation";
+    } & (
+      | {
+          /** @enum {unknown} */
+          eligible?: true;
+          /** @enum {unknown} */
+          reason?: null;
+        }
+      | {
+          /** @enum {unknown} */
+          eligible?: false;
+          /** @enum {string} */
+          reason?:
+            | "readonly"
+            | "not_scheduled"
+            | "performed_history"
+            | "wrong_week"
+            | "ambiguous_schedule"
+            | "recovery_unverifiable"
+            | "recovery_gap_violation";
+        }
+    );
+    WeekSwapCandidates: {
+      /** Format: uuid */
+      program_id: string;
+      /** Format: date */
+      week_start: string;
+      /** Format: uuid */
+      today_session_id: string | null;
+      today_revision: string | null;
+      candidates: components["schemas"]["WeekSwapCandidate"][];
+      today_eligible: boolean;
+      /** @enum {string|null} */
+      today_reason:
+        | null
+        | "readonly"
+        | "not_scheduled"
+        | "performed_history"
+        | "wrong_week"
+        | "ambiguous_schedule"
+        | "recovery_unverifiable"
+        | "recovery_gap_violation";
+    } & (
+      | {
+          /** @enum {unknown} */
+          today_eligible?: true;
+          /** @enum {unknown} */
+          today_reason?: null;
+          /** Format: uuid */
+          today_session_id?: string;
+          today_revision?: string;
+        }
+      | {
+          /** @enum {unknown} */
+          today_eligible?: false;
+          /** @enum {string} */
+          today_reason?:
+            | "readonly"
+            | "not_scheduled"
+            | "performed_history"
+            | "wrong_week"
+            | "recovery_unverifiable"
+            | "recovery_gap_violation";
+          /** Format: uuid */
+          today_session_id?: string;
+          today_revision?: string;
+        }
+      | {
+          /** @enum {unknown} */
+          today_eligible?: false;
+          /** @enum {unknown} */
+          today_reason?: "ambiguous_schedule";
+          /** @enum {unknown} */
+          today_session_id?: null;
+          /** @enum {unknown} */
+          today_revision?: null;
+        }
+    );
+    WeekSwapConflict: {
+      error: {
+        /** @enum {string} */
+        code: "CONFLICT";
+        message: string;
+        details: {
+          /** @enum {string} */
+          reason:
+            | "readonly"
+            | "not_scheduled"
+            | "performed_history"
+            | "wrong_week"
+            | "ambiguous_schedule"
+            | "recovery_unverifiable"
+            | "recovery_gap_violation"
+            | "stale_revision"
+            | "idempotency_payload_mismatch";
+        };
+      };
+    };
     Error: {
       error: {
         /** @example VALIDATION_ERROR */
@@ -2328,6 +2536,142 @@ export interface operations {
         };
       };
       /** @description 부분 쓰기 없는 거절. Error와 지정 refinement를 모두 만족해야 한다. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  getActualCurrentWeek: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Actual current week */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CurrentProgramWeek"];
+        };
+      };
+      /** @description Absent or not owned */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  getWeekSwapCandidates: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Candidates with recovery/readonly reasons */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WeekSwapCandidates"];
+        };
+      };
+      /** @description Absent/not-owned program or today session */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  swapCurrentWeek: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description CSRF 방어 토큰(쿠키 세션 기반 변경 요청 필수). */
+        "X-CSRF-Token": components["parameters"]["CsrfHeader"];
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["WeekSwapRequest"];
+      };
+    };
+    responses: {
+      /** @description Atomic success; exact replay returns the stored result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WeekSwapResult"];
+        };
+      };
+      /** @description Malformed or unsupported input */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Existing authentication guard */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Existing CSRF guard */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Absent or not owned */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Atomic rejection; no partial writes. Body must satisfy both Error and the mandatory x-afc-response-refinement schema on promotion. */
       409: {
         headers: {
           [name: string]: unknown;

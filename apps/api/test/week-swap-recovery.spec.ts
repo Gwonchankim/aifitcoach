@@ -183,10 +183,22 @@ describe("checkWeekSwapRecovery", () => {
     [session("a", "2026-08-10", "upper"), session("b", "2026-08-10", "lower")],
     [session("a", "2026-08-10", "upper"), session("a", "2026-08-13", "lower")],
     [session("", "2026-08-10", "upper"), session("b", "2026-08-13", "lower")],
-    [session("a", "2026-08-10"), session("b", "2026-08-13", "lower")],
     [],
   ])("fails closed on ambiguous or incomplete sessions: %j", (...sessions) => {
     expect(checkWeekSwapRecovery(sessions, ["a", "b"])).toEqual(unverifiable);
+  });
+
+  it("allows observed empty regions without synthesizing overlap or removing neighbors", () => {
+    const sessions = [
+      session("previous", "2026-08-09"),
+      session("a", "2026-08-10"),
+      session("empty-neighbor", "2026-08-11"),
+      session("b", "2026-08-13", "lower"),
+      session("next", "2026-08-14"),
+    ];
+    const before = JSON.stringify(sessions);
+    expect(checkWeekSwapRecovery(sessions, ["a", "b"])).toEqual(pass);
+    expect(JSON.stringify(sessions)).toBe(before);
   });
 
   it.each([
@@ -205,10 +217,7 @@ describe("checkWeekSwapRecovery", () => {
   it("fails closed on an unsupported runtime region", () => {
     expect(
       checkWeekSwapRecovery(
-        [
-          session("a", "2026-08-10", "cardio" as "upper"),
-          session("b", "2026-08-13", "lower"),
-        ],
+        [session("a", "2026-08-10", "cardio" as "upper"), session("b", "2026-08-13", "lower")],
         ["a", "b"],
       ),
     ).toEqual(unverifiable);
