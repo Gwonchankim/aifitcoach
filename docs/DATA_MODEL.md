@@ -107,4 +107,6 @@ CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_a
 
 ## 기능개선 예약 계약 (2026-09-05)
 
-[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md)은 세션 append·실제 주 조회/swap·split snapshot·forward-only 전환의 후속 구현 경계를 정의한다. 현재 API/Prisma/runtime 지원 선언이 아니며 각 소유 Sprint에서 원자 승격한다.
+T05는 `week_swap_receipts(id, user_id FK RESTRICT, client_id, request_hash, request JSON, result JSON)`를 추가한다. `(user_id, client_id)`는 유일하며 테이블 자체가 week_swap operation namespace다. request는 정규화 5필드, result는 최초 WeekSwapResult 구조 식별자·날짜·status·origin·revision·운동/계획세트 ID·개수뿐이다. 처방·performed·건강값은 저장하지 않는다. 기존 session/planned/performed ID와 내용은 날짜 교환으로 바뀌지 않는다. 서버 sync receipt와 분리하며 owner 삭제는 기존 명시 cutoff 퍼지에 연결한다(사용자 리뷰 필요).
+
+[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md) 중 append와 T05 실제 주 조회/swap은 활성 스키마로 승격됐다. split snapshot·forward-only 전환은 각 소유 Sprint의 후속 계약이며 현재 runtime 지원 선언이 아니다.
