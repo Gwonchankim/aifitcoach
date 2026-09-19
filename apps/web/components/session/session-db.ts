@@ -672,20 +672,18 @@ export async function readThroughSession<T>(
       await markRemediationPending(userId, sessionId);
       throw new StaleAssistanceSessionError();
     }
-    // Storage failure cannot suppress a safe online response. An unverified epoch may not
-    // write a mirror or install a cached fallback over this fetched response.
-    if (swapEpoch === null || latestEpoch === null) return fetched;
+    // Unverified epoch skips the fetched-snapshot write, but still runs the existing
+    // pending-append mirror checks below. A safe GET cannot acknowledge local append intent.
     // **캐시 쓰기 실패가 성공한 온라인 읽기를 화면 오류로 바꾸면 안 된다** — 판정과 저장은 다른 축이다.
-    const committed = await commitAuthoritativeSession(
-      userId,
-      sessionId,
-      fetched,
-      generation,
-      swapEpoch,
-    ).catch((error) => {
-      if (error instanceof SupersededWeekSwapRead) throw error;
-      return false;
-    });
+    const committed =
+      swapEpoch === null || latestEpoch === null
+        ? false
+        : await commitAuthoritativeSession(userId, sessionId, fetched, generation, swapEpoch).catch(
+            (error) => {
+              if (error instanceof SupersededWeekSwapRead) throw error;
+              return false;
+            },
+          );
     if (committed) return (await readMirroredSession<T>(userId, sessionId)) ?? fetched;
     const existing = await sessionDb.sessions.get([userId, sessionId]).catch(() => undefined);
     if (existing?.append_ids !== undefined) {
