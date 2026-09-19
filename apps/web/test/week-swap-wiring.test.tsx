@@ -283,21 +283,15 @@ it.each(["completed", "in_progress", "ad_hoc"])(
 );
 it("candidate404 cannot claim noToday from a cached rest week whose refetch fails", async () => {
   const { ApiError } = await import("../lib/api");
-  mocks.currentWeek
-    .mockResolvedValueOnce({ program_id: programId, week_start: "2026-08-10", sessions: [] })
-    .mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
+  mocks.currentWeek.mockReset().mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
   mocks.weekSwapCandidates.mockRejectedValue(new ApiError(404, "NOT_FOUND", "missing"));
   const view = mount();
-  await view.client.fetchQuery({
-    queryKey: ["current-week", programId],
-    queryFn: async () => ({
-      data: { program_id: programId, week_start: "2026-08-10", sessions: [] },
-      source: "server",
-      stale: false,
-      syncedAt: "2026-08-14T10:00:00Z",
-    }),
+  view.client.setQueryData(["current-week", programId], {
+    data: { program_id: programId, week_start: "2026-08-10", sessions: [] },
+    source: "server",
+    stale: false,
+    syncedAt: "2026-08-14T10:00:00Z",
   });
-  mocks.currentWeek.mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
   fireEvent.click(screen.getByRole("button", { name: SWAP_COPY.title }));
   await screen.findByText(SWAP_COPY.missing);
   await waitFor(() =>

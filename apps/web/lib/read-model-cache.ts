@@ -36,23 +36,28 @@ export async function readThroughReadModel<T>(
   const now = options.now ?? (() => new Date());
   const requestStartedAt = now().getTime();
   try {
-    const swapEpoch = await readWeekSwapEpoch(options.userId);
+    const swapEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
     const data = await options.fetcher();
-    if ((await readWeekSwapEpoch(options.userId)) !== swapEpoch) throw new SupersededWeekSwapRead();
+    const latestEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
+    if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
+      throw new SupersededWeekSwapRead();
     const syncedAt = now().toISOString();
-    await mirrorServerSnapshot(
-      {
-        user_id: options.userId,
-        cache_key: options.cacheKey,
-        kind: options.kind,
-        data,
-        request_started_at: requestStartedAt,
-        synced_at: syncedAt,
-      },
-      swapEpoch,
-    ).catch((error) => {
-      if (error instanceof SupersededWeekSwapRead) throw error;
-    });
+    // A failed epoch read must not suppress online GET. Without a verified epoch, return
+    // the fetched response but never write it over durable snapshots from another request.
+    if (swapEpoch !== null && latestEpoch !== null)
+      await mirrorServerSnapshot(
+        {
+          user_id: options.userId,
+          cache_key: options.cacheKey,
+          kind: options.kind,
+          data,
+          request_started_at: requestStartedAt,
+          synced_at: syncedAt,
+        },
+        swapEpoch,
+      ).catch((error) => {
+        if (error instanceof SupersededWeekSwapRead) throw error;
+      });
     return { data, source: "server", stale: false, syncedAt };
   } catch (error) {
     // Fetch rejects transport loss with TypeError. HTTP responses are ApiError, aborts are

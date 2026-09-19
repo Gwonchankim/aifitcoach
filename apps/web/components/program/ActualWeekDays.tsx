@@ -72,7 +72,7 @@ export function ActualWeekDays({
     retry: false,
   });
   if (week.isPending) return <div className="h-48 animate-pulse rounded-card bg-raised" />;
-  if (!week.data)
+  if (!week.data || week.error)
     return (
       <Card>
         <p role="alert">{SWAP_COPY.malformed}</p>

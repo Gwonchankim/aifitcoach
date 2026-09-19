@@ -658,9 +658,11 @@ export async function readThroughSession<T>(
     const generation = await readAppendState({ user_id: userId, session_id: sessionId })
       .then((state) => state.generation)
       .catch(() => null);
-    const swapEpoch = await readWeekSwapEpoch(userId);
+    const swapEpoch = await readWeekSwapEpoch(userId).catch(() => null);
     const fetched = await fetchSession();
-    if ((await readWeekSwapEpoch(userId)) !== swapEpoch) throw new SupersededWeekSwapRead();
+    const latestEpoch = await readWeekSwapEpoch(userId).catch(() => null);
+    if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
+      throw new SupersededWeekSwapRead();
     // **safe predicate 를 통과해야만** 렌더한다. `GET` 200 은 근거가 아니다 —
     // rolling deploy 중 구버전 서버도 200 으로 legacy weighted 처방을 준다.
     if (!isSafeSessionPayload(fetched)) {
@@ -670,6 +672,9 @@ export async function readThroughSession<T>(
       await markRemediationPending(userId, sessionId);
       throw new StaleAssistanceSessionError();
     }
+    // Storage failure cannot suppress a safe online response. An unverified epoch may not
+    // write a mirror or install a cached fallback over this fetched response.
+    if (swapEpoch === null || latestEpoch === null) return fetched;
     // **캐시 쓰기 실패가 성공한 온라인 읽기를 화면 오류로 바꾸면 안 된다** — 판정과 저장은 다른 축이다.
     const committed = await commitAuthoritativeSession(
       userId,

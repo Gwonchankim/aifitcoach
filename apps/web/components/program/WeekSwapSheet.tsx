@@ -80,13 +80,13 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
   const today = week.data?.data.sessions.find((session) => session.id === data?.today_session_id);
   const target = data?.candidates.find((item) => item.session.id === selected);
   useEffect(() => {
-    const subscription = liveQuery(async () => ({
-      request: await readSwapIntent(DEV_USER_SCOPE, programId),
-      pending: await hasSwapPending(
-        DEV_USER_SCOPE,
-        [data?.today_session_id, selected].filter((id): id is string => Boolean(id)),
-      ),
-    })).subscribe({
+    const subscription = liveQuery(async () => {
+      const request = await readSwapIntent(DEV_USER_SCOPE, programId);
+      const pair = request
+        ? [request.today_session_id, request.target_session_id]
+        : [data?.today_session_id, selected].filter((id): id is string => Boolean(id));
+      return { request, pending: await hasSwapPending(DEV_USER_SCOPE, pair) };
+    }).subscribe({
       next: (value) => {
         setIntent(value.request);
         setLocalPending(value.pending);
@@ -144,6 +144,15 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
         setIntent(request);
       }
       if (!request) return;
+      // Result checking can execute a request whose first attempt never reached the server.
+      // Recheck the durable original pair, not the currently displayed candidate selection.
+      if (
+        await hasSwapPending(DEV_USER_SCOPE, [request.today_session_id, request.target_session_id])
+      ) {
+        setLocalPending(true);
+        setMessage(SWAP_COPY.pending);
+        return;
+      }
       const result = parseSwapResult(await api.weekSwap(programId, request), request, programId);
       if (!result) throw new SyntaxError("malformed swap result");
       // A receipt replay represents the original operation. Fresh GETs determine today's route.
@@ -186,10 +195,20 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
     readError =
       week.data?.source === "server" &&
       !week.data.stale &&
+      !week.error &&
+      !week.isFetching &&
       !week.data.data.sessions.some((session) => isUtcToday(session.scheduled_date))
         ? SWAP_COPY.noToday
         : SWAP_COPY.missing;
   } else if (candidates.error) readError = SWAP_COPY.failed;
+  const todayActuals =
+    week.data?.data.sessions.filter((session) => isUtcToday(session.scheduled_date)) ?? [];
+  // Existing same-day editing also supports completed, in-progress and ad-hoc sessions.
+  // Weekly swap eligibility must not narrow that independent route's contract.
+  const oneOffToday =
+    !week.error && !week.isFetching && !week.data?.stale && todayActuals.length === 1
+      ? todayActuals[0]
+      : null;
   const disabled =
     !online ||
     !freshConnection ||
@@ -254,7 +273,10 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
         {intent ? (
           <>
             <p role="status">{SWAP_COPY.unresolved}</p>
-            <Button disabled={!online || submitting} onClick={() => void run(true)}>
+            <Button
+              disabled={!online || submitting || localPending || !storageReady}
+              onClick={() => void run(true)}
+            >
               결과 확인
             </Button>
           </>
@@ -265,12 +287,10 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
           <>
             <p>오늘 루틴에서 원하는 운동만 바꿔요. 주간 운동량은 달라질 수 있어요.</p>
             <Button
-              disabled={
-                !data?.today_eligible || !today || localPending || !online || Boolean(intent)
-              }
+              disabled={!oneOffToday || localPending || !online || Boolean(intent) || !storageReady}
               onClick={() => {
                 onClose();
-                router.push(`/session/${data!.today_session_id}`);
+                if (oneOffToday) router.push(`/session/${oneOffToday.id}`);
               }}
             >
               오늘 루틴 편집하기
