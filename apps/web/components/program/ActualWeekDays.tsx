@@ -88,7 +88,7 @@ export function ActualWeekDays({
   return (
     <>
       {week.data.stale ? (
-        <p role="status" className="text-xs text-fg-muted">
+        <p className="text-xs text-fg-muted">
           오프라인 · 마지막 동기화 {formatClock(Date.parse(week.data.syncedAt))} 기준
         </p>
       ) : null}

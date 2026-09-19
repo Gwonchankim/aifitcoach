@@ -159,6 +159,7 @@ export function ProgramScreen() {
     );
   }
 
+  const actualProgramId = program.data?.program_id ?? completionEnvelope?.data.program_id;
   const excluded = program.data?.excluded_exercises ?? [];
   const reasons = program.data ? whyThisRoutine(program.data) : [];
   const stale = [completionEnvelope, volume.data, dashboard.data].filter((value) => value?.stale);
@@ -225,10 +226,10 @@ export function ProgramScreen() {
             <h2 id="this-week" className="text-lg font-semibold text-fg">
               이번 주
             </h2>
-            {program.data ? (
+            {actualProgramId ? (
               <>
-                <ActualWeekDays programId={program.data.program_id} names={names} />
-                <WeekSwapEntry programId={program.data.program_id} />
+                <ActualWeekDays programId={actualProgramId} names={names} />
+                {program.data ? <WeekSwapEntry programId={program.data.program_id} /> : null}
               </>
             ) : null}
           </section>

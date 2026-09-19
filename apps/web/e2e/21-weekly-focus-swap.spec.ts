@@ -243,8 +243,8 @@ test("a saved local draft disables swap without deleting records or entering one
       db.close();
     }
   }, candidates.today_session_id);
-  // Reopen to consume the persisted draft even when a native IDB test write has no Dexie notification.
-  await page.getByRole("button", { name: "닫기", exact: true }).click();
+  // Native fixture writes bypass Dexie live-query caching. Reload the document to read the durable draft.
+  await page.reload();
   await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
   await page.getByRole("radio", { name: new RegExp(target.session.scheduled_date) }).check();
   await expect(
@@ -258,4 +258,34 @@ test("a saved local draft disables swap without deleting records or entering one
     await request.get(`${API_V1}/programs/${program.program_id}/week-swaps/candidates`)
   ).json();
   expect(actual.today_session_id).toBe(candidates.today_session_id);
+  const savedDraft = await page.evaluate(async (id) => {
+    const opening = indexedDB.open("afc-session-v1");
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      opening.onsuccess = () => resolve(opening.result);
+      opening.onerror = () => reject(opening.error);
+      opening.onupgradeneeded = () => {
+        opening.transaction?.abort();
+        reject(new Error("existing owned test DB required"));
+      };
+    });
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const get = db
+          .transaction("drafts")
+          .objectStore("drafts")
+          .get(["dev-user", id, "local-swap-test-draft"]);
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, candidates.today_session_id);
+  expect(savedDraft).toMatchObject({
+    session_id: candidates.today_session_id,
+    planned_set_id: "local-swap-test-draft",
+    actual_weight: 20,
+    actual_reps: 8,
+    completed: false,
+  });
 });

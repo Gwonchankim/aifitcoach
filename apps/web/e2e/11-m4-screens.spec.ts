@@ -382,6 +382,9 @@ test("주간 프로그램은 transport 실패 때만 마지막 completion snapsh
   await page.goto("/program");
   await expect(page.getByText("근비대 상·하체 분할 · 12주 중 2주차")).toBeVisible();
   await expect.poll(() => transport.completionCalls).toBeGreaterThanOrEqual(2);
+  await expect(
+    page.locator('[data-m4-card="program-days"]').getByText("상체", { exact: true }),
+  ).toBeVisible();
 
   transport.down = true;
   await page.reload();
