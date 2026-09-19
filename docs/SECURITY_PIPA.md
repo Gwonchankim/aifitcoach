@@ -25,6 +25,7 @@
   `access_audits` → `auth_sessions` → `performed_sets` → `assistance_audits` → `planned_sets` → `workout_sessions` → `programs` → `calibration_set` → `user_rir_calibration` → `estimated_1rm` → `muscle_weekly_load` → `sync_mutations` → `subscriptions` → `consents` → `users`
 - `assistance_audits`는 사용자가 아니라 `planned_sets`에 매달린다. FK가 `ON DELETE RESTRICT`이므로 **일반 편집으로 계획세트를 지우는 경로도 같은 트랜잭션에서 audit를 먼저 지운다**(세션 운동 삭제·교체, 루틴 동기화 삭제). 순서가 어긋나면 정상 편집이 FK 위반으로 실패하고 계정 영구 삭제도 막힌다.
 - `exercises`는 사용자 소유 데이터가 아니므로 퍼지 대상이 아니다.
+- `week_swap_receipts`는 owner의 `users` 삭제 전에 같은 퍼지 Job에서 제거한다(RESTRICT 유지, **사용자 리뷰 필요 — T05 PIPA 연결**). 저장 범위는 owner/client ID·정규화 요청 5필드·body hash와 최초 `WeekSwapResult`의 program/week/today ID 및 두 세션 ID·날짜·focus·status·origin·revision·운동/계획세트 ID·set_count뿐이다. 처방값·performed 값·통증·건강값은 복제하지 않으며 보존기간·인증 정책은 바꾸지 않는다.
 - `scripts/purge-deleted-users.mjs`는 `PURGE_BEFORE`가 명시될 때만 실행되는 별도 Cloud Run Job이다. 기본 보존기간을 코드에 숨기지 않는다.
 - `consents`·결제 관련 기록은 법정 보존 의무가 있을 수 있다. 현재 단일 사용자 스테이징은 법무 검토를 보류했으므로, 운영자가 매 실행 전에 보존 기준을 결정·기록한다.
 

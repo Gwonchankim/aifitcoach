@@ -44,6 +44,7 @@ async function purgeUser(userId) {
     // FK is RESTRICT by design.  Child -> parent order is mirrored in SECURITY_PIPA.md.
     await tx.accessAudit.deleteMany({ where: { userId } });
     await tx.authSession.deleteMany({ where: { userId } });
+    await tx.weekSwapReceipt.deleteMany({ where: { userId } });
     await tx.performedSet.deleteMany({
       where: { plannedSet: { session: { program: { userId } } } },
     });
