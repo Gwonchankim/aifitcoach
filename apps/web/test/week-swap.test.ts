@@ -207,3 +207,34 @@ it("a pre-swap session GET cannot overwrite the newly dated session mirror or DO
     scheduled_date: "2026-08-14",
   });
 });
+
+it.each(["read-model", "session"])(
+  "%s still fetches online without writing a mirror if epoch storage is unavailable",
+  async (kind) => {
+    const { vi } = await import("vitest");
+    const get = vi
+      .spyOn(sessionDb.syncMeta, "get")
+      .mockRejectedValue(new Error("storage unavailable"));
+    try {
+      const fetcher = vi.fn(async () => ({ planned_sets: [], version: "fresh" }));
+      if (kind === "read-model") {
+        const result = await readThroughReadModel({
+          userId: "owner",
+          kind: "dashboard",
+          cacheKey: "dashboard",
+          fetcher,
+        });
+        expect(result.data).toEqual({ planned_sets: [], version: "fresh" });
+      } else
+        expect(await readThroughSession("owner", session.id, fetcher)).toEqual({
+          planned_sets: [],
+          version: "fresh",
+        });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(await sessionDb.sessions.count()).toBe(0);
+      expect(await sessionDb.readModels.count()).toBe(0);
+    } finally {
+      get.mockRestore();
+    }
+  },
+);

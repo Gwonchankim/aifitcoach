@@ -198,9 +198,130 @@ it("local pair draft blocks without clearing it or automatically selecting one-o
   fireEvent.click(screen.getByRole("radio", { name: /2026-08-16/ }));
   await screen.findByText(SWAP_COPY.pending);
   expect(
-    ((await screen.findByRole("button", { name: "교환하기", exact: true })) as HTMLButtonElement)
-      .disabled,
+    ((await screen.findByRole("button", { name: "교환하기" })) as HTMLButtonElement).disabled,
   ).toBe(true);
   expect(await sessionDb.drafts.count()).toBe(1);
   expect(mocks.weekSwap).not.toHaveBeenCalled();
+});
+
+it("result check observes the stored request pair even after candidates move to another today", async () => {
+  const original: WeekSwapRequest = {
+    client_id: "00000000-0000-4000-8000-000000000088",
+    today_session_id: today.id,
+    target_session_id: target.id,
+    today_revision: "r1",
+    target_revision: "r2",
+  };
+  await sessionDb.syncMeta.put({
+    user_id: DEV_USER_SCOPE,
+    key: `week-swap-intent:${programId}`,
+    value: JSON.stringify(original),
+  });
+  await sessionDb.drafts.put({
+    user_id: DEV_USER_SCOPE,
+    session_id: target.id,
+    planned_set_id: "pair-draft",
+    client_id: "pair-intent",
+    actual_weight: 20,
+    actual_reps: 8,
+    actual_rir: 2,
+    actual_time_sec: null,
+    pain_score: null,
+    completed: false,
+    updated_at: "2026-08-14T10:00:00Z",
+  });
+  mocks.weekSwapCandidates.mockResolvedValue({
+    ...candidates,
+    today_session_id: "00000000-0000-4000-8000-000000000099",
+  });
+  mount();
+  await open();
+  const check = await screen.findByRole("button", { name: "결과 확인" });
+  await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(true));
+  fireEvent.click(check);
+  expect(mocks.weekSwap).not.toHaveBeenCalled();
+  expect(await sessionDb.drafts.count()).toBe(1);
+  expect(
+    (await sessionDb.syncMeta.get([DEV_USER_SCOPE, `week-swap-intent:${programId}`]))?.value,
+  ).toBe(JSON.stringify(original));
+});
+it.each(["completed", "in_progress", "ad_hoc"])(
+  "one-off opens existing today editing for %s without swap eligibility",
+  async (state) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-14T10:00:00Z"));
+    try {
+      const actual = {
+        ...today,
+        status: state === "ad_hoc" ? "scheduled" : state,
+        origin: state === "ad_hoc" ? "ad_hoc" : "planned",
+      };
+      mocks.currentWeek.mockResolvedValue({
+        program_id: programId,
+        week_start: "2026-08-10",
+        sessions: [actual, target],
+      });
+      mocks.weekSwapCandidates.mockResolvedValue({
+        ...candidates,
+        today_eligible: false,
+        today_reason: state === "ad_hoc" ? "not_scheduled" : "readonly",
+      });
+      mount();
+      await open();
+      const option = screen.getByRole("radio", { name: "오늘만 운동 바꾸기" });
+      await waitFor(() => expect(option.closest("fieldset")?.disabled).toBe(false));
+      fireEvent.click(option);
+      const edit = screen.getByRole("button", { name: "오늘 루틴 편집하기" });
+      await waitFor(() => expect((edit as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(edit);
+      expect(mocks.push).toHaveBeenCalledWith(`/session/${today.id}`);
+      expect(mocks.weekSwap).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it("candidate404 cannot claim noToday from a cached rest week whose refetch fails", async () => {
+  const { ApiError } = await import("../lib/api");
+  mocks.currentWeek
+    .mockResolvedValueOnce({ program_id: programId, week_start: "2026-08-10", sessions: [] })
+    .mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
+  mocks.weekSwapCandidates.mockRejectedValue(new ApiError(404, "NOT_FOUND", "missing"));
+  const view = mount();
+  await view.client.fetchQuery({
+    queryKey: ["current-week", programId],
+    queryFn: async () => ({
+      data: { program_id: programId, week_start: "2026-08-10", sessions: [] },
+      source: "server",
+      stale: false,
+      syncedAt: "2026-08-14T10:00:00Z",
+    }),
+  });
+  mocks.currentWeek.mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: SWAP_COPY.title }));
+  await screen.findByText(SWAP_COPY.missing);
+  await waitFor(() =>
+    expect(view.client.getQueryState(["current-week", programId])?.status).toBe("error"),
+  );
+  expect(screen.queryByText(SWAP_COPY.noToday)).toBeNull();
+});
+
+it("ActualWeekDays displays explicit error and retry when a cached week refetch fails", async () => {
+  const { ActualWeekDays } = await import("../components/program/ActualWeekDays");
+  const { ApiError } = await import("../lib/api");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["current-week", programId], {
+    data: { program_id: programId, week_start: "2026-08-10", sessions: [today, target] },
+    source: "server",
+    stale: false,
+    syncedAt: "2026-08-14T10:00:00Z",
+  });
+  mocks.currentWeek.mockRejectedValue(new ApiError(500, "SERVER_ERROR", "unavailable"));
+  render(
+    <QueryClientProvider client={client}>
+      <ActualWeekDays programId={programId} names={new Map()} />
+    </QueryClientProvider>,
+  );
+  await screen.findByText(SWAP_COPY.malformed);
+  expect(screen.getByRole("button", { name: "다시 불러오기" })).toBeTruthy();
 });
