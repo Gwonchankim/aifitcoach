@@ -33,16 +33,38 @@ import { refreshAfterWeekSwap } from "../../lib/week-swap-refresh";
 
 export function WeekSwapEntry({ programId }: { programId: string }) {
   const [open, setOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   return (
     <>
-      <Button variant="secondary" fullWidth onClick={() => setOpen(true)}>
+      <Button
+        variant="secondary"
+        fullWidth
+        onClick={(event) => {
+          setOpener(event.currentTarget);
+          setOpen(true);
+        }}
+      >
         {SWAP_COPY.title}
       </Button>
-      {open ? <WeekSwapSheet programId={programId} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <WeekSwapSheet
+          programId={programId}
+          returnFocusTarget={opener}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
     </>
   );
 }
-export function WeekSwapSheet({ programId, onClose }: { programId: string; onClose: () => void }) {
+export function WeekSwapSheet({
+  programId,
+  onClose,
+  returnFocusTarget,
+}: {
+  programId: string;
+  onClose: () => void;
+  returnFocusTarget?: HTMLElement | null;
+}) {
   const online = useOnline();
   const router = useRouter();
   const client = useQueryClient();
@@ -58,7 +80,7 @@ export function WeekSwapSheet({ programId, onClose }: { programId: string; onClo
   const close = () => {
     if (!busy.current) onClose();
   };
-  useModal(true, "week-swap", close, "week-swap-close");
+  useModal(true, "week-swap", close, "week-swap-close", returnFocusTarget);
   const week = useQuery({
     queryKey: ["current-week", programId],
     queryFn: () => currentWeekReadModel(programId),

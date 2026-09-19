@@ -64,136 +64,140 @@ test("closing preserves focus, mode resets, and offline never submits a swap", a
   await context.setOffline(false);
 });
 
-test("lost successful POST survives reload and result check uses the exact client_id and body", async ({
-  page,
-  request,
-}) => {
-  await prepareWeekSwap(request);
-  const program = await (await request.get(`${API_V1}/programs/current`)).json();
-  const candidates = await (
-    await request.get(`${API_V1}/programs/${program.program_id}/week-swaps/candidates`)
-  ).json();
-  const target = candidates.candidates.find((item: { eligible: boolean }) => item.eligible);
-  expect(target, JSON.stringify(candidates)).toBeTruthy();
-  const bodies: unknown[] = [];
-  await page.route("**/v1/programs/*/week-swaps", async (route) => {
-    bodies.push(route.request().postDataJSON());
-    const response = await route.fetch();
-    expect(response.status()).toBe(200);
-    if (bodies.length === 1) await route.abort("failed");
-    else await route.fulfill({ response });
-  });
-  await page.goto("/program");
-  await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
-  await page.getByRole("radio", { name: new RegExp(target.session.scheduled_date) }).check();
-  await page.getByRole("button", { name: "교환하기", exact: true }).click();
-  await expect(page.getByRole("button", { name: "결과 확인", exact: true })).toBeVisible();
-  await page.reload();
-  await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
-  await expect(page.getByRole("button", { name: "결과 확인", exact: true })).toBeVisible();
-  expect(bodies).toHaveLength(1);
-  await page.getByRole("button", { name: "결과 확인", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${target.session.id}$`));
-  expect(bodies).toHaveLength(2);
-  expect(bodies[1]).toEqual(bodies[0]);
-});
-
-test("unknown candidate reason fails closed without falling into one-off", async ({
-  page,
-  request,
-}) => {
-  await prepareWeekSwap(request);
-  let posts = 0;
-  page.on("request", (req) => {
-    if (req.method() === "POST" && /\/week-swaps$/.test(new URL(req.url()).pathname)) posts++;
-  });
-  await page.route("**/v1/programs/*/week-swaps/candidates", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.today_eligible = false;
-    body.today_reason = "append_limit";
-    await route.fulfill({ response, json: body });
-  });
-  await page.goto("/program");
-  await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
-  await expect(
-    page.getByText("교환할 수 없는 사유를 확인하지 못했어요. 최신 일정을 다시 확인해 주세요."),
-  ).toBeVisible();
-  await expect(page.getByRole("radio", { name: "두 운동일 교환", exact: true })).toBeChecked();
-  await expect(page.getByRole("button", { name: "교환하기", exact: true })).toHaveCount(0);
-  expect(posts).toBe(0);
-});
-
-test("a held pre-swap current-week GET cannot restore old dates in program DOM or durable mirror", async ({
-  page,
-  request,
-}) => {
-  await prepareWeekSwap(request);
-  const program = await (await request.get(`${API_V1}/programs/current`)).json();
-  const candidates = await (
-    await request.get(`${API_V1}/programs/${program.program_id}/week-swaps/candidates`)
-  ).json();
-  const target = candidates.candidates.find((item: { eligible: boolean }) => item.eligible);
-  expect(target, JSON.stringify(candidates)).toBeTruthy();
-  await page.goto("/program");
-  await expect(page.locator(`[data-week-session-id='${target.session.id}']`)).toBeVisible();
-  let release!: () => void;
-  let captured!: () => void;
-  const holding = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const capture = new Promise<void>((resolve) => {
-    captured = resolve;
-  });
-  let count = 0;
-  await page.route("**/v1/programs/*/weeks/current", async (route) => {
-    const response = await route.fetch();
-    if (++count === 1) {
-      captured();
-      await holding;
-    }
-    await route.fulfill({ response });
-  });
-  await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
-  await capture;
-  await page.getByRole("radio", { name: new RegExp(target.session.scheduled_date) }).check();
-  await page.getByRole("button", { name: "교환하기", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${target.session.id}$`));
-  release();
-  await page.goto("/program");
-  const latest = await (
-    await request.get(`${API_V1}/programs/${program.program_id}/weeks/current`)
-  ).json();
-  for (const session of latest.sessions)
-    await expect(
-      page.locator(
-        `[data-week-date='${session.scheduled_date}'] [data-week-session-id='${session.id}']`,
-      ),
-    ).toBeVisible();
-  const mirrored = await page.evaluate(async (id) => {
-    const opening = indexedDB.open("afc-session-v1");
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      opening.onsuccess = () => resolve(opening.result);
-      opening.onerror = () => reject(opening.error);
-      opening.onupgradeneeded = () => {
-        opening.transaction?.abort();
-        reject(new Error("existing DB required"));
-      };
+test.describe("weekly swap narrow transport faults (service workers blocked)", () => {
+  test.use({ serviceWorkers: "block" });
+  test("lost successful POST survives reload and result check uses the exact client_id and body", async ({
+    page,
+    request,
+  }) => {
+    await prepareWeekSwap(request);
+    const program = await (await request.get(`${API_V1}/programs/current`)).json();
+    const candidates = await (
+      await request.get(`${API_V1}/programs/${program.program_id}/week-swaps/candidates`)
+    ).json();
+    const target = candidates.candidates.find((item: { eligible: boolean }) => item.eligible);
+    expect(target, JSON.stringify(candidates)).toBeTruthy();
+    const bodies: unknown[] = [];
+    await page.route("**/v1/programs/*/week-swaps", async (route) => {
+      bodies.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      if (bodies.length === 1) await route.abort("failed");
+      else await route.fulfill({ response });
     });
-    try {
-      return await new Promise<unknown>((resolve, reject) => {
-        const get = db
-          .transaction("readModels")
-          .objectStore("readModels")
-          .get(["dev-user", `current-week:${id}`]);
-        get.onsuccess = () => resolve(get.result.data);
-        get.onerror = () => reject(get.error);
+    await page.goto("/program");
+    await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
+    await page.getByRole("radio", { name: new RegExp(target.session.scheduled_date) }).check();
+    await page.getByRole("button", { name: "교환하기", exact: true }).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    await expect(page.getByRole("button", { name: "결과 확인", exact: true })).toBeEnabled();
+    await page.reload();
+    await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
+    await expect(page.getByRole("button", { name: "결과 확인", exact: true })).toBeVisible();
+    expect(bodies).toHaveLength(1);
+    await page.getByRole("button", { name: "결과 확인", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/session/${target.session.id}$`));
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  test("unknown candidate reason fails closed without falling into one-off", async ({
+    page,
+    request,
+  }) => {
+    await prepareWeekSwap(request);
+    let posts = 0;
+    page.on("request", (req) => {
+      if (req.method() === "POST" && /\/week-swaps$/.test(new URL(req.url()).pathname)) posts++;
+    });
+    await page.route("**/v1/programs/*/week-swaps/candidates", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.today_eligible = false;
+      body.today_reason = "append_limit";
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto("/program");
+    await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
+    await expect(
+      page.getByText("교환할 수 없는 사유를 확인하지 못했어요. 최신 일정을 다시 확인해 주세요."),
+    ).toBeVisible();
+    await expect(page.getByRole("radio", { name: "두 운동일 교환", exact: true })).toBeChecked();
+    await expect(page.getByRole("button", { name: "교환하기", exact: true })).toHaveCount(0);
+    expect(posts).toBe(0);
+  });
+
+  test("a held pre-swap current-week GET cannot restore old dates in program DOM or durable mirror", async ({
+    page,
+    request,
+  }) => {
+    await prepareWeekSwap(request);
+    const program = await (await request.get(`${API_V1}/programs/current`)).json();
+    const candidates = await (
+      await request.get(`${API_V1}/programs/${program.program_id}/week-swaps/candidates`)
+    ).json();
+    const target = candidates.candidates.find((item: { eligible: boolean }) => item.eligible);
+    expect(target, JSON.stringify(candidates)).toBeTruthy();
+    await page.goto("/program");
+    await expect(page.locator(`[data-week-session-id='${target.session.id}']`)).toBeVisible();
+    let release!: () => void;
+    let captured!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const capture = new Promise<void>((resolve) => {
+      captured = resolve;
+    });
+    let count = 0;
+    await page.route("**/v1/programs/*/weeks/current", async (route) => {
+      const response = await route.fetch();
+      if (++count === 1) {
+        captured();
+        await holding;
+      }
+      await route.fulfill({ response });
+    });
+    await page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }).click();
+    await capture;
+    await page.getByRole("radio", { name: new RegExp(target.session.scheduled_date) }).check();
+    await page.getByRole("button", { name: "교환하기", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/session/${target.session.id}$`));
+    release();
+    await page.goto("/program");
+    const latest = await (
+      await request.get(`${API_V1}/programs/${program.program_id}/weeks/current`)
+    ).json();
+    for (const session of latest.sessions)
+      await expect(
+        page.locator(
+          `[data-week-date='${session.scheduled_date}'] [data-week-session-id='${session.id}']`,
+        ),
+      ).toBeVisible();
+    const mirrored = await page.evaluate(async (id) => {
+      const opening = indexedDB.open("afc-session-v1");
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        opening.onsuccess = () => resolve(opening.result);
+        opening.onerror = () => reject(opening.error);
+        opening.onupgradeneeded = () => {
+          opening.transaction?.abort();
+          reject(new Error("existing DB required"));
+        };
       });
-    } finally {
-      db.close();
-    }
-  }, program.program_id);
-  expect(mirrored).toEqual(latest);
+      try {
+        return await new Promise<unknown>((resolve, reject) => {
+          const get = db
+            .transaction("readModels")
+            .objectStore("readModels")
+            .get(["dev-user", `current-week:${id}`]);
+          get.onsuccess = () => resolve(get.result.data);
+          get.onerror = () => reject(get.error);
+        });
+      } finally {
+        db.close();
+      }
+    }, program.program_id);
+    expect(mirrored).toEqual(latest);
+  });
 });
 
 test("a saved local draft disables swap without deleting records or entering one-off", async ({
