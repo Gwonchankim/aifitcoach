@@ -317,3 +317,15 @@ it("ActualWeekDays displays explicit error and retry when a cached week refetch 
   await screen.findByText(SWAP_COPY.malformed);
   expect(screen.getByRole("button", { name: "다시 불러오기" })).toBeTruthy();
 });
+
+it("restores the clicked opener when pointer activation did not focus it", async () => {
+  mount();
+  const opener = screen.getByRole("button", { name: SWAP_COPY.title });
+  expect(document.activeElement).toBe(document.body);
+  fireEvent.click(opener);
+  const close = await screen.findByRole("button", { name: "닫기" });
+  await waitFor(() => expect(document.activeElement).toBe(close));
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(opener);
+});
