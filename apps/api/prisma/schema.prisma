@@ -227,6 +227,7 @@ model User {
   calibrationSets  CalibrationSet[]
   authSessions     AuthSession[]
   accessAudits     AccessAudit[]
+  weekSwapReceipts WeekSwapReceipt[]
 
   @@map("users")
 }
@@ -332,6 +333,20 @@ model Program {
 
   @@index([userId], map: "ix_programs_user")
   @@map("programs")
+}
+
+// Direct weekly swap namespace. Structural result only; no prescription or performed/health values.
+model WeekSwapReceipt {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
+  requestHash String   @map("request_hash")
+  request     Json
+  result      Json
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, clientId], map: "ux_week_swap_receipts_user_client")
+  @@map("week_swap_receipts")
 }
 
 model Exercise {
