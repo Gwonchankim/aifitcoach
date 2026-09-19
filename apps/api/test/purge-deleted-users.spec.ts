@@ -1,6 +1,6 @@
 /** The production purge Job physically removes only accounts deleted before its explicit cutoff. */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { REPO_ROOT } from "./support/database-url";
@@ -12,6 +12,7 @@ const prisma = new PrismaClient();
 async function removeFixture(): Promise<void> {
   await prisma.accessAudit.deleteMany({ where: { userId: USER_ID } });
   await prisma.authSession.deleteMany({ where: { userId: USER_ID } });
+  await prisma.weekSwapReceipt.deleteMany({ where: { userId: USER_ID } });
   // assistance_audits 는 ON DELETE RESTRICT 라 planned_sets 보다 먼저 지운다.
   await prisma.assistanceAudit.deleteMany({
     where: { plannedSet: { session: { program: { userId: USER_ID } } } },
@@ -71,6 +72,48 @@ async function createAssistanceAuditFixture(): Promise<void> {
   });
   await prisma.assistanceAudit.create({
     data: { plannedSetId: planned.id, action: "native", metadata: {} },
+  });
+  const target = await prisma.workoutSession.create({
+    data: {
+      programId: program.id,
+      scheduledDate: new Date("2026-08-05T00:00:00.000Z"),
+      focus: "full_body",
+      status: "scheduled",
+    },
+  });
+  const clientId = randomUUID();
+  await prisma.weekSwapReceipt.create({
+    data: {
+      userId: USER_ID,
+      clientId,
+      requestHash: createHash("sha256").update(clientId).digest("hex"),
+      request: {
+        client_id: clientId,
+        today_session_id: session.id,
+        target_session_id: target.id,
+        today_revision: "before-a",
+        target_revision: "before-b",
+      },
+      result: {
+        client_id: clientId,
+        program_id: program.id,
+        week_start: "2026-08-03",
+        today_session_id: target.id,
+        sessions: [session, target].map((item) => ({
+          id: item.id,
+          scheduled_date: item.scheduledDate.toISOString().slice(0, 10),
+          focus: item.focus,
+          status: item.status,
+          origin: item.origin,
+          revision: "after",
+          planned_set_ids: item.id === session.id ? [planned.id] : [],
+          exercises:
+            item.id === session.id
+              ? [{ exercise_id: planned.exerciseId, planned_set_ids: [planned.id], set_count: 1 }]
+              : [],
+        })),
+      },
+    },
   });
 }
 
@@ -140,6 +183,7 @@ describe("deleted-user purge Job", () => {
     await expect(prisma.user.findUnique({ where: { id: USER_ID } })).resolves.toBeNull();
     await expect(prisma.authSession.count({ where: { userId: USER_ID } })).resolves.toBe(0);
     await expect(prisma.accessAudit.count({ where: { userId: USER_ID } })).resolves.toBe(0);
+    await expect(prisma.weekSwapReceipt.count({ where: { userId: USER_ID } })).resolves.toBe(0);
     await expect(prisma.consent.count({ where: { userId: USER_ID } })).resolves.toBe(0);
     await expect(
       prisma.plannedSet.count({ where: { session: { program: { userId: USER_ID } } } }),
@@ -149,5 +193,25 @@ describe("deleted-user purge Job", () => {
         where: { plannedSet: { session: { program: { userId: USER_ID } } } },
       }),
     ).resolves.toBe(0);
+  });
+
+  it("retains the account and swap receipt when the explicit cutoff does not include it", async () => {
+    const result = spawnSync(
+      process.execPath,
+      [path.join(REPO_ROOT, "scripts", "purge-deleted-users.mjs")],
+      {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          DIRECT_URL: process.env.DATABASE_URL,
+          PURGE_BEFORE: "2025-12-31T00:00:00.000Z",
+        },
+        encoding: "utf8",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("0건을 영구 삭제했습니다.");
+    await expect(prisma.user.count({ where: { id: USER_ID } })).resolves.toBe(1);
+    await expect(prisma.weekSwapReceipt.count({ where: { userId: USER_ID } })).resolves.toBe(1);
   });
 });

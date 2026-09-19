@@ -23,6 +23,7 @@ import {
 } from "../../lib/read-model-data";
 import { summarize, useSessionLog } from "../session/session-store";
 import { BodyPartSheet } from "./BodyPartSheet";
+import { WeekSwapEntry } from "../program/WeekSwapSheet";
 import { E1RM_EMPTY_NOTE, type MetricCard, buildDashboardView } from "./dashboard-view";
 import {
   dashboardDate,
@@ -383,6 +384,7 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
+      {program.data ? <WeekSwapEntry programId={program.data.program_id} /> : null}
       <Link
         href="/program"
         className="min-h-tap self-start px-1 py-2 text-base font-medium text-primary underline hover:text-primary-hover focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-bg"

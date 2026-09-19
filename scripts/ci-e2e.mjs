@@ -26,6 +26,8 @@ export const phases = [
   { name: "native-w", project: "webkit-ios", args: ["18-assistance-append.spec.ts"] },
   { name: "historical-w", project: "webkit-ios", args: ["19-assistance-historical.spec.ts"] },
   { name: "similar-c", project: "chromium-mobile", args: ["20-similar-init.spec.ts"] },
+  { name: "weekly-focus-c", project: "chromium-mobile", args: ["21-weekly-focus-swap.spec.ts"] },
+  { name: "weekly-focus-w", project: "webkit-ios", args: ["21-weekly-focus-swap.spec.ts"] },
 ];
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

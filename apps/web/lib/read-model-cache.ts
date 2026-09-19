@@ -1,11 +1,14 @@
 import {
   sessionDb,
+  readWeekSwapEpoch,
+  SupersededWeekSwapRead,
   type ReadModelKind,
   type ReadModelMirror,
 } from "../components/session/session-db";
 
 export const READ_MODEL_LIMITS: Record<ReadModelKind, number> = {
   dashboard: 1,
+  "current-week": 1,
   e1rm: 8,
   volume: 4,
   completion: 4,
@@ -33,16 +36,28 @@ export async function readThroughReadModel<T>(
   const now = options.now ?? (() => new Date());
   const requestStartedAt = now().getTime();
   try {
+    const swapEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
     const data = await options.fetcher();
+    const latestEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
+    if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
+      throw new SupersededWeekSwapRead();
     const syncedAt = now().toISOString();
-    await mirrorServerSnapshot({
-      user_id: options.userId,
-      cache_key: options.cacheKey,
-      kind: options.kind,
-      data,
-      request_started_at: requestStartedAt,
-      synced_at: syncedAt,
-    }).catch(() => undefined);
+    // A failed epoch read must not suppress online GET. Without a verified epoch, return
+    // the fetched response but never write it over durable snapshots from another request.
+    if (swapEpoch !== null && latestEpoch !== null)
+      await mirrorServerSnapshot(
+        {
+          user_id: options.userId,
+          cache_key: options.cacheKey,
+          kind: options.kind,
+          data,
+          request_started_at: requestStartedAt,
+          synced_at: syncedAt,
+        },
+        swapEpoch,
+      ).catch((error) => {
+        if (error instanceof SupersededWeekSwapRead) throw error;
+      });
     return { data, source: "server", stale: false, syncedAt };
   } catch (error) {
     // Fetch rejects transport loss with TypeError. HTTP responses are ApiError, aborts are
@@ -65,8 +80,10 @@ export async function clearUserReadModels(userId: string): Promise<void> {
   await sessionDb.readModels.where("user_id").equals(userId).delete();
 }
 
-async function mirrorServerSnapshot(snapshot: ReadModelMirror): Promise<void> {
-  await sessionDb.transaction("rw", sessionDb.readModels, async () => {
+async function mirrorServerSnapshot(snapshot: ReadModelMirror, swapEpoch: string): Promise<void> {
+  await sessionDb.transaction("rw", [sessionDb.readModels, sessionDb.syncMeta], async () => {
+    if ((await readWeekSwapEpoch(snapshot.user_id)) !== swapEpoch)
+      throw new SupersededWeekSwapRead();
     const existing = await sessionDb.readModels.get([snapshot.user_id, snapshot.cache_key]);
     if (existing && existing.request_started_at > snapshot.request_started_at) return;
 

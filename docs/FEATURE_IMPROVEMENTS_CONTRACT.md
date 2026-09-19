@@ -2,7 +2,7 @@
 
 승인: 2026-09-05 사용자 사양 개정1·2 및 독립 Evaluator의 Sprint01 재시작1 계약 합의. ADR-73.
 
-**이 문서는 후속 구현의 계약이다. 새 endpoint·sync entity·프로필 필드는 아직 runtime에 없다.**
+**현재 활성 범위는 Sprint03 append와 T05 실제 현재 주 조회·교환이다. split·cardio·전체 V2 전환은 후속 예약 계약이다.**
 활성 API는 [openapi.yaml](specs/openapi.yaml), 예약 wire는 [feature-improvements.openapi.yaml](specs/feature-improvements.openapi.yaml), 예약 정책 fixture는 [feature_improvements_contract.json](specs/feature_improvements_contract.json)이다.
 기존 추천 golden과 활성 `.08.1` runtime은 바꾸지 않는다. future 계약 검증은 future 기능의 실행 성공 증거가 아니다.
 
@@ -87,16 +87,26 @@ C만 H로 전환하며 기존 S/H 슬롯의 유산소 처방은 유지한다. �
 
 ## W — 현재 주 조회와 swap 원자성
 
+**T05 활성 계약(2026-09-20):** 아래 세 endpoint는 `openapi.yaml`로 승격한다. 회복 판정은 실제 planned 행의 exercise_id → 현재 카탈로그 region 집합으로 한다. core를 교집합에서 제외하고 upper/lower가 겹치는 직전·직후 이웃과의 UTC 날짜 차가 2일 이상이어야 한다. 교환 두 세션에 닿지 않는 기존 위반은 검사하지 않는다. push/pull이 모두 upper인 인접일 제한은 승인된 정책이다.
+
+- 대상은 현재 Program·현재 UTC 월요일 주의 origin=planned·scheduled·performed 행 0인 오늘/미래 두 세션이다. UTC 주 시작은 analytics의 `weekStart()` 정본을 사용한다. ad_hoc과 완료 세션도 **회복 이웃**에는 포함한다.
+- 같은 owner의 다른 Program 실제 세션도 읽되 다른 Program의 가상 세션은 만들지 않는다. 현재 Program lifecycle 안의 인접 주에서 template 날짜별로 missing slot만 read-only preview한다. 일부 actual이 있어도 다른 날짜의 미생성 슬롯은 검사하며 actual 날짜는 우선한다. actual을 template로 덮지 않으며 preview 과정의 DB 쓰기·factory·materialize 호출은 0이다.
+- 확인 가능한 `2026.08.1`·`2026.08.2` 저항 전용 bundle만 cardio=`not_applicable_resistance_only`로 분류한다. 불명 bundle·카탈로그/분류 모순·필요한 template 파싱 불가 등은 `recovery_unverifiable`다.
+- 후보 사유 우선순위는 readonly → not_scheduled → performed_history → wrong_week → ambiguous_schedule → recovery_unverifiable → recovery_gap_violation이다. 후보 응답에 nullable today_session_id/today_revision과 today_eligible/today_reason을 별도로 둔다. 오늘이 없으면 404, 오늘 actual이 중복이면 두 identity는 null이고 today_reason은 ambiguous_schedule이다.
+- POST 순서는 400/404 → 기존 receipt의 replay/mismatch → 구조 5종(위 순서) → today identity/양 revision의 stale_revision → recovery_unverifiable → recovery_gap_violation → 두 날짜 쓰기와 receipt 저장이다. 오늘 불가 문구에는 후보용 '다른 운동일' 안내를 쓰지 않는다.
+- 잠금은 별도 owner+week_swap+client_id advisory → 현재 Program → ID 정렬된 교환 두 세션이다. 같은 Program writer는 program 잠금을 공유한다. **타 Program 이웃은 잠금 뒤 snapshot 읽기만 보장**한다. 과거 W12의 다른 Program/새 Program phantom 완전 직렬화 요구는 이 범위로 대체됐으며 알려진 한계는 ADR-81에 기록한다.
+- `WeekSwapReceipt`는 owner/client_id로 유일하며 기존 sync/LWW/outbox와 분리한다. 정규화 요청과 최초 `WeekSwapResult`의 구조 식별자·개수 요약만 보존하고 처방·performed·건강값은 복제하지 않는다. 삭제된 세션/소유권 확인은 replay보다 앞선다. 응답 유실은 원 요청을 보존한 '결과 확인'으로 처리하며, 최초 replay를 최신 화면에 설치하지 않고 최신 GET 후 수렴한다.
+
 - W06: 일회성 대체는 사용자가 명시적으로 선택하는 보조 모드이며 주간 볼륨 보존을 약속하지 않는다. 기존 운동 단위 편집 경계를 재사용한다. 실제 두 세션 swap이 불가능하거나 실패했다고 일회성 대체를 묵시적으로 실행하는 자동 fallback은 금지한다.
-- 기존 `Program.sessions`는 immutable template 그대로다. 예약 `GET /programs/{id}/weeks/current`를 추가하여 UTC week_start, program_id, materialized actual sessions의 `id`, `scheduled_date`, `focus`, `status`, `revision`, `planned_set_ids`, 운동별 planned count를 반환한다. 이번 주 lazy materialization 완료 후 같은 transaction snapshot에서 읽는다. 미래 preview는 기존 template 기반임을 표시하고 이 응답과 섞지 않는다.
-- 예약 `POST /programs/{id}/week-swaps`: client_id, today_session_id, target_session_id, today_revision, target_revision. 응답은 두 세션의 새 id/date/focus/revision과 `today_session_id`(교환 전 target ID), week_start. 호출 당시 today였던 ID를 계속 오늘 경로로 사용하는 것을 금지한다.
+- 기존 `Program.sessions`는 immutable template 그대로다. `GET /programs/{id}/weeks/current`는 UTC week_start, program_id, materialized actual sessions의 `id`, `scheduled_date`, `focus`, `status`, `origin`, `revision`, `planned_set_ids`, 운동별 planned count를 반환한다. 이번 주 lazy materialization 완료 후 같은 transaction snapshot에서 읽는다. 미래 preview는 기존 template 기반임을 표시하고 이 응답과 섞지 않는다.
+- `POST /programs/{id}/week-swaps`: client_id, today_session_id, target_session_id, today_revision, target_revision. 응답은 두 세션의 ActualWeekSession 요약과 `today_session_id`(교환 전 target ID), week_start. 호출 당시 today였던 ID를 계속 오늘 경로로 사용하는 것을 금지한다.
 - 프로그램 현재 주 화면은 actual-week projection, 대시보드와 세션 화면은 같은 실제 세션 데이터에 근거한다. 성공 시 current-week/dashboard/두 session query를 갱신하고 서버 `today_session_id`로 이동한다. cache invalidation만으로 template 표시를 고치는 구현은 불합격이다.
 - revision은 세션 상태/date/focus/origin 및 ordered planned rows의 ID·updatedAt·목표·추천·안전 snapshot, performed 행의 ID·updatedAt·completed를 포함한 canonical aggregate hash의 opaque 토큰이다. 단순 WorkoutSession.updatedAt 하나로 대체하지 않는다. 서버 시작(in_progress)·planned 편집·수행 쓰기·다른 swap이 모두 토큰을 바꾼다.
 - 최종 transaction 안에서 동일 프로그램의 lazy 생성/swap과 양쪽 세션의 모든 mutation이 같은 잠금 규약을 공유한다. 순서는 program 잠금 후 정렬된 session ID 잠금이다. 기존 mutation 경로도 이 규약에 연결하거나 동등한 serializable 재시도 증거를 내야 한다. hash 비교를 transaction 밖에서만 하는 것은 금지한다.
 - 잠금 뒤 owner/program/week/date/origin/status=scheduled/미수행 및 요청 revision을 재검증한다. 과거·완료·in_progress와 performed row가 하나라도 있는 세션은 제외한다. 대상 날짜에 별도 actual 세션이 있으면 409이며 임의 선택/삭제/merge 금지다. 기존 DB에 중복 날짜가 있으면 backfill로 청소하지 않는다.
 - **교환 후 회복 검사**: 이 새 swap operation은 V1/V2 모두에서 같은 부위 최소48시간을 후보 조회와 최종 transaction에 적용한다. 기존 persisted 계획의 해석/backfill을 변경하는 것이 아니라 새 편집의 허용조건이다. 각 프로그램의 실제 적용 bundle이 갖는 cardio/HIIT 회복 규약도 함께 검사한다.
 - 검사 범위는 교환한 두 날짜 및 회복 간격에 영향을 주는 앞·뒤 주의 인접 실제 세션/저항/cardio 블록이다. 실제 세션이 있으면 template로 대체하지 않는다. 미생성 이웃은 그 Program의 persisted rules/input으로 preview를 산출해 구분하고, 안정적으로 판정할 수 없으면 fail-closed한다. 고정 template만의 검사로 actual 일정 변경을 숨기지 않는다.
-- 후보는 `recovery_gap_violation` 사유와 함께 제외/비활성 표시한다. 최종 transaction은 program→정렬된 양쪽/관련 이웃 session 잠금 아래 최신 실제 일정과 revision/eligibility를 다시 읽어 검사한다. 동일 program의 lazy 생성과 모든 관련 session mutation도 이 규약을 사용하여 검사 후 상태가 바뀌는 경합을 막는다.
+- 후보는 판정된 회복 사유와 함께 제외/비활성 표시한다. 최종 transaction은 program→정렬된 양쪽 session 잠금 아래 최신 실제 일정과 revision/eligibility를 다시 읽어 검사한다. 동일 program의 lazy 생성과 모든 관련 session mutation도 program 잠금을 공유한다. 타 Program 이웃은 위 T05 snapshot 경계를 따른다.
 - 월U·화L·목U·금L에서 월↔금은 월L·화L·목U·금U가 되어 양 부위24h이므로 반드시409이며 양쪽 날짜/제품 데이터/planned/performed 전부 불변이다. 주내 통과/주경계 실패와 후보 조회 뒤 이웃 변경도 별도 회귀 assertion이다. 허용 swap은 실제 인접 간격>=48h와 해당 cardio 회복을 모두 증명한다.
 - 두 날짜 교환과 idempotency 응답 저장을 한 transaction으로 commit한다. 동일 client_id+동일 body는 최초 결과를 재생하고 다시 교환하지 않는다. 같은 ID+다른 body는409. 동시 다른 swap은 한 번만 승인되고 stale 요청409. lazy 생성은 날짜 존재 확인과 생성이 같은 program 잠금을 사용해 duplicate 생성하지 않는다.
 - 검증은 양쪽 Session ID, 각 PlannedSet ID·내용, PerformedSet ID·내용, 주간 세션 수, 운동별 set-count/target volume multiset이 before/after exact 동일이고 제품 데이터 중 scheduled_date 두 개만 교환됨을 증명한다. Session.updatedAt 및 날짜/시각 변경에 따라 파생된 revision은 예상 기술 메타데이터 변경으로 별도 기록한다. 모든 planned/performed 내용·ID는 이 예외에 포함하지 않는다. 모든 경합 실패는 양쪽 모두 미변경이다. 완료 history와 program.template/generation_input도 byte/semantic hash 불변이다.

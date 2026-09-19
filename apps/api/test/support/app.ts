@@ -19,6 +19,7 @@ export async function createTestApp(): Promise<INestApplication> {
  */
 export async function resetUserData(prisma: PrismaService, ...userIds: string[]): Promise<void> {
   const userId = { in: userIds };
+  await prisma.weekSwapReceipt.deleteMany({ where: { userId } });
   await prisma.syncMutation.deleteMany({ where: { userId } });
   await prisma.estimated1rm.deleteMany({ where: { userId } });
   await prisma.muscleWeeklyLoad.deleteMany({ where: { userId } });

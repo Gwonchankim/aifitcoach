@@ -94,14 +94,13 @@ const other = "22222222-2222-4222-8222-222222222222";
 
 /** Reserved schema/fixture checks; these are not evidence that future routes work. */
 describe("feature improvement reserved contract", () => {
-  it("promotes only Sprint03 append, keeps future operations reserved and leaves V1 active", () => {
+  it("promotes append and current-week swap while leaving V1 active", () => {
     expect(reserved["x-afc-status"]).toBe("reserved-not-implemented");
     expect(Object.keys(reserved.paths)).toHaveLength(4);
     for (const route of Object.keys(reserved.paths)) {
-      if (route === "/sessions/{id}/sets") {
-        expect(active.paths[route]).toBeDefined();
-        expect((reserved.paths[route].post as Schema)["x-afc-status"]).toBe("promoted-to-active");
-      } else expect(active.paths[route]).toBeUndefined();
+      expect(active.paths[route]).toBeDefined();
+      const operation = (reserved.paths[route].post ?? reserved.paths[route].get) as Schema;
+      expect(operation["x-afc-status"]).toBe("promoted-to-active");
     }
     expect(ROUTINE_RULES_VERSION).toBe("2026.08.1");
     expect(fixture.active_bundle).toBe(ROUTINE_RULES_VERSION);
@@ -119,7 +118,7 @@ describe("feature improvement reserved contract", () => {
   });
 
   it("preserves required CSRF and direct Error refs when reserved operations are promoted", () => {
-    for (const item of Object.values(reserved.paths)) {
+    for (const [route, item] of Object.entries(reserved.paths)) {
       const post = item.post as
         { parameters: Schema[]; responses: Record<string, Schema> } | undefined;
       if (!post) continue;
@@ -140,7 +139,9 @@ describe("feature improvement reserved contract", () => {
         );
       }
       expect(post.responses["409"]["x-afc-response-refinement"]).toEqual({
-        $ref: "#/components/schemas/FeatureConflict",
+        $ref: route.endsWith("/week-swaps")
+          ? "#/components/schemas/WeekSwapConflict"
+          : "#/components/schemas/FeatureConflict",
       });
     }
   });

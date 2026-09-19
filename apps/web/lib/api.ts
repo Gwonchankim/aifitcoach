@@ -7,6 +7,12 @@
  *   - 목서버: http://localhost:4010      (prism 은 /v1 없이 루트에 마운트)
  */
 import type { components, paths } from "./api-types";
+import type {
+  CurrentProgramWeek,
+  WeekSwapCandidates,
+  WeekSwapRequest,
+  WeekSwapResult,
+} from "./week-swap";
 
 export type Program = components["schemas"]["Program"];
 export type Session = components["schemas"]["Session"];
@@ -44,6 +50,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly reason?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -97,11 +104,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
-    const envelope = (body as { error?: { code?: string; message?: string } } | null)?.error;
+    const envelope = (
+      body as { error?: { code?: string; message?: string; details?: { reason?: unknown } } } | null
+    )?.error;
     throw new ApiError(
       response.status,
       envelope?.code ?? "UNKNOWN",
       envelope?.message ?? "요청을 처리하지 못했다.",
+      envelope?.details?.reason,
     );
   }
 
@@ -160,6 +170,15 @@ export const api = {
     request<Program>("/programs/generate", { method: "POST", body: JSON.stringify(body) }),
 
   currentProgram: () => request<Program>("/programs/current"),
+  currentWeek: (programId: string) =>
+    request<CurrentProgramWeek>(`/programs/${programId}/weeks/current`),
+  weekSwapCandidates: (programId: string) =>
+    request<WeekSwapCandidates>(`/programs/${programId}/week-swaps/candidates`),
+  weekSwap: (programId: string, body: WeekSwapRequest) =>
+    request<WeekSwapResult>(`/programs/${programId}/week-swaps`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   dashboard: () => request<DashboardSummary>("/dashboard"),
 

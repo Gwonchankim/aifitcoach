@@ -140,6 +140,51 @@ async function mockM4(
   transport: Transport = { down: false, completionCalls: 0 },
 ) {
   await page.route("**/v1/programs/current", (route) => apiJson(route, PROGRAM, transport));
+  const actual = {
+    id: "22222222-2222-4222-8222-222222222222",
+    scheduled_date: "2026-08-14",
+    focus: "upper",
+    status: "scheduled",
+    origin: "planned",
+    revision: "r1",
+    planned_set_ids: ["33333333-3333-4333-8333-333333333333"],
+    exercises: [
+      {
+        exercise_id: "e_bench_press",
+        planned_set_ids: ["33333333-3333-4333-8333-333333333333"],
+        set_count: 1,
+      },
+    ],
+  };
+  await page.route("**/v1/programs/*/weeks/current", (route) =>
+    apiJson(
+      route,
+      { program_id: PROGRAM.program_id, week_start: "2026-08-10", sessions: [actual] },
+      transport,
+    ),
+  );
+  await page.route("**/v1/sessions/22222222-2222-4222-8222-222222222222", (route) =>
+    apiJson(
+      route,
+      {
+        id: actual.id,
+        scheduled_date: actual.scheduled_date,
+        status: "scheduled",
+        planned_sets: [
+          {
+            id: actual.planned_set_ids[0],
+            exercise_id: "e_bench_press",
+            set_no: 3,
+            target_reps_low: 8,
+            target_reps_high: 10,
+            target_rir: 2,
+            load_kind: "external",
+          },
+        ],
+      },
+      transport,
+    ),
+  );
   await page.route("**/v1/exercises**", (route) =>
     apiJson(route, { items: EXERCISES, next_cursor: null }, transport),
   );
@@ -286,7 +331,7 @@ test("ADR-70 early는 다음 추천과 관측 점을 표시하고 e1RM 선·값�
   await expect(page.getByText("다음 추천", { exact: true })).toBeVisible();
 });
 
-test("주간 프로그램은 6px 진행·44px 이상 날짜 행을 쓰고 결제·미래 mutation을 노출하지 않는다", async ({
+test("주간 프로그램은 actual 현재주와 일정 CTA를 표시하고 결제·미래 mutation을 노출하지 않는다", async ({
   page,
 }) => {
   await mockM4(page);
@@ -298,13 +343,25 @@ test("주간 프로그램은 6px 진행·44px 이상 날짜 행을 쓰고 결제
   await expandable.click();
   await expect(page.getByText(/3세트 · 8–10회 · RIR 2/)).toBeVisible();
   await expect(page.getByText("무료", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /일정 바꾸기|교체|앞당기기/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "이번 주 일정 바꾸기", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "이후 주차" })
+      .getByRole("button", { name: /일정 바꾸기|교체|앞당기기/ }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .locator('[data-m4-card="program-days"]')
+      .getByRole("button", { name: /일정 바꾸기|교체|앞당기기/ }),
+  ).toHaveCount(0);
 
   const metrics = await page.evaluate(() => {
     const progress = document.querySelector('[aria-label^="프로그램 "]') as HTMLElement;
     const fill = progress.firstElementChild as HTMLElement;
     const rows = Array.from(
-      document.querySelectorAll('[data-m4-card="program-days"] > div > button'),
+      document.querySelectorAll('[data-m4-card="program-days"] > div button'),
     ) as HTMLElement[];
     return {
       height: progress.getBoundingClientRect().height,
@@ -325,6 +382,9 @@ test("주간 프로그램은 transport 실패 때만 마지막 completion snapsh
   await page.goto("/program");
   await expect(page.getByText("근비대 상·하체 분할 · 12주 중 2주차")).toBeVisible();
   await expect.poll(() => transport.completionCalls).toBeGreaterThanOrEqual(2);
+  await expect(
+    page.locator('[data-m4-card="program-days"]').getByText("상체", { exact: true }),
+  ).toBeVisible();
 
   transport.down = true;
   await page.reload();

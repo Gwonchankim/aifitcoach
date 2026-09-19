@@ -66,7 +66,7 @@ export default defineConfig({
       // iOS(WebKit) 렌더·카탈로그 검색·핵심 오프라인 종료 복구. 전체 fault matrix는 Chromium이 소유한다.
       name: "webkit-ios",
       testMatch:
-        /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position|17-session-set-append|18-assistance-append|19-assistance-historical)\.spec\.ts/,
+        /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position|17-session-set-append|18-assistance-append|19-assistance-historical|21-weekly-focus-swap)\.spec\.ts/,
       grepInvert: /@chromium-only/,
       use: { ...devices["iPhone 14 Pro"] },
     },
