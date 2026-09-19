@@ -75,9 +75,9 @@ async function open() {
 async function select() {
   fireEvent.click(await screen.findByRole("radio", { name: /2026-08-16/ }));
   await waitFor(() =>
-    expect(
-      (screen.getByRole("button", { name: "교환하기", exact: true }) as HTMLButtonElement).disabled,
-    ).toBe(false),
+    expect((screen.getByRole("button", { name: "교환하기" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
   );
 }
 beforeEach(async () => {
@@ -102,18 +102,16 @@ afterEach(async () => {
 it("opens default swap, keeps one-off explicit, and resets mode after close with no POST", async () => {
   mount();
   await open();
-  expect(
-    (screen.getByRole("radio", { name: "두 운동일 교환", exact: true }) as HTMLInputElement)
-      .checked,
-  ).toBe(true);
-  fireEvent.click(screen.getByRole("radio", { name: "오늘만 운동 바꾸기", exact: true }));
+  expect((screen.getByRole("radio", { name: "두 운동일 교환" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "오늘만 운동 바꾸기" }));
   await screen.findByRole("button", { name: "오늘 루틴 편집하기" });
   fireEvent.click(screen.getByRole("button", { name: "닫기" }));
   await open();
-  expect(
-    (screen.getByRole("radio", { name: "두 운동일 교환", exact: true }) as HTMLInputElement)
-      .checked,
-  ).toBe(true);
+  expect((screen.getByRole("radio", { name: "두 운동일 교환" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
   expect(mocks.weekSwap).not.toHaveBeenCalled();
   expect(mocks.push).not.toHaveBeenCalled();
 });
@@ -122,7 +120,7 @@ it("lost response survives reload and explicit result check replays exact body t
   await open();
   await select();
   mocks.weekSwap.mockRejectedValueOnce(new TypeError("lost response"));
-  fireEvent.click(screen.getByRole("button", { name: "교환하기", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "교환하기" }));
   await screen.findByRole("button", { name: "결과 확인" });
   const original = mocks.weekSwap.mock.calls[0][1] as WeekSwapRequest;
   expect(
@@ -154,7 +152,7 @@ it("malformed success remains unresolved and never routes to a guessed session",
   await open();
   await select();
   mocks.weekSwap.mockResolvedValueOnce({ ok: true });
-  fireEvent.click(screen.getByRole("button", { name: "교환하기", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "교환하기" }));
   await screen.findByRole("button", { name: "결과 확인" });
   expect(mocks.refresh).not.toHaveBeenCalled();
   expect(mocks.push).not.toHaveBeenCalled();
