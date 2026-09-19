@@ -77,7 +77,8 @@ type ConflictAudit = {
   payload: unknown;
 };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
-export type ReadModelKind = "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
+export type ReadModelKind =
+  "current-week" | "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
 export type ReadModelMirror = {
   user_id: string;
   cache_key: string;
@@ -129,6 +130,11 @@ class SessionDatabase extends Dexie {
 }
 
 export const sessionDb = new SessionDatabase();
+
+export class SupersededWeekSwapRead extends Error {}
+export async function readWeekSwapEpoch(userId: string): Promise<string> {
+  return (await sessionDb.syncMeta.get([userId, "week-swap-epoch"]))?.value ?? "0";
+}
 
 /** `syncMeta` marker 값. 이 키가 있으면 authoritative refetch 전에는 렌더하지 않는다. */
 export const REMEDIATION_PENDING = "pending_refetch";
@@ -421,6 +427,7 @@ export async function commitAuthoritativeSession(
   sessionId: string,
   session: unknown,
   appendReadGeneration?: number | null,
+  swapReadEpoch?: string,
 ): Promise<boolean> {
   if (!isSafeSessionPayload(session)) return false;
   // completion 후보·unknown 상태에서는 **safe 200 이어도** 미러를 확정하지 않는다 —
@@ -431,6 +438,8 @@ export async function commitAuthoritativeSession(
     "rw",
     [sessionDb.sessions, sessionDb.syncMeta, sessionDb.drafts, sessionDb.outbox],
     async () => {
+      if (swapReadEpoch !== undefined && (await readWeekSwapEpoch(userId)) !== swapReadEpoch)
+        throw new SupersededWeekSwapRead();
       const merged = await overlayAppendReadInTransaction(
         { user_id: userId, session_id: sessionId },
         session as Session,
@@ -649,7 +658,11 @@ export async function readThroughSession<T>(
     const generation = await readAppendState({ user_id: userId, session_id: sessionId })
       .then((state) => state.generation)
       .catch(() => null);
+    const swapEpoch = await readWeekSwapEpoch(userId).catch(() => null);
     const fetched = await fetchSession();
+    const latestEpoch = await readWeekSwapEpoch(userId).catch(() => null);
+    if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
+      throw new SupersededWeekSwapRead();
     // **safe predicate 를 통과해야만** 렌더한다. `GET` 200 은 근거가 아니다 —
     // rolling deploy 중 구버전 서버도 200 으로 legacy weighted 처방을 준다.
     if (!isSafeSessionPayload(fetched)) {
@@ -659,13 +672,18 @@ export async function readThroughSession<T>(
       await markRemediationPending(userId, sessionId);
       throw new StaleAssistanceSessionError();
     }
+    // Unverified epoch skips the fetched-snapshot write, but still runs the existing
+    // pending-append mirror checks below. A safe GET cannot acknowledge local append intent.
     // **캐시 쓰기 실패가 성공한 온라인 읽기를 화면 오류로 바꾸면 안 된다** — 판정과 저장은 다른 축이다.
-    const committed = await commitAuthoritativeSession(
-      userId,
-      sessionId,
-      fetched,
-      generation,
-    ).catch(() => false);
+    const committed =
+      swapEpoch === null || latestEpoch === null
+        ? false
+        : await commitAuthoritativeSession(userId, sessionId, fetched, generation, swapEpoch).catch(
+            (error) => {
+              if (error instanceof SupersededWeekSwapRead) throw error;
+              return false;
+            },
+          );
     if (committed) return (await readMirroredSession<T>(userId, sessionId)) ?? fetched;
     const existing = await sessionDb.sessions.get([userId, sessionId]).catch(() => undefined);
     if (existing?.append_ids !== undefined) {
@@ -675,7 +693,8 @@ export async function readThroughSession<T>(
     }
     return fetched;
   } catch (error) {
-    if (error instanceof StaleAssistanceSessionError) throw error;
+    if (error instanceof StaleAssistanceSessionError || error instanceof SupersededWeekSwapRead)
+      throw error;
     // 세션이 사라졌으면(404/410) marker 를 남길 이유가 없다 — 유일한 terminal cleanup 경로다.
     if (isTerminalStatus(error)) {
       await cleanupSessionCache(userId, sessionId).catch(() => undefined);

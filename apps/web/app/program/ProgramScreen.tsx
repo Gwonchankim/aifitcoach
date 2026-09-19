@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Badge, Button, Card, ProgressBar, cn } from "../../components/ui";
 import { VolumeCard, e1rmDelta } from "../../components/analytics/AnalyticsCards";
 import { fetchAllExercises } from "../../components/session/exercise-catalog";
 import { painAreaLabel } from "../../components/onboarding/pain-areas";
-import { api, type CompletionAnalytics, type Program } from "../../lib/api";
+import { api } from "../../lib/api";
+import { ActualWeekDays } from "../../components/program/ActualWeekDays";
+import { WeekSwapEntry } from "../../components/program/WeekSwapSheet";
 import {
   completionReadModel,
   dashboardReadModel,
@@ -16,7 +18,7 @@ import {
   volumeReadModel,
 } from "../../lib/read-model-data";
 import { CURRENT_PROGRAM_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
-import { focusLabel } from "../../lib/program-labels";
+
 import { formatClock, useOnline } from "../../lib/use-online";
 import {
   MEDICAL_DISCLAIMER,
@@ -24,33 +26,7 @@ import {
   excludedReason,
   whyThisRoutine,
 } from "./program-copy";
-import {
-  completedSessionCount,
-  currentLifecycleWeek,
-  lifecyclePercent,
-  lifecycleTitle,
-} from "./program-view";
-
-const DAY_CODE = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
-const DAY_SHORT: Record<string, string> = {
-  MON: "월",
-  TUE: "화",
-  WED: "수",
-  THU: "목",
-  FRI: "금",
-  SAT: "토",
-  SUN: "일",
-};
-const STATE_COPY: Record<string, { mark: string; label: string; tone: string }> = {
-  completed: { mark: "✓", label: "완료", tone: "text-success" },
-  partial: { mark: "½", label: "부분", tone: "text-warn-ink" },
-  in_progress: { mark: "●", label: "진행", tone: "text-primary" },
-  unperformed: { mark: "○", label: "미수행", tone: "text-fg-muted" },
-  scheduled: { mark: "○", label: "예정", tone: "text-fg-muted" },
-  rest: { mark: "—", label: "휴식", tone: "text-fg-muted" },
-  conflict: { mark: "!", label: "충돌", tone: "text-warn-ink" },
-  return_after_gap: { mark: "!", label: "복귀", tone: "text-warn-ink" },
-};
+import { completedSessionCount, lifecyclePercent, lifecycleTitle } from "./program-view";
 
 function LinkAction({
   href,
@@ -84,109 +60,6 @@ function Screen({ children }: { children: React.ReactNode }) {
       </header>
       {children}
     </div>
-  );
-}
-
-function plannedExerciseLine(exercise: Program["sessions"][number]["exercises"][number]): string {
-  if (exercise.time_low_sec != null)
-    return `${exercise.sets}세트 · ${exercise.time_low_sec}–${exercise.time_high_sec ?? exercise.time_low_sec}초`;
-  const repetitions =
-    exercise.reps_low == null
-      ? "반복 미정"
-      : `${exercise.reps_low}–${exercise.reps_high ?? exercise.reps_low}회`;
-  return `${exercise.sets}세트 · ${repetitions}${exercise.target_rir == null ? "" : ` · RIR ${exercise.target_rir}`}`;
-}
-
-function WeekDays({
-  completion,
-  program,
-  names,
-}: {
-  completion: CompletionAnalytics;
-  program?: Program;
-  names: Map<string, string>;
-}) {
-  const week = currentLifecycleWeek(completion);
-  const [expandedDate, setExpandedDate] = useState<string | null>(null);
-  if (!week) return null;
-
-  return (
-    <Card density="tight" className="overflow-hidden p-0" data-m4-card="program-days">
-      {week.days.map((day, index) => {
-        const code = DAY_CODE[index];
-        const template = program?.sessions.find((session) => session.day === code);
-        const copy = STATE_COPY[day.state] ?? STATE_COPY.scheduled;
-        const expandable = Boolean(template?.exercises.length);
-        const open = expandedDate === day.date;
-        const dayTitle = template
-          ? (focusLabel(template.focus) ?? "운동")
-          : day.focus
-            ? (focusLabel(day.focus) ?? "운동")
-            : "휴식";
-        return (
-          <div key={day.date} className="border-t border-border-weak first:border-t-0">
-            <button
-              type="button"
-              disabled={!expandable}
-              aria-expanded={expandable ? open : undefined}
-              onClick={() => expandable && setExpandedDate(open ? null : day.date)}
-              className="flex min-h-12 w-full items-center gap-2 px-3 text-left focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-focus disabled:cursor-default"
-            >
-              <span className="w-[26px] shrink-0 font-mono text-xs font-bold text-fg">
-                {DAY_SHORT[code]}
-              </span>
-              <span
-                aria-hidden="true"
-                className={cn("w-3 shrink-0 text-center font-bold", copy.tone)}
-              >
-                {copy.mark}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-fg">{dayTitle}</span>
-                <span className="mt-0.5 block text-xs text-fg-muted">
-                  {copy.label}
-                  {template ? ` · 운동 ${template.exercises.length}개` : ""}
-                </span>
-              </span>
-              {expandable ? (
-                <span aria-hidden="true" className="font-mono text-xs text-fg-muted">
-                  {open ? "⌃" : "⌄"}
-                </span>
-              ) : null}
-            </button>
-            {open && template ? (
-              <div className="flex flex-col gap-1 px-3 pb-3 pl-[55px]">
-                {template.exercises.map((exercise) => (
-                  <div
-                    key={exercise.exercise_id}
-                    className="flex items-center justify-between gap-2 border-t border-dotted border-border-weak py-[7px]"
-                  >
-                    <span className="text-sm text-fg">
-                      {names.get(exercise.exercise_id) ?? "운동"}
-                    </span>
-                    <span className="text-right font-mono text-xs text-fg-muted">
-                      {plannedExerciseLine(exercise)}
-                    </span>
-                  </div>
-                ))}
-                {day.session_id ? (
-                  <Link
-                    className="flex min-h-tap items-center justify-end text-xs font-semibold text-primary underline"
-                    href={`/session/${day.session_id}`}
-                  >
-                    세션 상세 ›
-                  </Link>
-                ) : (
-                  <p className="py-2 text-right text-xs text-fg-muted">
-                    예정 · 세션은 가까운 주차에 생성돼요.
-                  </p>
-                )}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-    </Card>
   );
 }
 
@@ -286,6 +159,7 @@ export function ProgramScreen() {
     );
   }
 
+  const actualProgramId = program.data?.program_id ?? completionEnvelope?.data.program_id;
   const excluded = program.data?.excluded_exercises ?? [];
   const reasons = program.data ? whyThisRoutine(program.data) : [];
   const stale = [completionEnvelope, volume.data, dashboard.data].filter((value) => value?.stale);
@@ -352,7 +226,12 @@ export function ProgramScreen() {
             <h2 id="this-week" className="text-lg font-semibold text-fg">
               이번 주
             </h2>
-            <WeekDays completion={completionEnvelope.data} program={program.data} names={names} />
+            {actualProgramId ? (
+              <>
+                <ActualWeekDays programId={actualProgramId} names={names} />
+                {program.data ? <WeekSwapEntry programId={program.data.program_id} /> : null}
+              </>
+            ) : null}
           </section>
 
           {completionEnvelope.data.weeks.length > 1 ? (

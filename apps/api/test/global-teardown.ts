@@ -13,6 +13,7 @@ export default async function globalTeardown(): Promise<void> {
   const prisma = new PrismaClient();
   const userId = { in: ids };
   try {
+    await prisma.weekSwapReceipt.deleteMany({ where: { userId } });
     // FK 는 RESTRICT 라 자식 → 부모 순서로 지운다(SECURITY_PIPA.md 퍼지 순서와 동일).
     await prisma.accessAudit.deleteMany({ where: { userId } });
     await prisma.authSession.deleteMany({ where: { userId } });

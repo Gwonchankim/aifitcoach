@@ -13,6 +13,16 @@
 ## 엔드포인트 요약
 auth(social/refresh/logout) · me(GET/PATCH/DELETE, consents, export, calibration) · programs(generate, current, {id}) · exercises · sessions({id}, complete, exercises add/remove/swap) · sync · analytics(e1rm/volume/completion), dashboard · billing(checkout/confirm) · subscriptions/status · webhooks/pg
 
+## 현재 주 운동일 교환 (T05)
+
+| 경로 | 응답·변경 |
+| --- | --- |
+| `GET /programs/{id}/weeks/current` | 이번 주 lazy 생성과 같은 tx에서 읽은 실제 세션 요약. immutable Program.sessions와 구분 |
+| `GET /programs/{id}/week-swaps/candidates` | today identity/revision·별도 자격/사유와 이번 주 후보별 자격/사유. 중복된 오늘 identity는 null |
+| `POST /programs/{id}/week-swaps` | client_id·두 ID·두 revision으로 날짜 두 값만 원자 교환. exact 최초 응답 replay, 다른 body는 409 |
+
+409는 공통 Error와 독립 WeekSwapConflict refinement를 모두 만족한다. 이유 우선순위·잠금·회복 범위는 [기능개선 계약 §W](FEATURE_IMPROVEMENTS_CONTRACT.md#w--현재-주-조회와-swap-원자성), 사용자 문구는 UX_STATES의 주간 swap 절이 정본이다.
+
 ## 기능개선 예약 계약 (2026-09-05)
 
-[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md)은 세션 append·실제 주 조회/swap·split snapshot·forward-only 전환의 후속 구현 경계를 정의한다. 현재 API/Prisma/runtime 지원 선언이 아니며 각 소유 Sprint에서 원자 승격한다.
+[기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md) 중 append와 T05 실제 주 조회/swap은 활성 OpenAPI로 승격됐다. split snapshot·forward-only 전환은 각 소유 Sprint의 후속 계약이며 현재 runtime 지원 선언이 아니다.

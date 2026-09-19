@@ -77,8 +77,8 @@ paths:
     get:
       operationId: getActualCurrentWeekReserved
       x-afc-delivery-sprint: 4
-      description: RESERVED. Materialized actual week, not immutable Program.sessions
-        template. Reader uses program-scoped lazy generation lock.
+      x-afc-status: promoted-to-active
+      description: Promoted to openapi.yaml; historical reservation retained for audit.
       parameters:
         - *a1
       responses:
@@ -98,8 +98,8 @@ paths:
     get:
       operationId: getWeekSwapCandidatesReserved
       x-afc-delivery-sprint: 4
-      description: RESERVED. Eligibility includes post-swap neighboring actual-week
-        resistance/cardio recovery. Final transaction must recheck.
+      x-afc-status: promoted-to-active
+      description: Promoted to openapi.yaml; historical reservation retained for audit.
       parameters:
         - *a1
       responses:
@@ -119,9 +119,8 @@ paths:
     post:
       operationId: swapCurrentWeekReserved
       x-afc-delivery-sprint: 4
-      description: RESERVED. Lock program then affected and neighboring sessions;
-        validate aggregate revisions/recovery; exchange dates only. Return new
-        today_session_id.
+      x-afc-status: promoted-to-active
+      description: Promoted to openapi.yaml; historical reservation retained for audit.
       parameters:
         - *a1
         - $ref: ./openapi.yaml#/components/parameters/CsrfHeader
@@ -166,7 +165,7 @@ paths:
           description: Atomic rejection; no partial writes. Body must satisfy both Error
             and the mandatory x-afc-response-refinement schema on promotion.
           x-afc-response-refinement:
-            $ref: "#/components/schemas/FeatureConflict"
+            $ref: "#/components/schemas/WeekSwapConflict"
           content:
             application/json:
               schema:
@@ -285,10 +284,14 @@ components:
         - planned_set_ids
         - set_count
       properties:
-        exercise_id: *a3
+        exercise_id:
+          type: string
+          minLength: 1
         planned_set_ids:
           type: array
-          items: *a2
+          items:
+            type: string
+            format: uuid
           minItems: 1
           uniqueItems: true
         set_count:
@@ -306,27 +309,41 @@ components:
         - revision
         - planned_set_ids
         - exercises
+        - origin
       properties:
-        id: *a2
-        scheduled_date: &a4
+        id:
+          type: string
+          format: uuid
+        scheduled_date:
           type: string
           format: date
-        focus: *a3
+        focus:
+          type: string
+          minLength: 1
         status:
           type: string
           enum:
             - scheduled
             - in_progress
             - completed
-        revision: *a3
+        revision:
+          type: string
+          minLength: 1
         planned_set_ids:
           type: array
-          items: *a2
+          items:
+            type: string
+            format: uuid
           uniqueItems: true
         exercises:
           type: array
           items:
             $ref: "#/components/schemas/WeekExercise"
+        origin:
+          type: string
+          enum:
+            - planned
+            - ad_hoc
     CurrentProgramWeek:
       type: object
       additionalProperties: false
@@ -335,8 +352,12 @@ components:
         - week_start
         - sessions
       properties:
-        program_id: *a2
-        week_start: *a4
+        program_id:
+          type: string
+          format: uuid
+        week_start:
+          type: string
+          format: date
         sessions:
           type: array
           items:
@@ -351,11 +372,21 @@ components:
         - today_revision
         - target_revision
       properties:
-        client_id: *a2
-        today_session_id: *a2
-        target_session_id: *a2
-        today_revision: *a3
-        target_revision: *a3
+        client_id:
+          type: string
+          format: uuid
+        today_session_id:
+          type: string
+          format: uuid
+        target_session_id:
+          type: string
+          format: uuid
+        today_revision:
+          type: string
+          minLength: 1
+        target_revision:
+          type: string
+          minLength: 1
     WeekSwapResult:
       type: object
       additionalProperties: false
@@ -366,10 +397,18 @@ components:
         - today_session_id
         - sessions
       properties:
-        client_id: *a2
-        program_id: *a2
-        week_start: *a4
-        today_session_id: *a2
+        client_id:
+          type: string
+          format: uuid
+        program_id:
+          type: string
+          format: uuid
+        week_start:
+          type: string
+          format: date
+        today_session_id:
+          type: string
+          format: uuid
         sessions:
           type: array
           items:
@@ -393,12 +432,36 @@ components:
           nullable: true
           enum:
             - null
-            - recovery_gap_violation
             - readonly
             - not_scheduled
             - performed_history
             - wrong_week
             - ambiguous_schedule
+            - recovery_unverifiable
+            - recovery_gap_violation
+      allOf:
+        - oneOf:
+            - properties:
+                eligible:
+                  enum:
+                    - true
+                reason:
+                  enum:
+                    - null
+            - properties:
+                eligible:
+                  enum:
+                    - false
+                reason:
+                  type: string
+                  enum:
+                    - readonly
+                    - not_scheduled
+                    - performed_history
+                    - wrong_week
+                    - ambiguous_schedule
+                    - recovery_unverifiable
+                    - recovery_gap_violation
     WeekSwapCandidates:
       type: object
       additionalProperties: false
@@ -408,15 +471,131 @@ components:
         - today_session_id
         - today_revision
         - candidates
+        - today_eligible
+        - today_reason
       properties:
-        program_id: *a2
-        week_start: *a4
-        today_session_id: *a2
-        today_revision: *a3
+        program_id:
+          type: string
+          format: uuid
+        week_start:
+          type: string
+          format: date
+        today_session_id:
+          type: string
+          format: uuid
+          nullable: true
+        today_revision:
+          type: string
+          minLength: 1
+          nullable: true
         candidates:
           type: array
           items:
             $ref: "#/components/schemas/WeekSwapCandidate"
+        today_eligible:
+          type: boolean
+        today_reason:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - readonly
+            - not_scheduled
+            - performed_history
+            - wrong_week
+            - ambiguous_schedule
+            - recovery_unverifiable
+            - recovery_gap_violation
+      allOf:
+        - oneOf:
+            - properties:
+                today_eligible:
+                  enum:
+                    - true
+                today_reason:
+                  enum:
+                    - null
+                today_session_id:
+                  type: string
+                  format: uuid
+                  nullable: false
+                today_revision:
+                  type: string
+                  minLength: 1
+                  nullable: false
+            - properties:
+                today_eligible:
+                  enum:
+                    - false
+                today_reason:
+                  type: string
+                  enum:
+                    - readonly
+                    - not_scheduled
+                    - performed_history
+                    - wrong_week
+                    - recovery_unverifiable
+                    - recovery_gap_violation
+                today_session_id:
+                  type: string
+                  format: uuid
+                  nullable: false
+                today_revision:
+                  type: string
+                  minLength: 1
+                  nullable: false
+            - properties:
+                today_eligible:
+                  enum:
+                    - false
+                today_reason:
+                  enum:
+                    - ambiguous_schedule
+                today_session_id:
+                  enum:
+                    - null
+                today_revision:
+                  enum:
+                    - null
+    WeekSwapConflict:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+              enum:
+                - CONFLICT
+            message:
+              type: string
+              minLength: 1
+            details:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - readonly
+                    - not_scheduled
+                    - performed_history
+                    - wrong_week
+                    - ambiguous_schedule
+                    - recovery_unverifiable
+                    - recovery_gap_violation
+                    - stale_revision
+                    - idempotency_payload_mismatch
     SplitPreferenceProfileFields:
       type: object
       additionalProperties: false

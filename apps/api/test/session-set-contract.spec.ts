@@ -35,7 +35,7 @@ const mutation = {
 };
 
 describe("Sprint03 active append wire (no server/DB execution)", () => {
-  it("promotes only append, with CSRF and mandatory narrow 409 refinement", () => {
+  it("keeps append CSRF and narrow 409 while weekly swap routes are promoted", () => {
     const post = document.paths["/sessions/{id}/sets"]?.post;
     expect(post).toBeDefined();
     expect(post.parameters).toContainEqual({ $ref: "#/components/parameters/CsrfHeader" });
@@ -50,9 +50,20 @@ describe("Sprint03 active append wire (no server/DB execution)", () => {
         $ref: "#/components/schemas/Error",
       });
     }
-    for (const route of ["/programs/{id}/weeks/current", "/programs/{id}/week-swaps"]) {
-      expect(document.paths[route]).toBeUndefined();
-    }
+    expect(document.paths["/programs/{id}/weeks/current"].get.operationId).toBe(
+      "getActualCurrentWeek",
+    );
+    expect(document.paths["/programs/{id}/week-swaps/candidates"].get.operationId).toBe(
+      "getWeekSwapCandidates",
+    );
+    const swap = document.paths["/programs/{id}/week-swaps"].post;
+    expect(swap.operationId).toBe("swapCurrentWeek");
+    expect(swap.responses["409"]["x-afc-response-refinement"]).toEqual({
+      $ref: "#/components/schemas/WeekSwapConflict",
+    });
+    expect(swap.responses["409"]["x-afc-response-refinement"]).not.toEqual({
+      $ref: "#/components/schemas/SessionAppendConflict",
+    });
   });
 
   it("accepts exactly one immutable source representation", () => {
