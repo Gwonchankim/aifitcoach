@@ -1,3 +1,4 @@
+import { resistanceValue } from "./support/resistance-value";
 import type { INestApplication } from "@nestjs/common";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -57,8 +58,8 @@ describe("mixed mandatory block persistence", () => {
     const monday = result.sessions.find((row) => row.day === "MON")!;
     const thursday = result.sessions.find((row) => row.day === "THU")!;
     expect(monday.focus).toBe(thursday.focus);
-    expect(monday.exercises.reduce((sum, row) => sum + row.sets, 0)).toBeLessThan(
-      thursday.exercises.reduce((sum, row) => sum + row.sets, 0),
+    expect(monday.exercises.reduce((sum, row) => sum + resistanceValue(row.sets), 0)).toBeLessThan(
+      thursday.exercises.reduce((sum, row) => sum + resistanceValue(row.sets), 0),
     );
     expect(await prisma.workoutSession.count({ where: { programId: result.program_id } })).toBe(0);
     await programs.current(devUserId());
@@ -97,7 +98,7 @@ describe("mixed mandatory block persistence", () => {
           return (
             sum +
             rows.length * work * (row.exercise.unilateral ? 2 : 1) +
-            Math.max(0, rows.length - 1) * row.restSec
+            Math.max(0, rows.length - 1) * resistanceValue(row.restSec)
           );
         }, 0) +
         (isMonday ? block.duration_sec : 0);
@@ -136,6 +137,7 @@ describe("mixed mandatory block persistence", () => {
         devUserId(),
         { ...base, goal, days_per_week: 3 },
         RULES_BUNDLE_V2_SPLIT,
+        { mandatoryBlocksByDay: {} }, // S1 resistance-policy seam; S2 automatic cardio has separate coverage.
       );
       expect(result.goal).toBe(goal);
       const program = await prisma.program.findUniqueOrThrow({ where: { id: result.program_id } });

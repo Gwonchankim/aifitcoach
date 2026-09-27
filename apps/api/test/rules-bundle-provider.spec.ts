@@ -52,7 +52,11 @@ describe("program rules provider isolation", () => {
     const isolated = configureApp(module.createNestApplication());
     await isolated.init();
     try {
-      const result = await isolated.get(ProgramsService).generate(devUserId(), dto);
+      const result = await isolated.get(ProgramsService).generate(devUserId(), {
+        ...dto,
+        pain_areas: [],
+        equipment: ["barbell", "dumbbell", "machine", "cable", "bodyweight", "stationary_bike"],
+      });
       expect(result.rules_version).toBe(RULES_BUNDLE_V2_SPLIT);
       await isolated.get(ProgramsService).current(devUserId());
       const rows = await prisma.plannedSet.findMany({

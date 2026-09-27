@@ -132,7 +132,7 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
         // 도움은 양수로만 저장한다. 0·음수는 만들지 않는다.
         expect(Number(row.recommendedWeight)).toBeGreaterThan(0);
         // generic 가중 진행 문구가 어시스트 행에 실리면 방향이 정반대가 된다.
-        expect(row.reasonCode.startsWith("ASSISTANCE_")).toBe(true);
+        expect(row.reasonCode).toMatch(/^ASSISTANCE_/);
         expect(row.rulesVersion).toBe("2026.08.2");
       }
       // 20kg 도움에서 한 스텝(2.5) 줄었다 — 목표를 채웠으므로 더 어려워진다.
@@ -300,7 +300,7 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: upcomingId } });
       // 카탈로그를 따랐다면 `.08.1` 과 generic 가중 처방이 된다 — 도움 kg 을 부하로 읽는 그 사고다.
       expect(row.rulesVersion).toBe("2026.08.2");
-      expect(row.reasonCode.startsWith("ASSISTANCE_")).toBe(true);
+      expect(row.reasonCode).toMatch(/^ASSISTANCE_/);
       expect(Number(row.recommendedWeight)).toBe(17.5);
     });
 
@@ -319,7 +319,8 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: upcomingId } });
       // 카탈로그를 따랐다면 `.08.2` 로 올라가고 어시스트 처방이 실린다.
       expect(row.rulesVersion).toBe("2026.08.1");
-      expect(row.reasonCode.startsWith("ASSISTANCE_")).toBe(false);
+      expect(typeof row.reasonCode).toBe("string");
+      expect(row.reasonCode).not.toMatch(/^ASSISTANCE_/);
       expect(row.assistanceProvenance).toBeNull();
     });
 
@@ -366,7 +367,7 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
         orderBy: { setNo: "asc" },
       });
       expect(JSON.stringify(after)).not.toBe(JSON.stringify(before));
-      expect(after[0].reasonCode.startsWith("ASSISTANCE_")).toBe(true);
+      expect(after[0].reasonCode).toMatch(/^ASSISTANCE_/);
       expect(after[0].reasonCode).not.toBe("ASSISTANCE_CALIBRATION_NEEDED");
       expect(Number(after[0].recommendedWeight)).toBeGreaterThan(0);
       // 어시스트 행은 assistance-capable bundle 을 유지한다 — `.08.1` 로 되돌아가지 않는다.

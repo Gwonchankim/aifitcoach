@@ -8,6 +8,12 @@ import { repsFor, restSecFor, setCountFor, targetRirFor } from "./program-rules"
 import { assertResistanceExercise } from "../exercises/exercise-domain";
 
 export type PlannedSetRow = Omit<Prisma.PlannedSetCreateManyInput, "sessionId">;
+export type ResistancePlannedSetRow = PlannedSetRow & {
+  reasonCode: string;
+  restSec: number;
+  confidence: NonNullable<PlannedSetRow["confidence"]>;
+  loadSemantics: "external_load" | "assistance";
+};
 
 /**
  * planned_set 의 목표값.
@@ -68,7 +74,7 @@ export class PlannedSetFactory {
     history: ExerciseHistory;
     /** `undefined` 는 "RIR 축 미활성"이라는 **의미 있는 값**이다(기본값을 채우지 않는다). */
     calibration: { rir_bias: number } | undefined;
-  }): Promise<PlannedSetRow[]> {
+  }): Promise<ResistancePlannedSetRow[]> {
     const { goal, exercise, orderIndex } = params;
     assertResistanceExercise(exercise);
     const target = targetFor(goal, exercise);
@@ -106,6 +112,7 @@ export class PlannedSetFactory {
 
     return Array.from({ length: setCount }, (_unused, index) => ({
       exerciseId: exercise.id,
+      prescriptionKind: "resistance",
       orderIndex,
       setNo: index + 1,
       // metric=time 종목은 반복·RIR 축이 없어 null 이고 target_time_*_sec 를 쓴다.

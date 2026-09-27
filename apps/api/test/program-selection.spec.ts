@@ -30,6 +30,9 @@ function exercise(
   return {
     id,
     modality: "resistance",
+    cardioMovementRegions: [],
+    prescriptionKindsSupported: [],
+    blockedReportedPainAreas: [],
     nameKo: id,
     nameEn: id,
     movementPattern: "horizontal_push",

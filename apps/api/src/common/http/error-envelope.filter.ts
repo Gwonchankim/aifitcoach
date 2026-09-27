@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from "@n
 import { HttpAdapterHost } from "@nestjs/core";
 import { SESSION_APPEND_REASONS, SessionAppendConflictException } from "./session-append-conflict";
 import { WEEK_SWAP_REASONS, WeekSwapConflictException } from "./week-swap-conflict";
+import { FeatureConflictException } from "./feature-conflict";
 
 /**
  * 모든 예외를 openapi 의 Error 스키마(`{ error: { code, message } }`)로 직렬화한다.
@@ -55,6 +56,9 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
         error: {
           code: errorCode(status),
           message: http ? errorMessage(http) : INTERNAL_MESSAGE,
+          ...(status === 409 && exception instanceof FeatureConflictException
+            ? { details: { reason: exception.reason } }
+            : {}),
           ...(status === 409 &&
           exception instanceof SessionAppendConflictException &&
           SESSION_APPEND_REASONS.includes(exception.reason)
