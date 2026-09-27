@@ -4,12 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma, type PlannedSet, type SyncEntityType, type SyncOp } from "@prisma/client";
-import { applyDisplayGate, displayGateState } from "shared";
 import {
-  storedRecommendationPresentation,
-  type PrescriptionCatalog,
-} from "../recommendation/recommendation-presentation";
+  Prisma,
+  type Exercise,
+  type PlannedSet,
+  type SyncEntityType,
+  type SyncOp,
+} from "@prisma/client";
+import { applyDisplayGate, displayGateState } from "shared";
+import { storedRecommendationPresentation } from "../recommendation/recommendation-presentation";
 import {
   rawAssistanceSafetyStatus,
   recommendedActionFor,
@@ -20,6 +23,11 @@ import { isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
 import { isResistanceExercise } from "../exercises/exercise-domain";
+import {
+  cardioPlannedSetResponse,
+  resistancePrescriptionKindForWire,
+  resistanceSnapshotMatchesCatalog,
+} from "../sessions/planned-prescription";
 import { SessionsService } from "../sessions/sessions.service";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
 import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
@@ -440,6 +448,8 @@ export class SyncService {
       include: { exercise: true },
     });
     if (!planned) throw new NotFoundException("계획 세트를 찾을 수 없다.");
+    if (!resistanceSnapshotMatchesCatalog(planned, planned.exercise))
+      throw new BadRequestException("읽기 전용 처방은 수행 기록을 쓸 수 없다.");
     if (mutation.op === "delete") {
       await tx.performedSet.deleteMany({ where: { plannedSetId: planned.id } });
       return;
@@ -501,6 +511,19 @@ export class SyncService {
         ...(byExercise.get(correlation.exercise_id) ?? []),
         correlation,
       ]);
+    const existingCatalog = new Map(
+      (
+        await tx.exercise.findMany({
+          where: { id: { in: [...new Set(session.plannedSets.map((row) => row.exerciseId))] } },
+        })
+      ).map((row) => [row.id, row]),
+    );
+    if (
+      session.plannedSets.some(
+        (row) => !resistanceSnapshotMatchesCatalog(row, existingCatalog.get(row.exerciseId)),
+      )
+    )
+      throw new BadRequestException("읽기 전용 처방은 편집할 수 없다.");
     const current = new Map<string, PlannedSet[]>();
     for (const set of session.plannedSets)
       current.set(set.exerciseId, [...(current.get(set.exerciseId) ?? []), set]);
@@ -881,8 +904,13 @@ export function plannedSetResponse(
   set: PlannedSet,
   sampleCount: number,
   metadata?: SessionSetMetadata,
-  exercise?: PrescriptionCatalog,
+  exercise?: Exercise,
 ) {
+  if (!resistanceSnapshotMatchesCatalog(set, exercise))
+    return {
+      ...cardioPlannedSetResponse(set, exercise, metadata),
+      recommendation_gate: displayGateState(sampleCount),
+    };
   const presentation = storedRecommendationPresentation(set, exercise);
   return {
     ...(metadata ?? {
@@ -890,6 +918,7 @@ export function plannedSetResponse(
       correlation_id: set.clientCorrelationId,
       append_eligibility: null,
     }),
+    ...resistancePrescriptionKindForWire(set),
     id: set.id,
     exercise_id: set.exerciseId,
     set_no: set.setNo,

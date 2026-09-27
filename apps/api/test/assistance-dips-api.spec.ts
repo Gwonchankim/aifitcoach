@@ -14,7 +14,10 @@ import {
   RecommendationService,
   requireHistory,
 } from "../src/recommendation/recommendation.service";
-import { rawAssistanceSafetyStatus, toRawTargetRow } from "../src/programs/assistance-migration";
+import {
+  rawAssistanceSafetyStatus,
+  toRawTargetRow as rawTargetRow,
+} from "../src/programs/assistance-migration";
 import { plannedSetResponse } from "../src/sync/sync.service";
 import { createTestApp, resetUserData } from "./support/app";
 
@@ -269,7 +272,12 @@ describe("assisted dips actual API metadata, history and analytics", () => {
       });
       const get = await request(app.getHttpServer()).get(`/v1/sessions/${next.id}`).expect(200);
       const wire = get.body.planned_sets[0];
-      const sync = plannedSetResponse(row, count);
+      const sync = plannedSetResponse(
+        row,
+        count,
+        undefined,
+        await prisma.exercise.findUniqueOrThrow({ where: { id: row.exerciseId } }),
+      );
       for (const key of [
         "recommended_weight",
         "recommended_reps",
@@ -453,3 +461,27 @@ describe("assisted dips actual API metadata, history and analytics", () => {
     }
   });
 });
+
+/** Nullable cardio storage must never enter the protected resistance helper. */
+function toRawTargetRow(
+  row:
+    | Parameters<typeof rawTargetRow>[0]
+    | {
+        loadSemantics: "external_load" | "assistance" | null;
+        reasonCode: string | null;
+        exerciseId?: string;
+        assistanceStepKg: unknown;
+        assistanceProvenance: Parameters<typeof rawTargetRow>[0]["assistanceProvenance"];
+        rulesVersion: string;
+        recommendedWeight: unknown;
+        confidence: unknown;
+      },
+  performed: boolean,
+) {
+  if (row.loadSemantics == null || row.reasonCode == null)
+    throw new Error("Expected resistance fixture");
+  return rawTargetRow(
+    { ...row, loadSemantics: row.loadSemantics, reasonCode: row.reasonCode },
+    performed,
+  );
+}

@@ -666,13 +666,22 @@ export class RecommendationService {
       targetRepsHigh: number | null;
       targetTimeLowSec: number | null;
       targetTimeHighSec: number | null;
-      reasonCode: string;
-      confidence: { toString(): string };
+      prescriptionKind?: string | null;
+      reasonCode: string | null;
+      confidence: { toString(): string } | null;
       rulesVersion: string;
-      loadSemantics?: "assistance" | "external_load";
+      loadSemantics?: "assistance" | "external_load" | null;
       exercise?: PrescriptionCatalog;
     },
   ): ApiRecommendation {
+    if (
+      (planned.prescriptionKind != null && planned.prescriptionKind !== "resistance") ||
+      planned.reasonCode == null ||
+      planned.confidence == null ||
+      planned.loadSemantics === null ||
+      (planned.exercise?.modality != null && planned.exercise.modality !== "resistance")
+    )
+      throw new BadRequestException("저항 처방 snapshot이 필요하다.");
     const reason = planned.reasonCode as ReasonCode;
     const presentation = storedRecommendationPresentation(
       { ...planned, loadSemantics: planned.loadSemantics ?? "external_load" },
