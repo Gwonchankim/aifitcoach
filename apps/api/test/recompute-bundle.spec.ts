@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { INestApplication } from "@nestjs/common";
+import { Equipment } from "@prisma/client";
 import request from "supertest";
 import { RULES_BUNDLE_V2_SPLIT } from "shared";
 import { devUserId } from "../src/auth/dev-user";
@@ -26,6 +27,9 @@ const dto = {
   days_per_week: 3,
   minutes_per_day: 60,
   experience_level: "intermediate",
+  // S2 안전 gate 도입으로 fixture 입력을 명시한다. 건강 screening/history는 unknown 그대로다.
+  equipment: Object.values(Equipment),
+  pain_areas: [] as [],
 } as const;
 describe("recompute honors the persisted rules bundle", () => {
   let app: INestApplication;
