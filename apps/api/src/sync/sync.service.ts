@@ -512,16 +512,22 @@ export class SyncService {
         ...(byExercise.get(correlation.exercise_id) ?? []),
         correlation,
       ]);
-    const existingCatalog = new Map(
+    const catalog = new Map(
       (
         await tx.exercise.findMany({
-          where: { id: { in: [...new Set(session.plannedSets.map((row) => row.exerciseId))] } },
+          where: {
+            id: {
+              in: [
+                ...new Set([...session.plannedSets.map((row) => row.exerciseId), ...exerciseIds]),
+              ],
+            },
+          },
         })
       ).map((row) => [row.id, row]),
     );
     if (
       session.plannedSets.some(
-        (row) => !resistanceSnapshotMatchesCatalog(row, existingCatalog.get(row.exerciseId)),
+        (row) => !resistanceSnapshotMatchesCatalog(row, catalog.get(row.exerciseId)),
       )
     )
       throw new BadRequestException("읽기 전용 처방은 편집할 수 없다.");
@@ -553,12 +559,7 @@ export class SyncService {
     // 이 트랜잭션이 방금 지운 행이 아직 보이거나(스냅샷 차이) 잠금 밖에서 읽어 결과가 흔들린다.
     // 읽는 대상은 **다른 완료 세션의 수행 기록**이라 이 트랜잭션의 쓰기와 겹치지 않는다.
     const newExerciseIds = exerciseIds.filter((id) => !current.has(id));
-    const newCatalog = new Map(
-      (await tx.exercise.findMany({ where: { id: { in: newExerciseIds } } })).map((row) => [
-        row.id,
-        row,
-      ]),
-    );
+    const newCatalog = new Map([...catalog].filter(([id]) => newExerciseIds.includes(id)));
     const prefetched = await this.recommendation.prefetchHistories(
       userId,
       [...newCatalog.values()].map((row) => {
