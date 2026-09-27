@@ -12,6 +12,8 @@ import {
 } from "./session-set-append-db";
 import { overlayAppends, type AppendDependencies } from "./session-set-append";
 import { normalizeSessionRecommendations } from "./recommendation-mirror";
+import { parseCardioSnapshot } from "shared";
+import { hasCardioPrescription } from "./cardio-read";
 
 export const DEV_USER_SCOPE = "dev-user";
 
@@ -78,7 +80,7 @@ type ConflictAudit = {
 };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
 export type ReadModelKind =
-  "current-week" | "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
+  "program" | "current-week" | "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
 export type ReadModelMirror = {
   user_id: string;
   cache_key: string;
@@ -264,6 +266,15 @@ function isLocalBaselineRow(row: Record<string, unknown>): boolean {
 }
 
 export function isSafeRow(row: Record<string, unknown>, localIds?: ReadonlySet<string>): boolean {
+  if (hasCardioPrescription(row))
+    return (
+      parseCardioSnapshot(row) !== null &&
+      row.load_kind === "not_applicable" &&
+      (row.recommendation_state === "ready" ||
+        row.recommendation_state === "unavailable" ||
+        row.recommendation_state === "substitution_required")
+    );
+  if (row.prescription_kind !== undefined && row.prescription_kind !== "resistance") return false;
   // **출처는 payload 가 주장하지 못한다.** 로컬 여부는 호출 context(local envelope)만 결정한다 —
   // 행에 담긴 `provisional: true` 를 믿으면 server/unknown payload 가 그 한 줄로
   // required `load_kind`·raw verdict·구조 검사를 전부 우회한다(독립 재리뷰 P2-1).
@@ -628,6 +639,12 @@ export async function readMirroredSession<T>(userId: string, sessionId: string):
         catalog,
         new Set(mirror.local_ids),
       );
+      if (
+        plannedRowsOf(normalized)?.some(
+          (row) => hasCardioPrescription(row) && !parseCardioSnapshot(row),
+        )
+      )
+        return null;
       if (JSON.stringify(normalized) !== JSON.stringify(mirror.session)) {
         await sessionDb.sessions.put({ ...mirror, session: normalized });
       }

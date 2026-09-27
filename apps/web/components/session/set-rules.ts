@@ -52,7 +52,9 @@ export const LOAD_CALIBRATION_COPY =
 
 /** Local provisional rows have no prescription. Never synthesize one while rendering. */
 export function recommendationState(set: PlannedSet) {
-  if (set.recommendation_state == null && set.load_kind == null) return null;
+  // Local provisional rows intentionally predate the required server axes.
+  const local = set as { recommendation_state?: string | null; load_kind?: string | null };
+  if (local.recommendation_state == null && local.load_kind == null) return null;
   return normalizeRecommendationState({
     state: set.recommendation_state,
     reason: set.reason_code,

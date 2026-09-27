@@ -10,7 +10,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { Exercise, PlannedSet } from "../lib/api";
+import type { Exercise } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 import { ExerciseCard } from "../components/session/ExerciseCard";
 import { SetRow, shownWeightText } from "../components/session/SetRow";
 import type { SetDraft } from "../components/session/session-store";
@@ -268,6 +269,9 @@ describe("운동 카드", () => {
     equipment: "barbell",
     primary_muscles: ["chest"],
     modality: "resistance",
+    cardio_movement_regions: [],
+    prescription_kinds_supported: [],
+    blocked_reported_pain_areas: [],
     movement_pattern: "horizontal_push",
     difficulty: "beginner",
     mechanic: "compound",

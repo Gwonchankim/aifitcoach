@@ -7,11 +7,13 @@ import { Badge, Button, Card, ProgressBar, cn } from "../../components/ui";
 import { VolumeCard, e1rmDelta } from "../../components/analytics/AnalyticsCards";
 import { fetchAllExercises } from "../../components/session/exercise-catalog";
 import { painAreaLabel } from "../../components/onboarding/pain-areas";
-import { api } from "../../lib/api";
 import { ActualWeekDays } from "../../components/program/ActualWeekDays";
 import { WeekSwapEntry } from "../../components/program/WeekSwapSheet";
+import { CardioPrescriptionCard } from "../../components/session/CardioPrescriptionCard";
+import { hasCardioPrescription } from "../../components/session/cardio-read";
 import {
   completionReadModel,
+  currentProgramReadModel,
   dashboardReadModel,
   e1rmReadModel,
   recentAnalyticsWindow,
@@ -20,6 +22,7 @@ import {
 import { CURRENT_PROGRAM_ERRORS, isNotFound, toUiError } from "../../lib/error-copy";
 
 import { formatClock, useOnline } from "../../lib/use-online";
+import { dayLabel } from "../../lib/program-labels";
 import {
   MEDICAL_DISCLAIMER,
   excludedHeading,
@@ -67,7 +70,7 @@ export function ProgramScreen() {
   const online = useOnline();
   const program = useQuery({
     queryKey: ["program", "current"],
-    queryFn: api.currentProgram,
+    queryFn: async () => (await currentProgramReadModel()).data,
     retry: false,
   });
   const dashboard = useQuery({
@@ -287,6 +290,21 @@ export function ProgramScreen() {
         <div className="h-48 animate-pulse rounded-card bg-raised" />
       )}
 
+      {program.data?.sessions.some((day) => day.exercises.some(hasCardioPrescription)) ? (
+        <section className="flex flex-col gap-2" aria-label="주간 유산소 처방">
+          {program.data.sessions.flatMap((day) =>
+            day.exercises.filter(hasCardioPrescription).map((exercise) => (
+              <div key={`${day.day}-${exercise.exercise_id}`}>
+                <p className="text-sm text-fg-muted">{dayLabel(day.day)}</p>
+                <CardioPrescriptionCard
+                  prescription={exercise}
+                  name={names.get(exercise.exercise_id) ?? "유산소"}
+                />
+              </div>
+            )),
+          )}
+        </section>
+      ) : null}
       {program.data ? (
         <section className="flex flex-col gap-2" aria-labelledby="program-excluded-heading">
           <h2 id="program-excluded-heading" className="text-lg font-semibold text-fg">

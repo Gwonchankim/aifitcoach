@@ -1,5 +1,6 @@
-import { normalizeRecommendationState, type LoadKind } from "shared";
+import { normalizeRecommendationState, parseCardioSnapshot, type LoadKind } from "shared";
 import type { Exercise } from "../../lib/api";
+import { cardioCatalogAllowsRead, hasCardioPrescription } from "./cardio-read";
 
 const LOAD_KINDS = new Set(["external", "bodyweight", "not_applicable", "assistance"]);
 
@@ -16,6 +17,22 @@ export function normalizeSessionRecommendations<T>(
     planned_sets: session.planned_sets.map((row: Record<string, unknown>) => {
       if (!row || typeof row !== "object" || localIds.has(String(row.id))) return row;
       const exercise = catalog.find((item) => item.id === row.exercise_id);
+      if (hasCardioPrescription(row) || exercise?.modality === "cardio") {
+        const valid =
+          parseCardioSnapshot(row) !== null &&
+          (catalog.length === 0 || (exercise !== undefined && cardioCatalogAllowsRead(exercise)));
+        return {
+          ...row,
+          recommendation_state:
+            valid &&
+            (row.recommendation_state === "ready" ||
+              row.recommendation_state === "substitution_required")
+              ? row.recommendation_state
+              : "unavailable",
+        };
+      }
+      if (exercise && exercise.modality != null && exercise.modality !== "resistance")
+        return { ...row, recommendation_state: "unavailable" };
       const loadKind: LoadKind | undefined = LOAD_KINDS.has(String(row.load_kind))
         ? (row.load_kind as LoadKind)
         : exercise?.metric === "time"

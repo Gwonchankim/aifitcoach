@@ -9,7 +9,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { PlannedSet } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 import { RirField } from "../components/session/RirField";
 import { RirSheet } from "../components/session/RirSheet";
 import { SetRow } from "../components/session/SetRow";

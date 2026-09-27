@@ -5,8 +5,10 @@ import {
   type ReadModelKind,
   type ReadModelMirror,
 } from "../components/session/session-db";
+import { assertCardioReadPayload } from "../components/session/cardio-read";
 
 export const READ_MODEL_LIMITS: Record<ReadModelKind, number> = {
+  program: 1,
   dashboard: 1,
   "current-week": 1,
   e1rm: 8,
@@ -38,6 +40,8 @@ export async function readThroughReadModel<T>(
   try {
     const swapEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
     const data = await options.fetcher();
+    if (options.kind === "program" || options.kind === "history-session")
+      assertCardioReadPayload(data);
     const latestEpoch = await readWeekSwapEpoch(options.userId).catch(() => null);
     if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
       throw new SupersededWeekSwapRead();
@@ -67,6 +71,8 @@ export async function readThroughReadModel<T>(
       .get([options.userId, options.cacheKey])
       .catch(() => undefined);
     if (!mirrored) throw error;
+    if (options.kind === "program" || options.kind === "history-session")
+      assertCardioReadPayload(mirrored.data);
     return {
       data: mirrored.data as T,
       source: "mirror",

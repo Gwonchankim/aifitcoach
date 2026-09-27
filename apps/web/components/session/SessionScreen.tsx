@@ -29,6 +29,12 @@ import {
 import { isUtcToday, utcDateString } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
+import { CardioPrescriptionCard } from "./CardioPrescriptionCard";
+import {
+  hasCardioPrescription,
+  isResistancePlannedSet,
+  type ResistancePlannedSet,
+} from "./cardio-read";
 import { ExercisePickerSheet, type PickerMode } from "./ExercisePickerSheet";
 import { RemoveExerciseSheet } from "./RemoveExerciseSheet";
 import { FinishSheet } from "./FinishSheet";
@@ -95,6 +101,7 @@ const CLEAR_FAILED_NOTICE = "휴식 타이머를 정리하지 못했어요. 다�
 const APPEND_ELIGIBILITY_MISSING = "세트를 추가할 수 있는지 확인하지 못했어요. 다시 불러와 주세요.";
 const APPEND_BLOCKED = "이 운동은 지금 세트를 추가할 수 없어요.";
 
+const MIXED_READ_ONLY = "유산소가 포함된 세션은 루틴 변경을 지원하지 않아요.";
 const LOCKED_REASON = "기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.";
 
 /** Summary is a read projection: authoritative facts fill only missing local records. */
@@ -508,8 +515,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   /** 운동 단위 그룹. 계약에 순서 필드가 없어 서버가 준 배열 순서를 그대로 쓴다. */
   const groups = useMemo(() => {
-    const byExercise = new Map<string, PlannedSet[]>();
+    const byExercise = new Map<string, ResistancePlannedSet[]>();
     for (const set of session?.planned_sets ?? []) {
+      if (!isResistancePlannedSet(set)) continue;
       const sets = byExercise.get(set.exercise_id) ?? [];
       sets.push(set);
       byExercise.set(set.exercise_id, sets);
@@ -519,6 +527,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       sets: [...sets].sort((a, b) => a.set_no - b.set_no),
     }));
   }, [session]);
+  const cardioRows = useMemo(
+    () => (session?.planned_sets ?? []).filter(hasCardioPrescription),
+    [session],
+  );
 
   const orderedSets = useMemo(() => groups.flatMap((group) => group.sets), [groups]);
   useEffect(() => {
@@ -920,6 +932,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     networkMode: "always",
     mutationFn: async (exerciseId: string) => {
       if (!session) throw new Error("세션을 불러오지 못했어요.");
+      if (session.planned_sets.some(hasCardioPrescription)) throw new Error(MIXED_READ_ONLY);
       const exercise = catalogById.get(exerciseId);
       if (!exercise) throw new Error("운동 정보를 불러오지 못했어요.");
       const provisional = provisionalSets(
@@ -944,6 +957,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     networkMode: "always",
     mutationFn: async (exerciseId: string) => {
       if (!session) throw new Error("세션을 불러오지 못했어요.");
+      if (session.planned_sets.some(hasCardioPrescription)) throw new Error(MIXED_READ_ONLY);
       const updated = await commitRoutineEdit(
         {
           ...session,
@@ -965,6 +979,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     networkMode: "always",
     mutationFn: async (params: { from: string; to: string }) => {
       if (!session) throw new Error("세션을 불러오지 못했어요.");
+      if (session.planned_sets.some(hasCardioPrescription)) throw new Error(MIXED_READ_ONLY);
       const replaced = session.planned_sets.filter((set) => set.exercise_id === params.from);
       if (replaced.length === 0) throw new Error("교체할 운동을 찾지 못했어요.");
       const provisional = provisionalSets(params.to, replaced.length);
@@ -989,6 +1004,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const completeMutation = useMutation({
     networkMode: "always",
     mutationFn: async (pain: number | null) => {
+      if (cardioRows.length > 0)
+        throw new Error("유산소는 처방 읽기만 지원해 이 세션을 종료할 수 없어요.");
       const waiting = (
         await sessionDb.outbox.where("user_id").equals(DEV_USER_SCOPE).toArray()
       ).find(
@@ -1077,6 +1094,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
+    if (!isResistancePlannedSet(set)) return;
     // 휴식 타이머를 여는 유일한 제스처가 여기다. autoplay 정책상 오디오는 제스처 안에서 열어야
     // 하므로 **await 앞에서** 연다 — 저장이 실패해도 무음일 뿐 흐름에는 영향이 없다.
     unlockRestFeedback();
@@ -1346,7 +1364,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               onChangeCapture={() => !readOnly && setEditingCompleted(true)}
               onKeyDownCapture={() => !readOnly && setEditingCompleted(true)}
             >
-              {groups.length === 0 ? (
+              {groups.length === 0 && cardioRows.length === 0 ? (
                 <Card className="flex flex-col gap-3">
                   <p className="text-base text-fg">
                     오늘 루틴이 비어 있어요. 하고 싶은 운동을 추가해 보세요.
@@ -1429,7 +1447,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                             }
                           : undefined
                       }
-                      lockedReason={locked ? LOCKED_REASON : null}
+                      lockedReason={
+                        cardioRows.length > 0 ? MIXED_READ_ONLY : locked ? LOCKED_REASON : null
+                      }
                       painScore={painOf(
                         drafts,
                         group.sets.map((set) => set.id),
@@ -1455,7 +1475,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                         setEditError(null);
                         setRemoveExerciseId(group.exerciseId);
                       }}
-                      onRemoveBlocked={() => setNotice(LOCKED_REASON)}
+                      onRemoveBlocked={() =>
+                        setNotice(cardioRows.length > 0 ? MIXED_READ_ONLY : LOCKED_REASON)
+                      }
                       onReportPain={() => setPainExerciseId(group.exerciseId)}
                       onComplete={(set, values) =>
                         void handleComplete(nameOf(group.exerciseId, index), set, values)
@@ -1466,7 +1488,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 })
               )}
 
-              {readOnly || !catalogResolved ? null : (
+              {cardioRows.map((row) => (
+                <CardioPrescriptionCard
+                  key={row.id}
+                  prescription={row}
+                  name={catalogById.get(row.exercise_id)?.name_ko ?? "유산소"}
+                />
+              ))}
+
+              {readOnly || !catalogResolved || cardioRows.length > 0 ? null : (
                 <Button
                   variant="secondary"
                   size="md"
@@ -1496,6 +1526,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 <Button
                   size="lg"
                   fullWidth
+                  disabled={cardioRows.length > 0}
                   onClick={() => {
                     setFinishError(null);
                     setFinishOpen(true);
@@ -1503,6 +1534,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 >
                   {finishedToday ? "수정 마치기" : "운동 종료"}
                 </Button>
+                {cardioRows.length > 0 ? (
+                  <p className="mt-2 text-xs text-fg-muted">
+                    유산소는 처방 읽기만 지원해 이 세션을 종료할 수 없어요.
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
@@ -1563,7 +1599,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           exerciseName={nameOf(painGroup.exerciseId, painIndex)}
           score={painOf(drafts, painSetIds)}
           swapBlockedReason={
-            painGroup.sets.some((set) => drafts[set.id]?.completed) ? LOCKED_REASON : null
+            cardioRows.length > 0
+              ? MIXED_READ_ONLY
+              : painGroup.sets.some((set) => drafts[set.id]?.completed)
+                ? LOCKED_REASON
+                : null
           }
           canReduceWeight={painWeightTarget != null}
           onSelect={(score) => {

@@ -3,7 +3,10 @@ import "fake-indexeddb/auto";
 import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Session, PlannedSet } from "../lib/api";
+import { buildCardioBaseline, toCardioSnapshot } from "shared";
+import type { Session as ApiSession } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
+type Session = Omit<ApiSession, "planned_sets"> & { planned_sets: PlannedSet[] };
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), sync: vi.fn() }));
 vi.mock("../lib/api", async () => {
@@ -20,6 +23,11 @@ vi.mock("../components/session/exercise-catalog", async () => {
     fetchAllExercises: async () => [
       { id: "bench", name_ko: "벤치프레스", metric: "reps", step_kg: 2.5, primary_muscles: [] },
       seed.exercises.find((exercise) => exercise.id === "e_plank")!,
+      {
+        ...seed.exercises.find((exercise) => exercise.id === "e_stationary_bike")!,
+        step_kg: null,
+        media_url: null,
+      },
     ],
   };
 });
@@ -102,6 +110,58 @@ afterEach(async () => {
   clients.splice(0).forEach((client) => client.clear());
   vi.restoreAllMocks();
   await sessionDb.delete();
+});
+
+it("mixed session renders canonical cardio read-only, keeps resistance input and blocks incomplete session finish", async () => {
+  const slot = buildCardioBaseline({
+    goal: "diet",
+    minutesPerDay: 60,
+    slots: [
+      { ordinal: 1, day_offset: 0, container: "H" },
+      { ordinal: 2, day_offset: 3, container: "H" },
+    ],
+    eligibility: {
+      screening: "unknown",
+      readiness: "unknown",
+      recentTwoSuccessfulCardio: null,
+      latestCardioDifficulty: "unknown",
+    },
+    lowerExposureDays: null,
+  }).slots[0]!;
+  const cardio = {
+    ...toCardioSnapshot(slot),
+    id: "bike-block",
+    exercise_id: "e_stationary_bike",
+    set_no: 1,
+    rest_sec: null,
+    target_reps_low: null,
+    target_reps_high: null,
+    target_rir: null,
+    recommended_weight: null,
+    recommended_reps: null,
+    reason_code: null,
+    confidence: null,
+    load_kind: "not_applicable",
+    recommendation_state: "ready",
+    performed_set: null,
+    rules_version: "2026.09.1",
+  };
+  mocks.session.mockResolvedValue({ ...session(), planned_sets: [sets[0], cardio] });
+  const first = mount();
+  const card = await screen.findByTestId("cardio-prescription");
+  await screen.findByLabelText("벤치프레스 1세트 무게, 킬로그램");
+  expect(card.textContent).toContain("고정식 자전거");
+  expect(card.querySelectorAll("input,button")).toHaveLength(0);
+  expect(screen.queryByRole("button", { name: "운동 추가" })).toBeNull();
+  expect(screen.getByText("유산소가 포함된 세션은 루틴 변경을 지원하지 않아요.")).toBeTruthy();
+  const finish = screen.getByRole("button", { name: "운동 종료" }) as HTMLButtonElement;
+  expect(finish.disabled).toBe(true);
+  fireEvent.click(finish);
+  expect(await sessionDb.outbox.count()).toBe(0);
+  first.unmount();
+  mocks.session.mockRejectedValue(new TypeError("offline"));
+  mount();
+  expect((await screen.findByTestId("cardio-prescription")).textContent).toContain("20분");
 });
 
 it("actual input records identity only; remount restores the row once without focusing an input", async () => {
