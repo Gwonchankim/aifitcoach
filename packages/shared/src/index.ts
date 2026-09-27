@@ -10,6 +10,8 @@ export * from "./rules-version";
 export * from "./session-plan";
 export * from "./program-composition";
 export * from "./mixed-session-plan";
+export * from "./cardio-prescription";
+export * from "./cardio-prescription-codec";
 export { correctedRir, estimateE1rm, recommendNextSet } from "./recommend";
 export type { E1rmSet } from "./recommend";
 export * from "./routine-plan";
