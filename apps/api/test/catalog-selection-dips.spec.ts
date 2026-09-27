@@ -20,7 +20,11 @@ describe("ticket02 retains 109 baseline and freezes 110 selection effects", () =
         .digest("hex"),
     ).toBe("c3170d88c30207811b0c1ae8d280e4933ded8567364cb12ca8fa74bc05d15174");
     expect(CURRENT_CATALOG).toHaveLength(110);
-    expect(CURRENT_RAW.filter((row) => row.id !== "e_assisted_dips")).toEqual(CATALOG109_RAW);
+    const baselineRows = CURRENT_RAW.filter((row) => row.id !== "e_assisted_dips");
+    for (const row of baselineRows) expect(row.modality).toBe("resistance");
+    expect(baselineRows.map(({ modality: _modality, ...oldFields }) => oldFields)).toEqual(
+      CATALOG109_RAW,
+    );
     expect(CURRENT_CATALOG.find((row) => row.id === "e_assisted_dips")).toMatchObject({
       nameKo: "어시스트 딥스 머신",
       nameEn: "Assisted Dip Machine",
