@@ -1,4 +1,5 @@
 // One-shot pre-change capture. Never invoked by the regression tests.
+import console from "node:console";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";

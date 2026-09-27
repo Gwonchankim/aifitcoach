@@ -1,17 +1,27 @@
 import type { INestApplication } from "@nestjs/common";
-import { RULES_BUNDLE_V2_SPLIT } from "shared";
-import frozen from "../../../docs/specs/cardio_baseline_golden.json";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { RULES_BUNDLE_V2_SPLIT, mandatoryBlockSeconds, MixedSessionPlanError } from "shared";
+import type { CardioBlockDescriptor } from "shared";
 import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { ProgramsService } from "../src/programs/programs.service";
 import { createTestApp, resetUserData } from "./support/app";
+
+const frozen = JSON.parse(
+  readFileSync(resolve(__dirname, "../../../docs/specs/cardio_baseline_golden.json"), "utf8"),
+) as {
+  cases: { id: string; slots: { ordinal: number; descriptor: CardioBlockDescriptor | null }[] }[];
+};
 
 const descriptor = (id: string, ordinal: number) => {
   const value = frozen.cases
     .find((row) => row.id === id)
     ?.slots.find((slot) => slot.ordinal === ordinal)?.descriptor;
   if (!value) throw new Error(`Missing frozen descriptor ${id}/${ordinal}`);
-  return value;
+  const block = value as CardioBlockDescriptor;
+  mandatoryBlockSeconds([block]);
+  return block;
 };
 const base = {
   goal: "diet",
@@ -109,7 +119,7 @@ describe("mixed mandatory block persistence", () => {
         RULES_BUNDLE_V2_SPLIT,
         { mandatoryBlocksByDay: { THU: [block] } },
       ),
-    ).rejects.toThrow();
+    ).rejects.toEqual(new MixedSessionPlanError("mixed_time_budget"));
     expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(0);
     expect(await prisma.workoutSession.count({ where: { program: { userId: devUserId() } } })).toBe(
       0,
@@ -118,4 +128,42 @@ describe("mixed mandatory block persistence", () => {
       await prisma.plannedSet.count({ where: { session: { program: { userId: devUserId() } } } }),
     ).toBe(0);
   });
+
+  it.each(["general_fitness", "endurance"] as const)(
+    "internal %s preserves original goal and persists the diet resistance policy",
+    async (goal) => {
+      const result = await programs.generateWithRulesVersion(
+        devUserId(),
+        { ...base, goal, days_per_week: 3 },
+        RULES_BUNDLE_V2_SPLIT,
+      );
+      expect(result.goal).toBe(goal);
+      const program = await prisma.program.findUniqueOrThrow({ where: { id: result.program_id } });
+      expect(program.goal).toBe(goal);
+      expect(program.generationInput).toMatchObject({ goal });
+      await programs.current(devUserId());
+      const rows = await prisma.plannedSet.findMany({
+        where: { session: { programId: result.program_id } },
+        include: { exercise: true },
+      });
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.restSec).toBe(90);
+        expect(row.rulesVersion).toBe(RULES_BUNDLE_V2_SPLIT);
+        if (row.exercise.metric === "reps") {
+          expect([row.targetRepsLow, row.targetRepsHigh, row.targetRir]).toEqual([6, 12, 3]);
+        } else {
+          expect([row.targetRepsLow, row.targetRepsHigh, row.targetRir]).toEqual([
+            null,
+            null,
+            null,
+          ]);
+          expect([row.targetTimeLowSec, row.targetTimeHighSec]).toEqual([
+            row.exercise.defaultTimeLowSec,
+            row.exercise.defaultTimeHighSec,
+          ]);
+        }
+      }
+    },
+  );
 });

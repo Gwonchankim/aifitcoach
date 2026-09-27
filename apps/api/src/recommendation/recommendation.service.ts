@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Exercise } from "@prisma/client";
 import {
   normalizeRecommendationState,
@@ -6,6 +6,7 @@ import {
   recommendNextSet,
   similarSourceE1rm,
   similarSourcesFor,
+  resistancePolicyGoal,
 } from "shared";
 import type {
   Goal,
@@ -563,7 +564,7 @@ export class RecommendationService {
   recommend(params: {
     goal: Goal;
     exercise: Pick<Exercise, "mechanic" | "region" | "defaultStepKg" | "metric" | "loadSemantics"> &
-      Partial<Pick<Exercise, "id">>;
+      Partial<Pick<Exercise, "id" | "modality">>;
     target: EngineTarget;
     history: ExerciseHistory;
     calibration?: { rir_bias: number };
@@ -575,14 +576,24 @@ export class RecommendationService {
      * `.09` 로 저장된 행이 `.08.2` 로 되돌아가 provenance 가 거짓이 된다.
      */
     snapshot?: { stepKg: unknown; rulesVersion: string };
+    /** Resolved generation bundle. Existing immutable snapshots retain precedence. */
+    rulesVersion?: string;
   }): Recommendation {
     const { goal, exercise, target, history, calibration, snapshot } = params;
+    if (
+      (exercise.modality != null && exercise.modality !== "resistance") ||
+      exercise.mechanic === null ||
+      exercise.region === null ||
+      exercise.loadSemantics === null
+    ) {
+      throw new BadRequestException("저항 운동 metadata가 필요하다.");
+    }
     const assisted = exercise.loadSemantics === "assistance";
     // 카탈로그는 snapshot 이 없는 metadata(mechanic·region·metric)에만 쓴다.
     const stepSource =
       assisted && snapshot !== undefined ? snapshot.stepKg : exercise.defaultStepKg;
     return recommendNextSet({
-      goal,
+      goal: resistancePolicyGoal(goal),
       exercise: {
         id: exercise.id,
         type: exercise.mechanic,
@@ -606,7 +617,10 @@ export class RecommendationService {
       rules_version:
         assisted && snapshot !== undefined
           ? rulesVersionForLoadSemantics(exercise.loadSemantics, snapshot.rulesVersion)
-          : rulesVersionForLoadSemantics(exercise.loadSemantics, RULES_VERSION),
+          : rulesVersionForLoadSemantics(
+              exercise.loadSemantics,
+              params.rulesVersion ?? RULES_VERSION,
+            ),
     });
   }
 

@@ -74,7 +74,9 @@ describe("program rules provider isolation", () => {
     const body = await request(server)
       .post("/v1/programs/generate")
       .send({ ...dto, rules_version: RULES_BUNDLE_V2_SPLIT });
-    expect(body.status).toBe(400);
+    // Existing global whitelist strips unknown fields; it does not reject them.
+    expect(body.status).toBe(201);
+    expect(body.body.rules_version).toBe("2026.08.1");
     const publicResult = await request(server)
       .post(`/v1/programs/generate?rules_version=${RULES_BUNDLE_V2_SPLIT}`)
       .set("X-Rules-Version", RULES_BUNDLE_V2_SPLIT)
@@ -87,6 +89,6 @@ describe("program rules provider isolation", () => {
         .send({ ...dto, goal })
         .expect(400);
     }
-    expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(1);
+    expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(2);
   });
 });
