@@ -1,6 +1,7 @@
 # 문서 인덱스 (읽는 순서)
 
 - `S1_DOMAIN_COMPOSITION.md` — T06 S1 도메인·순수 composition·고정 블록 내부 경로와 S2/S3 경계.
+- `S2_CARDIO_PRESCRIPTION.md` — T06 S2 유산소 생성·descriptor 저장·읽기와 활성화 경계.
 
 - `SESSION_POSITION.md` — 현재 세트의 durable 위치·완료 요약·ACK/타이머 복원 경계(Sprint03 티켓03).
 

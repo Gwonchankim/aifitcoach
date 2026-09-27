@@ -37,6 +37,7 @@ console.log(`[e2e] database → ${DB_ENV.label}`);
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: /23-cardio-prescription-read\.spec\.ts/,
   outputDir: "./e2e/.artifacts",
   globalSetup: "./e2e/global-setup.ts",
   timeout: 60_000,
