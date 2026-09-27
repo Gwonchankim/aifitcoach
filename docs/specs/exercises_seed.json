@@ -3720,6 +3720,47 @@
         "image_url": null,
         "video_url": null
       }
+    },
+    {
+      "id": "e_stationary_bike",
+      "modality": "cardio",
+      "name_ko": "고정식 자전거",
+      "name_en": "Stationary Bike",
+      "movement_pattern": null,
+      "mechanic": null,
+      "region": null,
+      "primary_muscles": [],
+      "secondary_muscles": [],
+      "equipment": "stationary_bike",
+      "difficulty": "beginner",
+      "metric": "time",
+      "default_reps_low": null,
+      "default_reps_high": null,
+      "default_time_low_sec": null,
+      "default_time_high_sec": null,
+      "default_step_kg": null,
+      "load_semantics": null,
+      "unilateral": false,
+      "substitutions": [],
+      "cues": [],
+      "media": {},
+      "cardio_movement_regions": [
+        "lower"
+      ],
+      "prescription_kinds_supported": [
+        "steady_cardio",
+        "interval_cardio"
+      ],
+      "blocked_reported_pain_areas": [
+        "knee",
+        "lower_back",
+        "shoulder",
+        "elbow",
+        "wrist",
+        "hip",
+        "neck",
+        "ankle"
+      ]
     }
   ]
 }

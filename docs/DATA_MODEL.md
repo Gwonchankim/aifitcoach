@@ -125,3 +125,20 @@ CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_a
 T05는 `week_swap_receipts(id, user_id FK RESTRICT, client_id, request_hash, request JSON, result JSON)`를 추가한다. `(user_id, client_id)`는 유일하며 테이블 자체가 week_swap operation namespace다. request는 정규화 5필드, result는 최초 WeekSwapResult 구조 식별자·날짜·status·origin·revision·운동/계획세트 ID·개수뿐이다. 처방·performed·건강값은 저장하지 않는다. 기존 session/planned/performed ID와 내용은 날짜 교환으로 바뀌지 않는다. 서버 sync receipt와 분리하며 owner 삭제는 기존 명시 cutoff 퍼지에 연결한다(사용자 리뷰 필요).
 
 [기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md) 중 append와 T05 실제 주 조회/swap은 활성 스키마로 승격됐다. split snapshot·forward-only 전환은 각 소유 Sprint의 후속 계약이며 현재 runtime 지원 선언이 아니다.
+
+### T06 S2 cardio 저장 경계
+
+`Exercise.modality`는 `resistance | cardio | mobility | warmup | null`이다. 기존 110종은 resistance이며 S2는 `e_stationary_bike` 한 종만 추가한다. `equipment=stationary_bike`를 명시해야 하며 일반 `machine` 장비를 보유했다고 자전거를 보유한 것으로 추정하지 않는다. 자전거는 `metric=time`, 저항 분류·부하·기본 반복/시간/step이 모두 NULL이다. `cardio_movement_regions=[lower]`는 동작 분류이며 N07 저항 노출로 세지 않는다. `prescription_kinds_supported`와 `blocked_reported_pain_areas`는 승인된 종목 정책이며 사용자 건강 정보를 저장하지 않는다.
+
+PlannedSet은 한 cardio 블록당 한 행이다. `prescription_kind`의 raw NULL은 기존 저항 행에만 허용한다. 기존 행을 backfill하지 않으며 V1 wire에 새 kind를 덧붙이지 않는다. 새 V2 writer는 `resistance | steady_cardio | interval_cardio`를 명시한다. 모든 descriptor 스칼라와 `source_day`(MON~SUN), `source_ordinal`(1부터), `intensity_seconds={moderate,high,recovery}`를 저장한다. `cardio_fallback`은 `{cause,source_day,source_ordinal,original_descriptor,effective_descriptor}`이며 cause는 `source_eligibility_fallback | redesign_recovery`이다.
+
+| CHECK | 저항/legacy | steady | interval |
+| --- | --- | --- | --- |
+| kind payload | 기존 rest/reason/confidence/load NOT NULL 유지, 새 cardio 필드 NULL | 저항 필드 모두 NULL, descriptor·source·intensity 필수 | steady와 동일 |
+| duration | 새 필드 NULL | 양수, interval 필드 NULL | work/recovery 양수, rounds 1~12, bigint 총초 일치, final recovery true |
+| RPE | 새 필드 NULL | 고정 scale, 0≤low≤high≤10 | target와 recovery 양쪽 필수 |
+| axis | 새 필드 NULL | duration_sec, long boolean | rounds, long false |
+| intensity | NULL | moderate=duration, high/recovery=0 | high=work×rounds, recovery=recovery×rounds, moderate=0 |
+| assistance | 기존 predicate·immutable trigger 그대로 | load/step/provenance 모두 NULL | 동일 |
+
+모든 필수값은 `IS NOT NULL`로 검사한다. 다른 테이블을 조회하는 CHECK는 만들지 않으며 Exercise FK와 modality-kind 일치는 writer/reader가 검증한다. Program template·GET·sync·offline reader가 같은 union을 사용하고 cardio는 resistance Recommendation 객체나 rounds만큼의 working sets를 생성하지 않는다. 기존 저항 데이터 및 수행 기록은 migration에서 갱신하지 않는다.
