@@ -32,8 +32,10 @@ describe("exercises 시드", () => {
     const byId = new Map(rows.map((row) => [row.id, normalize(row)]));
     for (const expected of CURRENT_CATALOG)
       expect(byId.get(expected.id)).toEqual(normalize(expected));
-    for (const expected of BASELINE_CATALOG)
-      expect(byId.get(expected.id)).toEqual(normalize(expected));
+    for (const expected of BASELINE_CATALOG) {
+      expect(byId.get(expected.id)?.modality).toBe("resistance");
+      expect(byId.get(expected.id)).toEqual({ ...normalize(expected), modality: "resistance" });
+    }
     expect(
       rows
         .filter((row) => row.loadSemantics === "assistance")
@@ -56,6 +58,7 @@ describe("exercises 시드", () => {
 
     expect({ ...exercise, defaultStepKg: exercise.defaultStepKg?.toNumber() }).toEqual({
       id: "e_bench_press",
+      modality: "resistance",
       nameKo: "바벨 벤치프레스",
       nameEn: "Barbell Bench Press",
       movementPattern: "horizontal_push",
@@ -86,6 +89,7 @@ describe("exercises 시드", () => {
 
     expect({ ...exercise, defaultStepKg: exercise.defaultStepKg?.toNumber() }).toEqual({
       id: "e_smith_incline_bench_press",
+      modality: "resistance",
       nameKo: "스미스머신 인클라인 벤치프레스",
       nameEn: "Smith Machine Incline Bench Press",
       movementPattern: "horizontal_push",

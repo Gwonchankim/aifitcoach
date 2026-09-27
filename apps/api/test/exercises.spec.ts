@@ -234,6 +234,7 @@ describe("운동 카탈로그 API", () => {
 
       expect(plank).toEqual({
         id: "e_plank",
+        modality: "resistance",
         name_ko: "플랭크",
         name_en: "Plank",
         movement_pattern: "core",
@@ -257,6 +258,7 @@ describe("운동 카탈로그 API", () => {
       expectMatchesContract("get", DETAIL_PATH, 200, response.body);
       expect(response.body).toEqual({
         id: "e_dips",
+        modality: "resistance",
         name_ko: "딥스",
         name_en: "Dips",
         movement_pattern: "horizontal_push",
