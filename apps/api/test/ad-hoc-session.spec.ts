@@ -194,8 +194,13 @@ describe("즉석 세션 (F8-1)", () => {
       ...args: Parameters<typeof prisma.exercise.findMany>
     ) {
       const rows = await this.findMany(...args);
-      const baseline = rows.filter((row) => !CATALOG_ADDITION_IDS.includes(row.id));
+      const cardio = rows.filter((row) => row.id === "e_stationary_bike");
+      for (const row of cardio) expect(row.modality).toBe("cardio");
+      const baseline = rows.filter(
+        (row) => !CATALOG_ADDITION_IDS.includes(row.id) && row.id !== "e_stationary_bike",
+      );
       if (args[0] === undefined) {
+        expect(cardio).toHaveLength(1);
         expect(baseline.map((row) => row.id).sort()).toEqual(
           BASELINE_CATALOG.map((row) => row.id).sort(),
         );
