@@ -1826,7 +1826,8 @@ export interface components {
     };
     Program: {
       program_id: string;
-      goal: string;
+      /** @enum {string} */
+      goal: "diet" | "hypertrophy" | "strength" | "general_fitness" | "endurance";
       /** @example upper_lower */
       split_type: string;
       /** @example 2026.08.1 */
@@ -1866,16 +1867,18 @@ export interface components {
     };
     Exercise: {
       id: string;
+      /** @enum {string|null} */
+      modality: "resistance" | "cardio" | "mobility" | "warmup" | null;
       name_ko: string;
       name_en: string;
-      movement_pattern: string;
+      movement_pattern: string | null;
       primary_muscles: string[];
       equipment: string;
       difficulty: string;
-      /** @enum {string} */
-      mechanic: "compound" | "isolation";
-      /** @enum {string} */
-      region: "upper" | "lower" | "core";
+      /** @enum {string|null} */
+      mechanic: "compound" | "isolation" | null;
+      /** @enum {string|null} */
+      region: "upper" | "lower" | "core" | null;
       /** @enum {string} */
       metric: "reps" | "time";
       step_kg: number | null;

@@ -18,6 +18,7 @@ import type {
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
+import { isResistanceExercise } from "../exercises/exercise-domain";
 import { AggregationProjector } from "../analytics/aggregation.projector";
 import {
   classifySourceCohort,
@@ -536,9 +537,9 @@ export class SessionsService {
         const painAreas = painAreasOf(program.excludedExercises);
         const excludedPatterns = excludedPatternsFor(painAreas);
         const catalog = await tx.exercise.findMany();
-        const allowed = catalog.filter(
-          (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
-        );
+        const allowed = catalog
+          .filter(isResistanceExercise)
+          .filter((exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern));
         // 제외로 후보가 모자라면 축소된 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
         // 다른 부위 종목으로 메우지 않는다 — 사용자가 고른 부위가 아닌 운동이 섞이면 선택의 의미가 없다.
         const exercises = selectExercises(
@@ -555,7 +556,11 @@ export class SessionsService {
         // 루프 전에 한 번 — 종목마다 읽으면 즉석 세션도 N+1 이 된다.
         const prefetched = await this.recommendation.prefetchHistories(
           userId,
-          exercises.map((item) => ({ exerciseId: item.id, loadSemantics: item.loadSemantics })),
+          exercises.map((item) => {
+            if (!isResistanceExercise(item))
+              throw new BadRequestException("지원하지 않는 운동 분류다.");
+            return { exerciseId: item.id, loadSemantics: item.loadSemantics };
+          }),
           tx,
         );
         const calibration = await this.recommendation.calibrationFor(userId, tx);
@@ -624,6 +629,8 @@ export class SessionsService {
         throw new BadRequestException(`운동을 찾을 수 없다: ${dto.exercise_id}`);
       }
       assertNotInSession(session.plannedSets, dto.exercise_id);
+      if (!isResistanceExercise(exercise))
+        throw new BadRequestException("지원하지 않는 운동 분류다.");
 
       const nextOrder = maxOrderIndex(session.plannedSets) + 1;
       const orderIndex = clamp(dto.position ?? nextOrder, 0, nextOrder);
@@ -684,6 +691,8 @@ export class SessionsService {
         // 카탈로그에 없는 to_exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
         throw new BadRequestException(`운동을 찾을 수 없다: ${dto.to_exercise_id}`);
       }
+      if (!isResistanceExercise(target))
+        throw new BadRequestException("지원하지 않는 운동 분류다.");
       if (dto.to_exercise_id !== exerciseId) {
         assertNotInSession(session.plannedSets, dto.to_exercise_id);
       }

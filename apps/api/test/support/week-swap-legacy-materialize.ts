@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../../src/exercises/exercise-domain";
 /** Frozen pre-extraction d8e36f5 body, retained only for the required equivalence regression. */
 import { BadRequestException } from "@nestjs/common";
 import type { Prisma, Program } from "@prisma/client";
@@ -35,10 +36,10 @@ export async function legacyMaterializeWeek(
   );
   const prefetched = await recommendation.prefetchHistories(
     userId,
-    [...catalog.values()].map((row) => ({
-      exerciseId: row.id,
-      loadSemantics: row.loadSemantics,
-    })),
+    [...catalog.values()].map((row) => {
+      assertResistanceExercise(row);
+      return { exerciseId: row.id, loadSemantics: row.loadSemantics };
+    }),
     tx,
   );
   const calibration = await recommendation.calibrationFor(userId, tx);

@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -183,6 +184,7 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         sourceId = s.id;
       }
       const exercise = await prisma.exercise.findUniqueOrThrow({ where: { id } });
+      assertResistanceExercise(exercise);
       const history = requireHistory(
         await recommendations.prefetchHistories(USER_ID, [
           { exerciseId: id, loadSemantics: "assistance" },
@@ -340,6 +342,7 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         assistance: { has_valid_positive_assistance: false },
       });
       const exercise = await prisma.exercise.findUniqueOrThrow({ where: { id } });
+      assertResistanceExercise(exercise);
       const result = recommendations.recommend({
         goal: "hypertrophy",
         exercise,

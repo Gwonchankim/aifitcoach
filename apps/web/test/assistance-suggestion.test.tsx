@@ -30,6 +30,7 @@ const metadata = (id: string, name: string): Exercise => ({
   name_ko: name,
   name_en: id,
   primary_muscles: ["chest"],
+  modality: "resistance",
   movement_pattern: "horizontal_push",
   equipment: "machine",
   difficulty: "beginner",

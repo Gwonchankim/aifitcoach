@@ -27,7 +27,7 @@ programs(id PK, user_id FK, goal, days_per_week int, minutes_per_day int, split_
       --   이유: 통증 부위를 따로 저장하지 않으므로(PIPA) 즉석 세션이 이 필드에서 부위를 역산하는데,
       --   wrist 처럼 제외 패턴이 0건인 부위는 흔적이 안 남아 "머신/케이블 우선" 배려가 사라졌다.
       --   마커는 **저장 전용**이고 toResponse()에서 걸러낸다(계약상 excluded_exercises 는 "제외된 운동 목록"이다).
-exercises(id PK, name_ko, name_en, movement_pattern, mechanic, region,
+exercises(id PK, name_ko, name_en, modality NULL, movement_pattern NULL, mechanic NULL, region NULL,
       primary_muscles text[], secondary_muscles text[], equipment, difficulty,
       metric, default_reps_low int NULL, default_reps_high int NULL,
       default_time_low_sec int NULL, default_time_high_sec int NULL, default_step_kg num NULL,
@@ -67,6 +67,21 @@ user_rir_calibration(user_id PK, bias_overall num, bias_by_region jsonb,
 calibration_set(id PK, user_id, exercise_id, session_day, predicted_rir int,
       amrap_extra_reps int, actual_rir int, bias_sample num, created_at)
 ```
+
+## Exercise domain 기반 (T06 S1)
+
+`Exercise.modality`는 nullable `resistance | cardio | mobility | warmup`이다. 기존 canonical 110 ID만 명시 목록으로 resistance backfill한다. DB에 목록 밖 ID가 있으면 migration은 명시 오류로 실패한다. `WHERE modality IS NULL` 갱신은 멱등이며 기존 종목 속성·Program/template·WorkoutSession·PlannedSet·PerformedSet은 변경하지 않는다. S1 seed는 110개 resistance만 포함하며 새 cardio 종목·장비 vocabulary는 S2 범위다.
+
+| modality 분기 | mechanic / movement_pattern / region / load_semantics | default_reps / default_time / default_step | metric |
+| --- | --- | --- | --- |
+| NULL 또는 resistance | 기존 필수 non-null 조건 유지 | 기존 저항 종목 속성 유지 | 기존 reps/time (플랭크도 resistance) |
+| cardio | 모두 NULL | 모두 NULL | time 필수 |
+| mobility | 모두 NULL | 모두 NULL | 기존 reps/time enum 유지 |
+| warmup | 모두 NULL | 모두 NULL | 기존 reps/time enum 유지 |
+
+SQL `ck_exercise_domain`은 각 필수값에 `IS NOT NULL`을 사용해 CHECK의 UNKNOWN 통과를 막는다. 기존 `load_semantics` default는 legacy writer 호환을 위해 유지하므로 non-resistance writer는 **명시 NULL**을 전달해야 한다. nullable 타입을 저항 planner에 넘기기 전 공통 narrowing guard로 분류를 검증한다. 미확인·모순 속성을 resistance로 추정하지 않는다.
+
+Prisma `Goal`은 기존 세 값에 `general_fitness | endurance`를 additive로 추가한다. 내부 generation과 `Program.goal` 응답은 5종을 표현하지만 공개 GenerateProgramDto·Profile·UI 선택은 기존 3종이다. 활성 `.08.1` 포인터는 유지하며 S1이 신규 목표 공개 생성이나 `.09.1` 활성화를 의미하지 않는다.
 
 ## 인덱스
 ```

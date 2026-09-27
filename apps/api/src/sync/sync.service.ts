@@ -19,6 +19,7 @@ import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
+import { isResistanceExercise } from "../exercises/exercise-domain";
 import { SessionsService } from "../sessions/sessions.service";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
 import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
@@ -536,10 +537,10 @@ export class SyncService {
     );
     const prefetched = await this.recommendation.prefetchHistories(
       userId,
-      [...newCatalog.values()].map((row) => ({
-        exerciseId: row.id,
-        loadSemantics: row.loadSemantics,
-      })),
+      [...newCatalog.values()].map((row) => {
+        if (!isResistanceExercise(row)) throw new BadRequestException("지원하지 않는 운동 분류다.");
+        return { exerciseId: row.id, loadSemantics: row.loadSemantics };
+      }),
       tx,
     );
     const calibration = await this.recommendation.calibrationFor(userId, tx);

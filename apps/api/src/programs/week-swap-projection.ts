@@ -1,6 +1,7 @@
 import type { Exercise, Prisma, Program } from "@prisma/client";
 import { weekStart } from "../analytics/aggregation.projector";
 import { isoDate } from "../common/date/utc-day";
+import { isResistanceExercise, type ResistanceExercise } from "../exercises/exercise-domain";
 import type { WeekSwapCandidateReason } from "../common/http/week-swap-conflict";
 import { WEEKDAYS } from "./program-rules";
 import { checkWeekSwapRecovery, type WeekSwapRecoverySession } from "./week-swap-recovery";
@@ -123,22 +124,23 @@ export function recoveryBundlePolicy(version: string) {
     : ("unverifiable" as const);
 }
 
-const EXPECTED_REGION: Record<Exercise["movementPattern"], Exercise["region"]> = {
-  squat: "lower",
-  hinge: "lower",
-  lunge: "lower",
-  knee_extension: "lower",
-  knee_flexion: "lower",
-  calf: "lower",
-  horizontal_push: "upper",
-  horizontal_pull: "upper",
-  vertical_push: "upper",
-  vertical_pull: "upper",
-  elbow_flexion: "upper",
-  elbow_extension: "upper",
-  shoulder_isolation: "upper",
-  core: "core",
-};
+const EXPECTED_REGION: Record<ResistanceExercise["movementPattern"], ResistanceExercise["region"]> =
+  {
+    squat: "lower",
+    hinge: "lower",
+    lunge: "lower",
+    knee_extension: "lower",
+    knee_flexion: "lower",
+    calf: "lower",
+    horizontal_push: "upper",
+    horizontal_pull: "upper",
+    vertical_push: "upper",
+    vertical_pull: "upper",
+    elbow_flexion: "upper",
+    elbow_extension: "upper",
+    shoulder_isolation: "upper",
+    core: "core",
+  };
 
 /** Catalog membership is authority; focus labels never participate in recovery. */
 export function recoveryReason(
@@ -164,10 +166,14 @@ export function recoveryReason(
   const byId = new Map(catalog.map((e) => [e.id, e]));
   let unverifiable = false;
   const regions = (ids: readonly string[]) => {
-    const result = new Set<Exercise["region"]>();
+    const result = new Set<ResistanceExercise["region"]>();
     for (const id of ids) {
       const exercise = byId.get(id);
-      if (!exercise || EXPECTED_REGION[exercise.movementPattern] !== exercise.region)
+      if (
+        !exercise ||
+        !isResistanceExercise(exercise) ||
+        EXPECTED_REGION[exercise.movementPattern] !== exercise.region
+      )
         unverifiable = true;
       else result.add(exercise.region);
     }

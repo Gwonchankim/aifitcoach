@@ -46,7 +46,7 @@ import {
   type SessionPosition,
 } from "./session-position";
 import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
-import { fetchAllExercises } from "./exercise-catalog";
+import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
 import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
 import {
@@ -803,7 +803,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     // 오프라인 추가가 통째로 막힌다.
     const sets = buildProvisionalRoutineSets(
       session!.goal,
-      exercise,
+      requireResistanceCatalogExercise(exercise),
       correlations.map((item) => item.correlation_id),
     ) as unknown as PlannedSet[];
     return { sets, correlations };
@@ -924,7 +924,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       if (!exercise) throw new Error("운동 정보를 불러오지 못했어요.");
       const provisional = provisionalSets(
         exerciseId,
-        routineSetCountFor(session.goal, exercise.mechanic),
+        routineSetCountFor(session.goal, requireResistanceCatalogExercise(exercise).mechanic),
       );
       const updated = await commitRoutineEdit(
         { ...session, planned_sets: [...session.planned_sets, ...provisional.sets] },

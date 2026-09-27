@@ -104,6 +104,7 @@ describe("운동 카탈로그 API", () => {
       expect({ ...row, defaultStepKg: Number(row.defaultStepKg) }).toEqual(seed);
       const expected = {
         id: row.id,
+        modality: row.modality,
         name_ko: row.nameKo,
         name_en: row.nameEn,
         movement_pattern: row.movementPattern,

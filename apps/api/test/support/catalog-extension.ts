@@ -21,6 +21,7 @@ export const CURRENT_RAW = JSON.parse(
 export function toRow(raw: Record<string, unknown>): Exercise {
   return {
     id: raw.id,
+    modality: raw.modality ?? null,
     nameKo: raw.name_ko,
     nameEn: raw.name_en,
     movementPattern: raw.movement_pattern,

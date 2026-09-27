@@ -17,6 +17,7 @@ describe("api-types (openapi 코드젠)", () => {
           id: "e_bench_press",
           name_ko: "바벨 벤치프레스",
           name_en: "Barbell Bench Press",
+          modality: "resistance",
           movement_pattern: "horizontal_push",
           primary_muscles: ["chest"],
           equipment: "barbell",

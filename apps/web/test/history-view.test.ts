@@ -88,6 +88,7 @@ it("비슷한 종목은 substitution 우선, 같은 패턴 이름순으로 최�
     id,
     name_ko,
     name_en: id,
+    modality: "resistance",
     movement_pattern: "push",
     primary_muscles: ["chest"],
     equipment: "barbell",

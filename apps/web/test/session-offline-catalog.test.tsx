@@ -42,6 +42,7 @@ it("renders the durable session and catalog when the query manager is already of
     id: "e_chest_press_machine",
     name_ko: "체스트 프레스 머신",
     name_en: "Chest Press Machine",
+    modality: "resistance",
     movement_pattern: "horizontal_push",
     primary_muscles: ["chest"],
     equipment: "machine",

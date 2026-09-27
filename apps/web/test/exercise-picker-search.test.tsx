@@ -21,6 +21,7 @@ const exercise = (
   name_ko,
   name_en,
   primary_muscles,
+  modality: "resistance",
   movement_pattern: "horizontal_push",
   equipment: "machine",
   difficulty: "beginner",

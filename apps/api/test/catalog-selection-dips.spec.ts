@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -74,6 +75,7 @@ describe("ticket02 retains 109 baseline and freezes 110 selection effects", () =
       const excluded = excludedPatternsFor(input.pain_areas ?? []);
       for (const id of after.flatMap((day) => day.ids)) {
         const row = CURRENT_CATALOG.find((item) => item.id === id)!;
+        assertResistanceExercise(row);
         expect(row).toBeDefined();
         expect(DIFFICULTY_RANK[row.difficulty]).toBeLessThanOrEqual(
           DIFFICULTY_RANK[input.experience_level],

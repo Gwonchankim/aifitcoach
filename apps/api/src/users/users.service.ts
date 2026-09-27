@@ -37,6 +37,11 @@ export class UsersService {
   }
 
   private profile(user: Awaited<ReturnType<UsersService["activeUser"]>>): ProfileResponse {
+    // Program's internal enum has five goals; S1 does not widen the public profile contract.
+    const goal = user.goal;
+    if (goal !== "diet" && goal !== "hypertrophy" && goal !== "strength") {
+      throw new Error("Unsupported public profile goal");
+    }
     return {
       id: user.id,
       sex: user.sex,
@@ -44,7 +49,7 @@ export class UsersService {
       height_cm: Number(user.heightCm),
       weight_kg: Number(user.weightKg),
       body_fat_pct: decryptNumber(user.bodyFatPct),
-      goal: user.goal,
+      goal,
       experience_level: user.experienceLevel,
       plan_tier: user.subscription?.tier ?? "free",
     };

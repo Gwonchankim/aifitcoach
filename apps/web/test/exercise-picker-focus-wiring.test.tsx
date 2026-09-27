@@ -69,6 +69,7 @@ it("returns from the actual SessionScreen picker to its clicked add opener when 
     name_ko: "체스트 프레스 머신",
     name_en: "Chest Press Machine",
     primary_muscles: ["chest"],
+    modality: "resistance",
     movement_pattern: "horizontal_push",
     equipment: "machine",
     difficulty: "beginner",

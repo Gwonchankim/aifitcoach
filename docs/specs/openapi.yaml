@@ -1435,7 +1435,7 @@ components:
         ]
       properties:
         program_id: { type: string }
-        goal: { type: string }
+        goal: { type: string, enum: [diet, hypertrophy, strength, general_fitness, endurance] }
         split_type: { type: string, example: upper_lower }
         rules_version: { type: string, example: '2026.08.1' }
         started_at: { type: string, format: date }
@@ -1487,6 +1487,7 @@ components:
       required:
         [
           id,
+          modality,
           name_ko,
           name_en,
           movement_pattern,
@@ -1504,16 +1505,17 @@ components:
         ]
       properties:
         id: { type: string }
+        modality: { type: string, nullable: true, enum: [resistance, cardio, mobility, warmup] }
         name_ko: { type: string }
         name_en: { type: string }
-        movement_pattern: { type: string }
+        movement_pattern: { type: string, nullable: true }
         primary_muscles:
           type: array
           items: { type: string }
         equipment: { type: string }
         difficulty: { type: string }
-        mechanic: { type: string, enum: [compound, isolation] }
-        region: { type: string, enum: [upper, lower, core] }
+        mechanic: { type: string, nullable: true, enum: [compound, isolation] }
+        region: { type: string, nullable: true, enum: [upper, lower, core] }
         metric: { type: string, enum: [reps, time] }
         step_kg: { type: number, nullable: true }
         rep_range_low: { type: integer }

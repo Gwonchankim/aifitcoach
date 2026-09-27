@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { isResistanceClassification } from "shared";
 import { parseSeedFile, parseSeedRows } from "../prisma/seed-exercises";
 import { assertResistanceExercise, isResistanceExercise } from "../src/exercises/exercise-domain";
 
@@ -62,6 +63,18 @@ describe("S1 canonical exercise modality", () => {
     expect(isResistanceExercise(valid)).toBe(true);
     expect(isResistanceExercise({ ...valid, modality: null })).toBe(true);
     expect(() => assertResistanceExercise(valid)).not.toThrow();
+  });
+  it("wire classification does not fabricate load semantics for persistence", () => {
+    const classification = {
+      modality: "resistance",
+      movementPattern: "squat",
+      mechanic: "compound",
+      region: "lower",
+    };
+    expect(isResistanceClassification(classification)).toBe(true);
+    expect(isResistanceExercise({ ...classification, loadSemantics: null })).toBe(false);
+    expect(isResistanceClassification({ ...classification, modality: "cardio" })).toBe(false);
+    expect(isResistanceClassification({ ...classification, region: null })).toBe(false);
   });
   it.each(["cardio", "mobility", "warmup", "unknown"])(
     "does not infer %s as resistance",

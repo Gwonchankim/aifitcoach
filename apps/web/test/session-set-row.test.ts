@@ -267,6 +267,7 @@ describe("운동 카드", () => {
     name_en: "Bench Press",
     equipment: "barbell",
     primary_muscles: ["chest"],
+    modality: "resistance",
     movement_pattern: "horizontal_push",
     difficulty: "beginner",
     mechanic: "compound",

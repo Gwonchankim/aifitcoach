@@ -29,6 +29,7 @@ function exercise(
 ): Exercise {
   return {
     id,
+    modality: "resistance",
     nameKo: id,
     nameEn: id,
     movementPattern: "horizontal_push",

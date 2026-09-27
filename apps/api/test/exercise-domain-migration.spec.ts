@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { seedExercises } from "../prisma/seed-exercises";
 
 const migration = resolve(
@@ -123,7 +123,14 @@ describe("S1 modality migration and conditional DB guard", () => {
   });
   it("unknown DB ID aborts backfill explicitly and changes no known row", async () => {
     const original = await prisma.exercise.findUniqueOrThrow({ where: { id: "e_plank" } });
-    await prisma.exercise.create({ data: { ...original, id: "e_t06_unknown", modality: null } });
+    await prisma.exercise.create({
+      data: {
+        ...original,
+        media: original.media === null ? Prisma.JsonNull : original.media,
+        id: "e_t06_unknown",
+        modality: null,
+      },
+    });
     try {
       await expect(prisma.$executeRawUnsafe(backfillSql())).rejects.toThrow(/unknown exercise ID/);
       expect(await prisma.exercise.findUnique({ where: { id: original.id } })).toEqual(original);

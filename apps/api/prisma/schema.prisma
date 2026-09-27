@@ -24,6 +24,8 @@ enum Goal {
   diet
   hypertrophy
   strength
+  general_fitness
+  endurance
 
   @@map("goal")
 }
@@ -349,13 +351,23 @@ model WeekSwapReceipt {
   @@map("week_swap_receipts")
 }
 
+enum ExerciseModality {
+  resistance
+  cardio
+  mobility
+  warmup
+
+  @@map("exercise_modality")
+}
+
 model Exercise {
   id                 String          @id
   nameKo             String          @map("name_ko")
   nameEn             String          @map("name_en")
-  movementPattern    MovementPattern @map("movement_pattern")
-  mechanic           Mechanic
-  region             Region
+  modality           ExerciseModality?
+  movementPattern    MovementPattern? @map("movement_pattern")
+  mechanic           Mechanic?
+  region             Region?
   primaryMuscles     String[]        @map("primary_muscles")
   secondaryMuscles   String[]        @map("secondary_muscles")
   equipment          Equipment
@@ -369,7 +381,7 @@ model Exercise {
   defaultStepKg      Decimal?        @map("default_step_kg") @db.Decimal(5, 2)
   /// NULL = external_load(기본). 어시스트 종목만 assistance 다.
   /// canonical. 기본은 external_load 이고 어시스트 머신만 assistance 다.
-  loadSemantics      LoadSemantics   @map("load_semantics")
+  loadSemantics      LoadSemantics?  @map("load_semantics")
   unilateral         Boolean
   substitutions      String[]
   cues               String[]

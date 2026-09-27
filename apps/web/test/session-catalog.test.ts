@@ -18,6 +18,7 @@ function exercise(id: string, overrides: Partial<Exercise> = {}): Exercise {
     id,
     name_ko: id,
     name_en: id,
+    modality: "resistance",
     movement_pattern: "horizontal_push",
     primary_muscles: ["chest"],
     equipment: "barbell",
