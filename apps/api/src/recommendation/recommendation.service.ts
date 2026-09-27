@@ -614,13 +614,10 @@ export class RecommendationService {
       // 어시스트 행은 assistance 를 아는 bundle 로 계산한다. `.08.1` 로 부르면 엔진이
       // 어시스트 분기 자체를 타지 않는다(AC 2 — historical `.08.1` 을 복사하지 않는다).
       // 대상 행의 bundle 이 이미 assistance-capable 이면 **그 값을 보존한다**(`.09` 강등 금지).
-      rules_version:
-        assisted && snapshot !== undefined
-          ? rulesVersionForLoadSemantics(exercise.loadSemantics, snapshot.rulesVersion)
-          : rulesVersionForLoadSemantics(
-              exercise.loadSemantics,
-              params.rulesVersion ?? RULES_VERSION,
-            ),
+      rules_version: rulesVersionForLoadSemantics(
+        exercise.loadSemantics,
+        snapshot?.rulesVersion ?? params.rulesVersion ?? RULES_VERSION,
+      ),
     });
   }
 
