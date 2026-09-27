@@ -237,3 +237,67 @@ describe("openapi 응답 검증기", () => {
     );
   });
 });
+
+describe("S2 prescription oneOf keeps undeclared-key detection", () => {
+  const legacy = VALID_SESSION.planned_sets[0];
+  const resistance = { ...legacy, prescription_kind: "resistance", rules_version: "2026.09.1" };
+  const cardio = {
+    ...legacy,
+    exercise_id: "e_stationary_bike",
+    prescription_kind: "steady_cardio",
+    rules_version: "2026.09.1",
+    target_reps_low: null,
+    target_reps_high: null,
+    target_rir: null,
+    rest_sec: null,
+    target_time_low_sec: null,
+    target_time_high_sec: null,
+    recommended_weight: null,
+    recommended_reps: null,
+    reason_code: null,
+    confidence: null,
+    load_kind: "not_applicable",
+    duration_sec: 600,
+    rpe_scale_id: "relative_effort_0_10_v1",
+    target_rpe_low: 5,
+    target_rpe_high: 6,
+    work_sec: null,
+    recovery_sec: null,
+    rounds: null,
+    recovery_rpe_low: null,
+    recovery_rpe_high: null,
+    final_recovery_included: null,
+    long_session_flag: false,
+    progression_axis: "duration_sec",
+    source_day: "MON",
+    source_ordinal: 1,
+    intensity_seconds: { moderate: 600, high: 0, recovery: 0 },
+    cardio_fallback: null,
+  };
+  const check = (row: unknown) =>
+    expectMatchesContract("get", "/sessions/{sessionId}", 200, {
+      ...VALID_SESSION,
+      planned_sets: [row],
+    });
+  it.each([
+    ["legacy", legacy],
+    ["resistance", resistance],
+    ["cardio", cardio],
+  ])("%s valid branch passes but unknown key rejects", (_label, row) => {
+    expect(() => check(row)).not.toThrow();
+    expect(() => check({ ...row, private_health_payload: "must never leak" })).toThrow(/없는 키/);
+  });
+  it("legacy wire cannot sneak a cardio descriptor through the no-kind branch", () => {
+    expect(() => check({ ...legacy, duration_sec: 600 })).toThrow(/없는 키/);
+  });
+  it("cardio does not allow resistance recommendation or pretend working sets", () => {
+    expect(() => check({ ...cardio, recommendation: { reason: "BASELINE" } })).toThrow(/없는 키/);
+    expect(() => check({ ...cardio, sets: 6 })).toThrow(/없는 키/);
+  });
+  it("kind and null payload matrix reject incompatible or incomplete cardio", () => {
+    expect(() => check({ ...cardio, prescription_kind: "resistance" })).toThrow(/스키마/);
+    expect(() => check({ ...cardio, rest_sec: 0 })).toThrow(/스키마/);
+    const { intensity_seconds: _omitted, ...incomplete } = cardio;
+    expect(() => check(incomplete)).toThrow(/스키마/);
+  });
+});
