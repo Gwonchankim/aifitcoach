@@ -10,20 +10,25 @@ const baseline = JSON.parse(
 const seedPath = resolve(__dirname, "../../../docs/specs/exercises_seed.json");
 const seed = JSON.parse(readFileSync(seedPath, "utf8"));
 
-describe("S1 canonical exercise modality", () => {
+describe("S1 resistance baseline with additive S2 cardio", () => {
   it("110 explicit resistance entries preserve every baseline field and ID", () => {
     expect(baseline.capture_commit).toBe("1e1573747d08ee9817c7af29d05bfc97412cd4a5");
-    expect(seed.exercises).toHaveLength(110);
+    expect(seed.exercises).toHaveLength(111);
     expect(
-      seed.exercises.map(({ modality, ...old }: Record<string, unknown>) => {
-        expect(modality).toBe("resistance");
-        return old;
-      }),
+      seed.exercises.filter((row: { modality: string }) => row.modality === "resistance"),
+    ).toHaveLength(110);
+    expect(
+      seed.exercises
+        .filter((row: { modality: string }) => row.modality === "resistance")
+        .map(({ modality, ...old }: Record<string, unknown>) => {
+          expect(modality).toBe("resistance");
+          return old;
+        }),
     ).toEqual(baseline.catalog.exercises);
     expect(
       seed.exercises.filter((row: { modality: string }) => row.modality !== "resistance"),
-    ).toEqual([]);
-    expect(parseSeedFile()).toHaveLength(110);
+    ).toEqual([expect.objectContaining({ id: "e_stationary_bike", modality: "cardio" })]);
+    expect(parseSeedFile()).toHaveLength(111);
   });
   it("rejects a missing ID even when every remaining substitution resolves", () => {
     const rows = seed.exercises

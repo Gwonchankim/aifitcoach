@@ -244,7 +244,7 @@ describe("즉석 세션 (F8-1)", () => {
 
   it("전체110: 손목 통증 즉석 세션의 첫 운동은 canonical native 어시스트 딥스다", async () => {
     await restDayProgram(["wrist"]);
-    expect(await prisma.exercise.count()).toBe(110);
+    expect(await prisma.exercise.count()).toBe(111);
     const response = await createAdHoc("chest");
     expect(response.status).toBe(201);
     expectMatchesContract("post", PATH, 201, response.body);

@@ -7,7 +7,7 @@ export const MACHINE_IDS = [
   "e_high_row_machine",
   "e_incline_chest_press_machine",
 ];
-export const CATALOG_COUNT = 110;
+export const CATALOG_COUNT = 111;
 export const CATALOG_ADDITION_IDS = [...MACHINE_IDS, "e_assisted_dips"];
 export const CATALOG109_RAW = JSON.parse(
   readFileSync(path.join(__dirname, "catalog-baseline-109.fixture"), "utf8"),
@@ -22,6 +22,9 @@ export function toRow(raw: Record<string, unknown>): Exercise {
   return {
     id: raw.id,
     modality: raw.modality ?? null,
+    cardioMovementRegions: raw.cardio_movement_regions ?? [],
+    prescriptionKindsSupported: raw.prescription_kinds_supported ?? [],
+    blockedReportedPainAreas: raw.blocked_reported_pain_areas ?? [],
     nameKo: raw.name_ko,
     nameEn: raw.name_en,
     movementPattern: raw.movement_pattern,
@@ -38,7 +41,7 @@ export function toRow(raw: Record<string, unknown>): Exercise {
     defaultTimeHighSec: raw.default_time_high_sec ?? null,
     defaultStepKg: raw.default_step_kg ?? null,
     unilateral: raw.unilateral,
-    loadSemantics: loadSemanticsFor(String(raw.id)),
+    loadSemantics: raw.modality === "cardio" ? null : loadSemanticsFor(String(raw.id)),
     substitutions: raw.substitutions,
     cues: raw.cues,
     media: raw.media,

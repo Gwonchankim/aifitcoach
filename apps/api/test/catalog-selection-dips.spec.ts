@@ -14,14 +14,16 @@ import { buildProgramSelectionContext, DIFFICULTY_RANK } from "../src/programs/p
 import { excludedPatternsFor } from "../src/programs/program-rules";
 
 describe("ticket02 retains 109 baseline and freezes 110 selection effects", () => {
-  it("pins all 109 objects, with only assisted dips added", () => {
+  it("pins all 109 objects with additive assisted dips and S2 bike", () => {
     expect(
       createHash("sha256")
         .update(readFileSync(path.join(__dirname, "support/catalog-baseline-109.fixture")))
         .digest("hex"),
     ).toBe("c3170d88c30207811b0c1ae8d280e4933ded8567364cb12ca8fa74bc05d15174");
-    expect(CURRENT_CATALOG).toHaveLength(110);
-    const baselineRows = CURRENT_RAW.filter((row) => row.id !== "e_assisted_dips");
+    expect(CURRENT_CATALOG).toHaveLength(111);
+    const baselineRows = CURRENT_RAW.filter(
+      (row) => row.id !== "e_assisted_dips" && row.id !== "e_stationary_bike",
+    );
     for (const row of baselineRows) expect(row.modality).toBe("resistance");
     expect(baselineRows.map(({ modality: _modality, ...oldFields }) => oldFields)).toEqual(
       CATALOG109_RAW,

@@ -19,7 +19,7 @@ describe("exercises 시드", () => {
     await prisma.$disconnect();
   });
 
-  it("시드 110종이 적재된다", async () => {
+  it("시드 111종이 적재된다", async () => {
     await expect(prisma.exercise.count()).resolves.toBe(CATALOG_COUNT);
   });
 
@@ -29,12 +29,33 @@ describe("exercises 시드", () => {
       ...row,
       defaultStepKg: row.defaultStepKg === null ? null : Number(row.defaultStepKg),
     });
+    for (const row of rows.filter((item) => item.modality === "resistance")) {
+      expect(row.cardioMovementRegions).toEqual([]);
+      expect(row.prescriptionKindsSupported).toEqual([]);
+      expect(row.blockedReportedPainAreas).toEqual([]);
+    }
+    expect(rows.filter((row) => row.modality === "resistance")).toHaveLength(110);
+    const withoutCardioMetadata = (row: ReturnType<typeof normalize>) => {
+      const {
+        cardioMovementRegions,
+        prescriptionKindsSupported,
+        blockedReportedPainAreas,
+        ...old
+      } = row;
+      expect(cardioMovementRegions).toEqual([]);
+      expect(prescriptionKindsSupported).toEqual([]);
+      expect(blockedReportedPainAreas).toEqual([]);
+      return old;
+    };
     const byId = new Map(rows.map((row) => [row.id, normalize(row)]));
     for (const expected of CURRENT_CATALOG)
       expect(byId.get(expected.id)).toEqual(normalize(expected));
     for (const expected of BASELINE_CATALOG) {
       expect(byId.get(expected.id)?.modality).toBe("resistance");
-      expect(byId.get(expected.id)).toEqual({ ...normalize(expected), modality: "resistance" });
+      expect(withoutCardioMetadata(byId.get(expected.id)!)).toEqual({
+        ...withoutCardioMetadata(normalize(expected)),
+        modality: "resistance",
+      });
     }
     expect(
       rows
@@ -59,6 +80,9 @@ describe("exercises 시드", () => {
     expect({ ...exercise, defaultStepKg: exercise.defaultStepKg?.toNumber() }).toEqual({
       id: "e_bench_press",
       modality: "resistance",
+      cardioMovementRegions: [],
+      prescriptionKindsSupported: [],
+      blockedReportedPainAreas: [],
       nameKo: "바벨 벤치프레스",
       nameEn: "Barbell Bench Press",
       movementPattern: "horizontal_push",
@@ -90,6 +114,9 @@ describe("exercises 시드", () => {
     expect({ ...exercise, defaultStepKg: exercise.defaultStepKg?.toNumber() }).toEqual({
       id: "e_smith_incline_bench_press",
       modality: "resistance",
+      cardioMovementRegions: [],
+      prescriptionKindsSupported: [],
+      blockedReportedPainAreas: [],
       nameKo: "스미스머신 인클라인 벤치프레스",
       nameEn: "Smith Machine Incline Bench Press",
       movementPattern: "horizontal_push",
