@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type PlannedSet } from "@prisma/client";
 import { isAllowedAssistanceVersion, resolveRulesBundle } from "shared";
-import { isResistanceSnapshot } from "./planned-prescription";
+import { isResistanceReadSnapshot, isResistanceSnapshot } from "./planned-prescription";
 import { rawAssistanceSafetyStatus, toRawTargetRow } from "../programs/assistance-migration";
 
 type CopyField =
@@ -61,7 +61,7 @@ const digest = (canonical: string): string => createHash("sha256").update(canoni
 export function validateRawSessionSetSnapshot(source: RawSessionSetSnapshot): {
   status: "valid" | "invalid_raw";
 } {
-  if (!isResistanceSnapshot(source)) return { status: "invalid_raw" };
+  if (!isResistanceReadSnapshot(source)) return { status: "invalid_raw" };
   // Prisma PlannedSet: PostgreSQL Int / Decimal(6,2) / confidence Decimal(3,2).
   // These are storage/axis checks, not a new recommendation or actual-RIR policy.
   const integer = (value: number | null | undefined, nullable: boolean): boolean =>

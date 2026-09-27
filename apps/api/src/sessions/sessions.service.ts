@@ -72,6 +72,7 @@ import {
   resistancePrescriptionKindForWire,
   isResistanceSnapshot,
   resistanceSnapshotMatchesCatalog,
+  resistanceReadMatchesCatalog,
 } from "./planned-prescription";
 import { sessionSetMetadata, type SessionSetMetadata } from "./session-set-metadata";
 
@@ -1059,7 +1060,7 @@ function toSessionResponse(
             performed_at: performed.performedAt.toISOString(),
           }
         : null;
-      if (!resistanceSnapshotMatchesCatalog(set, set.exercise)) {
+      if (!resistanceReadMatchesCatalog(set, set.exercise)) {
         return {
           ...cardioPlannedSetResponse(set, set.exercise, metadata.get(set.id)),
           ...(set.prescriptionKind == null || set.prescriptionKind === "resistance"

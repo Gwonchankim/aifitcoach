@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { resistanceSnapshotMatchesCatalog } from "../sessions/planned-prescription";
+import { resistanceReadMatchesCatalog } from "../sessions/planned-prescription";
 import { applyDisplayGate, displayGateState } from "shared";
 import type { DisplayGateState, Goal } from "shared";
 import { isoDate, utcToday } from "../common/date/utc-day";
@@ -237,10 +237,9 @@ export class AnalyticsService {
       include: { exercise: true },
     });
     const first = sets[0];
-    if (!first || !resistanceSnapshotMatchesCatalog(first, first.exercise)) return null;
+    if (!first || !resistanceReadMatchesCatalog(first, first.exercise)) return null;
     const sameSession = sets.filter(
-      (set) =>
-        set.sessionId === first.sessionId && resistanceSnapshotMatchesCatalog(set, set.exercise),
+      (set) => set.sessionId === first.sessionId && resistanceReadMatchesCatalog(set, set.exercise),
     );
     return this.recommendations.plannedToApi(exerciseId, sameSession.length, first);
   }

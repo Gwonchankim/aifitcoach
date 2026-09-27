@@ -5,7 +5,7 @@ import {
   SESSION_APPEND_REASONS,
   type SessionAppendReason,
 } from "../common/http/session-append-conflict";
-import { resistanceSnapshotMatchesCatalog } from "./planned-prescription";
+import { resistanceReadMatchesCatalog } from "./planned-prescription";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AppendSetDto } from "./dto/append-set.dto";
 import {
@@ -200,7 +200,7 @@ export class SessionSetAppendService {
         if (!source) return reject("source_removed");
         if (source.exerciseId !== request.exercise_id) return reject("correlation_mismatch");
         const catalog = await tx.exercise.findUnique({ where: { id: source.exerciseId } });
-        if (!resistanceSnapshotMatchesCatalog(source, catalog)) return reject("validation_failed");
+        if (!resistanceReadMatchesCatalog(source, catalog)) return reject("validation_failed");
         if (validateRawSessionSetSnapshot(source).status !== "valid")
           return reject("validation_failed");
         if (sourceRevision(source) !== expectedRevision) return reject("source_changed");

@@ -25,22 +25,35 @@ export type ResistanceSnapshot<T> = T & {
   restSec: number;
   confidence: NonNullable<PlannedSet["confidence"]>;
 };
-/** Kind and stored axes must be checked before calling the protected resistance helpers. */
-export function isResistanceSnapshot<T extends ResistanceStorage>(
+/** Reading an existing resistance snapshot does not resolve or recompute its bundle. */
+export function isResistanceReadSnapshot<T extends ResistanceStorage>(
   row: T,
 ): row is ResistanceSnapshot<T> {
   if (row.prescriptionKind != null && row.prescriptionKind !== "resistance") return false;
-  try {
-    resolveRulesBundle(row.rulesVersion);
-  } catch {
-    return false;
-  }
   return (
     (row.loadSemantics === "external_load" || row.loadSemantics === "assistance") &&
     typeof row.reasonCode === "string" &&
     row.restSec != null &&
     row.confidence != null
   );
+}
+/** Mutations and recomputation additionally require an executable, supported bundle. */
+export function isResistanceSnapshot<T extends ResistanceStorage>(
+  row: T,
+): row is ResistanceSnapshot<T> {
+  if (!isResistanceReadSnapshot(row)) return false;
+  try {
+    resolveRulesBundle(row.rulesVersion);
+    return true;
+  } catch {
+    return false;
+  }
+}
+export function resistanceReadMatchesCatalog<T extends ResistanceStorage>(
+  row: T,
+  catalog: Exercise | null | undefined,
+): row is ResistanceSnapshot<T> {
+  return isResistanceReadSnapshot(row) && catalog != null && isResistanceExercise(catalog);
 }
 export function resistanceSnapshotMatchesCatalog<T extends ResistanceStorage>(
   row: T,

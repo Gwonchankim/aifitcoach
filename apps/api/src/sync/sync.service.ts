@@ -27,6 +27,7 @@ import {
   cardioPlannedSetResponse,
   resistancePrescriptionKindForWire,
   resistanceSnapshotMatchesCatalog,
+  resistanceReadMatchesCatalog,
 } from "../sessions/planned-prescription";
 import { SessionsService } from "../sessions/sessions.service";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
@@ -906,7 +907,7 @@ export function plannedSetResponse(
   metadata?: SessionSetMetadata,
   exercise?: Exercise,
 ) {
-  if (!resistanceSnapshotMatchesCatalog(set, exercise))
+  if (!resistanceReadMatchesCatalog(set, exercise))
     return {
       ...cardioPlannedSetResponse(set, exercise, metadata),
       recommendation_gate: displayGateState(sampleCount),
