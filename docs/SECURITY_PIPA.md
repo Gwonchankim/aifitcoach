@@ -12,6 +12,12 @@
 - 시크릿은 시크릿 매니저/환경변수. 코드·리포에 하드코딩·커밋 금지(.env.example만).
 - 건강데이터 접근 감사 로깅, 최소 권한.
 
+### 로컬 Program snapshot (T06 S2 — 사용자 리뷰 필요)
+
+| 저장 항목 | 실제 범위와 경계 |
+|---|---|
+| user-scoped IndexedDB `kind=program`, 최대 1개 | 공개 API Program 응답 전체: goal/split/세션 ID, 저항 처방값(sets/reps/RIR/rest), cardio descriptor·intensity·fallback, `excluded_exercises`의 공개 안전 사유(통증 부위 라벨 포함). 건강 입력 screening/readiness/history/generationInput은 저장하지 않는다. transport failure 때만 복원하며 ADR-65의 LRU 한도와 `/v1/**` CacheStorage 제외를 유지한다. |
+
 ### 필드 암호화 스킴 (확정 2026-08-05, ADR-16)
 - 알고리즘 **AES-256-GCM**, 키 `FIELD_ENCRYPTION_KEY`(32바이트의 base64). 키는 환경변수/시크릿 매니저에서만 주입.
 - 저장 형식 **`v1:iv:tag:ciphertext`** (각 파트 base64, iv 12B / tag 16B). `v1` 접두사는 키·알고리즘 회전용.
