@@ -1,11 +1,13 @@
 import { test, expect } from "./fixtures";
 import { API_V1, seedProgram, todaySession } from "./helpers";
 import { parseCardioSnapshot } from "shared";
+import { openApiOfflinePage, readRelaunchState } from "./support/api-offline-relaunch";
 
 test("real reserved POST preserves cardio through lazy GET, reload and offline reading", async ({
   page,
   request,
   context,
+  browserName,
 }) => {
   await seedProgram(request, {
     goal: "hypertrophy",
@@ -46,10 +48,49 @@ test("real reserved POST preserves cardio through lazy GET, reload and offline r
   await expect(card).toBeVisible();
   const onlineText = await card.innerText();
   await context.setOffline(true);
-  await page.reload();
-  await expect(card).toBeVisible();
-  expect(await card.innerText()).toBe(onlineText);
-  await context.setOffline(false);
+  // Same platform boundary as 09-offline-sync.spec.ts:178: WebKit raises an internal
+  // error for offline reload. Reuse its fresh-page API-offline recovery, with no SW.
+  if (browserName === "webkit") {
+    await page.evaluate(async () => {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    });
+    const beforeClose = await readRelaunchState(page, sessionId);
+    expect(beforeClose.serviceWorker.registrations).toEqual([]);
+    await page.close();
+    const { resumed, blockedApi, successfulApi } = await openApiOfflinePage(context);
+    try {
+      await resumed.goto(`/session/${sessionId}`);
+      await expect
+        .poll(() => blockedApi)
+        .toContainEqual({
+          method: "GET",
+          url: `${API_V1}/sessions/${sessionId}`,
+        });
+      const offlineCard = resumed.getByTestId("cardio-prescription");
+      await expect(offlineCard).toBeVisible();
+      expect(await offlineCard.innerText()).toBe(onlineText);
+      const recovered = await readRelaunchState(resumed, sessionId);
+      expect(recovered.sessions).toHaveLength(1);
+      const mirrored = recovered.sessions[0].session as { planned_sets: unknown[] };
+      expect(mirrored.planned_sets.map(parseCardioSnapshot).filter(Boolean)).toEqual(source);
+      expect(recovered.serviceWorker.registrations).toEqual([]);
+      expect(recovered.serviceWorker.controller).toBeNull();
+      expect(successfulApi).toEqual([]);
+      await test.info().attach("cardio-api-offline-recovery", {
+        body: JSON.stringify({ beforeClose, recovered, blockedApi, successfulApi }, null, 2),
+        contentType: "application/json",
+      });
+    } finally {
+      await resumed.close();
+      await context.unroute("**/v1/**");
+    }
+  } else {
+    await page.reload();
+    await expect(card).toBeVisible();
+    expect(await card.innerText()).toBe(onlineText);
+    await context.setOffline(false);
+  }
 });
 
 test("reserved generation rejects unknown pain and absent bike without replacing the current program", async ({
