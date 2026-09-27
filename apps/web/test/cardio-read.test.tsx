@@ -92,6 +92,7 @@ describe("cardio read-only display and durable read", () => {
   it("round trips the Program template through online then offline read and rejects corrupted cached intensity", async () => {
     const program = {
       program_id: "p-cardio",
+      rules_version: "2026.09.1",
       sessions: [
         {
           day: "THU",

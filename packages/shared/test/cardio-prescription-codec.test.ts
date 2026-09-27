@@ -117,6 +117,25 @@ describe("cardio wire descriptor and intensity decoder", () => {
     }).slots[2]!;
     expect(parseCardioSnapshot(toCardioSnapshot(source))).toEqual(toCardioSnapshot(source));
   });
+  it.each([
+    ["sets", 8],
+    ["reps_low", 20],
+    ["reps_high", 30],
+    ["time_low_sec", 20],
+    ["time_high_sec", 30],
+    ["assistance_provenance", "native"],
+    ["recommended_action", "increase_assistance"],
+    ["assistance_safety_status", "safe"],
+  ])(
+    "rejects inactive Program/session axis %s without changing valid null envelopes",
+    (field, value) => {
+      const snapshot = toCardioSnapshot(buildCardioBaseline(input).slots[0]!);
+      const encoded = JSON.stringify(snapshot);
+      expect(parseCardioSnapshot({ ...snapshot, [field]: value })).toBeNull();
+      expect(JSON.stringify(parseCardioSnapshot({ ...snapshot, [field]: null }))).toBe(encoded);
+      expect(JSON.stringify(parseCardioSnapshot(snapshot))).toBe(encoded);
+    },
+  );
   it("rejects non-null resistance payload and keeps null compatible union fields", () => {
     const snapshot = toCardioSnapshot(buildCardioBaseline(input).slots[0]!);
     for (const [field, value] of Object.entries({

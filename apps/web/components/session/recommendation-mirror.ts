@@ -1,6 +1,10 @@
 import { normalizeRecommendationState, parseCardioSnapshot, type LoadKind } from "shared";
 import type { Exercise } from "../../lib/api";
-import { cardioCatalogAllowsRead, hasCardioPrescription } from "./cardio-read";
+import {
+  cardioCatalogAllowsRead,
+  cardioRulesAllowRead,
+  hasCardioPrescription,
+} from "./cardio-read";
 
 const LOAD_KINDS = new Set(["external", "bodyweight", "not_applicable", "assistance"]);
 
@@ -19,6 +23,7 @@ export function normalizeSessionRecommendations<T>(
       const exercise = catalog.find((item) => item.id === row.exercise_id);
       if (hasCardioPrescription(row) || exercise?.modality === "cardio") {
         const valid =
+          cardioRulesAllowRead(row.rules_version) &&
           parseCardioSnapshot(row) !== null &&
           (catalog.length === 0 || (exercise !== undefined && cardioCatalogAllowsRead(exercise)));
         return {

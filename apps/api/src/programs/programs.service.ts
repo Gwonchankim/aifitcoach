@@ -173,10 +173,12 @@ export class ProgramsService {
       if (slotPlanning?.cardioSlots) {
         if (slotPlanning.cardioSlots.length !== schedule.length)
           throw new BadRequestException("유산소 슬롯 수가 일치하지 않습니다.");
-        cardioPlan.byDay.clear();
         for (const [index, slot] of slotPlanning.cardioSlots.entries()) {
           if (slot.source_day !== schedule[index]!.day || slot.source_ordinal !== index + 1)
             throw new BadRequestException("유산소 슬롯 identity가 일치하지 않습니다.");
+          const expected = cardioPlan.byDay.get(slot.source_day);
+          if (!expected || (expected.descriptor === null) !== (slot.descriptor === null))
+            throw new FeatureConflictException("cardio_preservation_failed");
           cardioPlan.byDay.set(slot.source_day, slot);
         }
       }
@@ -187,13 +189,16 @@ export class ProgramsService {
     const plannedByDay = new Map<string, ReturnType<typeof planFocus>>();
     for (const { day, focus } of schedule) {
       const block = cardioPlan?.byDay.get(day)?.descriptor;
+      const mandatory = cardioPlan
+        ? [...(block ? [block] : []), ...(slotPlanning?.mandatoryBlocksByDay[day] ?? [])]
+        : slotPlanning?.mandatoryBlocksByDay[day];
       if (focus === "cardio") {
         if (!block) throw new FeatureConflictException("cardio_preservation_failed");
         if (
           estimateSessionSeconds({
             exercises: [],
             restSec: 0,
-            additional_fixed_block_sec: mandatoryBlockSeconds([block]),
+            additional_fixed_block_sec: mandatoryBlockSeconds(mandatory ?? []),
           }) >
           dto.minutes_per_day * 60
         )
@@ -203,14 +208,7 @@ export class ProgramsService {
       }
       let planned: ReturnType<typeof planFocus>;
       try {
-        planned = planFocus(
-          allowed,
-          focus,
-          dto,
-          options,
-          bundle,
-          cardioPlan ? (block ? [block] : []) : slotPlanning?.mandatoryBlocksByDay[day],
-        );
+        planned = planFocus(allowed, focus, dto, options, bundle, mandatory);
       } catch (error) {
         if (cardioPlan && error instanceof MixedSessionPlanError) {
           if (error.cause === "mixed_time_budget")

@@ -5,6 +5,8 @@ import {
   isCanonicalCardioCatalog,
   mandatoryBlockSeconds,
   parseCardioSnapshot,
+  RULES_BUNDLE_V2,
+  RULES_BUNDLE_V2_SPLIT,
   type CardioSlotPlan,
 } from "shared";
 import type { PlannedSetRow } from "./planned-set.factory";
@@ -16,6 +18,8 @@ export function cardioPlannedSet(
   orderIndex: number,
   rulesVersion: string,
 ): PlannedSetRow {
+  if (rulesVersion !== RULES_BUNDLE_V2 && rulesVersion !== RULES_BUNDLE_V2_SPLIT)
+    throw new BadRequestException("유산소 처방을 지원하지 않는 규칙 버전입니다.");
   const descriptor = slot.descriptor;
   if (
     !descriptor ||

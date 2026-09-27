@@ -33,6 +33,14 @@ const DESCRIPTOR_FIELDS = [
 ] as const;
 const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const RESISTANCE_FIELDS = [
+  "sets",
+  "reps_low",
+  "reps_high",
+  "time_low_sec",
+  "time_high_sec",
+  "assistance_provenance",
+  "recommended_action",
+  "assistance_safety_status",
   "target_reps_low",
   "target_reps_high",
   "target_time_sec",

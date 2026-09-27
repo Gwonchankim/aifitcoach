@@ -1,5 +1,9 @@
-import { parseCardioSnapshot } from "shared";
+import { parseCardioSnapshot, RULES_BUNDLE_V2, RULES_BUNDLE_V2_SPLIT } from "shared";
 import type { Exercise, PlannedSet } from "../../lib/api";
+
+export function cardioRulesAllowRead(version: unknown): boolean {
+  return version === RULES_BUNDLE_V2 || version === RULES_BUNDLE_V2_SPLIT;
+}
 
 export function cardioCatalogAllowsRead(exercise: Exercise): boolean {
   const exact = (values: readonly string[] | undefined, expected: readonly string[]) =>
@@ -55,12 +59,21 @@ export function isResistancePlannedSet(row: PlannedSet): row is ResistancePlanne
 
 /** Preserves exact authoritative bytes; only the union boundary is validated here. */
 export function assertCardioReadPayload(value: unknown): void {
-  if (!value || typeof value !== "object") return;
-  const row = value as Record<string, unknown>;
-  if (hasCardioPrescription(row) && !parseCardioSnapshot(row))
-    throw new Error("Invalid cardio read snapshot");
-  for (const key of ["planned_sets", "sessions", "exercises"]) {
-    const items = row[key];
-    if (Array.isArray(items)) for (const item of items) assertCardioReadPayload(item);
+  function visit(value: unknown, inheritedVersion?: unknown, validEnvelope = true): void {
+    if (!value || typeof value !== "object") return;
+    const row = value as Record<string, unknown>;
+    const ownVersion = "rules_version" in row;
+    const version = ownVersion ? row.rules_version : inheritedVersion;
+    const supported = validEnvelope && (!ownVersion || cardioRulesAllowRead(version));
+    if (
+      hasCardioPrescription(row) &&
+      (!supported || !cardioRulesAllowRead(version) || !parseCardioSnapshot(row))
+    )
+      throw new Error("Invalid cardio read snapshot");
+    for (const key of ["planned_sets", "sessions", "exercises"]) {
+      const items = row[key];
+      if (Array.isArray(items)) for (const item of items) visit(item, version, supported);
+    }
   }
+  visit(value);
 }

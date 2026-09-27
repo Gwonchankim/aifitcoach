@@ -1,5 +1,6 @@
 import { parseCardioSnapshot } from "shared";
 import { Card } from "../ui";
+import { cardioRulesAllowRead } from "./cardio-read";
 
 export function CardioPrescriptionCard({
   prescription,
@@ -13,7 +14,12 @@ export function CardioPrescriptionCard({
     prescription && typeof prescription === "object" && "recommendation_state" in prescription
       ? prescription.recommendation_state
       : undefined;
-  const available = snapshot && (state === undefined || state === "ready");
+  // Program children inherit the already validated envelope version. Session rows carry their own.
+  const supported =
+    prescription && typeof prescription === "object" && "rules_version" in prescription
+      ? cardioRulesAllowRead(prescription.rules_version)
+      : true;
+  const available = supported && snapshot && (state === undefined || state === "ready");
   return (
     <Card data-testid="cardio-prescription" className="flex flex-col gap-2">
       <h3 className="text-base font-semibold text-fg">{name} · 유산소 처방</h3>

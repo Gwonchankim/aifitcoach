@@ -175,4 +175,75 @@ describe("S2 actual cardio program persistence", () => {
     });
     expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(0);
   });
+
+  it("cannot remove a mandatory H donor through the internal persistence input", async () => {
+    const dto = request();
+    const plan = cardioProgramPlan(dto, await prisma.exercise.findMany());
+    const slots = [...plan.byDay.values()].map((slot) => ({
+      ...slot,
+      descriptor: null,
+      cardio_fallback: null,
+    }));
+    await expect(
+      programs.generateWithRulesVersion(devUserId(), dto, RULES_BUNDLE_V2_SPLIT, {
+        mandatoryBlocksByDay: {},
+        cardioSlots: slots,
+      }),
+    ).rejects.toMatchObject({ response: { details: { reason: "cardio_preservation_failed" } } });
+    expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(0);
+  });
+
+  it.each([4, 3])(
+    "includes every additional mandatory block with cardio slots on %i days",
+    async (days) => {
+      const dto = { ...request(), goal: "diet" as const, days_per_week: days };
+      const plan = cardioProgramPlan(dto, await prisma.exercise.findMany());
+      const slots = [...plan.byDay.values()];
+      const pureIndex = plan.composition.slots.findIndex((row) => row.container === "C");
+      const slot =
+        pureIndex >= 0
+          ? slots[pureIndex]!
+          : slots.find((row) => row.descriptor?.kind === "steady")!;
+      const extra = { ...slot.descriptor!, duration_sec: 6000 };
+      await expect(
+        programs.generateWithRulesVersion(devUserId(), dto, RULES_BUNDLE_V2_SPLIT, {
+          mandatoryBlocksByDay: { [slot.source_day]: [extra] },
+          cardioSlots: slots,
+        }),
+      ).rejects.toMatchObject({
+        response: { details: { reason: "insufficient_time_for_mixed_focus" } },
+      });
+      expect(await prisma.program.count({ where: { userId: devUserId() } })).toBe(0);
+    },
+  );
+
+  it.each(["2026.08.1", "unknown"])(
+    "cannot materialize a cardio-only template under unsupported bundle %s",
+    async (rulesVersion) => {
+      const result = await programs.generateWithRulesVersion(
+        devUserId(),
+        request(),
+        RULES_BUNDLE_V2_SPLIT,
+      );
+      const cardio = JSON.parse(
+        JSON.stringify(
+          result.sessions
+            .flatMap((day) => day.exercises)
+            .find((item) => item.exercise_id === "e_stationary_bike"),
+        ),
+      );
+      cardio.source_ordinal = 1;
+      await prisma.program.update({
+        where: { id: result.program_id },
+        data: {
+          rulesVersion,
+          template: [{ day: cardio.source_day, focus: "cardio", exercises: [cardio] }],
+        },
+      });
+      await expect(programs.current(devUserId())).rejects.toThrow();
+      expect(await prisma.workoutSession.count({ where: { programId: result.program_id } })).toBe(
+        0,
+      );
+    },
+  );
 });
