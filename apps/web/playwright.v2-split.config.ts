@@ -15,7 +15,7 @@ export default defineConfig({
       ? {
           ...server,
           command:
-            "pnpm --filter api db:migrate && pnpm --filter api db:seed && pnpm --filter api exec tsx test/support/v2-split-e2e-server.ts",
+          "pnpm --filter api db:migrate && pnpm --filter api db:seed && pnpm --filter api exec tsc -p test/tsconfig.v2-split-e2e.json && pnpm --filter api exec node node_modules/.v2-split-harness/test/support/v2-split-e2e-server.js",
         }
       : server,
   ),

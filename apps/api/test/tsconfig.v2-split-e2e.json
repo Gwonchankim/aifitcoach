@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../node_modules/.v2-split-harness",
+    "incremental": false
+  },
+  "include": ["support/v2-split-e2e-server.ts"],
+  "exclude": []
+}
