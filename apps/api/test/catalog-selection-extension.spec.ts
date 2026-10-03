@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import {
@@ -56,6 +57,7 @@ describe("106 → 109 production selection matrix", () => {
         for (const id of day.ids) {
           expect(ids.has(id)).toBe(true);
           const row = CURRENT_CATALOG.find((item) => item.id === id)!;
+          assertResistanceExercise(row);
           expect(DIFFICULTY_RANK[row.difficulty]).toBeLessThanOrEqual(
             DIFFICULTY_RANK[input.experience_level],
           );

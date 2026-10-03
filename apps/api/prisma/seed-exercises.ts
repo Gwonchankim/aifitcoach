@@ -10,12 +10,18 @@ import path from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { $Enums, Prisma, PrismaClient } from "@prisma/client";
 import { loadSemanticsFor } from "../src/programs/assistance-migration";
+import { RESISTANCE_EXERCISE_IDS } from "./resistance-exercise-ids";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const SEED_FILE = path.join(REPO_ROOT, "docs", "specs", "exercises_seed.json");
 
 const ALLOWED_KEYS = new Set([
   "id",
+  "modality",
+  "load_semantics",
+  "cardio_movement_regions",
+  "prescription_kinds_supported",
+  "blocked_reported_pain_areas",
   "name_ko",
   "name_en",
   "movement_pattern",
@@ -105,11 +111,15 @@ function enumValue<T extends Record<string, string>>(
 /** 시드 1행 → exercises 행. 필드명은 Prisma 모델과 1:1. */
 type ExerciseSeed = {
   id: string;
+  modality: "resistance" | "cardio";
+  cardioMovementRegions: $Enums.Region[];
+  prescriptionKindsSupported: $Enums.PrescriptionKind[];
+  blockedReportedPainAreas: string[];
   nameKo: string;
   nameEn: string;
-  movementPattern: $Enums.MovementPattern;
-  mechanic: $Enums.Mechanic;
-  region: $Enums.Region;
+  movementPattern: $Enums.MovementPattern | null;
+  mechanic: $Enums.Mechanic | null;
+  region: $Enums.Region | null;
   primaryMuscles: string[];
   secondaryMuscles: string[];
   equipment: $Enums.Equipment;
@@ -121,7 +131,7 @@ type ExerciseSeed = {
   defaultTimeHighSec: number | null;
   defaultStepKg: number | null;
   unilateral: boolean;
-  loadSemantics: "assistance" | "external_load";
+  loadSemantics: "assistance" | "external_load" | null;
   substitutions: string[];
   cues: string[];
   media: Prisma.InputJsonValue;
@@ -140,6 +150,20 @@ function toExerciseInput(raw: unknown, index: number): ExerciseSeed {
   }
 
   const metric = enumValue(row, "metric", $Enums.Metric, where);
+  if (row.modality === "cardio") return toCardioInput(row, where);
+  if (row.modality !== "resistance") {
+    fail(where, "canonical resistance modality 는 명시 resistance 여야 한다");
+  }
+  if (
+    row.id === "e_stationary_bike" ||
+    [
+      "cardio_movement_regions",
+      "prescription_kinds_supported",
+      "blocked_reported_pain_areas",
+      "load_semantics",
+    ].some((key) => Object.hasOwn(row, key))
+  )
+    fail(where, "canonical resistance modality metadata 불일치");
   const defaultRepsLow = intOrNull(row, "default_reps_low", where);
   const defaultRepsHigh = intOrNull(row, "default_reps_high", where);
   const defaultTimeLowSec = intOrNull(row, "default_time_low_sec", where);
@@ -162,6 +186,10 @@ function toExerciseInput(raw: unknown, index: number): ExerciseSeed {
 
   return {
     id: str(row, "id", where),
+    modality: "resistance",
+    cardioMovementRegions: [],
+    prescriptionKindsSupported: [],
+    blockedReportedPainAreas: [],
     nameKo: str(row, "name_ko", where),
     nameEn: str(row, "name_en", where),
     movementPattern: enumValue(row, "movement_pattern", $Enums.MovementPattern, where),
@@ -186,18 +214,100 @@ function toExerciseInput(raw: unknown, index: number): ExerciseSeed {
   };
 }
 
-function parseSeedFile(filePath: string = SEED_FILE): ExerciseSeed[] {
+/** D7 is an exact approved manifest, not a heuristic cardio classifier. */
+function toCardioInput(row: Record<string, unknown>, where: string): ExerciseSeed {
+  const nullFields = [
+    "movement_pattern",
+    "mechanic",
+    "region",
+    "load_semantics",
+    "default_reps_low",
+    "default_reps_high",
+    "default_time_low_sec",
+    "default_time_high_sec",
+    "default_step_kg",
+  ];
+  const expectedArrays = {
+    cardio_movement_regions: ["lower"],
+    prescription_kinds_supported: ["steady_cardio", "interval_cardio"],
+    blocked_reported_pain_areas: [
+      "knee",
+      "lower_back",
+      "shoulder",
+      "elbow",
+      "wrist",
+      "hip",
+      "neck",
+      "ankle",
+    ],
+    primary_muscles: [],
+    secondary_muscles: [],
+    substitutions: [],
+  };
+  if (
+    row.id !== "e_stationary_bike" ||
+    row.modality !== "cardio" ||
+    row.metric !== "time" ||
+    row.equipment !== "stationary_bike" ||
+    nullFields.some((key) => row[key] !== null)
+  )
+    fail(where, "canonical cardio modality/저항 NULL/장비 계약 불일치");
+  for (const [key, expected] of Object.entries(expectedArrays))
+    if (JSON.stringify(row[key]) !== JSON.stringify(expected))
+      fail(where, "canonical cardio metadata " + key + " 불일치");
+  if (row.difficulty !== "beginner" || row.unilateral !== false)
+    fail(where, "canonical cardio metadata 불일치");
+  if (!row.media || typeof row.media !== "object" || Array.isArray(row.media))
+    fail(where, "media 는 객체여야 한다");
+  return {
+    id: "e_stationary_bike",
+    modality: "cardio",
+    nameKo: str(row, "name_ko", where),
+    nameEn: str(row, "name_en", where),
+    movementPattern: null,
+    mechanic: null,
+    region: null,
+    loadSemantics: null,
+    primaryMuscles: [],
+    secondaryMuscles: [],
+    equipment: enumValue(row, "equipment", $Enums.Equipment, where),
+    difficulty: "beginner",
+    metric: "time",
+    defaultRepsLow: null,
+    defaultRepsHigh: null,
+    defaultTimeLowSec: null,
+    defaultTimeHighSec: null,
+    defaultStepKg: null,
+    unilateral: false,
+    substitutions: [],
+    cues: strArray(row, "cues", where),
+    media: row.media as Prisma.InputJsonValue,
+    cardioMovementRegions: ["lower"],
+    prescriptionKindsSupported: ["steady_cardio", "interval_cardio"],
+    blockedReportedPainAreas: [...expectedArrays.blocked_reported_pain_areas],
+  };
+}
+
+export function parseSeedFile(filePath: string = SEED_FILE): ExerciseSeed[] {
   const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
   const exercises = (parsed as { exercises?: unknown }).exercises;
   if (!Array.isArray(exercises)) {
     fail(filePath, "최상위 exercises 배열이 없다");
   }
 
+  return parseSeedRows(exercises);
+}
+
+export function parseSeedRows(exercises: unknown[]): ExerciseSeed[] {
   const inputs = exercises.map(toExerciseInput);
 
   const ids = new Set(inputs.map((e) => e.id));
   if (ids.size !== inputs.length) {
-    fail(filePath, "중복된 exercise id 가 있다");
+    fail("canonical seed", "중복된 exercise id 가 있다");
+  }
+  const canonicalIds = new Set<string>([...RESISTANCE_EXERCISE_IDS, "e_stationary_bike"]);
+  if (ids.size !== canonicalIds.size || [...ids].some((id) => !canonicalIds.has(id))) {
+    fail("canonical seed", "명시 110 resistance + 1 cardio ID 목록과 일치해야 한다");
   }
   for (const exercise of inputs) {
     const missing = exercise.substitutions.filter((id) => !ids.has(id));
@@ -209,7 +319,7 @@ function parseSeedFile(filePath: string = SEED_FILE): ExerciseSeed[] {
 }
 
 /** 시드를 적재하고 적재된 행 수를 돌려준다. DB 상태로 substitutions 참조 무결성까지 확인한다. */
-async function seedExercises(prisma: PrismaClient): Promise<number> {
+export async function seedExercises(prisma: PrismaClient): Promise<number> {
   const inputs = parseSeedFile();
   for (const input of inputs) {
     await prisma.exercise.upsert({ where: { id: input.id }, create: input, update: input });

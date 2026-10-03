@@ -5,7 +5,8 @@
 
 import type { PainFailureCode } from "./assistance";
 
-export type Goal = "diet" | "hypertrophy" | "strength";
+export type ResistancePolicyGoal = "diet" | "hypertrophy" | "strength";
+export type Goal = ResistancePolicyGoal | "general_fitness" | "endurance";
 export type ExerciseType = "compound" | "isolation";
 export type Region = "upper" | "lower" | "core";
 /** 진행 축. reps = 무게·반복, time = 유지 시간(e_plank). 미지정이면 reps. */

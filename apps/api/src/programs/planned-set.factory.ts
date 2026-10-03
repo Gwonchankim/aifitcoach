@@ -5,8 +5,15 @@ import type { EngineTarget, ExerciseHistory } from "../recommendation/recommenda
 import { RecommendationService } from "../recommendation/recommendation.service";
 import { assertAssistanceSnapshot } from "./assistance-migration";
 import { repsFor, restSecFor, setCountFor, targetRirFor } from "./program-rules";
+import { assertResistanceExercise } from "../exercises/exercise-domain";
 
 export type PlannedSetRow = Omit<Prisma.PlannedSetCreateManyInput, "sessionId">;
+export type ResistancePlannedSetRow = PlannedSetRow & {
+  reasonCode: string;
+  restSec: number;
+  confidence: NonNullable<PlannedSetRow["confidence"]>;
+  loadSemantics: "external_load" | "assistance";
+};
 
 /**
  * planned_set 의 목표값.
@@ -14,6 +21,7 @@ export type PlannedSetRow = Omit<Prisma.PlannedSetCreateManyInput, "sessionId">;
  * 카탈로그의 default_time_*_sec(시드 20~60초)를 그대로 쓴다 — 문서에 시간 종목의 목표별 표가 없다(해석).
  */
 export function targetFor(goal: Goal, exercise: Exercise): EngineTarget {
+  assertResistanceExercise(exercise);
   if (exercise.metric === "time") {
     return {
       ...(exercise.defaultTimeLowSec === null ? {} : { time_low_sec: exercise.defaultTimeLowSec }),
@@ -31,6 +39,7 @@ export function targetFor(goal: Goal, exercise: Exercise): EngineTarget {
  * packer 는 순수 함수라 Prisma 타입을 모른다(packages/shared).
  */
 export function toPackCandidate(goal: Goal, exercise: Exercise): PackCandidate {
+  assertResistanceExercise(exercise);
   const target = targetFor(goal, exercise);
   return {
     id: exercise.id,
@@ -57,6 +66,7 @@ export class PlannedSetFactory {
     exercise: Exercise;
     orderIndex: number;
     sets?: number;
+    rulesVersion?: string;
     /**
      * batch prefetch 결과. **필수다** — 여기서 DB 를 다시 읽으면 호출자가 아무리 batch 해도
      * 종목마다 질의가 붙는다. 호출자가 spec 을 먼저 모아 한 번에 읽어 넘긴다.
@@ -64,8 +74,9 @@ export class PlannedSetFactory {
     history: ExerciseHistory;
     /** `undefined` 는 "RIR 축 미활성"이라는 **의미 있는 값**이다(기본값을 채우지 않는다). */
     calibration: { rir_bias: number } | undefined;
-  }): Promise<PlannedSetRow[]> {
+  }): Promise<ResistancePlannedSetRow[]> {
     const { goal, exercise, orderIndex } = params;
+    assertResistanceExercise(exercise);
     const target = targetFor(goal, exercise);
     const setCount = params.sets ?? setCountFor(goal, exercise.mechanic);
 
@@ -76,6 +87,7 @@ export class PlannedSetFactory {
       exercise,
       target,
       history,
+      ...(params.rulesVersion === undefined ? {} : { rulesVersion: params.rulesVersion }),
       ...(calibration ? { calibration } : {}),
     });
 
@@ -100,6 +112,7 @@ export class PlannedSetFactory {
 
     return Array.from({ length: setCount }, (_unused, index) => ({
       exerciseId: exercise.id,
+      prescriptionKind: "resistance",
       orderIndex,
       setNo: index + 1,
       // metric=time 종목은 반복·RIR 축이 없어 null 이고 target_time_*_sec 를 쓴다.

@@ -194,8 +194,13 @@ describe("즉석 세션 (F8-1)", () => {
       ...args: Parameters<typeof prisma.exercise.findMany>
     ) {
       const rows = await this.findMany(...args);
-      const baseline = rows.filter((row) => !CATALOG_ADDITION_IDS.includes(row.id));
+      const cardio = rows.filter((row) => row.id === "e_stationary_bike");
+      for (const row of cardio) expect(row.modality).toBe("cardio");
+      const baseline = rows.filter(
+        (row) => !CATALOG_ADDITION_IDS.includes(row.id) && row.id !== "e_stationary_bike",
+      );
       if (args[0] === undefined) {
+        expect(cardio).toHaveLength(1);
         expect(baseline.map((row) => row.id).sort()).toEqual(
           BASELINE_CATALOG.map((row) => row.id).sort(),
         );
@@ -244,7 +249,7 @@ describe("즉석 세션 (F8-1)", () => {
 
   it("전체110: 손목 통증 즉석 세션의 첫 운동은 canonical native 어시스트 딥스다", async () => {
     await restDayProgram(["wrist"]);
-    expect(await prisma.exercise.count()).toBe(110);
+    expect(await prisma.exercise.count()).toBe(111);
     const response = await createAdHoc("chest");
     expect(response.status).toBe(201);
     expectMatchesContract("post", PATH, 201, response.body);

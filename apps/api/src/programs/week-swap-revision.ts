@@ -42,11 +42,32 @@ export function weekSwapRevision(session: WeekSwapAggregate): string {
         recommendedWeight: p.recommendedWeight?.toString() ?? null,
         recommendedReps: p.recommendedReps,
         reasonCode: p.reasonCode,
-        confidence: p.confidence.toString(),
+        confidence: p.confidence?.toString() ?? null,
         rulesVersion: p.rulesVersion,
         loadSemantics: p.loadSemantics,
         assistanceStepKg: p.assistanceStepKg?.toString() ?? null,
         assistanceProvenance: p.assistanceProvenance,
+        ...(p.prescriptionKind == null
+          ? {}
+          : {
+              prescriptionKind: p.prescriptionKind,
+              durationSec: p.durationSec,
+              rpeScaleId: p.rpeScaleId,
+              targetRpeLow: p.targetRpeLow,
+              targetRpeHigh: p.targetRpeHigh,
+              workSec: p.workSec,
+              recoverySec: p.recoverySec,
+              rounds: p.rounds,
+              recoveryRpeLow: p.recoveryRpeLow,
+              recoveryRpeHigh: p.recoveryRpeHigh,
+              finalRecoveryIncluded: p.finalRecoveryIncluded,
+              longSessionFlag: p.longSessionFlag,
+              progressionAxis: p.progressionAxis,
+              sourceDay: p.sourceDay,
+              sourceOrdinal: p.sourceOrdinal,
+              intensitySeconds: p.intensitySeconds,
+              cardioFallback: p.cardioFallback,
+            }),
         updatedAt: p.updatedAt.toISOString(),
         performed: [...p.performedSets]
           .sort((a, b) => a.id.localeCompare(b.id))

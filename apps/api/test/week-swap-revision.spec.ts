@@ -3,6 +3,23 @@ import { weekSwapRevision } from "../src/programs/week-swap-revision";
 
 const date = new Date("2026-09-14T00:00:00Z");
 const planned = {
+  prescriptionKind: null,
+  durationSec: null,
+  rpeScaleId: null,
+  targetRpeLow: null,
+  targetRpeHigh: null,
+  workSec: null,
+  recoverySec: null,
+  rounds: null,
+  recoveryRpeLow: null,
+  recoveryRpeHigh: null,
+  finalRecoveryIncluded: null,
+  longSessionFlag: null,
+  progressionAxis: null,
+  sourceDay: null,
+  sourceOrdinal: null,
+  intensitySeconds: null,
+  cardioFallback: null,
   id: "p",
   sessionId: "s",
   exerciseId: "e",

@@ -374,13 +374,14 @@ test("주간 프로그램은 actual 현재주와 일정 CTA를 표시하고 결�
   for (const height of metrics.rowHeights) expect(height).toBeGreaterThanOrEqual(44);
 });
 
-test("주간 프로그램은 transport 실패 때만 마지막 completion snapshot을 stale로 복원한다", async ({
+test("주간 프로그램은 transport 실패 때만 마지막 Program+completion snapshot을 stale로 복원한다", async ({
   page,
 }) => {
   const transport: Transport = { down: false, completionCalls: 0 };
   await mockM4(page, "ready", transport);
   await page.goto("/program");
   await expect(page.getByText("근비대 상·하체 분할 · 12주 중 2주차")).toBeVisible();
+  const onlineHeading = await page.getByText("근비대 상·하체 분할 · 12주 중 2주차").innerText();
   await expect.poll(() => transport.completionCalls).toBeGreaterThanOrEqual(2);
   await expect(
     page.locator('[data-m4-card="program-days"]').getByText("상체", { exact: true }),
@@ -390,7 +391,7 @@ test("주간 프로그램은 transport 실패 때만 마지막 completion snapsh
   await page.reload();
 
   await expect(page.getByRole("status")).toContainText("마지막 동기화");
-  await expect(page.getByText("운동 프로그램 · 12주 중 2주차")).toBeVisible();
+  await expect(page.getByText(onlineHeading, { exact: true })).toBeVisible();
   await expect(page.getByText("상체", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("인터넷이 연결되면 계획을 보여드릴게요.")).toHaveCount(0);
 });

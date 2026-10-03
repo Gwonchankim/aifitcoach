@@ -11,6 +11,8 @@
 - 결제: 국내 PG 빌링키(`/billing/checkout` → `/billing/confirm` → `/webhooks/pg`).
 
 ## 엔드포인트 요약
+
+T06 S3: Profile의 `split_preference`는 nullable이며 `split_preference_supported`는 활성 규칙 묶음에서 파생한 읽기 전용 boolean이다(버전 비노출). PATCH /me는 선호 enum 저장·null clear만 지원한다. 다른 기존 프로필 필드 또는 빈 객체는 기존 501이고 혼합 요청도 부분 적용하지 않는다. generate는 null을 400으로 거부하며 저장 프로필을 자동 대입하지 않는다. Program의 `split_preference_snapshot`이 실제 적용 상태를 나타낸다. [적용 경계와 snapshot](S3_SPLIT_PREFERENCE.md).
 auth(social/refresh/logout) · me(GET/PATCH/DELETE, consents, export, calibration) · programs(generate, current, {id}) · exercises · sessions({id}, complete, exercises add/remove/swap) · sync · analytics(e1rm/volume/completion), dashboard · billing(checkout/confirm) · subscriptions/status · webhooks/pg
 
 ## 현재 주 운동일 교환 (T05)
@@ -26,3 +28,12 @@ auth(social/refresh/logout) · me(GET/PATCH/DELETE, consents, export, calibratio
 ## 기능개선 예약 계약 (2026-09-05)
 
 [기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md) 중 append와 T05 실제 주 조회/swap은 활성 OpenAPI로 승격됐다. split snapshot·forward-only 전환은 각 소유 Sprint의 후속 계약이며 현재 runtime 지원 선언이 아니다.
+
+### T06 S2 운동 분류와 유산소 처방 읽기
+
+`GET /exercises`의 `modality`는 `resistance | cardio | mobility | warmup | null`이다. 실제 canonical 카탈로그는 기존 저항 110종과 `e_stationary_bike` 1종이며, 모든 응답은 필수 배열 `cardio_movement_regions`, `prescription_kinds_supported`, `blocked_reported_pain_areas`를 포함하며 resistance에서는 세 배열이 모두 비어 있다. resistance 소비자는 modality 및 충분한 저항 metadata를 검사해야 한다.
+
+기존 V1 planned/template wire는 유지한다. V2 처방은 `prescription_kind`가 필수인 resistance/steady_cardio/interval_cardio union이며 cardio는 descriptor·RPE scale·원 슬롯·강도별 시간을 읽기 전용으로 제공한다. `cardio_fallback={cause,source_day,source_ordinal,original_descriptor,effective_descriptor}`에서 cause는 `source_eligibility_fallback | redesign_recovery`이다. `intensity_seconds={moderate,high,recovery}`는 steady 전량 moderate, interval work는 high·회복은 recovery다. cardio template의 sets/reps/rest는 null이며 한 블록은 PlannedSet 한 행이다.
+
+S2에서 `.09.1`은 TestingModule provider override 내부 경로에만 연결한다. 공개 DTO는 기존 목표 3개이며 활성 `.08.1`은 바뀌지 않는다. `.09.1`의 `pain_areas` 미지정은 unavailable, 빈 배열은 알려진 무통이다. screening/readiness/history는 항상 unknown이며 cleared를 HTTP로 주입하지 않는다. cardio 수행·append/edit 및 actual RPE 수집은 이번 읽기 경로에 포함하지 않는다.
+

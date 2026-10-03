@@ -147,6 +147,30 @@ export async function prepareHistoricalSnapshot(
     });
     // Keep the observed JSON representation in evidence; compare Decimal values, not scale rendering.
     const normalized = { ...actual };
+    // Historical resistance rows have all S2 columns NULL, including the legacy kind.
+    // Project only these additive columns; keep the complete old raw oracle exact.
+    for (const key of [
+      "prescriptionKind",
+      "durationSec",
+      "targetRpeLow",
+      "targetRpeHigh",
+      "rpeScaleId",
+      "rounds",
+      "workSec",
+      "recoverySec",
+      "recoveryRpeLow",
+      "recoveryRpeHigh",
+      "finalRecoveryIncluded",
+      "longSessionFlag",
+      "progressionAxis",
+      "sourceDay",
+      "sourceOrdinal",
+      "intensitySeconds",
+      "cardioFallback",
+    ]) {
+      expect(actual[key]).toBeNull();
+      delete normalized[key];
+    }
     for (const key of ["recommendedWeight", "confidence", "assistanceStepKg"] as const) {
       if (raw[key] === null) expect(actual[key]).toBeNull();
       else {

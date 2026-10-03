@@ -5,7 +5,7 @@ PostgreSQL 단일 주 저장소. 관계 무결성 + 유연 필드(JSONB) + 시�
 
 ```
 users(id uuid PK, role user|admin DEFAULT user, sex, birth_year int, height_cm num, weight_kg num,
-      body_fat_pct text NULL, goal enum, experience_level enum, constraints jsonb,
+      body_fat_pct text NULL, goal enum, experience_level enum, split_preference enum NULL, constraints jsonb,
       deleted_at timestamptz NULL, created_at, updated_at)
 consents(id PK, user_id FK, type, version, granted bool, granted_at)
 auth_sessions(id uuid PK, user_id FK, session_token_hash UNIQUE, csrf_token_hash,
@@ -27,7 +27,7 @@ programs(id PK, user_id FK, goal, days_per_week int, minutes_per_day int, split_
       --   이유: 통증 부위를 따로 저장하지 않으므로(PIPA) 즉석 세션이 이 필드에서 부위를 역산하는데,
       --   wrist 처럼 제외 패턴이 0건인 부위는 흔적이 안 남아 "머신/케이블 우선" 배려가 사라졌다.
       --   마커는 **저장 전용**이고 toResponse()에서 걸러낸다(계약상 excluded_exercises 는 "제외된 운동 목록"이다).
-exercises(id PK, name_ko, name_en, movement_pattern, mechanic, region,
+exercises(id PK, name_ko, name_en, modality NULL, movement_pattern NULL, mechanic NULL, region NULL,
       primary_muscles text[], secondary_muscles text[], equipment, difficulty,
       metric, default_reps_low int NULL, default_reps_high int NULL,
       default_time_low_sec int NULL, default_time_high_sec int NULL, default_step_kg num NULL,
@@ -67,6 +67,21 @@ user_rir_calibration(user_id PK, bias_overall num, bias_by_region jsonb,
 calibration_set(id PK, user_id, exercise_id, session_day, predicted_rir int,
       amrap_extra_reps int, actual_rir int, bias_sample num, created_at)
 ```
+
+## Exercise domain 기반 (T06 S1)
+
+`Exercise.modality`는 nullable `resistance | cardio | mobility | warmup`이다. 기존 canonical 110 ID만 명시 목록으로 resistance backfill한다. DB에 목록 밖 ID가 있으면 migration은 명시 오류로 실패한다. `WHERE modality IS NULL` 갱신은 멱등이며 기존 종목 속성·Program/template·WorkoutSession·PlannedSet·PerformedSet은 변경하지 않는다. S1 seed는 110개 resistance만 포함하며 새 cardio 종목·장비 vocabulary는 S2 범위다.
+
+| modality 분기 | mechanic / movement_pattern / region / load_semantics | default_reps / default_time / default_step | metric |
+| --- | --- | --- | --- |
+| NULL 또는 resistance | 기존 필수 non-null 조건 유지 | 기존 저항 종목 속성 유지 | 기존 reps/time (플랭크도 resistance) |
+| cardio | 모두 NULL | 모두 NULL | time 필수 |
+| mobility | 모두 NULL | 모두 NULL | 기존 reps/time enum 유지 |
+| warmup | 모두 NULL | 모두 NULL | 기존 reps/time enum 유지 |
+
+SQL `ck_exercise_domain`은 각 필수값에 `IS NOT NULL`을 사용해 CHECK의 UNKNOWN 통과를 막는다. 기존 `load_semantics` default는 legacy writer 호환을 위해 유지하므로 non-resistance writer는 **명시 NULL**을 전달해야 한다. nullable 타입을 저항 planner에 넘기기 전 공통 narrowing guard로 분류를 검증한다. 미확인·모순 속성을 resistance로 추정하지 않는다.
+
+Prisma `Goal`은 기존 세 값에 `general_fitness | endurance`를 additive로 추가한다. 내부 generation과 `Program.goal` 응답은 5종을 표현하지만 공개 GenerateProgramDto·Profile·UI 선택은 기존 3종이다. 활성 `.08.1` 포인터는 유지하며 S1이 신규 목표 공개 생성이나 `.09.1` 활성화를 의미하지 않는다.
 
 ## 인덱스
 ```
@@ -110,3 +125,24 @@ CREATE INDEX ix_access_audits_user_occurred ON access_audits(user_id, occurred_a
 T05는 `week_swap_receipts(id, user_id FK RESTRICT, client_id, request_hash, request JSON, result JSON)`를 추가한다. `(user_id, client_id)`는 유일하며 테이블 자체가 week_swap operation namespace다. request는 정규화 5필드, result는 최초 WeekSwapResult 구조 식별자·날짜·status·origin·revision·운동/계획세트 ID·개수뿐이다. 처방·performed·건강값은 저장하지 않는다. 기존 session/planned/performed ID와 내용은 날짜 교환으로 바뀌지 않는다. 서버 sync receipt와 분리하며 owner 삭제는 기존 명시 cutoff 퍼지에 연결한다(사용자 리뷰 필요).
 
 [기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md) 중 append와 T05 실제 주 조회/swap은 활성 스키마로 승격됐다. split snapshot·forward-only 전환은 각 소유 Sprint의 후속 계약이며 현재 runtime 지원 선언이 아니다.
+
+### T06 S2 cardio 저장 경계
+
+`Exercise.modality`는 `resistance | cardio | mobility | warmup | null`이다. 기존 110종은 resistance이며 S2는 `e_stationary_bike` 한 종만 추가한다. `equipment=stationary_bike`를 명시해야 하며 일반 `machine` 장비를 보유했다고 자전거를 보유한 것으로 추정하지 않는다. 자전거는 `metric=time`, 저항 분류·부하·기본 반복/시간/step이 모두 NULL이다. `cardio_movement_regions=[lower]`는 동작 분류이며 N07 저항 노출로 세지 않는다. `prescription_kinds_supported`와 `blocked_reported_pain_areas`는 승인된 종목 정책이며 사용자 건강 정보를 저장하지 않는다.
+
+PlannedSet은 한 cardio 블록당 한 행이다. `prescription_kind`의 raw NULL은 기존 저항 행에만 허용한다. 기존 행을 backfill하지 않으며 V1 wire에 새 kind를 덧붙이지 않는다. 새 V2 writer는 `resistance | steady_cardio | interval_cardio`를 명시한다. 모든 descriptor 스칼라와 `source_day`(MON~SUN), `source_ordinal`(1부터), `intensity_seconds={moderate,high,recovery}`를 저장한다. `cardio_fallback`은 `{cause,source_day,source_ordinal,original_descriptor,effective_descriptor}`이며 cause는 `source_eligibility_fallback | redesign_recovery`이다.
+
+| CHECK | 저항/legacy | steady | interval |
+| --- | --- | --- | --- |
+| kind payload | 기존 rest/reason/confidence/load NOT NULL 유지, 새 cardio 필드 NULL | 저항 필드 모두 NULL, descriptor·source·intensity 필수 | steady와 동일 |
+| duration | 새 필드 NULL | 양수, interval 필드 NULL | work/recovery 양수, rounds 1~12, bigint 총초 일치, final recovery true |
+| RPE | 새 필드 NULL | 고정 scale, 0≤low≤high≤10 | target와 recovery 양쪽 필수 |
+| axis | 새 필드 NULL | duration_sec, long boolean | rounds, long false |
+| intensity | NULL | moderate=duration, high/recovery=0 | high=work×rounds, recovery=recovery×rounds, moderate=0 |
+| assistance | 기존 predicate·immutable trigger 그대로 | load/step/provenance 모두 NULL | 동일 |
+
+모든 필수값은 `IS NOT NULL`로 검사한다. 다른 테이블을 조회하는 CHECK는 만들지 않으며 Exercise FK와 modality-kind 일치는 writer/reader가 검증한다. Program template·GET·sync·offline reader가 같은 union을 사용하고 cardio는 resistance Recommendation 객체나 rounds만큼의 working sets를 생성하지 않는다. 기존 저항 데이터 및 수행 기록은 migration에서 갱신하지 않는다.
+
+## T06 S3 split preference
+
+users.split_preference는 balanced/upper_priority/lower_priority의 nullable enum이며 additive migration에 기본값·backfill이 없다. Program.generation_input.split_preference_snapshot은 생성 시 고정된 요청·실효값과 실제 U/L 횟수를 담는다. Profile.split_preference_supported는 활성 규칙 묶음에서 파생하며 DB 컬럼이나 버전 문자열은 노출하지 않는다. 기존 Program의 missing snapshot은 읽기에서 legacy_input으로 파생하고 저장행을 수정하지 않는다. [6필드 의미](S3_SPLIT_PREFERENCE.md).

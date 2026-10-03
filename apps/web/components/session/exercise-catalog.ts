@@ -5,8 +5,35 @@
  * 후보 누락과 부분 캐시를 막기 위해 `next_cursor` 를 끝까지 따라간다.
  * 부위 탭은 계약에 `region` 쿼리·필드가 없어 `primary_muscles` 로 클라이언트에서 나눈다.
  */
-import { api, type Exercise } from "../../lib/api";
+import { isResistanceClassification } from "shared";
+import type { ExerciseType, Region, ResistanceMovementPattern } from "shared";
+import { api, ApiError, type Exercise } from "../../lib/api";
 import { DEV_USER_SCOPE, readThroughCatalog } from "./session-db";
+
+export type ResistanceCatalogExercise = Exercise & {
+  mechanic: ExerciseType;
+  region: Region;
+  movement_pattern: ResistanceMovementPattern;
+};
+
+/** The catalog wire carries classification, but does not carry load semantics. */
+export function isResistanceCatalogExercise(
+  exercise: Exercise,
+): exercise is ResistanceCatalogExercise {
+  return isResistanceClassification({
+    modality: exercise.modality,
+    movementPattern: exercise.movement_pattern,
+    mechanic: exercise.mechanic,
+    region: exercise.region,
+  });
+}
+
+export function requireResistanceCatalogExercise(exercise: Exercise): ResistanceCatalogExercise {
+  if (!isResistanceCatalogExercise(exercise)) {
+    throw new ApiError(400, "BAD_REQUEST", "Unsupported resistance exercise classification");
+  }
+  return exercise;
+}
 
 /** 커서를 끝까지 따라가 카탈로그 전량을 받는다. 서버가 준 순서를 그대로 유지한다. */
 export async function fetchAllExercises(): Promise<Exercise[]> {

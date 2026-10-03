@@ -1,3 +1,4 @@
+import { hasCardioPrescription } from "./cardio-read";
 import { isAllowedAssistanceVersion, resolveRulesBundle } from "shared";
 import type { PlannedSet, Session } from "../../lib/api";
 
@@ -140,6 +141,7 @@ function metadata(row: AppendRow): AppendEligibility | null {
   return value;
 }
 function visibleCopySafe(row: AppendRow): boolean {
+  if (hasCardioPrescription(row)) return false;
   try {
     resolveRulesBundle(row.rules_version);
     if (

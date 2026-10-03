@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isAssistedExercise } from "../src/assistance-transition";
+import { isResistanceClassification } from "../src/exercise-domain";
 import catalog from "../../../docs/specs/exercises_seed.json";
 import {
   SIMILAR_INIT_DEFAULT_RATIO,
@@ -7,7 +8,20 @@ import {
   similarSourcesFor,
 } from "../src/similar-init";
 
-type CatalogExercise = (typeof catalog.exercises)[number] & { load_semantics?: string };
+const resistanceCatalog = catalog.exercises.filter(
+  (
+    exercise,
+  ): exercise is Extract<(typeof catalog.exercises)[number], { movement_pattern: string }> =>
+    isResistanceClassification({
+      modality: exercise.modality,
+      movementPattern: exercise.movement_pattern,
+      mechanic: exercise.mechanic,
+      region: exercise.region,
+    }),
+);
+type CatalogExercise = Omit<(typeof resistanceCatalog)[number], "load_semantics"> & {
+  load_semantics?: string;
+};
 
 function assertSimilarInitPairs(
   pairs: typeof SIMILAR_INIT_PAIRS,
@@ -42,7 +56,7 @@ describe("SIMILAR_INIT 쌍 표", () => {
   it("20행·23개 방향 쌍을 전수 검증한다", () => {
     expect(Object.keys(SIMILAR_INIT_PAIRS)).toHaveLength(20);
     expect(Object.values(SIMILAR_INIT_PAIRS).flat()).toHaveLength(23);
-    assertSimilarInitPairs(SIMILAR_INIT_PAIRS, catalog.exercises);
+    assertSimilarInitPairs(SIMILAR_INIT_PAIRS, resistanceCatalog);
   });
 
   it("어시스트 소스가 들어간 표 복사본을 거부한다", () => {
@@ -50,7 +64,7 @@ describe("SIMILAR_INIT 쌍 표", () => {
       ...SIMILAR_INIT_PAIRS,
       e_neutral_grip_pulldown: [{ source: "e_assisted_pullup" }],
     };
-    expect(() => assertSimilarInitPairs(pairs, catalog.exercises)).toThrow("external_load");
+    expect(() => assertSimilarInitPairs(pairs, resistanceCatalog)).toThrow("external_load");
   });
 
   it("어시스트 대상이 들어간 표 복사본을 거부한다", () => {
@@ -58,11 +72,11 @@ describe("SIMILAR_INIT 쌍 표", () => {
       ...SIMILAR_INIT_PAIRS,
       e_assisted_pullup: [{ source: "e_lat_pulldown" }],
     };
-    expect(() => assertSimilarInitPairs(pairs, catalog.exercises)).toThrow("external_load");
+    expect(() => assertSimilarInitPairs(pairs, resistanceCatalog)).toThrow("external_load");
   });
 
   it("명시된 seed semantics가 canonical 판정과 다르면 거부한다", () => {
-    const exercises = catalog.exercises.map((e) =>
+    const exercises = resistanceCatalog.map((e) =>
       e.id === "e_lat_pulldown" ? { ...e, load_semantics: "assistance" } : e,
     );
     expect(() => assertSimilarInitPairs(SIMILAR_INIT_PAIRS, exercises)).toThrow("canonical");

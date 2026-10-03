@@ -1,6 +1,6 @@
 import { recommendNextSet } from "./recommend";
 import { RULES_BUNDLE_V1 } from "./rules-version";
-import type { ExerciseType, Goal, Metric, Region } from "./types";
+import type { ExerciseType, Goal, Metric, Region, ResistancePolicyGoal } from "./types";
 
 /**
  * **활성 bundle 포인터.** activation 티켓에서 이 한 줄만 `RULES_BUNDLE_V2` 로 옮긴다
@@ -8,24 +8,33 @@ import type { ExerciseType, Goal, Metric, Region } from "./types";
  */
 export const ROUTINE_RULES_VERSION: string = RULES_BUNDLE_V1;
 
-const REPS: Record<Goal, Record<ExerciseType, { low: number; high: number }>> = {
+const REPS: Record<ResistancePolicyGoal, Record<ExerciseType, { low: number; high: number }>> = {
   hypertrophy: { compound: { low: 6, high: 12 }, isolation: { low: 10, high: 20 } },
   strength: { compound: { low: 3, high: 5 }, isolation: { low: 3, high: 5 } },
   diet: { compound: { low: 6, high: 12 }, isolation: { low: 6, high: 12 } },
 };
-const TARGET_RIR: Record<Goal, number> = { hypertrophy: 2, strength: 3, diet: 3 };
-const REST_SEC: Record<Goal, number> = { hypertrophy: 120, strength: 180, diet: 90 };
+const TARGET_RIR: Record<ResistancePolicyGoal, number> = { hypertrophy: 2, strength: 3, diet: 3 };
+const REST_SEC: Record<ResistancePolicyGoal, number> = {
+  hypertrophy: 120,
+  strength: 180,
+  diet: 90,
+};
+
+/** D6(a): resistance targets reuse diet; the Program and cardio retain their original goal. */
+export function resistancePolicyGoal(goal: Goal): ResistancePolicyGoal {
+  return goal === "general_fitness" || goal === "endurance" ? "diet" : goal;
+}
 
 export function routineRepsFor(goal: Goal, mechanic: ExerciseType): { low: number; high: number } {
-  return REPS[goal][mechanic];
+  return REPS[resistancePolicyGoal(goal)][mechanic];
 }
 
 export function routineTargetRirFor(goal: Goal): number {
-  return TARGET_RIR[goal];
+  return TARGET_RIR[resistancePolicyGoal(goal)];
 }
 
 export function routineRestSecFor(goal: Goal): number {
-  return REST_SEC[goal];
+  return REST_SEC[resistancePolicyGoal(goal)];
 }
 
 export function routineSetCountFor(goal: Goal, mechanic: ExerciseType): number {
@@ -60,7 +69,7 @@ export function buildProvisionalRoutineSets(
         }
       : { reps_low: reps.low, reps_high: reps.high, rir: routineTargetRirFor(goal) };
   const recommendation = recommendNextSet({
-    goal,
+    goal: resistancePolicyGoal(goal),
     exercise: {
       id: exercise.id,
       type: exercise.mechanic,

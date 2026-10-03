@@ -24,6 +24,8 @@ enum Goal {
   diet
   hypertrophy
   strength
+  general_fitness
+  endurance
 
   @@map("goal")
 }
@@ -34,6 +36,14 @@ enum ExperienceLevel {
   advanced
 
   @@map("experience_level")
+}
+
+enum SplitPreference {
+  balanced
+  upper_priority
+  lower_priority
+
+  @@map("split_preference")
 }
 
 enum MovementPattern {
@@ -94,6 +104,7 @@ enum Equipment {
   cable
   bodyweight
   ez_bar
+  stationary_bike
 
   @@map("equipment")
 }
@@ -211,6 +222,7 @@ model User {
   bodyFatPct      String?         @map("body_fat_pct")
   goal            Goal
   experienceLevel ExperienceLevel @map("experience_level")
+  splitPreference SplitPreference? @map("split_preference")
   constraints     Json
   // DELETE /me 는 이 시각을 기록한 뒤 즉시 세션을 무효화한다. 실제 행 삭제는 별도 퍼지 잡이 맡는다.
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)
@@ -337,43 +349,65 @@ model Program {
 
 // Direct weekly swap namespace. Structural result only; no prescription or performed/health values.
 model WeekSwapReceipt {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  clientId    String   @map("client_id") @db.Uuid
-  requestHash String   @map("request_hash")
+  id          String @id @default(uuid()) @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+  clientId    String @map("client_id") @db.Uuid
+  requestHash String @map("request_hash")
   request     Json
   result      Json
-  user        User     @relation(fields: [userId], references: [id])
+  user        User   @relation(fields: [userId], references: [id])
 
   @@unique([userId, clientId], map: "ux_week_swap_receipts_user_client")
   @@map("week_swap_receipts")
 }
 
+enum ExerciseModality {
+  resistance
+  cardio
+  mobility
+  warmup
+
+  @@map("exercise_modality")
+}
+
+enum PrescriptionKind {
+  resistance
+  steady_cardio
+  interval_cardio
+
+  @@map("prescription_kind")
+}
+
 model Exercise {
-  id                 String          @id
-  nameKo             String          @map("name_ko")
-  nameEn             String          @map("name_en")
-  movementPattern    MovementPattern @map("movement_pattern")
-  mechanic           Mechanic
-  region             Region
-  primaryMuscles     String[]        @map("primary_muscles")
-  secondaryMuscles   String[]        @map("secondary_muscles")
+  id                 String            @id
+  nameKo             String            @map("name_ko")
+  nameEn             String            @map("name_en")
+  modality           ExerciseModality?
+  movementPattern    MovementPattern?  @map("movement_pattern")
+  mechanic           Mechanic?
+  region             Region?
+  primaryMuscles     String[]          @map("primary_muscles")
+  secondaryMuscles   String[]          @map("secondary_muscles")
   equipment          Equipment
   difficulty         Difficulty
   metric             Metric
   // metric=reps 는 reps 범위를, metric=time 은 time 범위를 채운다(시드 e_plank 참고).
-  defaultRepsLow     Int?            @map("default_reps_low")
-  defaultRepsHigh    Int?            @map("default_reps_high")
-  defaultTimeLowSec  Int?            @map("default_time_low_sec")
-  defaultTimeHighSec Int?            @map("default_time_high_sec")
-  defaultStepKg      Decimal?        @map("default_step_kg") @db.Decimal(5, 2)
+  defaultRepsLow     Int?              @map("default_reps_low")
+  defaultRepsHigh    Int?              @map("default_reps_high")
+  defaultTimeLowSec  Int?              @map("default_time_low_sec")
+  defaultTimeHighSec Int?              @map("default_time_high_sec")
+  defaultStepKg      Decimal?          @map("default_step_kg") @db.Decimal(5, 2)
   /// NULL = external_load(기본). 어시스트 종목만 assistance 다.
   /// canonical. 기본은 external_load 이고 어시스트 머신만 assistance 다.
-  loadSemantics      LoadSemantics   @map("load_semantics")
+  loadSemantics      LoadSemantics?    @map("load_semantics")
   unilateral         Boolean
   substitutions      String[]
   cues               String[]
   media              Json
+
+  cardioMovementRegions      Region[]           @default([]) @map("cardio_movement_regions")
+  prescriptionKindsSupported PrescriptionKind[] @default([]) @map("prescription_kinds_supported")
+  blockedReportedPainAreas   String[]           @default([]) @map("blocked_reported_pain_areas")
 
   plannedSets     PlannedSet[]
   estimated1rm    Estimated1rm[]
@@ -407,36 +441,53 @@ model WorkoutSession {
 }
 
 model PlannedSet {
-  id                   String                @id @default(uuid()) @db.Uuid
+  prescriptionKind      PrescriptionKind?     @map("prescription_kind")
+  durationSec           Int?                  @map("duration_sec")
+  rpeScaleId            String?               @map("rpe_scale_id")
+  targetRpeLow          Int?                  @map("target_rpe_low")
+  targetRpeHigh         Int?                  @map("target_rpe_high")
+  workSec               Int?                  @map("work_sec")
+  recoverySec           Int?                  @map("recovery_sec")
+  rounds                Int?                  @map("rounds")
+  recoveryRpeLow        Int?                  @map("recovery_rpe_low")
+  recoveryRpeHigh       Int?                  @map("recovery_rpe_high")
+  finalRecoveryIncluded Boolean?              @map("final_recovery_included")
+  longSessionFlag       Boolean?              @map("long_session_flag")
+  progressionAxis       String?               @map("progression_axis")
+  sourceDay             String?               @map("source_day")
+  sourceOrdinal         Int?                  @map("source_ordinal")
+  intensitySeconds      Json?                 @map("intensity_seconds")
+  cardioFallback        Json?                 @map("cardio_fallback")
+  id                    String                @id @default(uuid()) @db.Uuid
   // D-31: offline routine에서 클라이언트가 만든 임시 세트와 서버 권위 ID의 안정적 상관키.
   // nullable이라 기존 계획세트는 영향 없고, 같은 correlation 재전송은 같은 행으로 해석한다.
-  clientCorrelationId  String?               @unique(map: "ux_planned_correlation") @map("client_correlation_id") @db.Uuid
-  sessionId            String                @map("session_id") @db.Uuid
-  exerciseId           String                @map("exercise_id")
+  clientCorrelationId   String?               @unique(map: "ux_planned_correlation") @map("client_correlation_id") @db.Uuid
+  sessionId             String                @map("session_id") @db.Uuid
+  exerciseId            String                @map("exercise_id")
   // 세션 안에서 운동이 놓이는 순서. openapi AddExerciseRequest.position 을 구현하려면
   // 세션 스코프 운동 순서가 필요한데 DATA_MODEL.md 에 없다(STEP 4 추가). set_no 는 운동 내 세트 번호다.
-  orderIndex           Int                   @map("order_index")
-  setNo                Int                   @map("set_no")
+  orderIndex            Int                   @map("order_index")
+  setNo                 Int                   @map("set_no")
   // metric=time 종목(e_plank)은 반복·RIR 축이 없다 → 반복 목표는 NULL 이고 시간 목표를 채운다.
-  targetRepsLow        Int?                  @map("target_reps_low")
-  targetRepsHigh       Int?                  @map("target_reps_high")
-  targetRir            Int?                  @map("target_rir")
-  restSec              Int                   @map("rest_sec")
-  targetTimeLowSec     Int?                  @map("target_time_low_sec")
-  targetTimeHighSec    Int?                  @map("target_time_high_sec")
+  targetRepsLow         Int?                  @map("target_reps_low")
+  targetRepsHigh        Int?                  @map("target_reps_high")
+  targetRir             Int?                  @map("target_rir")
+  restSec               Int?                  @map("rest_sec")
+  targetTimeLowSec      Int?                  @map("target_time_low_sec")
+  targetTimeHighSec     Int?                  @map("target_time_high_sec")
   // NULL = 자체중량(맨몸·시간 종목) — 추가 부하를 처방하지 않는다(RECOMMENDATION_ENGINE.md).
-  recommendedWeight    Decimal?              @map("recommended_weight") @db.Decimal(6, 2)
-  recommendedReps      Int?                  @map("recommended_reps")
-  reasonCode           String                @map("reason_code")
-  confidence           Decimal               @db.Decimal(3, 2)
-  rulesVersion         String                @map("rules_version")
+  recommendedWeight     Decimal?              @map("recommended_weight") @db.Decimal(6, 2)
+  recommendedReps       Int?                  @map("recommended_reps")
+  reasonCode            String?               @map("reason_code")
+  confidence            Decimal?              @db.Decimal(3, 2)
+  rulesVersion          String                @map("rules_version")
   // 어시스트 immutable snapshot. 생성 시점 카탈로그 값을 굳혀 나중에 카탈로그가 바뀌어도
   // 과거 행의 해석이 흔들리지 않게 한다. non-assisted 행은 전부 NULL(raw SQL CHECK 로 강제).
   /// 생성 시점 카탈로그 semantics 를 굳힌다 — CHECK 가 트리거 없이 조건부 불변식을 강제하려면 필요하다.
-  loadSemantics        LoadSemantics         @map("load_semantics")
-  assistanceStepKg     Decimal?              @map("assistance_step_kg") @db.Decimal(6, 2)
-  assistanceProvenance AssistanceProvenance? @map("assistance_provenance")
-  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  loadSemantics         LoadSemantics?        @map("load_semantics")
+  assistanceStepKg      Decimal?              @map("assistance_step_kg") @db.Decimal(6, 2)
+  assistanceProvenance  AssistanceProvenance? @map("assistance_provenance")
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   session          WorkoutSession    @relation(fields: [sessionId], references: [id])
   exercise         Exercise          @relation(fields: [exerciseId], references: [id])
@@ -534,13 +585,13 @@ model SyncMutation {
   status          SyncStatus
 
   // Ticket04 identities only: never a copy of raw prescriptions or pending health payloads.
-  requestHash       String? @map("request_hash")
-  requestIdentity   Json?   @map("request_identity")
-  resultIdentity    Json?   @map("result_identity")
-  correlationClaims Json?   @map("correlation_claims")
-  dependencyIdentity Json?  @map("dependency_identity")
-  conflictReason    String? @map("conflict_reason")
-  tombstoneIdentity Json?   @map("tombstone_identity")
+  requestHash        String? @map("request_hash")
+  requestIdentity    Json?   @map("request_identity")
+  resultIdentity     Json?   @map("result_identity")
+  correlationClaims  Json?   @map("correlation_claims")
+  dependencyIdentity Json?   @map("dependency_identity")
+  conflictReason     String? @map("conflict_reason")
+  tombstoneIdentity  Json?   @map("tombstone_identity")
 
   user User @relation(fields: [userId], references: [id])
 

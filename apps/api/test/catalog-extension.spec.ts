@@ -6,31 +6,38 @@ const baselineBytes = readFileSync(path.join(__dirname, "support/catalog-baselin
 const baseline = JSON.parse(baselineBytes.toString()) as { exercises: { id: string }[] };
 const current = JSON.parse(
   readFileSync(path.resolve(__dirname, "../../../docs/specs/exercises_seed.json"), "utf8"),
-) as { exercises: { id: string; substitutions: string[] }[] };
+) as { exercises: { id: string; modality: string; substitutions: string[] }[] };
 
 import { CATALOG_ADDITION_IDS, CURRENT_CATALOG } from "./support/catalog-extension";
 
 describe("Sprint02 machine catalog contract", () => {
-  it("preserves all 106 baseline objects from f8627cb byte-pinned fixture", () => {
+  it("preserves all 106 baseline objects with additive resistance modality", () => {
     expect(createHash("sha256").update(baselineBytes).digest("hex")).toBe(
       "6783bac18d97661e1323437d21e2a627cd84100087a1736479994cdb3d259c55",
     );
     expect(baseline.exercises).toHaveLength(106);
-    expect(current.exercises.filter((row) => !CATALOG_ADDITION_IDS.includes(row.id))).toEqual(
-      baseline.exercises,
+    const existing = current.exercises.filter(
+      (row) => !CATALOG_ADDITION_IDS.includes(row.id) && row.id !== "e_stationary_bike",
     );
+    for (const row of existing) expect(row.modality).toBe("resistance");
+    expect(
+      existing.map(({ modality, ...row }) => {
+        void modality;
+        return row;
+      }),
+    ).toEqual(baseline.exercises);
   });
 
-  it("adds exactly the four agreed canonical additions (106 → 110)", () => {
-    expect(current.exercises).toHaveLength(110);
+  it("adds four agreed resistance entries and the S2 bike (106 → 111)", () => {
+    expect(current.exercises).toHaveLength(111);
     const oldIds = new Set(baseline.exercises.map((row) => row.id));
     expect(
       current.exercises
         .filter((row) => !oldIds.has(row.id))
         .map((row) => row.id)
         .sort(),
-    ).toEqual([...CATALOG_ADDITION_IDS].sort());
-    expect(new Set(current.exercises.map((row) => row.id)).size).toBe(110);
+    ).toEqual([...CATALOG_ADDITION_IDS, "e_stationary_bike"].sort());
+    expect(new Set(current.exercises.map((row) => row.id)).size).toBe(111);
   });
 
   it.each([

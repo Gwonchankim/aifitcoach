@@ -4,12 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma, type PlannedSet, type SyncEntityType, type SyncOp } from "@prisma/client";
-import { applyDisplayGate, displayGateState } from "shared";
 import {
-  storedRecommendationPresentation,
-  type PrescriptionCatalog,
-} from "../recommendation/recommendation-presentation";
+  Prisma,
+  type Exercise,
+  type PlannedSet,
+  type SyncEntityType,
+  type SyncOp,
+} from "@prisma/client";
+import { applyDisplayGate, displayGateState } from "shared";
+import { storedRecommendationPresentation } from "../recommendation/recommendation-presentation";
 import {
   rawAssistanceSafetyStatus,
   recommendedActionFor,
@@ -19,6 +22,13 @@ import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
+import { isResistanceExercise } from "../exercises/exercise-domain";
+import {
+  cardioPlannedSetResponse,
+  resistancePrescriptionKindForWire,
+  resistanceSnapshotMatchesCatalog,
+  resistanceReadMatchesCatalog,
+} from "../sessions/planned-prescription";
 import { SessionsService } from "../sessions/sessions.service";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
 import { type MutationDto, SyncRequestDto } from "./dto/sync-request.dto";
@@ -439,6 +449,8 @@ export class SyncService {
       include: { exercise: true },
     });
     if (!planned) throw new NotFoundException("계획 세트를 찾을 수 없다.");
+    if (!resistanceSnapshotMatchesCatalog(planned, planned.exercise))
+      throw new BadRequestException("읽기 전용 처방은 수행 기록을 쓸 수 없다.");
     if (mutation.op === "delete") {
       await tx.performedSet.deleteMany({ where: { plannedSetId: planned.id } });
       return;
@@ -500,6 +512,25 @@ export class SyncService {
         ...(byExercise.get(correlation.exercise_id) ?? []),
         correlation,
       ]);
+    const catalog = new Map(
+      (
+        await tx.exercise.findMany({
+          where: {
+            id: {
+              in: [
+                ...new Set([...session.plannedSets.map((row) => row.exerciseId), ...exerciseIds]),
+              ],
+            },
+          },
+        })
+      ).map((row) => [row.id, row]),
+    );
+    if (
+      session.plannedSets.some(
+        (row) => !resistanceSnapshotMatchesCatalog(row, catalog.get(row.exerciseId)),
+      )
+    )
+      throw new BadRequestException("읽기 전용 처방은 편집할 수 없다.");
     const current = new Map<string, PlannedSet[]>();
     for (const set of session.plannedSets)
       current.set(set.exerciseId, [...(current.get(set.exerciseId) ?? []), set]);
@@ -528,18 +559,13 @@ export class SyncService {
     // 이 트랜잭션이 방금 지운 행이 아직 보이거나(스냅샷 차이) 잠금 밖에서 읽어 결과가 흔들린다.
     // 읽는 대상은 **다른 완료 세션의 수행 기록**이라 이 트랜잭션의 쓰기와 겹치지 않는다.
     const newExerciseIds = exerciseIds.filter((id) => !current.has(id));
-    const newCatalog = new Map(
-      (await tx.exercise.findMany({ where: { id: { in: newExerciseIds } } })).map((row) => [
-        row.id,
-        row,
-      ]),
-    );
+    const newCatalog = new Map([...catalog].filter(([id]) => newExerciseIds.includes(id)));
     const prefetched = await this.recommendation.prefetchHistories(
       userId,
-      [...newCatalog.values()].map((row) => ({
-        exerciseId: row.id,
-        loadSemantics: row.loadSemantics,
-      })),
+      [...newCatalog.values()].map((row) => {
+        if (!isResistanceExercise(row)) throw new BadRequestException("지원하지 않는 운동 분류다.");
+        return { exerciseId: row.id, loadSemantics: row.loadSemantics };
+      }),
       tx,
     );
     const calibration = await this.recommendation.calibrationFor(userId, tx);
@@ -880,8 +906,13 @@ export function plannedSetResponse(
   set: PlannedSet,
   sampleCount: number,
   metadata?: SessionSetMetadata,
-  exercise?: PrescriptionCatalog,
+  exercise?: Exercise,
 ) {
+  if (!resistanceReadMatchesCatalog(set, exercise))
+    return {
+      ...cardioPlannedSetResponse(set, exercise, metadata),
+      recommendation_gate: displayGateState(sampleCount),
+    };
   const presentation = storedRecommendationPresentation(set, exercise);
   return {
     ...(metadata ?? {
@@ -889,6 +920,7 @@ export function plannedSetResponse(
       correlation_id: set.clientCorrelationId,
       append_eligibility: null,
     }),
+    ...resistancePrescriptionKindForWire(set),
     id: set.id,
     exercise_id: set.exerciseId,
     set_no: set.setNo,

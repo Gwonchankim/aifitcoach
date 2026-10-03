@@ -94,7 +94,16 @@ describe("programs", () => {
     const programs = await prisma.program.findMany({ where: { userId: USER_ID } });
     expect(programs).toHaveLength(1);
     expect(programs[0]).toMatchObject({ totalWeeks: 12, status: "active" });
-    expect(programs[0].generationInput).toEqual({
+    const { split_preference_snapshot, ...rest } = programs[0].generationInput as Prisma.JsonObject;
+    expect(split_preference_snapshot).toEqual({
+      requested_preference: null,
+      effective_preference: null,
+      applicable: false,
+      reason: "legacy_input",
+      upper_days: 2,
+      lower_days: 2,
+    });
+    expect(rest).toEqual({
       ...BASE,
       equipment: [],
       avoid_exercises: [],

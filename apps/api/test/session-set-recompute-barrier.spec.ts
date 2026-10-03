@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 /** M3 strong witnesses. Only the coordinator runs this against its disposable PostgreSQL. */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
@@ -700,6 +701,7 @@ describe("session append raw UPDATE and postcommit recompute / strong two-order 
       const recommendation = app.get(RecommendationService);
       const factory = app.get(PlannedSetFactory);
       const factoryOracle = async () => {
+        assertResistanceExercise(exercise);
         const history = await recommendation.prefetchHistories(USER, [
           { exerciseId: exercise.id, loadSemantics: exercise.loadSemantics },
         ]);

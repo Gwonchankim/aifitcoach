@@ -1,3 +1,4 @@
+import { resistanceValue } from "./support/resistance-value";
 import type { INestApplication } from "@nestjs/common";
 import {
   RULES_BUNDLE_V2,
@@ -72,7 +73,7 @@ function representation(program: Awaited<ReturnType<ProgramsService["generate"]>
       focus: s.focus,
       exercises: s.exercises.map((e) => ({
         id: e.exercise_id,
-        sets: e.sets,
+        sets: resistanceValue(e.sets),
         reps_low: e.reps_low,
         reps_high: e.reps_high,
         rir: e.target_rir,
@@ -527,8 +528,10 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
               }
               for (const exercise of session.exercises) {
                 // V1 세트 규칙: strength compound 5, 그 외 3. packer 의 2세트는 나오지 않는다.
-                if (![3, 5].includes(exercise.sets)) {
-                  violations.push(`${label}/${exercise.exercise_id}: sets ${exercise.sets}`);
+                if (![3, 5].includes(resistanceValue(exercise.sets))) {
+                  violations.push(
+                    `${label}/${exercise.exercise_id}: sets ${resistanceValue(exercise.sets)}`,
+                  );
                 }
               }
             }
@@ -571,6 +574,9 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
 
             for (const session of program.sessions) {
               sessionCount += 1;
+              // S2 adds a kind on V2 wire; the frozen pure packer bytes remain unchanged.
+              for (const exercise of session.exercises)
+                expect(exercise.prescription_kind).toBe("resistance");
               const budget = minutes * 60;
               const cap = SESSION_SET_CAP[minutes]!;
 
@@ -579,7 +585,7 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
                 continue;
               }
 
-              const totalSets = session.exercises.reduce((a, e) => a + e.sets, 0);
+              const totalSets = session.exercises.reduce((a, e) => a + resistanceValue(e.sets), 0);
               if (totalSets > cap) {
                 capViolations.push(`${label}/${session.focus}: sets ${totalSets} > ${cap}`);
               }
@@ -597,7 +603,7 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
 
               const seconds = estimateSessionSeconds({
                 exercises: session.exercises.map((e) => ({
-                  sets: e.sets,
+                  sets: resistanceValue(e.sets),
                   reps_high: e.reps_high,
                   time_high_sec: e.time_high_sec,
                   unilateral: catalog.get(e.exercise_id)!.unilateral,
@@ -661,8 +667,8 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
         );
         for (const session of program.sessions) {
           for (const e of session.exercises) {
-            if (e.sets < 2 || e.sets > 3)
-              bad.push(`${goal}/${minutes}분/${e.exercise_id}:${e.sets}`);
+            if (resistanceValue(e.sets) < 2 || resistanceValue(e.sets) > 3)
+              bad.push(`${goal}/${minutes}분/${e.exercise_id}:${resistanceValue(e.sets)}`);
           }
         }
       }
@@ -682,7 +688,7 @@ describe("프로그램 생성 — legacy 동결 + V2 packer", () => {
     const seconds = program.sessions.map((s) =>
       estimateSessionSeconds({
         exercises: s.exercises.map((e) => ({
-          sets: e.sets,
+          sets: resistanceValue(e.sets),
           reps_high: e.reps_high,
           time_high_sec: e.time_high_sec,
           unilateral: catalog.get(e.exercise_id)?.unilateral ?? false,

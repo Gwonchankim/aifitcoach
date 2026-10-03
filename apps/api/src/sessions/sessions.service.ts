@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import type { PlannedSet } from "@prisma/client";
+import type { Exercise, PlannedSet } from "@prisma/client";
 import { applyDisplayGate, displayGateState } from "shared";
 import type {
   AssistanceProvenance,
@@ -18,6 +18,7 @@ import type {
 import { encryptNumber } from "../common/crypto/field-encryption";
 import { isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
+import { isResistanceExercise } from "../exercises/exercise-domain";
 import { AggregationProjector } from "../analytics/aggregation.projector";
 import {
   classifySourceCohort,
@@ -45,10 +46,7 @@ import {
   toHistory,
 } from "../recommendation/recommendation.service";
 import type { ExerciseHistory } from "../recommendation/recommendation.service";
-import {
-  storedRecommendationPresentation,
-  type PrescriptionCatalog,
-} from "../recommendation/recommendation-presentation";
+import { storedRecommendationPresentation } from "../recommendation/recommendation-presentation";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
@@ -69,6 +67,13 @@ import { readCorrelationClaims } from "./session-set-receipt";
 import { recordSessionEditEvent } from "./session-edit-event";
 import { SessionAppendConflictException } from "../common/http/session-append-conflict";
 import { SessionSetAppendService } from "./session-set-append.service";
+import {
+  cardioPlannedSetResponse,
+  resistancePrescriptionKindForWire,
+  isResistanceSnapshot,
+  resistanceSnapshotMatchesCatalog,
+  resistanceReadMatchesCatalog,
+} from "./planned-prescription";
 import { sessionSetMetadata, type SessionSetMetadata } from "./session-set-metadata";
 
 /** openapi: components.schemas.PlannedSet */
@@ -80,13 +85,14 @@ export interface PlannedSetResponse extends SessionSetMetadata {
   target_reps_low: number | null;
   target_reps_high: number | null;
   target_rir: number | null;
-  rest_sec: number;
+  prescription_kind?: "resistance" | "steady_cardio" | "interval_cardio";
+  rest_sec: number | null;
   target_time_low_sec: number | null;
   target_time_high_sec: number | null;
   /** 자체중량·시간 또는 아직 정하지 못한 추천 무게는 null. 부하 축은 load_kind로 구분한다. */
   recommended_weight: number | null;
   recommended_reps: number | null;
-  reason_code: string;
+  reason_code: string | null;
   confidence: number | null;
   rules_version: string;
   /**
@@ -148,7 +154,7 @@ function toTargetRows(
   targetSets: PlannedSet[],
   performedFacts: Set<string>,
 ): AssistanceTargetRow[] {
-  return targetSets.map((set) => ({
+  return targetSets.filter(isResistanceSnapshot).map((set) => ({
     loadSemantics: set.loadSemantics,
     assistanceStepKg: set.assistanceStepKg,
     assistanceProvenance: set.assistanceProvenance,
@@ -378,7 +384,9 @@ export class SessionsService {
     // **루프 전에 한 번** 읽는다. semantics 는 방금 수행한 세션의 저장 snapshot 이 원천이다.
     const specs = [...performedByExercise.keys()].flatMap((exerciseId) => {
       const row = session.plannedSets.find((set) => set.exerciseId === exerciseId);
-      return row ? [{ exerciseId, loadSemantics: row.loadSemantics }] : [];
+      return row && isResistanceSnapshot(row)
+        ? [{ exerciseId, loadSemantics: row.loadSemantics }]
+        : [];
     });
     const prefetched = await this.recommendation.prefetchHistories(userId, specs, tx);
 
@@ -434,11 +442,17 @@ export class SessionsService {
       // 다음 세션의 값을 읽으면 맨몸 REPS_UP_BODYWEIGHT/TIME_UP 처럼 목표 자체가 움직이는 종목에서
       // 아웃박스 재전송(재완료)이 두 번 진행돼 버린다.
       const performedTarget = session.plannedSets.find((set) => set.exerciseId === exerciseId);
-      if (!performedTarget) continue;
+      if (
+        !performedTarget ||
+        !resistanceSnapshotMatchesCatalog(performedTarget, exercise) ||
+        !targetSets.every(isResistanceSnapshot)
+      )
+        continue;
 
       // **분류가 엔진 호출보다 먼저다.** 카탈로그의 현재 loadSemantics 는 저장 뒤에 바뀔 수 있어
       // 과거 행의 의미를 덮을 수 없다 — source·target 둘 다 저장 snapshot 이 원천이다.
       const sourceSets = session.plannedSets.filter((set) => set.exerciseId === exerciseId);
+      if (!sourceSets.every(isResistanceSnapshot)) continue;
       const sourceCohort = classifySourceCohort(toTargetRows(sourceSets, performedFacts));
       const targetCohort = classifyTargetCohort(toTargetRows(targetSets, performedFacts));
       // legacy·혼합·불명, 그리고 **source 와 target 의 의미가 다르면** 갱신도 응답도 하지 않는다.
@@ -536,9 +550,9 @@ export class SessionsService {
         const painAreas = painAreasOf(program.excludedExercises);
         const excludedPatterns = excludedPatternsFor(painAreas);
         const catalog = await tx.exercise.findMany();
-        const allowed = catalog.filter(
-          (exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern),
-        );
+        const allowed = catalog
+          .filter(isResistanceExercise)
+          .filter((exercise) => !excludedPatterns.has(exercise.movementPattern as MovementPattern));
         // 제외로 후보가 모자라면 축소된 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
         // 다른 부위 종목으로 메우지 않는다 — 사용자가 고른 부위가 아닌 운동이 섞이면 선택의 의미가 없다.
         const exercises = selectExercises(
@@ -555,7 +569,11 @@ export class SessionsService {
         // 루프 전에 한 번 — 종목마다 읽으면 즉석 세션도 N+1 이 된다.
         const prefetched = await this.recommendation.prefetchHistories(
           userId,
-          exercises.map((item) => ({ exerciseId: item.id, loadSemantics: item.loadSemantics })),
+          exercises.map((item) => {
+            if (!isResistanceExercise(item))
+              throw new BadRequestException("지원하지 않는 운동 분류다.");
+            return { exerciseId: item.id, loadSemantics: item.loadSemantics };
+          }),
           tx,
         );
         const calibration = await this.recommendation.calibrationFor(userId, tx);
@@ -624,6 +642,8 @@ export class SessionsService {
         throw new BadRequestException(`운동을 찾을 수 없다: ${dto.exercise_id}`);
       }
       assertNotInSession(session.plannedSets, dto.exercise_id);
+      if (!isResistanceExercise(exercise))
+        throw new BadRequestException("지원하지 않는 운동 분류다.");
 
       const nextOrder = maxOrderIndex(session.plannedSets) + 1;
       const orderIndex = clamp(dto.position ?? nextOrder, 0, nextOrder);
@@ -684,6 +704,8 @@ export class SessionsService {
         // 카탈로그에 없는 to_exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
         throw new BadRequestException(`운동을 찾을 수 없다: ${dto.to_exercise_id}`);
       }
+      if (!isResistanceExercise(target))
+        throw new BadRequestException("지원하지 않는 운동 분류다.");
       if (dto.to_exercise_id !== exerciseId) {
         assertNotInSession(session.plannedSets, dto.to_exercise_id);
       }
@@ -802,6 +824,13 @@ export class SessionsService {
     if (ids.length === 0) {
       throw new NotFoundException(`세션에 없는 운동이다: ${exerciseId}`);
     }
+    const catalog = await client.exercise.findUnique({ where: { id: exerciseId } });
+    if (
+      plannedSets
+        .filter((row) => row.exerciseId === exerciseId)
+        .some((row) => !resistanceSnapshotMatchesCatalog(row, catalog))
+    )
+      throw new BadRequestException("읽기 전용 처방은 편집할 수 없다.");
     const performed = await client.performedSet.count({
       where: { plannedSetId: { in: ids } },
     });
@@ -827,7 +856,7 @@ export class SessionsService {
         plannedSets: {
           orderBy: [{ orderIndex: "asc" }, { setNo: "asc" }],
           include: {
-            exercise: { select: { metric: true, defaultStepKg: true } },
+            exercise: true,
             performedSets: { orderBy: { performedAt: "desc" }, take: 1 },
           },
         },
@@ -996,7 +1025,7 @@ function toSessionResponse(
     scheduledDate: Date;
     status: string;
     plannedSets: (PlannedSet & {
-      exercise?: PrescriptionCatalog;
+      exercise?: Exercise;
       performedSets: {
         actualWeight: Prisma.Decimal | null;
         actualReps: number | null;
@@ -1021,9 +1050,29 @@ function toSessionResponse(
     planned_sets: session.plannedSets.map((set) => {
       const sampleCount = completedCounts.get(set.exerciseId) ?? 0;
       const performed = set.performedSets[0];
+      const performedResponse = performed
+        ? {
+            actual_weight: performed.actualWeight === null ? null : Number(performed.actualWeight),
+            actual_reps: performed.actualReps,
+            actual_rir: performed.actualRir,
+            actual_time_sec: performed.actualTimeSec,
+            completed: performed.completed,
+            performed_at: performed.performedAt.toISOString(),
+          }
+        : null;
+      if (!resistanceReadMatchesCatalog(set, set.exercise)) {
+        return {
+          ...cardioPlannedSetResponse(set, set.exercise, metadata.get(set.id)),
+          ...(set.prescriptionKind == null || set.prescriptionKind === "resistance"
+            ? { performed_set: performedResponse }
+            : {}),
+          recommendation_gate: displayGateState(sampleCount),
+        };
+      }
       const presentation = storedRecommendationPresentation(set, set.exercise);
       return {
         ...metadata.get(set.id)!,
+        ...resistancePrescriptionKindForWire(set),
         id: set.id,
         exercise_id: set.exerciseId,
         set_no: set.setNo,
@@ -1051,17 +1100,7 @@ function toSessionResponse(
           ),
         ),
         recommendation_gate: displayGateState(sampleCount),
-        performed_set: performed
-          ? {
-              actual_weight:
-                performed.actualWeight === null ? null : Number(performed.actualWeight),
-              actual_reps: performed.actualReps,
-              actual_rir: performed.actualRir,
-              actual_time_sec: performed.actualTimeSec,
-              completed: performed.completed,
-              performed_at: performed.performedAt.toISOString(),
-            }
-          : null,
+        performed_set: performedResponse,
       };
     }),
   };

@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../../src/exercises/exercise-domain";
 /** Frozen pre-extraction d8e36f5 body, retained only for the required equivalence regression. */
 import { BadRequestException } from "@nestjs/common";
 import type { Prisma, Program } from "@prisma/client";
@@ -6,11 +7,38 @@ import {
   requireHistory,
 } from "../../src/recommendation/recommendation.service";
 import { PlannedSetFactory, type PlannedSetRow } from "../../src/programs/planned-set.factory";
-import type { ProgramResponse } from "../../src/programs/programs.service";
+import type { ResistanceProgramExercise } from "../../src/programs/programs.service";
 import { WEEKDAYS } from "../../src/programs/program-rules";
-type ProgramSessionTemplate = ProgramResponse["sessions"][number];
+type ProgramSessionTemplate = {
+  day: string;
+  focus: string;
+  exercises: ResistanceProgramExercise[];
+};
 const addDays = (date: Date, days: number) => new Date(+date + days * 86400000);
 export async function legacyMaterializeWeek(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  program: Program,
+  week: number,
+  recommendation: RecommendationService,
+  plannedSets: PlannedSetFactory,
+) {
+  // Test adapter owns modern narrowing. The historical body below has no new runtime branch.
+  const template = program.template as unknown as ProgramSessionTemplate[];
+  for (const session of template)
+    for (const exercise of session.exercises)
+      if (
+        exercise.sets == null ||
+        (exercise.prescription_kind !== undefined && exercise.prescription_kind !== "resistance")
+      )
+        throw new Error("Historical fixture requires a resistance template");
+  const catalog = await tx.exercise.findMany({
+    where: { id: { in: template.flatMap((s) => s.exercises.map((e) => e.exercise_id)) } },
+  });
+  for (const row of catalog) assertResistanceExercise(row);
+  return frozenLegacyMaterializeWeek(tx, userId, program, week, recommendation, plannedSets);
+}
+async function frozenLegacyMaterializeWeek(
   tx: Prisma.TransactionClient,
   userId: string,
   program: Program,
@@ -35,10 +63,7 @@ export async function legacyMaterializeWeek(
   );
   const prefetched = await recommendation.prefetchHistories(
     userId,
-    [...catalog.values()].map((row) => ({
-      exerciseId: row.id,
-      loadSemantics: row.loadSemantics,
-    })),
+    [...catalog.values()].map((row) => ({ exerciseId: row.id, loadSemantics: row.loadSemantics! })),
     tx,
   );
   const calibration = await recommendation.calibrationFor(userId, tx);

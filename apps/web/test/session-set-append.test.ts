@@ -732,3 +732,12 @@ describe("pending overlay and explicit tombstones", () => {
     expect(result.blocked).toHaveLength(3);
   });
 });
+
+it("cardio identity cannot create a resistance append even with allowed source metadata", () => {
+  const source = row(1, { exercise_id: "e_stationary_bike", load_kind: "not_applicable" });
+  const ctx = { ...context([source]), exercise_id: "e_stationary_bike" };
+  expect(assessAppend(ctx).ok).toBe(false);
+  expect(
+    createAppendEntry(ctx, { client_id: id(400), correlation_id: id(401), updated_at: t0 }).ok,
+  ).toBe(false);
+});

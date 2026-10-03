@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { rawAssistanceSafetyStatus, toRawTargetRow } from "../src/programs/assistance-migration";
+import {
+  rawAssistanceSafetyStatus,
+  toRawTargetRow as rawTargetRow,
+} from "../src/programs/assistance-migration";
 import {
   appendIntentHash,
   appendEligibility,
@@ -122,9 +125,12 @@ describe("session append raw revisions and identity", () => {
     expect(enriched.performedSets[0].actualWeight.toString()).toBe("30");
   });
 
-  it("copies only A05 raw fields, preserving Decimal/null and excluding all facts and identity", () => {
+  it("adds explicit resistance kind while copying every A05 raw field and excluding facts and identity", () => {
     const original = row({ performedSets: [{ completed: true }] });
-    const copied = copySessionSetSnapshot(original);
+    const clone = copySessionSetSnapshot(original);
+    expect(clone.prescriptionKind).toBe("resistance");
+    const { prescriptionKind: _kind, ...copied } = clone;
+    expect(original.prescriptionKind).toBeUndefined();
     expect(Object.keys(copied)).toEqual([
       "targetRepsLow",
       "targetRepsHigh",
@@ -632,3 +638,27 @@ describe("A05 raw shape/storage validation, separate from A08 safety and HTTP re
     );
   });
 });
+
+/** Nullable cardio storage must never enter the protected resistance helper. */
+function toRawTargetRow(
+  row:
+    | Parameters<typeof rawTargetRow>[0]
+    | {
+        loadSemantics: "external_load" | "assistance" | null;
+        reasonCode: string | null;
+        exerciseId?: string;
+        assistanceStepKg: unknown;
+        assistanceProvenance: Parameters<typeof rawTargetRow>[0]["assistanceProvenance"];
+        rulesVersion: string;
+        recommendedWeight: unknown;
+        confidence: unknown;
+      },
+  performed: boolean,
+) {
+  if (row.loadSemantics == null || row.reasonCode == null)
+    throw new Error("Expected resistance fixture");
+  return rawTargetRow(
+    { ...row, loadSemantics: row.loadSemantics, reasonCode: row.reasonCode },
+    performed,
+  );
+}

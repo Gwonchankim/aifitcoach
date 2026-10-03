@@ -52,6 +52,7 @@ export const EQUIPMENT_OPTIONS = [
   { value: "cable", label: "케이블" },
   { value: "bodyweight", label: "맨몸" },
   { value: "ez_bar", label: "EZ바" },
+  { value: "stationary_bike", label: "고정식 자전거" },
 ] as const;
 
 export type Equipment = (typeof EQUIPMENT_OPTIONS)[number]["value"];
@@ -68,6 +69,8 @@ export const EXPERIENCE_OPTIONS = [
 
 export type ExperienceLevel = (typeof EXPERIENCE_OPTIONS)[number]["value"];
 
+export type SplitPreference = NonNullable<GenerateProgramRequest["split_preference"]>;
+
 export type OnboardingDraft = {
   sex: Sex;
   birth_year: string;
@@ -79,6 +82,8 @@ export type OnboardingDraft = {
   experience_level: ExperienceLevel;
   equipment: Equipment[];
   pain: PainSelection;
+  /** undefined = untouched; null = explicitly clear the saved preference. */
+  split_preference?: SplitPreference | null;
 };
 
 export const INITIAL_DRAFT: OnboardingDraft = {
@@ -120,7 +125,15 @@ export function toggleEquipment(current: Equipment[], value: Equipment): Equipme
 }
 
 /** 계약 페이로드. 통증 부위는 painAreasPayload 를 거쳐야만 만들어진다(AC-P-3). */
-export function toGenerateRequest(draft: OnboardingDraft): GenerateProgramRequest {
+export function toGenerateRequest(
+  draft: OnboardingDraft,
+  splitPreferenceSupported = false,
+): GenerateProgramRequest {
+  const preference = draft.split_preference;
+  const canApply =
+    splitPreferenceSupported &&
+    preference != null &&
+    (draft.days_per_week === 5 || (draft.days_per_week === 4 && preference === "balanced"));
   return {
     goal: draft.goal,
     days_per_week: draft.days_per_week,
@@ -128,6 +141,7 @@ export function toGenerateRequest(draft: OnboardingDraft): GenerateProgramReques
     experience_level: draft.experience_level,
     equipment: draft.equipment,
     pain_areas: painAreasPayload(draft.pain),
+    ...(canApply ? { split_preference: preference } : {}),
   };
 }
 
@@ -183,6 +197,12 @@ export function normalizeDraft(value: unknown): StoredDraft | null {
         INITIAL_DRAFT.experience_level,
       ),
       equipment,
+      ...(source.split_preference === null ||
+      source.split_preference === "balanced" ||
+      source.split_preference === "upper_priority" ||
+      source.split_preference === "lower_priority"
+        ? { split_preference: source.split_preference }
+        : {}),
       // 통증 부위는 저장하지 않는다 → 복원도 하지 않는다(옛 저장값이 남아 있어도 버린다).
       pain: EMPTY_PAIN_SELECTION,
     },
@@ -245,6 +265,7 @@ function toProgress(draft: OnboardingDraft) {
     minutes_per_day: draft.minutes_per_day,
     experience_level: draft.experience_level,
     equipment: draft.equipment,
+    ...(draft.split_preference !== undefined ? { split_preference: draft.split_preference } : {}),
   };
 }
 

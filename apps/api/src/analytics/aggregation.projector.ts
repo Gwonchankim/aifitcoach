@@ -1,4 +1,6 @@
 import { Injectable } from "@nestjs/common";
+import { isResistanceSnapshot } from "../sessions/planned-prescription";
+import { isResistanceExercise } from "../exercises/exercise-domain";
 import { Prisma } from "@prisma/client";
 import { estimateE1rm, type E1rmSet } from "shared";
 import { PrismaService } from "../prisma/prisma.service";
@@ -234,14 +236,17 @@ export class AggregationProjector {
       },
       orderBy: [{ scheduledDate: "asc" }, { id: "asc" }],
     });
-    return rows.map((session) => ({
-      userId,
-      sessionId: session.id,
-      scheduledDate: session.scheduledDate,
-      completed: session.status === "completed",
-      exercises: [...new Set(session.plannedSets.map((set) => set.exerciseId))].map(
-        (exerciseId) => {
-          const sets = session.plannedSets.filter((set) => set.exerciseId === exerciseId);
+    return rows.map((session) => {
+      const resistanceSets = session.plannedSets
+        .filter(isResistanceSnapshot)
+        .filter((set) => isResistanceExercise(set.exercise));
+      return {
+        userId,
+        sessionId: session.id,
+        scheduledDate: session.scheduledDate,
+        completed: session.status === "completed",
+        exercises: [...new Set(resistanceSets.map((set) => set.exerciseId))].map((exerciseId) => {
+          const sets = resistanceSets.filter((set) => set.exerciseId === exerciseId);
           const exercise = sets[0]!.exercise;
           return {
             exerciseId,
@@ -260,9 +265,9 @@ export class AggregationProjector {
               })),
             ),
           };
-        },
-      ),
-    }));
+        }),
+      };
+    });
   }
 
   private async lockUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
