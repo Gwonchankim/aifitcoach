@@ -250,6 +250,20 @@ describe("S3 split preference profile and immutable generated plan", () => {
     }
   });
 
+  it("fails before persistence when a declared focus has only one actual primary working set", async () => {
+    const plannedSets = app.get(PlannedSetFactory);
+    const build = plannedSets.build.bind(plannedSets);
+    const factory = jest
+      .spyOn(plannedSets, "build")
+      .mockImplementation(async (params) => (await build(params)).slice(0, 1));
+    try {
+      await generate({ split_preference: "lower_priority" }).expect(400);
+      expect(await counts()).toEqual({ programs: 0, sessions: 0, planned: 0 });
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
   it.each([
     ["non-null historical object", { sentinel: "preserve" }],
     ["historical JSON null", Prisma.JsonNull],
