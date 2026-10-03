@@ -16,10 +16,13 @@ import {
   toggleEquipment,
 } from "./draft";
 import { PAIN_AREAS, type PainArea, togglePainArea, toggleNone } from "./pain-areas";
+import { SplitPreferenceFields } from "./SplitPreferenceFields";
 
 export type StepProps = {
   draft: OnboardingDraft;
   onChange: (patch: Partial<OnboardingDraft>) => void;
+  splitPreferenceSupported?: boolean;
+  splitPreferenceDisabled?: boolean;
 };
 
 /** 단일 선택 칩 묶음. 그룹 이름을 legend 로 주어 스크린리더가 맥락을 읽게 한다. */
@@ -111,7 +114,12 @@ export function GoalStep({ draft, onChange }: StepProps) {
   );
 }
 
-export function DaysStep({ draft, onChange }: StepProps) {
+export function DaysStep({
+  draft,
+  onChange,
+  splitPreferenceSupported,
+  splitPreferenceDisabled,
+}: StepProps) {
   return (
     <div className="flex flex-col gap-3">
       <ChipGroup legend="주당 운동 일수" hideLegend>
@@ -131,6 +139,13 @@ export function DaysStep({ draft, onChange }: StepProps) {
         ))}
       </ChipGroup>
       <p className="text-sm text-ink-2">회복일을 사이에 두고 요일을 배치해 드려요.</p>
+      <SplitPreferenceFields
+        value={draft.split_preference ?? null}
+        onChange={(value) => onChange({ split_preference: value })}
+        supported={splitPreferenceSupported}
+        days={draft.days_per_week}
+        disabled={splitPreferenceDisabled}
+      />
     </div>
   );
 }

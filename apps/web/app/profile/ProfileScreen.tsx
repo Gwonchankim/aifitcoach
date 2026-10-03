@@ -2,19 +2,37 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { api, setCsrfToken } from "../../lib/api";
 import { Button, Card } from "../../components/ui";
 import { isNotFound } from "../../lib/error-copy";
+import { useOnline } from "../../lib/use-online";
+import { SplitPreferenceFields } from "../../components/onboarding/SplitPreferenceFields";
+import type { SplitPreference } from "../../components/onboarding/draft";
+import { OfflinePreferenceStatus } from "../../components/onboarding/OfflinePreferenceStatus";
 
 export function ProfileScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const online = useOnline();
+  const [preference, setPreference] = useState<SplitPreference | null | undefined>(undefined);
   const profile = useQuery({ queryKey: ["auth", "me"], queryFn: api.me, retry: false });
   const program = useQuery({
     queryKey: ["program", "current"],
     queryFn: api.currentProgram,
     retry: false,
   });
+  const savePreference = useMutation({
+    mutationFn: (value: SplitPreference | null) => api.updateProfile({ split_preference: value }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["auth", "me"], data);
+      setPreference(undefined);
+    },
+  });
+  const selectedPreference =
+    preference === undefined ? (profile.data?.split_preference ?? null) : preference;
+  const staleProfile = profile.data != null && profile.isError;
+  const preferenceDisabled = !online || staleProfile || savePreference.isPending;
   const exportData = useMutation({
     mutationFn: api.exportData,
     onSuccess: (data) => {
@@ -36,11 +54,20 @@ export function ProfileScreen() {
     },
   });
 
-  if (program.isPending || profile.isPending)
-    return <p className="text-sm text-fg-muted">설정을 불러오는 중이에요.</p>;
+  if (profile.isPending || (program.isPending && online))
+    return online ? (
+      <p className="text-sm text-fg-muted">설정을 불러오는 중이에요.</p>
+    ) : (
+      <OfflinePreferenceStatus online={false} stale={false} />
+    );
 
   return (
     <div className="mt-3 flex flex-col gap-3">
+      <OfflinePreferenceStatus
+        online={online}
+        stale={staleProfile}
+        cachedAt={profile.data ? profile.dataUpdatedAt : undefined}
+      />
       {profile.data ? (
         <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
           <dt className="text-fg-muted">출생 연도</dt>
@@ -54,6 +81,54 @@ export function ProfileScreen() {
             {profile.data.body_fat_pct == null ? "미입력" : `${profile.data.body_fat_pct}%`}
           </dd>
         </dl>
+      ) : null}
+      {profile.data ? (
+        <Card className="flex flex-col gap-3">
+          <SplitPreferenceFields
+            value={selectedPreference}
+            onChange={(value) => {
+              setPreference(value);
+              savePreference.reset();
+            }}
+            supported={profile.data.split_preference_supported}
+            disabled={preferenceDisabled}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="md"
+              disabled={preferenceDisabled}
+              onClick={() => {
+                if (!preferenceDisabled) savePreference.mutate(selectedPreference);
+              }}
+            >
+              선호 저장
+            </Button>
+            <Button
+              size="md"
+              variant="secondary"
+              disabled={preferenceDisabled}
+              onClick={() => {
+                if (!preferenceDisabled) savePreference.mutate(null);
+              }}
+            >
+              선호 지우기
+            </Button>
+          </div>
+          {savePreference.isSuccess && online && !staleProfile ? (
+            <p role="status" className="text-sm text-ink-2">
+              {savePreference.data.split_preference === null
+                ? "선호를 지웠어요. 새 계획은 기본 배치로 만들어요."
+                : savePreference.data.split_preference_supported
+                  ? "선호를 저장했어요. 새 계획을 만들 때 반영돼요."
+                  : "선호를 저장했어요. 지금 계획 방식에서는 아직 적용되지 않고, 새 방식이 적용되는 계획부터 반영돼요."}
+            </p>
+          ) : null}
+          {savePreference.isError && online && !staleProfile ? (
+            <p role="alert" className="text-sm text-danger">
+              선호를 저장하지 못했어요. 다시 시도해 주세요.
+            </p>
+          ) : null}
+        </Card>
       ) : null}
       {!program.data && isNotFound(program.error) ? (
         <p className="text-sm text-ink-2">아직 만든 프로그램 설정이 없어요.</p>

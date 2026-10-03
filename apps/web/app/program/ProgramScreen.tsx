@@ -11,6 +11,7 @@ import { ActualWeekDays } from "../../components/program/ActualWeekDays";
 import { WeekSwapEntry } from "../../components/program/WeekSwapSheet";
 import { CardioPrescriptionCard } from "../../components/session/CardioPrescriptionCard";
 import { hasCardioPrescription } from "../../components/session/cardio-read";
+import { SplitPreferenceSummary } from "../../components/onboarding/SplitPreferenceSummary";
 import {
   completionReadModel,
   currentProgramReadModel,
@@ -196,6 +197,9 @@ export function ProgramScreen() {
             </p>
           ))}
         </Card>
+      ) : null}
+      {program.data ? (
+        <SplitPreferenceSummary snapshot={program.data.split_preference_snapshot} />
       ) : null}
 
       {completionEnvelope ? (

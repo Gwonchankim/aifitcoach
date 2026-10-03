@@ -133,6 +133,8 @@ function withQuery(path: string, query: Record<string, string | number | undefin
 
 export const api = {
   me: () => request<Profile>("/me"),
+  updateProfile: (body: Pick<components["schemas"]["ProfileUpdate"], "split_preference">) =>
+    request<Profile>("/me", { method: "PATCH", body: JSON.stringify(body) }),
 
   ownerLogin: async (body: OwnerLoginRequest) => {
     const result = await request<AuthResult>("/auth/owner/login", {
