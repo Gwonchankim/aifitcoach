@@ -11,6 +11,8 @@
 - 결제: 국내 PG 빌링키(`/billing/checkout` → `/billing/confirm` → `/webhooks/pg`).
 
 ## 엔드포인트 요약
+
+T06 S3: Profile의 `split_preference`는 nullable이며 `split_preference_supported`는 활성 규칙 묶음에서 파생한 읽기 전용 boolean이다(버전 비노출). PATCH /me는 선호 enum 저장·null clear만 지원한다. 다른 기존 프로필 필드 또는 빈 객체는 기존 501이고 혼합 요청도 부분 적용하지 않는다. generate는 null을 400으로 거부하며 저장 프로필을 자동 대입하지 않는다. Program의 `split_preference_snapshot`이 실제 적용 상태를 나타낸다. [적용 경계와 snapshot](S3_SPLIT_PREFERENCE.md).
 auth(social/refresh/logout) · me(GET/PATCH/DELETE, consents, export, calibration) · programs(generate, current, {id}) · exercises · sessions({id}, complete, exercises add/remove/swap) · sync · analytics(e1rm/volume/completion), dashboard · billing(checkout/confirm) · subscriptions/status · webhooks/pg
 
 ## 현재 주 운동일 교환 (T05)

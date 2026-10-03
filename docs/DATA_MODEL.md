@@ -5,7 +5,7 @@ PostgreSQL 단일 주 저장소. 관계 무결성 + 유연 필드(JSONB) + 시�
 
 ```
 users(id uuid PK, role user|admin DEFAULT user, sex, birth_year int, height_cm num, weight_kg num,
-      body_fat_pct text NULL, goal enum, experience_level enum, constraints jsonb,
+      body_fat_pct text NULL, goal enum, experience_level enum, split_preference enum NULL, constraints jsonb,
       deleted_at timestamptz NULL, created_at, updated_at)
 consents(id PK, user_id FK, type, version, granted bool, granted_at)
 auth_sessions(id uuid PK, user_id FK, session_token_hash UNIQUE, csrf_token_hash,
@@ -142,3 +142,7 @@ PlannedSet은 한 cardio 블록당 한 행이다. `prescription_kind`의 raw NUL
 | assistance | 기존 predicate·immutable trigger 그대로 | load/step/provenance 모두 NULL | 동일 |
 
 모든 필수값은 `IS NOT NULL`로 검사한다. 다른 테이블을 조회하는 CHECK는 만들지 않으며 Exercise FK와 modality-kind 일치는 writer/reader가 검증한다. Program template·GET·sync·offline reader가 같은 union을 사용하고 cardio는 resistance Recommendation 객체나 rounds만큼의 working sets를 생성하지 않는다. 기존 저항 데이터 및 수행 기록은 migration에서 갱신하지 않는다.
+
+## T06 S3 split preference
+
+users.split_preference는 balanced/upper_priority/lower_priority의 nullable enum이며 additive migration에 기본값·backfill이 없다. Program.generation_input.split_preference_snapshot은 생성 시 고정된 요청·실효값과 실제 U/L 횟수를 담는다. Profile.split_preference_supported는 활성 규칙 묶음에서 파생하며 DB 컬럼이나 버전 문자열은 노출하지 않는다. 기존 Program의 missing snapshot은 읽기에서 legacy_input으로 파생하고 저장행을 수정하지 않는다. [6필드 의미](S3_SPLIT_PREFERENCE.md).

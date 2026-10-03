@@ -12,6 +12,8 @@ S2는 `.09.1` 내부 생성 경로에 실제 유산소 처방을 연결한다. �
 
 ## 읽기와 호환
 
+`source_eligibility_fallback`의 original/effective descriptor가 같은 것은 정상이다. 자격 미확인 상태에서 원래 처방 자체가 steady였음을 기록하며, 존재하지 않았던 interval을 원본으로 만들지 않는다.
+
 GET·sync·오프라인 저장은 저장된 descriptor를 그대로 읽는다. 새 계산이나 건강 판정을 읽기에 끼워 넣지 않는다. UI는 전용 카드에서 읽기만 제공하고 유산소 수행·수정은 이 slice에서 지원하지 않는다. 저항 추천·집계에 cardio를 전달하지 않는다.
 
 legacy NULL kind는 catalog resistance와 교차 검증한다. 신규 저항 writer와 append clone은 explicit `resistance`를 저장한다. 원본 legacy row와 source revision은 바꾸지 않는다. `.08.1`·`.08.2` 기존 응답에는 discriminator를 추가하지 않고 V2 wire에서 kind를 노출한다.

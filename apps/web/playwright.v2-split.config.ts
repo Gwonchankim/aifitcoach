@@ -5,10 +5,10 @@ import base from "./playwright.config";
 export default defineConfig({
   ...base,
   testIgnore: [],
-  testMatch: /23-cardio-prescription-read\.spec\.ts/,
+  testMatch: /(?:22-split-preference|23-cardio-prescription-read)\.spec\.ts/,
   projects: base.projects?.map((project) => ({
     ...project,
-    testMatch: /23-cardio-prescription-read\.spec\.ts/,
+    testMatch: /(?:22-split-preference|23-cardio-prescription-read)\.spec\.ts/,
   })),
   webServer: (Array.isArray(base.webServer) ? base.webServer : []).map((server, index) =>
     index === 0
