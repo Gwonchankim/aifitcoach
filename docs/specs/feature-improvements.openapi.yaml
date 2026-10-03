@@ -602,7 +602,14 @@ components:
       required: []
       properties:
         split_preference:
-          $ref: "#/components/schemas/SplitPreference"
+          type: string
+          nullable: true
+          enum: [null, balanced, upper_priority, lower_priority]
+          description: PATCH 미지정은 유지, null은 clear. Program 소급 변경 없음.
+        split_preference_supported:
+          type: boolean
+          readOnly: true
+          description: Profile GET 전용. 활성 규칙에서 파생하며 bundle 버전은 노출하지 않는다.
     SplitGenerationFields:
       type: object
       additionalProperties: false
@@ -710,12 +717,11 @@ x-afc-promotion:
     behavior"
   RevisionedPlannedSet: "Sprint03: additive source_revision on PlannedSet
     wire/mirror, computed from raw prescription fields"
-  SplitPreferenceProfileFields: "Sprint04: merge optional split_preference into
-    Profile/ProfileUpdate; additive nullable User.splitPreference; no changes to
-    auth or health fields"
-  SplitGenerationFields: "Sprint04: merge optional split_preference into GenerateProgramRequest"
-  SplitProgramSnapshot: "Sprint04: additive split_preference_snapshot on Program;
-    immutable requested/effective values in Program.generation_input"
+  SplitPreferenceProfileFields: "Promoted Sprint04 S3: nullable split_preference in Profile/ProfileUpdate,
+    readonly split_preference_supported in Profile; additive User.splitPreference"
+  SplitGenerationFields: "Promoted Sprint04 S3: optional non-null split_preference in GenerateProgramRequest"
+  SplitProgramSnapshot: "Promoted Sprint04 S3: required split_preference_snapshot on Program;
+    immutable requested/effective values in Program.generation_input; actual split application remains reserved"
   CurrentProgramWeek: "Sprint04: separate actual-week query; Program.sessions
     remains immutable template"
 security:

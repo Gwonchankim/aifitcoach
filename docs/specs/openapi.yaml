@@ -99,7 +99,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     patch:
       tags: [users]
-      summary: 프로필 수정(목표 변경 시 프로그램 재구성 트리거)
+      summary: 상·하체 빈도 선호 저장 또는 지우기
+      description: >-
+        split_preference만 수정한다. null은 지우기다. 빈 객체는 기존 501을 유지한다.
+        기존 weight_kg/body_fat_pct/goal/days_per_week/minutes_per_day/experience_level 수정은
+        아직 지원하지 않아 501이며 혼합 요청도 부분 적용하지 않는다. 현재 Program은 바뀌지 않는다.
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
       requestBody:
@@ -1331,11 +1335,64 @@ components:
             id: { type: string, format: uuid }
             is_new: { type: boolean }
 
+    SplitProgramSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - requested_preference
+        - effective_preference
+        - applicable
+        - reason
+        - upper_days
+        - lower_days
+      properties:
+        requested_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        effective_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        applicable:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - unsupported_days
+            - four_day_balanced_only
+            - legacy_input
+        upper_days:
+          type: integer
+          minimum: 0
+          maximum: 5
+        lower_days:
+          type: integer
+          minimum: 0
+          maximum: 5
     Profile:
       type: object
       required:
-        [id, sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level, plan_tier]
+        [id, sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level, plan_tier, split_preference, split_preference_supported]
       properties:
+        split_preference:
+          type: string
+          nullable: true
+          enum: [null, balanced, upper_priority, lower_priority]
+        split_preference_supported:
+          type: boolean
+          readOnly: true
+          description: 활성 규칙 묶음에서 파생한 선호 적용 지원 여부. 버전 문자열이나 선택 입력은 노출하지 않는다. false이면 UI는 선호를 저장·지울 수 있지만 생성 요청에는 포함하지 않는다.
         id: { type: string }
         sex: { type: string, enum: [male, female, other] }
         birth_year: { type: integer }
@@ -1351,6 +1408,11 @@ components:
     ProfileUpdate:
       type: object
       properties:
+        split_preference:
+          type: string
+          nullable: true
+          enum: [null, balanced, upper_priority, lower_priority]
+          description: 미지정은 유지, null은 저장된 선호 지우기. 프로그램 재생성은 하지 않는다.
         weight_kg: { type: number }
         body_fat_pct: { type: number }
         goal: { type: string, enum: [diet, hypertrophy, strength] }
@@ -1400,6 +1462,10 @@ components:
       type: object
       required: [goal, days_per_week, minutes_per_day, experience_level]
       properties:
+        split_preference:
+          type: string
+          enum: [balanced, upper_priority, lower_priority]
+          description: 요청 원문이 권위이며 저장 프로필을 자동 대입하지 않는다. null은 400. priority는 지원되는 5일 계획에만 허용한다.
         goal: { type: string, enum: [diet, hypertrophy, strength] }
         days_per_week: { type: integer, minimum: 2, maximum: 6 }
         minutes_per_day: { type: integer, enum: [30, 45, 60, 75, 90] }
@@ -1470,10 +1536,13 @@ components:
           current_week,
           status,
           excluded_exercises,
+          split_preference_snapshot,
           sessions,
         ]
       properties:
         program_id: { type: string }
+        split_preference_snapshot:
+          $ref: '#/components/schemas/SplitProgramSnapshot'
         goal: { type: string, enum: [diet, hypertrophy, strength, general_fitness, endurance] }
         split_type: { type: string, example: upper_lower }
         rules_version: { type: string, example: '2026.08.1' }

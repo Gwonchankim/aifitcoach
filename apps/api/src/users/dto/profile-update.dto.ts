@@ -6,6 +6,10 @@ const EXPERIENCE_LEVELS = ["beginner", "intermediate", "advanced"] as const;
 /** openapi: ProfileUpdate */
 export class ProfileUpdateDto {
   @IsOptional()
+  @IsIn(["balanced", "upper_priority", "lower_priority"])
+  split_preference?: "balanced" | "upper_priority" | "lower_priority" | null;
+
+  @IsOptional()
   @IsNumber()
   weight_kg?: number;
 

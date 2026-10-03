@@ -22,6 +22,7 @@ export function cardioProgramPlan(dto: GenerateProgramInput, catalog: readonly E
     rulesVersion: RULES_BUNDLE_V2_SPLIT,
     goal: dto.goal,
     daysPerWeek: dto.days_per_week,
+    splitPreference: dto.split_preference,
   });
   const schedule = scheduleFor(dto.days_per_week);
   const plan = planCardioWeek({

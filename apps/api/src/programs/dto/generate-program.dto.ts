@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsArray, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateIf } from "class-validator";
 import { PAIN_AREAS } from "../program-rules";
 
 const GOALS = ["diet", "hypertrophy", "strength"] as const;
@@ -7,6 +7,11 @@ const MINUTES_PER_DAY = [30, 45, 60, 75, 90] as const;
 
 /** openapi: GenerateProgramRequest */
 export class GenerateProgramDto {
+  /** Unlike profile clear, generation null is invalid; omission means balanced when applicable. */
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsIn(["balanced", "upper_priority", "lower_priority"])
+  split_preference?: "balanced" | "upper_priority" | "lower_priority";
+
   @IsIn(GOALS)
   goal!: (typeof GOALS)[number];
 

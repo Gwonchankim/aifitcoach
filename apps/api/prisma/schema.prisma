@@ -38,6 +38,14 @@ enum ExperienceLevel {
   @@map("experience_level")
 }
 
+enum SplitPreference {
+  balanced
+  upper_priority
+  lower_priority
+
+  @@map("split_preference")
+}
+
 enum MovementPattern {
   squat
   hinge
@@ -214,6 +222,7 @@ model User {
   bodyFatPct      String?         @map("body_fat_pct")
   goal            Goal
   experienceLevel ExperienceLevel @map("experience_level")
+  splitPreference SplitPreference? @map("split_preference")
   constraints     Json
   // DELETE /me 는 이 시각을 기록한 뒤 즉시 세션을 무효화한다. 실제 행 삭제는 별도 퍼지 잡이 맡는다.
   deletedAt       DateTime?       @map("deleted_at") @db.Timestamptz(3)

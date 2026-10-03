@@ -10,6 +10,6 @@ import { ProgramRulesBundleProvider } from "./program-rules-bundle.provider";
   imports: [RecommendationModule],
   controllers: [ProgramsController],
   providers: [ProgramsService, PlannedSetFactory, WeekSwapsService, ProgramRulesBundleProvider],
-  exports: [PlannedSetFactory, ProgramsService],
+  exports: [PlannedSetFactory, ProgramsService, ProgramRulesBundleProvider],
 })
 export class ProgramsModule {}

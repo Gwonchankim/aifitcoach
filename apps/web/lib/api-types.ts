@@ -224,7 +224,10 @@ export interface paths {
     };
     options?: never;
     head?: never;
-    /** 프로필 수정(목표 변경 시 프로그램 재구성 트리거) */
+    /**
+     * 상·하체 빈도 선호 저장 또는 지우기
+     * @description split_preference만 수정한다. null은 지우기다. 빈 객체는 기존 501을 유지한다. 기존 weight_kg/body_fat_pct/goal/days_per_week/minutes_per_day/experience_level 수정은 아직 지원하지 않아 501이며 혼합 요청도 부분 적용하지 않는다. 현재 Program은 바뀌지 않는다.
+     */
     patch: {
       parameters: {
         query?: never;
@@ -1750,7 +1753,22 @@ export interface components {
         is_new: boolean;
       };
     };
+    SplitProgramSnapshot: {
+      /** @enum {string|null} */
+      requested_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      /** @enum {string|null} */
+      effective_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      applicable: boolean;
+      /** @enum {string|null} */
+      reason: null | "unsupported_days" | "four_day_balanced_only" | "legacy_input";
+      upper_days: number;
+      lower_days: number;
+    };
     Profile: {
+      /** @enum {string|null} */
+      split_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      /** @description 활성 규칙 묶음에서 파생한 선호 적용 지원 여부. 버전 문자열이나 선택 입력은 노출하지 않는다. false이면 UI는 선호를 저장·지울 수 있지만 생성 요청에는 포함하지 않는다. */
+      readonly split_preference_supported: boolean;
       id: string;
       /** @enum {string} */
       sex: "male" | "female" | "other";
@@ -1768,6 +1786,11 @@ export interface components {
       plan_tier: "free" | "pro";
     };
     ProfileUpdate: {
+      /**
+       * @description 미지정은 유지, null은 저장된 선호 지우기. 프로그램 재생성은 하지 않는다.
+       * @enum {string|null}
+       */
+      split_preference?: null | "balanced" | "upper_priority" | "lower_priority";
       weight_kg?: number;
       body_fat_pct?: number;
       /** @enum {string} */
@@ -1820,6 +1843,11 @@ export interface components {
       };
     };
     GenerateProgramRequest: {
+      /**
+       * @description 요청 원문이 권위이며 저장 프로필을 자동 대입하지 않는다. null은 400. priority는 지원되는 5일 계획에만 허용한다.
+       * @enum {string}
+       */
+      split_preference?: "balanced" | "upper_priority" | "lower_priority";
       /** @enum {string} */
       goal: "diet" | "hypertrophy" | "strength";
       days_per_week: number;
@@ -1847,6 +1875,7 @@ export interface components {
     };
     Program: {
       program_id: string;
+      split_preference_snapshot: components["schemas"]["SplitProgramSnapshot"];
       /** @enum {string} */
       goal: "diet" | "hypertrophy" | "strength" | "general_fitness" | "endurance";
       /** @example upper_lower */

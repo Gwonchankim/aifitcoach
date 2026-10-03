@@ -1,7 +1,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { RULES_BUNDLE_V2_SPLIT, type SplitPreference } from "shared";
 import { decryptNumber } from "../common/crypto/field-encryption";
+import { notImplemented } from "../common/http/not-implemented";
 import { PrismaService } from "../prisma/prisma.service";
+import { ProgramRulesBundleProvider } from "../programs/program-rules-bundle.provider";
 import type { ConsentDto } from "./dto/consent.dto";
+import type { ProfileUpdateDto } from "./dto/profile-update.dto";
 
 export type ProfileResponse = {
   id: string;
@@ -13,6 +17,8 @@ export type ProfileResponse = {
   goal: "diet" | "hypertrophy" | "strength";
   experience_level: "beginner" | "intermediate" | "advanced";
   plan_tier: "free" | "pro";
+  split_preference: SplitPreference | null;
+  split_preference_supported: boolean;
 };
 
 function decodeFeedback(feedback: unknown): unknown {
@@ -25,7 +31,10 @@ function decodeFeedback(feedback: unknown): unknown {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rulesBundle: ProgramRulesBundleProvider,
+  ) {}
 
   private async activeUser(userId: string) {
     const user = await this.prisma.user.findFirst({
@@ -52,11 +61,33 @@ export class UsersService {
       goal,
       experience_level: user.experienceLevel,
       plan_tier: user.subscription?.tier ?? "free",
+      split_preference: user.splitPreference,
+      split_preference_supported: this.rulesBundle.current() === RULES_BUNDLE_V2_SPLIT,
     };
   }
 
   async getProfile(userId: string): Promise<ProfileResponse> {
     return this.profile(await this.activeUser(userId));
+  }
+
+  async updateProfile(userId: string, body: ProfileUpdateDto): Promise<ProfileResponse> {
+    // Reject a mixed body before any write. Empty bodies retain the original 501 too.
+    if (
+      body.split_preference === undefined ||
+      body.weight_kg !== undefined ||
+      body.body_fat_pct !== undefined ||
+      body.goal !== undefined ||
+      body.days_per_week !== undefined ||
+      body.minutes_per_day !== undefined ||
+      body.experience_level !== undefined
+    )
+      return notImplemented();
+    const result = await this.prisma.user.updateMany({
+      where: { id: userId, deletedAt: null },
+      data: { splitPreference: body.split_preference },
+    });
+    if (result.count === 0) throw new NotFoundException("사용자를 찾을 수 없다.");
+    return this.getProfile(userId);
   }
 
   async recordConsents(userId: string, consents: ConsentDto[]): Promise<void> {

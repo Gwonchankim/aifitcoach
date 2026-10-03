@@ -1,4 +1,5 @@
 import type { INestApplication } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import request from "supertest";
 import { RULES_BUNDLE_V2_SPLIT } from "shared";
 import { devUserId } from "../src/auth/dev-user";
@@ -248,6 +249,39 @@ describe("S3 split preference profile and immutable generated plan", () => {
       factory.mockRestore();
     }
   });
+
+  it.each([
+    ["non-null historical object", { sentinel: "preserve" }],
+    ["historical JSON null", Prisma.JsonNull],
+  ] as const)(
+    "reads %s without retroactively adding or rewriting a snapshot",
+    async (_label, generationInput) => {
+      const generated = (await generate({ days_per_week: 4 }).expect(201)).body;
+      const before = await prisma.program.update({
+        where: { id: generated.program_id },
+        data: { generationInput },
+      });
+      const current = (await request(app.getHttpServer()).get("/v1/programs/current").expect(200))
+        .body;
+      expect(current.split_preference_snapshot).toEqual({
+        requested_preference: null,
+        effective_preference: null,
+        applicable: false,
+        reason: "legacy_input",
+        upper_days: 2,
+        lower_days: 2,
+      });
+      expect(current.sessions.map((slot: { focus: string }) => slot.focus)).toEqual([
+        "upper",
+        "lower",
+        "upper",
+        "lower",
+      ]);
+      expect(
+        await prisma.program.findUniqueOrThrow({ where: { id: generated.program_id } }),
+      ).toEqual(before);
+    },
+  );
 
   it("rejects a core-only candidate pool atomically even when pain filters removed real exercises", async () => {
     const avoid = (await prisma.exercise.findMany())

@@ -9,6 +9,7 @@ export * from "./recommendation-state";
 export * from "./rules-version";
 export * from "./session-plan";
 export * from "./program-composition";
+export * from "./split-preference";
 export * from "./mixed-session-plan";
 export * from "./cardio-prescription";
 export * from "./cardio-prescription-codec";
