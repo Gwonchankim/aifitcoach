@@ -43,6 +43,27 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it.each(["wizard", "profile"])(
+  "%s never presents a query-cache update time as a domain sync time",
+  async (screenName) => {
+    mocks.me.mockRejectedValue(new TypeError("profile transport failed"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["auth", "me"], profile, { updatedAt: 1234567890000 });
+    render(
+      <QueryClientProvider client={client}>
+        {screenName === "wizard" ? <OnboardingWizard /> : <ProfileScreen />}
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(client.getQueryState(["auth", "me"])?.status).toBe("error"));
+    expect(screen.queryByText(/마지막 동기화/)).toBeNull();
+    expect(screen.queryByText(/\d{2}:\d{2}/)).toBeNull();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toBe(
+      "오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.",
+    );
+  },
+);
+
 it("explains offline generation blocking when the profile query is paused without a cache", async () => {
   Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
   window.history.replaceState(null, "", "/onboarding#step-7");
@@ -72,11 +93,12 @@ it("describes cached profile use after refresh failure and sends the cached supp
       <OnboardingWizard />
     </QueryClientProvider>,
   );
-  await screen.findByText("연결을 확인한 뒤 선호를 바꿔 주세요.");
+  await screen.findByText("오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.");
   expect(screen.getAllByRole("status")).toHaveLength(1);
-  expect(screen.getByRole("status").textContent).toMatch(
-    /^오프라인 · 마지막 동기화 \d{2}:\d{2} 기준$/,
+  expect(screen.getByRole("status").textContent).toBe(
+    "오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.",
   );
+  expect(screen.queryByText(/마지막 동기화|\d{2}:\d{2}/)).toBeNull();
   expect(
     screen.queryByText(
       "저장된 선호를 불러오지 못했어요. 선호를 적용하지 않고 기본 계획을 만들어요.",
@@ -89,7 +111,7 @@ it("describes cached profile use after refresh failure and sends the cached supp
 });
 
 it.each(["wizard", "profile"])(
-  "%s stale profile disables preference controls with exactly one timestamp banner",
+  "%s stale profile disables preference controls with exactly one no-time status",
   async (screenName) => {
     mocks.me.mockRejectedValue(new TypeError("profile refresh failed"));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -101,12 +123,12 @@ it.each(["wizard", "profile"])(
         {screenName === "wizard" ? <OnboardingWizard /> : <ProfileScreen />}
       </QueryClientProvider>,
     );
-    await screen.findByText("연결을 확인한 뒤 선호를 바꿔 주세요.");
+    await screen.findByText("오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.");
     expect(screen.getAllByRole("status")).toHaveLength(1);
-    const date = new Date("2020-01-01T03:04:00Z");
     expect(screen.getByRole("status").textContent).toBe(
-      `오프라인 · 마지막 동기화 ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} 기준`,
+      "오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.",
     );
+    expect(screen.queryByText(/마지막 동기화|\d{2}:\d{2}/)).toBeNull();
     for (const radio of screen.getAllByRole("radio"))
       expect((radio as HTMLInputElement).disabled).toBe(true);
     if (screenName === "profile") {
@@ -125,7 +147,7 @@ it.each(["wizard", "profile"])(
   },
 );
 
-it("offline cached wizard keeps the timestamp and exact disabled reason without changing other onboarding fields", async () => {
+it("offline cached wizard shows the exact no-time disabled reason without changing other onboarding fields", async () => {
   Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["auth", "me"], profile);
@@ -138,7 +160,10 @@ it("offline cached wizard keeps the timestamp and exact disabled reason without 
     );
     await screen.findByText("오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.");
     expect(screen.getAllByRole("status")).toHaveLength(1);
-    expect(screen.getByRole("status").textContent).toMatch(/^오프라인 · 마지막 동기화/);
+    expect(screen.getByRole("status").textContent).toBe(
+      "오프라인이라 지금은 선호를 바꿀 수 없어요. 연결되면 바꿀 수 있어요.",
+    );
+    expect(screen.queryByText(/마지막 동기화|\d{2}:\d{2}/)).toBeNull();
     for (const radio of screen.getAllByRole("radio"))
       expect((radio as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "주 5일" }) as HTMLButtonElement).disabled).toBe(

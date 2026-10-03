@@ -63,11 +63,7 @@ export function ProfileScreen() {
 
   return (
     <div className="mt-3 flex flex-col gap-3">
-      <OfflinePreferenceStatus
-        online={online}
-        stale={staleProfile}
-        cachedAt={profile.data ? profile.dataUpdatedAt : undefined}
-      />
+      <OfflinePreferenceStatus online={online} stale={staleProfile} />
       {profile.data ? (
         <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
           <dt className="text-fg-muted">출생 연도</dt>

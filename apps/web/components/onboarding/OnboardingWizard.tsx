@@ -284,11 +284,7 @@ export function OnboardingWizard() {
           주세요.
         </p>
       ) : null}
-      <OfflinePreferenceStatus
-        online={online}
-        stale={profile.data != null && profile.isError}
-        cachedAt={profile.data ? profile.dataUpdatedAt : undefined}
-      />
+      <OfflinePreferenceStatus online={online} stale={profile.data != null && profile.isError} />
       {profile.isError && online && !profile.data ? (
         <p role="status" className="mt-3 text-sm text-ink-2">
           저장된 선호를 불러오지 못했어요. 선호를 적용하지 않고 기본 계획을 만들어요.
