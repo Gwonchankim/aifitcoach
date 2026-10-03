@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 /**
  * F-4a — 어시스트 snapshot consumer 와 service seam.
  *
@@ -293,6 +294,7 @@ describe("② service seam · snapshot consumer (실제 DB)", () => {
   describe("red 5·6 — 서비스 결과로 단언한다(adapter helper shape 가 아니라)", () => {
     async function ask(painScore: string | null) {
       const exercise = await prisma.exercise.findUniqueOrThrow({ where: { id: ASSISTED } });
+      assertResistanceExercise(exercise);
       const history = await recommendation.historyFor(USER_ID, ASSISTED, exercise.loadSemantics);
       return recommendation.recommend({
         goal: "hypertrophy",

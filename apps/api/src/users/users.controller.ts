@@ -25,10 +25,13 @@ export class UsersController {
     return this.users.getProfile(userId);
   }
 
-  /** PATCH /me — 프로필 수정(목표 변경 시 프로그램 재구성 트리거) */
+  /** PATCH /me — 선호 저장/지우기만 지원. 나머지 프로필 수정은 기존 501. */
   @Patch()
-  updateProfile(@Body() _body: ProfileUpdateDto): never {
-    return notImplemented();
+  updateProfile(
+    @CurrentUser() userId: string,
+    @Body() body: ProfileUpdateDto,
+  ): Promise<ProfileResponse> {
+    return this.users.updateProfile(userId, body);
   }
 
   /** DELETE /me — 계정/데이터 삭제 요청(소프트 삭제 후 퍼지) */

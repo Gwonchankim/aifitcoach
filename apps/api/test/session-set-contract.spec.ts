@@ -152,14 +152,38 @@ describe("Sprint03 active append wire (no server/DB execution)", () => {
     ]) {
       expect(valid("AppendEligibility", { ...eligibility, ...extra })).toBe(false);
     }
-    expect(document.components.schemas.PlannedSet.required).toEqual(
+    const schemas = document.components.schemas;
+    expect(schemas.PlannedSet.oneOf).toEqual([
+      { $ref: "#/components/schemas/LegacyPlannedSet" },
+      { $ref: "#/components/schemas/ResistancePlannedSet" },
+      { $ref: "#/components/schemas/SteadyCardioPlannedSet" },
+      { $ref: "#/components/schemas/IntervalCardioPlannedSet" },
+    ]);
+    for (const name of ["LegacyPlannedSet", "ResistancePlannedSet"]) {
+      expect(schemas[name].allOf).toContainEqual({
+        $ref: "#/components/schemas/ResistancePlannedSetBase",
+      });
+    }
+    expect(schemas.ResistancePlannedSetBase.required).toEqual(
       expect.arrayContaining(["source_revision", "append_eligibility", "correlation_id"]),
     );
-    expect(document.components.schemas.PlannedSet.properties.correlation_id).toMatchObject({
+    expect(schemas.ResistancePlannedSetBase.properties.correlation_id).toMatchObject({
       type: "string",
       format: "uuid",
       nullable: true,
     });
+    for (const name of ["SteadyCardioPlannedSet", "IntervalCardioPlannedSet"]) {
+      expect(schemas[name].required).toEqual(
+        expect.arrayContaining([
+          "id",
+          "exercise_id",
+          "source_revision",
+          "correlation_id",
+          "append_eligibility",
+        ]),
+      );
+      expect(schemas[name].properties.append_eligibility).toEqual({ nullable: true, enum: [null] });
+    }
   });
 
   it("requires both common Error and the declared append refinement during response checks", () => {

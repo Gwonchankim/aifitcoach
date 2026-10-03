@@ -9,6 +9,8 @@ import { currentWeekReadModel } from "../../lib/week-swap-data";
 import { SWAP_COPY, type ActualWeekSession } from "../../lib/week-swap";
 import { focusLabel } from "../../lib/program-labels";
 import { formatClock } from "../../lib/use-online";
+import { CardioPrescriptionCard } from "../session/CardioPrescriptionCard";
+import { hasCardioPrescription } from "../session/cardio-read";
 
 function ActualSessionDetail({
   session,
@@ -36,15 +38,23 @@ function ActualSessionDetail({
             className="border-t border-dotted border-border-weak py-[7px]"
           >
             <p className="text-sm text-fg">{names.get(exercise.exercise_id) ?? "운동"}</p>
-            {rows.map((row) => (
-              <p key={row.id} className="font-mono text-xs text-fg-muted">
-                {row.set_no}세트 ·{" "}
-                {row.target_time_low_sec != null
-                  ? `${row.target_time_low_sec}–${row.target_time_high_sec ?? row.target_time_low_sec}초`
-                  : `${row.target_reps_low ?? "—"}–${row.target_reps_high ?? row.target_reps_low ?? "—"}회`}
-                {row.target_rir == null ? "" : ` · RIR ${row.target_rir}`}
-              </p>
-            ))}
+            {rows.map((row) =>
+              hasCardioPrescription(row) ? (
+                <CardioPrescriptionCard
+                  key={row.id}
+                  prescription={row}
+                  name={names.get(exercise.exercise_id) ?? "유산소"}
+                />
+              ) : (
+                <p key={row.id} className="font-mono text-xs text-fg-muted">
+                  {row.set_no}세트 ·{" "}
+                  {row.target_time_low_sec != null
+                    ? `${row.target_time_low_sec}–${row.target_time_high_sec ?? row.target_time_low_sec}초`
+                    : `${row.target_reps_low ?? "—"}–${row.target_reps_high ?? row.target_reps_low ?? "—"}회`}
+                  {row.target_rir == null ? "" : ` · RIR ${row.target_rir}`}
+                </p>
+              ),
+            )}
           </div>
         );
       })}

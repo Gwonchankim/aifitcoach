@@ -104,6 +104,10 @@ describe("운동 카탈로그 API", () => {
       expect({ ...row, defaultStepKg: Number(row.defaultStepKg) }).toEqual(seed);
       const expected = {
         id: row.id,
+        modality: row.modality,
+        cardio_movement_regions: row.cardioMovementRegions,
+        prescription_kinds_supported: row.prescriptionKindsSupported,
+        blocked_reported_pain_areas: row.blockedReportedPainAreas,
         name_ko: row.nameKo,
         name_en: row.nameEn,
         movement_pattern: row.movementPattern,
@@ -233,6 +237,10 @@ describe("운동 카탈로그 API", () => {
 
       expect(plank).toEqual({
         id: "e_plank",
+        modality: "resistance",
+        cardio_movement_regions: [],
+        prescription_kinds_supported: [],
+        blocked_reported_pain_areas: [],
         name_ko: "플랭크",
         name_en: "Plank",
         movement_pattern: "core",
@@ -256,6 +264,10 @@ describe("운동 카탈로그 API", () => {
       expectMatchesContract("get", DETAIL_PATH, 200, response.body);
       expect(response.body).toEqual({
         id: "e_dips",
+        modality: "resistance",
+        cardio_movement_regions: [],
+        prescription_kinds_supported: [],
+        blocked_reported_pain_areas: [],
         name_ko: "딥스",
         name_en: "Dips",
         movement_pattern: "horizontal_push",

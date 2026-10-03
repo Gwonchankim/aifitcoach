@@ -28,6 +28,26 @@ export const phases = [
   { name: "similar-c", project: "chromium-mobile", args: ["20-similar-init.spec.ts"] },
   { name: "weekly-focus-c", project: "chromium-mobile", args: ["21-weekly-focus-swap.spec.ts"] },
   { name: "weekly-focus-w", project: "webkit-ios", args: ["21-weekly-focus-swap.spec.ts"] },
+  {
+    name: "split-c",
+    project: "chromium-mobile",
+    args: ["22-split-preference.spec.ts", "--config", "playwright.v2-split.config.ts"],
+  },
+  {
+    name: "split-w",
+    project: "webkit-ios",
+    args: ["22-split-preference.spec.ts", "--config", "playwright.v2-split.config.ts"],
+  },
+  {
+    name: "cardio-c",
+    project: "chromium-mobile",
+    args: ["23-cardio-prescription-read.spec.ts", "--config", "playwright.v2-split.config.ts"],
+  },
+  {
+    name: "cardio-w",
+    project: "webkit-ios",
+    args: ["23-cardio-prescription-read.spec.ts", "--config", "playwright.v2-split.config.ts"],
+  },
 ];
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

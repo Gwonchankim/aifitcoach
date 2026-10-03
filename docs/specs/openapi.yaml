@@ -99,7 +99,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
     patch:
       tags: [users]
-      summary: 프로필 수정(목표 변경 시 프로그램 재구성 트리거)
+      summary: 상·하체 빈도 선호 저장 또는 지우기
+      description: >-
+        split_preference만 수정한다. null은 지우기다. 빈 객체는 기존 501을 유지한다.
+        기존 weight_kg/body_fat_pct/goal/days_per_week/minutes_per_day/experience_level 수정은
+        아직 지원하지 않아 501이며 혼합 요청도 부분 적용하지 않는다. 현재 Program은 바뀌지 않는다.
       parameters:
         - $ref: '#/components/parameters/CsrfHeader'
       requestBody:
@@ -210,6 +214,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Program' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Reserved mixed planning fails atomically.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeatureConflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /programs/current:
@@ -1326,11 +1335,64 @@ components:
             id: { type: string, format: uuid }
             is_new: { type: boolean }
 
+    SplitProgramSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - requested_preference
+        - effective_preference
+        - applicable
+        - reason
+        - upper_days
+        - lower_days
+      properties:
+        requested_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        effective_preference:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - balanced
+            - upper_priority
+            - lower_priority
+        applicable:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          enum:
+            - null
+            - unsupported_days
+            - four_day_balanced_only
+            - legacy_input
+        upper_days:
+          type: integer
+          minimum: 0
+          maximum: 5
+        lower_days:
+          type: integer
+          minimum: 0
+          maximum: 5
     Profile:
       type: object
       required:
-        [id, sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level, plan_tier]
+        [id, sex, birth_year, height_cm, weight_kg, body_fat_pct, goal, experience_level, plan_tier, split_preference, split_preference_supported]
       properties:
+        split_preference:
+          type: string
+          nullable: true
+          enum: [null, balanced, upper_priority, lower_priority]
+        split_preference_supported:
+          type: boolean
+          readOnly: true
+          description: 활성 규칙 묶음에서 파생한 선호 적용 지원 여부. 버전 문자열이나 선택 입력은 노출하지 않는다. false이면 UI는 선호를 저장·지울 수 있지만 생성 요청에는 포함하지 않는다.
         id: { type: string }
         sex: { type: string, enum: [male, female, other] }
         birth_year: { type: integer }
@@ -1346,6 +1408,11 @@ components:
     ProfileUpdate:
       type: object
       properties:
+        split_preference:
+          type: string
+          nullable: true
+          enum: [null, balanced, upper_priority, lower_priority]
+          description: 미지정은 유지, null은 저장된 선호 지우기. 프로그램 재생성은 하지 않는다.
         weight_kg: { type: number }
         body_fat_pct: { type: number }
         goal: { type: string, enum: [diet, hypertrophy, strength] }
@@ -1395,6 +1462,10 @@ components:
       type: object
       required: [goal, days_per_week, minutes_per_day, experience_level]
       properties:
+        split_preference:
+          type: string
+          enum: [balanced, upper_priority, lower_priority]
+          description: 요청 원문이 권위이며 저장 프로필을 자동 대입하지 않는다. null은 400. priority는 지원되는 5일 계획에만 허용한다.
         goal: { type: string, enum: [diet, hypertrophy, strength] }
         days_per_week: { type: integer, minimum: 2, maximum: 6 }
         minutes_per_day: { type: integer, enum: [30, 45, 60, 75, 90] }
@@ -1406,6 +1477,7 @@ components:
           type: array
           items: { type: string }
         pain_areas:
+          description: "S2 reserved .09.1: omitted means unavailable; [] means known no pain. Screening/readiness/history remain unknown. Active .08.1 behavior is unchanged."
           # 통증 부위 → 제외 movement_pattern 매핑은 docs/SAFETY_PAIN_MAPPING.md 가 유일한 출처이고,
           # 아래 enum 은 그 매핑표의 8개 부위다.
           # 알 수 없는 값(오타·대소문자·한글)은 400 이다 — 무시하면 안전 필터가 조용히 무력화된다.
@@ -1415,6 +1487,39 @@ components:
             type: string
             enum: [knee, lower_back, shoulder, elbow, wrist, hip, neck, ankle]
             example: knee
+
+    FeatureConflict:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+              enum:
+                - CONFLICT
+            message:
+              type: string
+              minLength: 1
+            details:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - insufficient_time_for_mixed_focus
+                    - cardio_preservation_failed
 
     Program:
       type: object
@@ -1431,11 +1536,14 @@ components:
           current_week,
           status,
           excluded_exercises,
+          split_preference_snapshot,
           sessions,
         ]
       properties:
         program_id: { type: string }
-        goal: { type: string }
+        split_preference_snapshot:
+          $ref: '#/components/schemas/SplitProgramSnapshot'
+        goal: { type: string, enum: [diet, hypertrophy, strength, general_fitness, endurance] }
         split_type: { type: string, example: upper_lower }
         rules_version: { type: string, example: '2026.08.1' }
         started_at: { type: string, format: date }
@@ -1467,18 +1575,184 @@ components:
               exercises:
                 type: array
                 items:
-                  type: object
-                  # metric=time 종목(e_plank)은 반복·RIR 대신 time_*_sec 로 처방한다 → 반복 축은 null.
-                  required: [exercise_id, sets, reps_low, reps_high, target_rir, rest_sec]
-                  properties:
-                    exercise_id: { type: string }
-                    sets: { type: integer }
-                    reps_low: { type: integer, nullable: true }
-                    reps_high: { type: integer, nullable: true }
-                    target_rir: { type: integer, nullable: true }
-                    rest_sec: { type: integer }
-                    time_low_sec: { type: integer, nullable: true }
-                    time_high_sec: { type: integer, nullable: true }
+                  oneOf:
+                    - $ref: '#/components/schemas/LegacyProgramExercise'
+                    - $ref: '#/components/schemas/ResistanceProgramExercise'
+                    - $ref: '#/components/schemas/CardioProgramExercise'
+
+    ResistanceProgramExerciseBase:
+      type: object
+      # metric=time 종목(e_plank)은 반복·RIR 대신 time_*_sec 로 처방한다 → 반복 축은 null.
+      required: [exercise_id, sets, reps_low, reps_high, target_rir, rest_sec]
+      properties:
+        exercise_id: { type: string }
+        sets: { type: integer }
+        reps_low: { type: integer, nullable: true }
+        reps_high: { type: integer, nullable: true }
+        target_rir: { type: integer, nullable: true }
+        rest_sec: { type: integer }
+        time_low_sec: { type: integer, nullable: true }
+        time_high_sec: { type: integer, nullable: true }
+
+    LegacyProgramExercise:
+      allOf:
+        - $ref: "#/components/schemas/ResistanceProgramExerciseBase"
+        - not:
+            required:
+              - prescription_kind
+
+    ResistanceProgramExercise:
+      allOf:
+        - $ref: "#/components/schemas/ResistanceProgramExerciseBase"
+        - type: object
+          required:
+            - prescription_kind
+          properties:
+            prescription_kind:
+              type: string
+              enum:
+                - resistance
+
+    CardioProgramExercise:
+      type: object
+      required:
+        - exercise_id
+        - prescription_kind
+        - sets
+        - reps_low
+        - reps_high
+        - target_rir
+        - rest_sec
+        - time_low_sec
+        - time_high_sec
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+        - source_day
+        - source_ordinal
+        - intensity_seconds
+        - cardio_fallback
+      properties:
+        exercise_id:
+          type: string
+        prescription_kind:
+          type: string
+          enum:
+            - steady_cardio
+            - interval_cardio
+        sets:
+          nullable: true
+          enum: &a1
+            - null
+        reps_low:
+          nullable: true
+          enum: *a1
+        reps_high:
+          nullable: true
+          enum: *a1
+        target_rir:
+          nullable: true
+          enum: *a1
+        rest_sec:
+          nullable: true
+          enum: *a1
+        time_low_sec:
+          nullable: true
+          enum: *a1
+        time_high_sec:
+          nullable: true
+          enum: *a1
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          type: integer
+          nullable: true
+          minimum: 1
+        recovery_sec:
+          type: integer
+          nullable: true
+          minimum: 1
+        rounds:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 12
+        recovery_rpe_low:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        recovery_rpe_high:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 10
+        final_recovery_included:
+          type: boolean
+          nullable: true
+        long_session_flag:
+          type: boolean
+        progression_axis:
+          type: string
+          enum:
+            - duration_sec
+            - rounds
+        source_day:
+          type: string
+          enum:
+            - MON
+            - TUE
+            - WED
+            - THU
+            - FRI
+            - SAT
+            - SUN
+        source_ordinal:
+          type: integer
+          minimum: 1
+        intensity_seconds:
+          type: object
+          required:
+            - moderate
+            - high
+            - recovery
+          additionalProperties: false
+          properties:
+            moderate:
+              type: integer
+              minimum: 0
+            high:
+              type: integer
+              minimum: 0
+            recovery:
+              type: integer
+              minimum: 0
+        cardio_fallback:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/CardioFallback"
 
     Exercise:
       type: object
@@ -1487,6 +1761,10 @@ components:
       required:
         [
           id,
+          modality,
+          cardio_movement_regions,
+          prescription_kinds_supported,
+          blocked_reported_pain_areas,
           name_ko,
           name_en,
           movement_pattern,
@@ -1504,16 +1782,27 @@ components:
         ]
       properties:
         id: { type: string }
+        modality: { type: string, nullable: true, enum: [resistance, cardio, mobility, warmup, null] }
+        cardio_movement_regions:
+          type: array
+          description: D7 qualitative cardio motion only; never an N07 resistance exposure. Empty for resistance.
+          items: { type: string, enum: [lower] }
+        prescription_kinds_supported:
+          type: array
+          items: { type: string, enum: [steady_cardio, interval_cardio] }
+        blocked_reported_pain_areas:
+          type: array
+          items: { type: string, enum: [knee, lower_back, shoulder, elbow, wrist, hip, neck, ankle] }
         name_ko: { type: string }
         name_en: { type: string }
-        movement_pattern: { type: string }
+        movement_pattern: { type: string, nullable: true }
         primary_muscles:
           type: array
           items: { type: string }
         equipment: { type: string }
         difficulty: { type: string }
-        mechanic: { type: string, enum: [compound, isolation] }
-        region: { type: string, enum: [upper, lower, core] }
+        mechanic: { type: string, nullable: true, enum: [compound, isolation, null] }
+        region: { type: string, nullable: true, enum: [upper, lower, core, null] }
         metric: { type: string, enum: [reps, time] }
         step_kg: { type: number, nullable: true }
         rep_range_low: { type: integer }
@@ -1539,6 +1828,13 @@ components:
           items: { $ref: '#/components/schemas/PlannedSet' }
 
     PlannedSet:
+      oneOf:
+        - $ref: "#/components/schemas/LegacyPlannedSet"
+        - $ref: "#/components/schemas/ResistancePlannedSet"
+        - $ref: "#/components/schemas/SteadyCardioPlannedSet"
+        - $ref: "#/components/schemas/IntervalCardioPlannedSet"
+
+    ResistancePlannedSetBase:
       type: object
       # 맨몸(자체중량) 종목은 recommended_weight 가 null 이고, metric=time 종목(e_plank)은
       # 반복·RIR 축이 없어 target_reps_*/target_rir/recommended_reps 가 null + target_time_*_sec 를 쓴다.
@@ -1632,6 +1928,675 @@ components:
           allOf:
             - $ref: '#/components/schemas/PerformedSetSummary'
           nullable: true
+
+    LegacyPlannedSet:
+      allOf:
+        - $ref: "#/components/schemas/ResistancePlannedSetBase"
+        - not:
+            required:
+              - prescription_kind
+
+    ResistancePlannedSet:
+      allOf:
+        - $ref: "#/components/schemas/ResistancePlannedSetBase"
+        - type: object
+          required:
+            - prescription_kind
+          properties:
+            prescription_kind:
+              type: string
+              enum:
+                - resistance
+
+    SteadyCardioPlannedSet:
+      type: object
+      required:
+        - id
+        - exercise_id
+        - set_no
+        - target_reps_low
+        - target_reps_high
+        - target_rir
+        - rest_sec
+        - recommended_weight
+        - recommended_reps
+        - reason_code
+        - confidence
+        - rules_version
+        - load_kind
+        - recommendation_state
+        - assistance_provenance
+        - recommended_action
+        - assistance_safety_status
+        - recommendation_gate
+        - performed_set
+        - source_revision
+        - append_eligibility
+        - correlation_id
+        - prescription_kind
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+        - source_day
+        - source_ordinal
+        - intensity_seconds
+        - cardio_fallback
+        - target_time_low_sec
+        - target_time_high_sec
+      properties:
+        id:
+          type: string
+        exercise_id:
+          type: string
+        set_no:
+          type: integer
+        target_reps_low:
+          nullable: true
+          enum: &a1
+            - null
+        target_reps_high:
+          nullable: true
+          enum: *a1
+        target_rir:
+          nullable: true
+          enum: *a1
+        rest_sec:
+          nullable: true
+          enum: *a1
+        target_time_low_sec:
+          nullable: true
+          enum: *a1
+        target_time_high_sec:
+          nullable: true
+          enum: *a1
+        recommended_weight:
+          nullable: true
+          enum: *a1
+        recommended_reps:
+          nullable: true
+          enum: *a1
+        reason_code:
+          nullable: true
+          enum: *a1
+        confidence:
+          nullable: true
+          enum: *a1
+        rules_version:
+          type: string
+        load_kind:
+          type: string
+          enum:
+            - not_applicable
+        recommendation_state:
+          type: string
+          enum:
+            - ready
+            - substitution_required
+            - unavailable
+        assistance_provenance:
+          nullable: true
+          enum: *a1
+        recommended_action:
+          nullable: true
+          enum: *a1
+        assistance_safety_status:
+          nullable: true
+          enum: *a1
+        recommendation_gate:
+          allOf:
+            - $ref: "#/components/schemas/DisplayGateState"
+          description: analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다.
+        source_revision:
+          type: string
+          minLength: 1
+          description: 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision.
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+        append_eligibility:
+          nullable: true
+          enum: *a1
+        performed_set:
+          nullable: true
+          enum: *a1
+        prescription_kind:
+          type: string
+          enum:
+            - steady_cardio
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          nullable: true
+          enum: &a2
+            - null
+        recovery_sec:
+          nullable: true
+          enum: *a2
+        rounds:
+          nullable: true
+          enum: *a2
+        recovery_rpe_low:
+          nullable: true
+          enum: *a2
+        recovery_rpe_high:
+          nullable: true
+          enum: *a2
+        final_recovery_included:
+          nullable: true
+          enum: *a2
+        long_session_flag:
+          type: boolean
+        progression_axis:
+          type: string
+          enum:
+            - duration_sec
+        source_day:
+          type: string
+          enum:
+            - MON
+            - TUE
+            - WED
+            - THU
+            - FRI
+            - SAT
+            - SUN
+        source_ordinal:
+          type: integer
+          minimum: 1
+        intensity_seconds:
+          type: object
+          required:
+            - moderate
+            - high
+            - recovery
+          additionalProperties: false
+          properties:
+            moderate:
+              type: integer
+              minimum: 0
+            high:
+              type: integer
+              minimum: 0
+            recovery:
+              type: integer
+              minimum: 0
+        cardio_fallback:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/CardioFallback"
+
+    IntervalCardioPlannedSet:
+      type: object
+      required:
+        - id
+        - exercise_id
+        - set_no
+        - target_reps_low
+        - target_reps_high
+        - target_rir
+        - rest_sec
+        - recommended_weight
+        - recommended_reps
+        - reason_code
+        - confidence
+        - rules_version
+        - load_kind
+        - recommendation_state
+        - assistance_provenance
+        - recommended_action
+        - assistance_safety_status
+        - recommendation_gate
+        - performed_set
+        - source_revision
+        - append_eligibility
+        - correlation_id
+        - prescription_kind
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+        - source_day
+        - source_ordinal
+        - intensity_seconds
+        - cardio_fallback
+        - target_time_low_sec
+        - target_time_high_sec
+      properties:
+        id:
+          type: string
+        exercise_id:
+          type: string
+        set_no:
+          type: integer
+        target_reps_low:
+          nullable: true
+          enum: &a1
+            - null
+        target_reps_high:
+          nullable: true
+          enum: *a1
+        target_rir:
+          nullable: true
+          enum: *a1
+        rest_sec:
+          nullable: true
+          enum: *a1
+        target_time_low_sec:
+          nullable: true
+          enum: *a1
+        target_time_high_sec:
+          nullable: true
+          enum: *a1
+        recommended_weight:
+          nullable: true
+          enum: *a1
+        recommended_reps:
+          nullable: true
+          enum: *a1
+        reason_code:
+          nullable: true
+          enum: *a1
+        confidence:
+          nullable: true
+          enum: *a1
+        rules_version:
+          type: string
+        load_kind:
+          type: string
+          enum:
+            - not_applicable
+        recommendation_state:
+          type: string
+          enum:
+            - ready
+            - substitution_required
+            - unavailable
+        assistance_provenance:
+          nullable: true
+          enum: *a1
+        recommended_action:
+          nullable: true
+          enum: *a1
+        assistance_safety_status:
+          nullable: true
+          enum: *a1
+        recommendation_gate:
+          allOf:
+            - $ref: "#/components/schemas/DisplayGateState"
+          description: analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다.
+        source_revision:
+          type: string
+          minLength: 1
+          description: 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision.
+        correlation_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+        append_eligibility:
+          nullable: true
+          enum: *a1
+        performed_set:
+          nullable: true
+          enum: *a1
+        prescription_kind:
+          type: string
+          enum:
+            - interval_cardio
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          type: integer
+          minimum: 1
+        recovery_sec:
+          type: integer
+          minimum: 1
+        rounds:
+          type: integer
+          minimum: 1
+          maximum: 12
+        recovery_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        recovery_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        final_recovery_included:
+          type: boolean
+          enum:
+            - true
+        long_session_flag:
+          type: boolean
+          enum:
+            - false
+        progression_axis:
+          type: string
+          enum:
+            - rounds
+        source_day:
+          type: string
+          enum:
+            - MON
+            - TUE
+            - WED
+            - THU
+            - FRI
+            - SAT
+            - SUN
+        source_ordinal:
+          type: integer
+          minimum: 1
+        intensity_seconds:
+          type: object
+          required:
+            - moderate
+            - high
+            - recovery
+          additionalProperties: false
+          properties:
+            moderate:
+              type: integer
+              minimum: 0
+            high:
+              type: integer
+              minimum: 0
+            recovery:
+              type: integer
+              minimum: 0
+        cardio_fallback:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/CardioFallback"
+
+    CardioBlockDescriptor:
+      oneOf:
+        - $ref: "#/components/schemas/SteadyCardioDescriptor"
+        - $ref: "#/components/schemas/LongCardioDescriptor"
+        - $ref: "#/components/schemas/IntervalCardioDescriptor"
+
+    SteadyCardioDescriptor:
+      type: object
+      required:
+        - kind
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+      properties:
+        kind:
+          type: string
+          enum:
+            - steady
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          nullable: true
+          enum:
+            - null
+        recovery_sec:
+          nullable: true
+          enum:
+            - null
+        rounds:
+          nullable: true
+          enum:
+            - null
+        recovery_rpe_low:
+          nullable: true
+          enum:
+            - null
+        recovery_rpe_high:
+          nullable: true
+          enum:
+            - null
+        final_recovery_included:
+          nullable: true
+          enum:
+            - null
+        long_session_flag:
+          type: boolean
+          enum:
+            - false
+        progression_axis:
+          type: string
+          enum:
+            - duration_sec
+
+    LongCardioDescriptor:
+      type: object
+      required:
+        - kind
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+      properties:
+        kind:
+          type: string
+          enum:
+            - long
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          nullable: true
+          enum:
+            - null
+        recovery_sec:
+          nullable: true
+          enum:
+            - null
+        rounds:
+          nullable: true
+          enum:
+            - null
+        recovery_rpe_low:
+          nullable: true
+          enum:
+            - null
+        recovery_rpe_high:
+          nullable: true
+          enum:
+            - null
+        final_recovery_included:
+          nullable: true
+          enum:
+            - null
+        long_session_flag:
+          type: boolean
+          enum:
+            - true
+        progression_axis:
+          type: string
+          enum:
+            - duration_sec
+
+    IntervalCardioDescriptor:
+      type: object
+      required:
+        - kind
+        - duration_sec
+        - rpe_scale_id
+        - target_rpe_low
+        - target_rpe_high
+        - work_sec
+        - recovery_sec
+        - rounds
+        - recovery_rpe_low
+        - recovery_rpe_high
+        - final_recovery_included
+        - long_session_flag
+        - progression_axis
+      properties:
+        kind:
+          type: string
+          enum:
+            - interval
+        duration_sec:
+          type: integer
+          minimum: 1
+        rpe_scale_id:
+          type: string
+          enum:
+            - relative_effort_0_10_v1
+        target_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        target_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        work_sec:
+          type: integer
+          minimum: 1
+        recovery_sec:
+          type: integer
+          minimum: 1
+        rounds:
+          type: integer
+          minimum: 1
+          maximum: 12
+        recovery_rpe_low:
+          type: integer
+          minimum: 0
+          maximum: 10
+        recovery_rpe_high:
+          type: integer
+          minimum: 0
+          maximum: 10
+        final_recovery_included:
+          type: boolean
+          enum:
+            - true
+        long_session_flag:
+          type: boolean
+          enum:
+            - false
+        progression_axis:
+          type: string
+          enum:
+            - rounds
+
+    CardioFallback:
+      type: object
+      required:
+        - cause
+        - source_day
+        - source_ordinal
+        - original_descriptor
+        - effective_descriptor
+      properties:
+        cause:
+          type: string
+          enum:
+            - source_eligibility_fallback
+            - redesign_recovery
+        source_day:
+          type: string
+          enum:
+            - MON
+            - TUE
+            - WED
+            - THU
+            - FRI
+            - SAT
+            - SUN
+        source_ordinal:
+          type: integer
+          minimum: 1
+        original_descriptor:
+          $ref: "#/components/schemas/CardioBlockDescriptor"
+        effective_descriptor:
+          $ref: "#/components/schemas/CardioBlockDescriptor"
 
     PerformedSet:
       type: object

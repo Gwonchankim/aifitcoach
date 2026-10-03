@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { PlannedSet, Session, SyncRequest, SyncResponse } from "../lib/api";
+import type { Session, SyncRequest, SyncResponse } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 import {
   commitDraft,
   commitRoutineSnapshot,

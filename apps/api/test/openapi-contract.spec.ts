@@ -20,7 +20,7 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "head", "options"
 type OpenApiDoc = {
   servers: { url: string }[];
   paths: Record<string, Record<string, unknown>>;
-  components?: { responses?: Record<string, ResponseNode> };
+  components?: { responses?: Record<string, ResponseNode>; schemas?: Record<string, unknown> };
 };
 
 type ResponseNode = {
@@ -130,10 +130,47 @@ describe("openapi 계약 ↔ 등록된 라우트", () => {
    * 상태코드 축의 계약 일관성: 에러 응답의 바디는 하나의 Error 엔벨로프여야 한다
    * (프론트가 상태코드별로 다른 파싱을 하지 않도록). 바디가 없는 선언은 검사 대상이 아니다.
    */
-  it("선언된 4xx/5xx 응답의 바디는 모두 Error 스키마다", () => {
-    const schemas = errorResponseSchemas(loadDoc());
+  it("4xx/5xx는 Error, 생성 409만 공통 envelope를 강화한 FeatureConflict다", () => {
+    const doc = loadDoc();
+    const schemas = errorResponseSchemas(doc);
+    const generationConflict = "POST /programs/generate 409";
+    expect(schemas[generationConflict]).toBe("#/components/schemas/FeatureConflict");
+    const commonEnvelope = {
+      type: "object",
+      required: ["error"],
+      properties: {
+        error: {
+          type: "object",
+          required: expect.arrayContaining(["code", "message"]),
+          properties: { code: { type: "string" }, message: { type: "string" } },
+        },
+      },
+    };
+    expect(doc.components?.schemas?.Error).toMatchObject(commonEnvelope);
+    expect(doc.components?.schemas?.FeatureConflict).toMatchObject(commonEnvelope);
+    expect(doc.components?.schemas?.FeatureConflict).toMatchObject({
+      properties: {
+        error: {
+          required: ["code", "message", "details"],
+          properties: {
+            code: { enum: ["CONFLICT"] },
+            details: {
+              required: ["reason"],
+              properties: {
+                reason: {
+                  enum: ["insufficient_time_for_mixed_focus", "cardio_preservation_failed"],
+                },
+              },
+            },
+          },
+        },
+      },
+    });
     const wrong = Object.entries(schemas).filter(
-      ([, ref]) => ref !== undefined && ref !== "#/components/schemas/Error",
+      ([operation, ref]) =>
+        operation !== generationConflict &&
+        ref !== undefined &&
+        ref !== "#/components/schemas/Error",
     );
 
     expect(Object.keys(schemas).length).toBeGreaterThan(0);

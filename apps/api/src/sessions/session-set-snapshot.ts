@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, type PlannedSet } from "@prisma/client";
 import { isAllowedAssistanceVersion, resolveRulesBundle } from "shared";
+import { isResistanceReadSnapshot, isResistanceSnapshot } from "./planned-prescription";
 import { rawAssistanceSafetyStatus, toRawTargetRow } from "../programs/assistance-migration";
 
 type CopyField =
@@ -23,6 +24,23 @@ type IdentityField = "id" | "sessionId" | "exerciseId" | "clientCorrelationId" |
 
 /** A05/A06: a raw DB snapshot, never a gated wire projection or current catalog row. */
 export type RawSessionSetSnapshot = Pick<PlannedSet, CopyField | IdentityField> & {
+  prescriptionKind?: string | null;
+  durationSec?: number | null;
+  rpeScaleId?: string | null;
+  targetRpeLow?: number | null;
+  targetRpeHigh?: number | null;
+  workSec?: number | null;
+  recoverySec?: number | null;
+  rounds?: number | null;
+  finalRecoveryIncluded?: boolean | null;
+  recoveryRpeLow?: number | null;
+  recoveryRpeHigh?: number | null;
+  longSessionFlag?: boolean | null;
+  progressionAxis?: string | null;
+  sourceDay?: string | null;
+  sourceOrdinal?: number | null;
+  intensitySeconds?: unknown;
+  cardioFallback?: unknown;
   performedSets?: readonly { completed: boolean }[];
 };
 export interface AppendCohort {
@@ -43,6 +61,7 @@ const digest = (canonical: string): string => createHash("sha256").update(canoni
 export function validateRawSessionSetSnapshot(source: RawSessionSetSnapshot): {
   status: "valid" | "invalid_raw";
 } {
+  if (!isResistanceReadSnapshot(source)) return { status: "invalid_raw" };
   // Prisma PlannedSet: PostgreSQL Int / Decimal(6,2) / confidence Decimal(3,2).
   // These are storage/axis checks, not a new recommendation or actual-RIR policy.
   const integer = (value: number | null | undefined, nullable: boolean): boolean =>
@@ -107,7 +126,9 @@ function decimal(value: Prisma.Decimal | null | undefined): string | null {
 }
 
 /** Exact raw copy only. Call the numeric and A08 guards before creating a new DB row. */
-export function copySessionSetSnapshot(source: RawSessionSetSnapshot): Pick<PlannedSet, CopyField> {
+export function copySessionSetSnapshot(
+  source: RawSessionSetSnapshot,
+): Pick<PlannedSet, CopyField> & { prescriptionKind: "resistance" } {
   return {
     targetRepsLow: source.targetRepsLow,
     targetRepsHigh: source.targetRepsHigh,
@@ -124,6 +145,7 @@ export function copySessionSetSnapshot(source: RawSessionSetSnapshot): Pick<Plan
     assistanceStepKg: source.assistanceStepKg,
     assistanceProvenance: source.assistanceProvenance,
     orderIndex: source.orderIndex,
+    prescriptionKind: "resistance",
   };
 }
 
@@ -151,6 +173,27 @@ export function canonicalSourceSnapshot(source: RawSessionSetSnapshot): string {
     loadSemantics: source.loadSemantics,
     assistanceStepKg: decimal(source.assistanceStepKg),
     assistanceProvenance: source.assistanceProvenance ?? null,
+    ...(source.prescriptionKind == null
+      ? {}
+      : {
+          prescriptionKind: source.prescriptionKind,
+          durationSec: source.durationSec ?? null,
+          rpeScaleId: source.rpeScaleId ?? null,
+          targetRpeLow: source.targetRpeLow ?? null,
+          targetRpeHigh: source.targetRpeHigh ?? null,
+          workSec: source.workSec ?? null,
+          recoverySec: source.recoverySec ?? null,
+          rounds: source.rounds ?? null,
+          finalRecoveryIncluded: source.finalRecoveryIncluded ?? null,
+          recoveryRpeLow: source.recoveryRpeLow ?? null,
+          recoveryRpeHigh: source.recoveryRpeHigh ?? null,
+          longSessionFlag: source.longSessionFlag ?? null,
+          progressionAxis: source.progressionAxis ?? null,
+          sourceDay: source.sourceDay ?? null,
+          sourceOrdinal: source.sourceOrdinal ?? null,
+          intensitySeconds: source.intensitySeconds ?? null,
+          cardioFallback: source.cardioFallback ?? null,
+        }),
   });
 }
 export function sourceRevision(source: RawSessionSetSnapshot): string {
@@ -180,11 +223,16 @@ export function cohortRevision(cohort: AppendCohort): string {
 /** A08 only: does not authorize owner/date/cap or replace numeric validation. */
 export function isAppendCohortSafe(cohort: AppendCohort, sourceId: string): boolean {
   const source = cohort.rows.find((row) => row.id === sourceId);
-  if (!source || new Set(cohort.rows.map((row) => row.id)).size !== cohort.rows.length)
+  if (
+    !source ||
+    !isResistanceSnapshot(source) ||
+    new Set(cohort.rows.map((row) => row.id)).size !== cohort.rows.length
+  )
     return false;
   try {
     const sourceStep = decimal(source.assistanceStepKg);
     for (const row of cohort.rows) {
+      if (!isResistanceSnapshot(row)) return false;
       if (
         row.sessionId !== cohort.sessionId ||
         row.exerciseId !== cohort.exerciseId ||

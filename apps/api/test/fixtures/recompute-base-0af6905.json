@@ -1,0 +1,194 @@
+{
+  "capture_commit": "0af690546fb8f1416e70353eb38249de64c0c2b4",
+  "captured_at": "2026-09-27T04:20:45.455Z",
+  "source_sha256": "3ad571da35d75ab0036077e4cc9372f0af1f80d9b73447b2e821c3d2d8e697c6",
+  "cases": [
+    {
+      "name": "external_load/no-history",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": {
+          "id": "e_bench_press",
+          "modality": "resistance",
+          "mechanic": "compound",
+          "region": "upper",
+          "defaultStepKg": 2.5,
+          "metric": "reps",
+          "loadSemantics": "external_load"
+        },
+        "target": {
+          "reps_low": 8,
+          "reps_high": 12,
+          "rir": 2
+        },
+        "history": {
+          "lastSets": []
+        },
+        "snapshot": {
+          "stepKg": 5,
+          "rulesVersion": "2026.08.1"
+        }
+      },
+      "output": {
+        "reps_high": 12,
+        "rules_version": "2026.08.1",
+        "load_kind": "external",
+        "recommendation_state": "load_calibration_needed",
+        "weight": 0,
+        "reps_low": 8,
+        "reason_code": "BASELINE",
+        "confidence": 0.5
+      }
+    },
+    {
+      "name": "external_load/history",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": {
+          "id": "e_bench_press",
+          "modality": "resistance",
+          "mechanic": "compound",
+          "region": "upper",
+          "defaultStepKg": 2.5,
+          "metric": "reps",
+          "loadSemantics": "external_load"
+        },
+        "target": {
+          "reps_low": 8,
+          "reps_high": 12,
+          "rir": 2
+        },
+        "history": {
+          "lastSets": [
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            },
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            },
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            }
+          ]
+        },
+        "snapshot": {
+          "stepKg": 5,
+          "rulesVersion": "2026.08.1"
+        }
+      },
+      "output": {
+        "reps_high": 12,
+        "rules_version": "2026.08.1",
+        "e1rm": 29.33,
+        "load_kind": "external",
+        "recommendation_state": "ready",
+        "weight": 22.5,
+        "reps_low": 8,
+        "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+        "confidence": 0.85
+      }
+    },
+    {
+      "name": "assistance/no-history",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": {
+          "id": "e_assisted_pullup",
+          "modality": "resistance",
+          "mechanic": "compound",
+          "region": "upper",
+          "defaultStepKg": 2.5,
+          "metric": "reps",
+          "loadSemantics": "assistance"
+        },
+        "target": {
+          "reps_low": 8,
+          "reps_high": 12,
+          "rir": 2
+        },
+        "history": {
+          "lastSets": [],
+          "assistance": {
+            "has_valid_positive_assistance": false
+          }
+        },
+        "snapshot": {
+          "stepKg": 5,
+          "rulesVersion": "2026.08.2"
+        }
+      },
+      "output": {
+        "reps_high": 12,
+        "rules_version": "2026.08.2",
+        "load_kind": "assistance",
+        "recommendation_state": "load_calibration_needed",
+        "weight": null,
+        "reps_low": 8,
+        "reason_code": "ASSISTANCE_CALIBRATION_NEEDED",
+        "confidence": 0
+      }
+    },
+    {
+      "name": "assistance/history",
+      "input": {
+        "goal": "hypertrophy",
+        "exercise": {
+          "id": "e_assisted_pullup",
+          "modality": "resistance",
+          "mechanic": "compound",
+          "region": "upper",
+          "defaultStepKg": 2.5,
+          "metric": "reps",
+          "loadSemantics": "assistance"
+        },
+        "target": {
+          "reps_low": 8,
+          "reps_high": 12,
+          "rir": 2
+        },
+        "history": {
+          "lastSets": [
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            },
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            },
+            {
+              "w": 20,
+              "reps": 12,
+              "rir": 2
+            }
+          ],
+          "assistance": {
+            "has_valid_positive_assistance": true
+          }
+        },
+        "snapshot": {
+          "stepKg": 5,
+          "rulesVersion": "2026.08.2"
+        }
+      },
+      "output": {
+        "reps_high": 12,
+        "rules_version": "2026.08.2",
+        "load_kind": "assistance",
+        "recommendation_state": "ready",
+        "weight": 15,
+        "reps_low": 8,
+        "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+        "confidence": 0.85
+      }
+    }
+  ]
+}

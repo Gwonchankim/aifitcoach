@@ -14,11 +14,11 @@ const actionFor = recommendedActionFor as (
 ) => RecommendedAction | null;
 
 describe("ticket02 canonical assistance transition", () => {
-  it("expects the 110-row catalog including exactly one assisted dips", () => {
+  it("expects the 111-row catalog including exactly one assisted dips", () => {
     const seed = JSON.parse(
       readFileSync(path.resolve(__dirname, "../../../docs/specs/exercises_seed.json"), "utf8"),
     ) as { exercises: { id: string }[] };
-    expect(seed.exercises).toHaveLength(110);
+    expect(seed.exercises).toHaveLength(111);
     expect(seed.exercises.filter((row) => row.id === "e_assisted_dips")).toHaveLength(1);
   });
 

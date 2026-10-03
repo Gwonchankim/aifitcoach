@@ -830,7 +830,12 @@ describe("production call-site batch · action gate", () => {
         [1, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
         [3, { kind: "suggest_exercise_swap", exercise_id: "e_pullup" }],
       ] as const) {
-        const wire = plannedSetResponse(row, count);
+        const wire = plannedSetResponse(
+          row,
+          count,
+          undefined,
+          await prisma.exercise.findUniqueOrThrow({ where: { id: row.exerciseId } }),
+        );
         expect(`${count}:${JSON.stringify(wire.recommended_action)}`).toBe(
           `${count}:${JSON.stringify(expected)}`,
         );

@@ -7,7 +7,7 @@ import type { Exercise, Session } from "../lib/api";
 import { warmSessionDocument } from "./support/warm-session-document";
 
 test.describe.configure({ mode: "serial" });
-const CATALOG_COUNT = 110;
+const CATALOG_COUNT = 111;
 const newIds = [
   "e_low_row_machine",
   "e_high_row_machine",
@@ -35,6 +35,27 @@ async function allExercises(request: APIRequestContext) {
   } while (cursor);
   expect(items).toHaveLength(CATALOG_COUNT);
   expect(new Set(items.map((item) => item.id)).size).toBe(CATALOG_COUNT);
+  expect(items.filter((item) => item.modality === "resistance")).toHaveLength(110);
+  expect(items.filter((item) => item.modality !== "resistance")).toEqual([
+    expect.objectContaining({
+      id: "e_stationary_bike",
+      modality: "cardio",
+      equipment: "stationary_bike",
+      metric: "time",
+      cardio_movement_regions: ["lower"],
+      prescription_kinds_supported: ["steady_cardio", "interval_cardio"],
+      blocked_reported_pain_areas: [
+        "knee",
+        "lower_back",
+        "shoulder",
+        "elbow",
+        "wrist",
+        "hip",
+        "neck",
+        "ankle",
+      ],
+    }),
+  ]);
   return items;
 }
 async function localSnapshot(page: Page) {
@@ -80,6 +101,11 @@ async function checkSearches(page: Page, catalog: Exercise[]) {
         }),
       ),
     ).toHaveCount(1);
+  }
+  for (const query of ["고정식 자전거", "Stationary Bike"]) {
+    await picker.getByRole("searchbox", { name: "운동 검색" }).fill(query);
+    await expect(picker.getByRole("button", { name: /고정식 자전거/ })).toHaveCount(0);
+    await expect(picker.getByText(/검색 결과가 없어요/)).toBeVisible();
   }
   await picker.getByRole("button", { name: "닫기", exact: true }).click();
 }
@@ -252,13 +278,13 @@ test("swap uses the same all-region canonical search and persists the selected r
   ).toBeGreaterThan(0);
 });
 
-test("old106 partial-page failure preserves cache; retry fills110 and warm offline search survives reload @chromium-only", async ({
+test("old106 partial-page failure preserves cache; retry fills111 and warm offline search survives reload @chromium-only", async ({
   page,
   context,
   request,
 }, testInfo) => {
   const full = await allExercises(request);
-  const old = full.filter((item) => !newIds.includes(item.id));
+  const old = full.filter((item) => !newIds.includes(item.id) && item.id !== "e_stationary_bike");
   expect(old).toHaveLength(106);
   await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
   const sessionId = await todaySession(request);
@@ -319,7 +345,11 @@ test("old106 partial-page failure preserves cache; retry fills110 and warm offli
     .poll(async () => (await localSnapshot(page)).catalogs[0]?.catalog.length)
     .toBe(CATALOG_COUNT);
   const complete = await localSnapshot(page);
-  expect(complete.catalogs[0].catalog.filter((item) => !newIds.includes(item.id))).toEqual(old);
+  expect(
+    complete.catalogs[0].catalog.filter(
+      (item) => !newIds.includes(item.id) && item.id !== "e_stationary_bike",
+    ),
+  ).toEqual(old);
   await checkSearches(page, full);
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;

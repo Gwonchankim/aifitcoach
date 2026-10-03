@@ -242,6 +242,8 @@ describe("session set append direct API / raw reader / receipt atomicity", () =>
       });
       expect(created.id).not.toBe(source.id);
       expect(created.clientCorrelationId).toBe(payload.correlation_id);
+      expect(created.prescriptionKind).toBe("resistance");
+      expect(source.prescriptionKind).toBeNull();
       expect(rawCopy(created)).toEqual(rawCopy(source));
       expect(response.body.planned_set.source_revision).toBe(sourceRevision(created));
       expect(response.body.planned_set.id).toBe(created.id);
@@ -366,6 +368,8 @@ describe("session set append direct API / raw reader / receipt atomicity", () =>
       const created = await prisma.plannedSet.findUniqueOrThrow({
         where: { id: response.body.planned_set_id },
       });
+      expect(created.prescriptionKind).toBe("resistance");
+      expect(source.prescriptionKind).toBeNull();
       expect(rawCopy(created)).toEqual(rawCopy(source));
       expect(response.body.planned_set).toMatchObject({
         performed_set: null,

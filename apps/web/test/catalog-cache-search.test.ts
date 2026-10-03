@@ -18,7 +18,7 @@ const additions = [
   "e_assisted_dips",
 ];
 const old106 = seed.exercises
-  .filter((item) => !additions.includes(item.id))
+  .filter((item) => item.modality === "resistance" && !additions.includes(item.id))
   .map((item) => ({
     id: item.id,
     name_ko: item.name_ko,
@@ -132,6 +132,29 @@ function assertSearch6(catalog: Exercise[]) {
 }
 
 describe("M3 complete catalog read-through with real IndexedDB", () => {
+  it("adds the canonical cardio row only after a complete 111-row fetch and preserves resistance rows and records", async () => {
+    const canonical = seed.exercises.find((item) => item.id === "e_stationary_bike")!;
+    expect(canonical.modality).toBe("cardio");
+    const cardio = {
+      ...canonical,
+      step_kg: canonical.default_step_kg,
+      media_url: null,
+    } as Exercise;
+    const full111 = [...full110, cardio];
+    expect(full110).toHaveLength(110);
+    await warm(full110);
+    const before = await snapshot();
+    pages(full111);
+    expect(await fetchAllExercises()).toEqual(full111);
+    expect((await cache())?.catalog.slice(0, 110)).toEqual(full110);
+    sessionDb.close();
+    await sessionDb.open();
+    exercisesMock.mockRejectedValue(new TypeError("offline"));
+    const offline = await fetchAllExercises();
+    expect(offline).toEqual(full111);
+    expect(offline[110].cardio_movement_regions).toEqual(["lower"]);
+    expect(await snapshot()).toEqual(before);
+  });
   it("keeps the old cache until the final page arrives and preserves it when the cache write fails", async () => {
     await warm();
     const before = await snapshot();

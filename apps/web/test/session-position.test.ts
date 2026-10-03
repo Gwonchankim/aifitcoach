@@ -21,7 +21,8 @@ import {
   saveRestTimer,
   loadRestTimer,
 } from "../components/session/rest-timer-store";
-import type { PlannedSet, Session, SyncResponse } from "../lib/api";
+import type { Session, SyncResponse } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 
 const p = { exercise_id: "bench", planned_set_id: "local", expanded: true };
 const row = (id: string, exercise = "bench", performed = false) =>

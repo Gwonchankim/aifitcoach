@@ -2,7 +2,7 @@
  * 세트 렌더링 엣지 케이스 계약(UX_STATES §5). 릴리스 차단 기준 AC-E-1/3/4/5 를 고정한다.
  */
 import { describe, expect, it } from "vitest";
-import type { PlannedSet } from "../lib/api";
+import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 import {
   asksRir,
   formatKg,

@@ -255,11 +255,29 @@ describe("F-3 post-migration 상태", () => {
   }
 
   describe("카탈로그 post-state", () => {
-    it("모든 종목이 canonical load_semantics 를 갖는다 — NULL 0", async () => {
+    it("저항 110종은 canonical load_semantics·NULL 0, 유산소 1종은 NULL이다", async () => {
       const total = await prisma.exercise.count();
-      const external = await prisma.exercise.count({ where: { loadSemantics: "external_load" } });
-      const assistance = await prisma.exercise.count({ where: { loadSemantics: "assistance" } });
-      expect(external + assistance).toBe(total);
+      const resistance = await prisma.exercise.count({ where: { modality: "resistance" } });
+      const external = await prisma.exercise.count({
+        where: { modality: "resistance", loadSemantics: "external_load" },
+      });
+      const assistance = await prisma.exercise.count({
+        where: { modality: "resistance", loadSemantics: "assistance" },
+      });
+      expect(total).toBe(111);
+      expect(resistance).toBe(110);
+      expect(external + assistance).toBe(resistance);
+      expect(
+        await prisma.exercise.count({
+          where: { modality: "resistance", loadSemantics: null },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.exercise.findMany({
+          where: { OR: [{ modality: { not: "resistance" } }, { modality: null }] },
+          select: { id: true, modality: true, loadSemantics: true },
+        }),
+      ).toEqual([{ id: "e_stationary_bike", modality: "cardio", loadSemantics: null }]);
     });
 
     it("어시스트 머신만 assistance 다", async () => {

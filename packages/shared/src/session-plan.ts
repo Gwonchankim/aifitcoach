@@ -137,6 +137,8 @@ export interface PackInput {
   candidates: PackCandidate[];
   minutesPerDay: number;
   restSec: number;
+  /** Mandatory non-resistance blocks consume time, never resistance working-set capacity. */
+  additional_fixed_block_sec?: number;
 }
 
 function toEstimate(p: PackedExercise): EstimateExercise {
@@ -156,6 +158,11 @@ function toEstimate(p: PackedExercise): EstimateExercise {
  * `accessory` 가 남은 채 `primary` 가 빠지는 결과가 구조적으로 불가능하다.
  */
 export function packSession(input: PackInput): PackedExercise[] {
+  const fixedBlockSec =
+    input.additional_fixed_block_sec === undefined ? 0 : input.additional_fixed_block_sec;
+  if (!Number.isSafeInteger(fixedBlockSec) || fixedBlockSec < 0) {
+    throw new RangeError("additional_fixed_block_sec must be a nonnegative safe integer");
+  }
   const cap = SESSION_SET_CAP[input.minutesPerDay];
   if (cap === undefined) {
     throw new RangeError(
@@ -173,8 +180,11 @@ export function packSession(input: PackInput): PackedExercise[] {
   const packed: PackedExercise[] = [];
   const fits = (next: PackedExercise[]) =>
     next.reduce((a, p) => a + p.sets, 0) <= cap &&
-    estimateSessionSeconds({ exercises: next.map(toEstimate), restSec: input.restSec }) <=
-      budgetSec;
+    estimateSessionSeconds({
+      exercises: next.map(toEstimate),
+      restSec: input.restSec,
+      additional_fixed_block_sec: fixedBlockSec,
+    }) <= budgetSec;
 
   for (const c of ordered) {
     const role = roles.get(c.id)!;

@@ -1,3 +1,4 @@
+import { resistanceValue } from "./resistance-value";
 import type { ProgramsService } from "../../src/programs/programs.service";
 
 /**
@@ -43,13 +44,13 @@ export function normalizeProgram(
       // 순서가 계약이다 — 정렬하지 않는다.
       exercises: s.exercises.map((e) => ({
         id: e.exercise_id,
-        sets: e.sets,
+        sets: resistanceValue(e.sets),
         reps_low: e.reps_low ?? null,
         reps_high: e.reps_high ?? null,
         rir: e.target_rir ?? null,
         time_low_sec: e.time_low_sec ?? null,
         time_high_sec: e.time_high_sec ?? null,
-        rest_sec: e.rest_sec,
+        rest_sec: resistanceValue(e.rest_sec),
       })),
     })),
   };

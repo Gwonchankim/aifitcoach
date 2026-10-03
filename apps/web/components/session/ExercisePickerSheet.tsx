@@ -11,6 +11,7 @@ import { Badge, Button, Sheet, Tab, TabList, cn } from "../ui";
 import {
   REGIONS,
   inRegion,
+  isResistanceCatalogExercise,
   matchesExerciseSearch,
   normalizeExerciseSearch,
   regionOf,
@@ -75,6 +76,7 @@ export function ExercisePickerSheet({
   const items = useMemo(() => {
     const filtered = catalog.filter(
       (exercise) =>
+        isResistanceCatalogExercise(exercise) &&
         (searching ? matchesExerciseSearch(exercise, query) : inRegion(exercise, region)) &&
         exercise.id !== from?.id,
     );

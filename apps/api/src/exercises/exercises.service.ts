@@ -14,14 +14,18 @@ import { ListExercisesQueryDto } from "./dto/list-exercises.query.dto";
  */
 export interface ExerciseResponse {
   id: string;
+  modality: Exercise["modality"];
+  cardio_movement_regions: string[];
+  prescription_kinds_supported: string[];
+  blocked_reported_pain_areas: string[];
   name_ko: string;
   name_en: string;
-  movement_pattern: string;
+  movement_pattern: string | null;
   primary_muscles: string[];
   equipment: string;
   difficulty: string;
-  mechanic: string;
-  region: string;
+  mechanic: string | null;
+  region: string | null;
   metric: string;
   step_kg: number | null;
   rep_range_low?: number;
@@ -92,6 +96,10 @@ function unknownFilter(query: ListExercisesQueryDto): boolean {
 function toExerciseResponse(exercise: Exercise): ExerciseResponse {
   return {
     id: exercise.id,
+    modality: exercise.modality,
+    cardio_movement_regions: exercise.cardioMovementRegions,
+    prescription_kinds_supported: exercise.prescriptionKindsSupported,
+    blocked_reported_pain_areas: exercise.blockedReportedPainAreas,
     name_ko: exercise.nameKo,
     name_en: exercise.nameEn,
     movement_pattern: exercise.movementPattern,

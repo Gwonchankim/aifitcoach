@@ -255,7 +255,7 @@ ADR-49는 추천 **수식** 변경을 UI 마일스톤에서 분리하고 근거+
 - 4일은 MON/TUE/THU/FRI에 U/L/U/L(2:2). 5일은 MON/TUE/WED/FRI/SAT에 balanced·upper_priority = U/L/U/L/U(3:2), lower_priority = L/U/L/U/L(2:3). balanced 기본의 상3/하2 의미를 UI에서 명시한다. 2·3·6일 경량 선호는 N/A다.
 - 각 4·5일 초점에 실제 해당 부위 non-core primary ≥1종 × ≥2 working sets가 있어야 한다. primary 불가·시간 부족은 명시 생성 불가이며 빈/유산소 전용 세션을 해당 부위로 세지 않는다.
 - 같은 부위 최소48시간은 주 경계까지 검사하는 제품 일정 규칙이다. 새 swap operation에도 교환 후 실제 인접 주를 후보 및 최종 transaction에서 검사하고 위반409·양쪽 불변을 유지한다. 기존 프로그램을 이 규칙으로 backfill하지 않는다.
-- 유산소 숫자 정책은 아직 미구현이다. **Sprint04 첫 CARDIO-CONTRACT-BASELINE(ticket10)의 docs+golden 전용 SHA를 제품 코드보다 먼저 승인·동결**한다. 순서는 freeze → PLAN-02 → cardio generator/wire → 개편 split/packer → 전체 `.09.1` activation이다. 기존 원천의 기계적 전사는 Evaluator 승인, 새 수치·용량 감소·생성 불가 확대는 Planner→사용자 승인이다.
+- 유산소 숫자 정책은 아직 미구현이다. **[Sprint04 첫 CARDIO-CONTRACT-BASELINE(ticket10)의 docs+golden 전용 SHA를 제품 코드보다 먼저 승인·동결](#cardio-contract-baseline)**한다. 순서는 freeze → PLAN-02 → cardio generator/wire → 개편 split/packer → 전체 `.09.1` activation이다. 기존 원천의 기계적 전사는 Evaluator 승인, 새 수치·용량 감소·생성 불가 확대는 Planner→사용자 승인이다.
 - 개편 전 동일 입력과 원래 fallback의 descriptor/총초/강도별초/interval/long-session을 먼저 고정하고 개편 결과와 exact 비교한다. 개편 유발 fallback으로 baseline을 재설정하지 않는다. 불변을 못 지키면 명시 생성 불가이며 무승인 shortfall은 금지한다.
 - §2.4 cap·§4.4 estimator/primary 보호는 그대로 사용하고 mandatory cardio 전체 시간을 additional_fixed_block_sec에 포함한다. 시간 예산 밖으로 cardio를 숨기거나 primary를 없애지 않는다. 상세 오류·배포·snapshot 계약은 [기능개선 계약](FEATURE_IMPROVEMENTS_CONTRACT.md), 기계적 fixture는 [예약 정책 fixture](specs/feature_improvements_contract.json)다. 이는 기능 runtime 검증 완료 주장이 아니다.
 
@@ -358,6 +358,122 @@ ADR-71이 "버전 관리되는 제품정책"이라고 말할 때, 그 버전을 
 - **그 전환 이전의 중간 상태는 공개·배포하지 않는다.**
 
 **구현 티켓: V2-PLAN-01 / V2-PLAN-02.**
+
+<a id="cardio-contract-baseline"></a>
+
+### 2.7 유산소 기준 처방(CARDIO-CONTRACT-BASELINE, 2026-09-27 사용자 승인)
+
+**D1 채택 · D2 채택 · D3-A · D4-A.** 예약 V2(.09.0)의 첫 기준 주 분량과 N01~N08을 동결한다. 기존에 없던 **새 제품정책**이며 의학 기준이 아니다. [동결 golden](specs/cardio_baseline_golden.json)은 125조합 × 2명시 profile = 250개 초기 예시다. 수치 승인과 실제 generator 구현·전체 조합 생성 가능성 검증은 구분한다. OPEN-10의 숫자 부분을 해소하며 티켓06 전면 계약·feasibility gate·전체 V2 활성화 완료를 뜻하지 않는다.
+
+승인 원문: `epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/autobuild/full-feature-improvements/sprint-04/ticket10-user-approval-packet/index.md` §8. 제안서 r1 + N08 보완과 Evaluator 재검토 조건을 반영했다.
+
+#### 2.7.1 첫 기준 주 — 25행 × 5시간 = 125칸
+
+칸은 N08 witness에서 월요일부터 선택된 운동일 순서다. **S**=저항만, **H숫자**=혼합일 steady 분, **C숫자**=유산소일 steady 분, **L숫자**=그 주 long 슬롯 분. steady RPE는5~6(`relative_effort_0_10_v1`). 준비8분·정리5분 및 실제 저항 시간도 **같은 선택 시간 안**에 들어간다. 남는 시간을 채우려고 분량을 늘리거나 기존 donor를 줄이지 않는다. ★는 티켓06 중심 범위다.
+
+L은 그 주 최장 슬롯이라는 제품 표식이며 10~15분을 생리학적 장거리라고 주장하지 않는다. 2일·30분 지구력은 두 슬롯이 같아도 마지막 슬롯을 진행 대상으로 고정한다. 근비대·스트렝스 H5는 짧은 유산소다. 아래 E 배치는 **주간 구성 문자열만** 기존이며 실제 날짜·focus 결합은 N08이다. duration·long 지정은 모두 N이다.
+
+| 목표·빈도 | 기존 E 배치 | 30분 | 45분 | 60분 | 75분 | 90분 | 행별 출처 구분 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 감량 지원 2일 | HH | H10 · H10 | H15 · H15 | H20 · H20 | H25 · H25 | H30 · H30 | E:배치·척도 / N:01 |
+| 감량 지원 3일 | HHC | H10 · H10 · C15 | H15 · H15 · C25 | H20 · H20 · C35 | H25 · H25 · C45 | H30 · H30 · C55 | E:배치·척도 / N:01 |
+| 감량 지원 4일 **★** | HHCC | H10 · H10 · C15 · C15 | H15 · H15 · C25 · C25 | H20 · H20 · C35 · C35 | H25 · H25 · C45 · C45 | H30 · H30 · C55 · C55 | E:배치·척도 / N:01 |
+| 감량 지원 5일 **★** | HHCCC | H10 · H10 · C15 · C15 · C15 | H15 · H15 · C25 · C25 · C25 | H20 · H20 · C35 · C35 · C35 | H25 · H25 · C45 · C45 · C45 | H30 · H30 · C55 · C55 · C55 | E:배치·척도 / N:01 |
+| 감량 지원 6일 | HHCCCC | H10 · H10 · C15 · C15 · C15 · C15 | H15 · H15 · C25 · C25 · C25 · C25 | H20 · H20 · C35 · C35 · C35 · C35 | H25 · H25 · C45 · C45 · C45 · C45 | H30 · H30 · C55 · C55 · C55 · C55 | E:배치·척도 / N:01 |
+| 근비대 2일 | SS | S · S | S · S | S · S | S · S | S · S | E:배치·척도 / N:02 |
+| 근비대 3일 | SSH | S · S · H5 | S · S · H5 | S · S · H10 | S · S · H10 | S · S · H15 | E:배치·척도 / N:02 |
+| 근비대 4일 **★** | SSSH | S · S · S · H5 | S · S · S · H5 | S · S · S · H10 | S · S · S · H10 | S · S · S · H15 | E:배치·척도 / N:02 |
+| 근비대 5일 **★** | SSSSH | S · S · S · S · H5 | S · S · S · S · H5 | S · S · S · S · H10 | S · S · S · S · H10 | S · S · S · S · H15 | E:배치·척도 / N:02 |
+| 근비대 6일 | SSSSHH | S · S · S · S · H5 · H5 | S · S · S · S · H5 · H5 | S · S · S · S · H10 · H10 | S · S · S · S · H10 · H10 | S · S · S · S · H15 · H15 | E:배치·척도 / N:02 |
+| 스트렝스 2일 | SS | S · S | S · S | S · S | S · S | S · S | E:배치·척도 / N:03 |
+| 스트렝스 3일 | SSH | S · S · H5 | S · S · H5 | S · S · H5 | S · S · H10 | S · S · H10 | E:배치·척도 / N:03 |
+| 스트렝스 4일 **★** | SSSH | S · S · S · H5 | S · S · S · H5 | S · S · S · H5 | S · S · S · H10 | S · S · S · H10 | E:배치·척도 / N:03 |
+| 스트렝스 5일 **★** | SSSHC | S · S · S · H5 · C10 | S · S · S · H5 · C15 | S · S · S · H5 · C20 | S · S · S · H10 · C25 | S · S · S · H10 · C30 | E:배치·척도 / N:03 |
+| 스트렝스 6일 | SSSSHC | S · S · S · S · H5 · C10 | S · S · S · S · H5 · C15 | S · S · S · S · H5 · C20 | S · S · S · S · H10 · C25 | S · S · S · S · H10 · C30 | E:배치·척도 / N:03 |
+| 일반 체력 2일 | HH | H10 · H10 | H10 · H10 | H15 · H15 | H20 · H20 | H20 · H20 | E:배치·척도 / N:04 |
+| 일반 체력 3일 | HHC | H10 · H10 · C15 | H10 · H10 · C20 | H15 · H15 · C30 | H20 · H20 · C40 | H20 · H20 · C45 | E:배치·척도 / N:04 |
+| 일반 체력 4일 **★** | SSCC | S · S · C15 · C15 | S · S · C20 · C20 | S · S · C30 · C30 | S · S · C40 · C40 | S · S · C45 · C45 | E:배치·척도 / N:04 |
+| 일반 체력 5일 **★** | SSHCC | S · S · H10 · C15 · C15 | S · S · H10 · C20 · C20 | S · S · H15 · C30 · C30 | S · S · H20 · C40 · C40 | S · S · H20 · C45 · C45 | E:배치·척도 / N:04 |
+| 일반 체력 6일 | SSHHCC | S · S · H10 · H10 · C15 · C15 | S · S · H10 · H10 · C20 · C20 | S · S · H15 · H15 · C30 · C30 | S · S · H20 · H20 · C40 · C40 | S · S · H20 · H20 · C45 · C45 | E:배치·척도 / N:04 |
+| 지구력 2일 | HH | H10 · L10 | H15 · L20 | H20 · L30 | H25 · L40 | H30 · L50 | E:배치·척도 / N:05 |
+| 지구력 3일 | HHC | H10 · H10 · L15 | H15 · H15 · L30 | H20 · H20 · L40 | H25 · H25 · L55 | H30 · H30 · L70 | E:배치·척도 / N:05 |
+| 지구력 4일 **★** | HHCC | H10 · H10 · C15 · L15 | H15 · H15 · C25 · L30 | H20 · H20 · C35 · L40 | H25 · H25 · C45 · L55 | H30 · H30 · C55 · L70 | E:배치·척도 / N:05 |
+| 지구력 5일 **★** | HHCCC | H10 · H10 · C15 · C15 · L15 | H15 · H15 · C25 · C25 · L30 | H20 · H20 · C35 · C35 · L40 | H25 · H25 · C45 · C45 · L55 | H30 · H30 · C55 · C55 · L70 | E:배치·척도 / N:05 |
+| 지구력 6일 | HHCCCC | H10 · H10 · C15 · C15 · C15 · L15 | H15 · H15 · C25 · C25 · C25 · L30 | H20 · H20 · C35 · C35 · C35 · L40 | H25 · H25 · C45 · C45 · C45 · L55 | H30 · H30 · C55 · C55 · C55 · L70 | E:배치·척도 / N:05 |
+
+#### 2.7.2 Interval·하체 proxy·원래 fallback — N06/N07
+
+근비대·스트렝스는 이 안에서 interval을 기본 배정하지 않는다. 다른 세 목표는 **long이 아닌 기존 C 중**, 앞·뒤 주를 포함한 하체 노출48h를 만족하는 가장 이른 하루에만 interval을 배정한다. 해당 C의 위 steady는 **미자격 분기 donor**다. 자격 분기 donor는 별도로 **30/45/60/75/90분 순서로 6/8/10/10/10 rounds**, work60초 RPE7–8 + recovery60초 RPE2–3, **마지막 recovery 포함**, 총12/16/20/20/20분이다. long/H는 interval로 바꾸지 않는다. 주1회를 넘지 않는다.
+
+자격은 기존 screening 경계에서 low risk이며 readiness가 normal/high, 최근 같은 modality의 성공2회·통증 없음·마지막 difficulty≠hard라는 **새 승인 정책**이다. screening/history/하체 일정이 unknown이면 원래 steady fallback으로 고정한다. 단 기존 통증/안전 필터가 그 modality를 금지하면 **steady도 처방하지 않고 생성 불가**다. 건강 필드 저장/암호화/의료 screening을 이 문서로 구현 승인하지 않는다.
+
+48h의 high-intensity lower 분류가 아직 수치 계약으로 완결되지 않았으므로, 이 동결은 **모든 lower/fullbody working resistance를 노출로 세는 보수적 proxy(N07)**를 새 정책으로 승인했다. 기존 48h 제품 간격은 E, 무엇을 노출로 볼지의 이 proxy는 N이다. 실제 운동의 하체 여부가 unknown이면 interval 자격으로 추정하지 않는다. 날짜는 UTC, 주경계까지 계산한다. 주5일은 원래 balanced 일정으로 donor를 고정하고, lower_priority의 새 노출은 donor 생성 후 별도로 비교한다.
+
+같은 readiness/history/screening·옛 일정 입력은 같은 원래 fallback과 descriptor를 낸다. N08 witness 예: diet4일의 옛 H월상/H화하/C목/C금에서는 목 interval이 화 하체와48h다. 새 금요일 하체 때문에 목 interval과24h가 되면 **개편 유발 fallback**으로 원 witness는 생성 불가를 기록했다(승인 여부는 D4-A로 유보). donor를 steady로 다시 써 diff0으로 만들지 않는다.
+
+
+위 예시의 4·5일 회복 충돌을 승인된 보편 불가 정책으로 확정하지 않는다. **D4-A에 따른 PLAN-02 유보가 우선**하며 §2.7.5에서 범위를 구분한다. 저항 회복 자체가 unknown이면 생성 불가다.
+
+#### 2.7.3 진행·시간·세트 증명의 범위
+
+연속 성공2회 후 **한 축만 +5분 또는 +1round** 진행한다(E). interval 상한12round는 새 정책(N06)이다. 원래 전체 계획의 시간 예산·회복을 만족할 때만 다음 step을 적용하며 그렇지 않으면 **기존 descriptor 유지**다. 이미 물려받은 분량이 예산 밖이면 축소하지 않고 생성 불가다. 새 composition의 수용량으로 진행량·원래 fallback donor를 역산하지 않는다.
+
+각 날짜에서 **780 + cardioSec + 실제 저항 work/rest/전환 ≤ minutes×60**, working sets≤8/12/16/20/24, primary≥2sets, 저항 부위48h와 interval48h를 함께 검사한다(§2.4·§4.4). 780은 준비480+정리300이다. 마지막 세트 뒤 rest·마지막 운동 뒤 transition은 없으며 interval recovery는 cardioSec에 포함한다. 준비/정리 중복0. PLAN-02의 다른 필수 블록이 있으면 모두 합산하며 없던 시간을0으로 추정하지 않는다.
+
+250개 예시의 저항 witness는 **양측 primary2세트**, strength repsHigh5/rest180초, hypertrophy repsHigh12/rest120초, 나머지 repsHigh12/rest90초다. 이는 산술 예시이며 실제 카탈로그 선택·V2 저항 처방이 아니다. 원 S/H의 witness 및 순수 C는 전 조합 예산·cap을 만족한다. `remaining_resistance_sec`는 실제 저항/전환에 쓸 수 있는 한도다. 실제 unilateral·추가 필수 블록·안전 필터 결과에 따라 같은 입력도 불가할 수 있다. 전체 history/experience/pain/장비/lower_priority·진행 fixture는 CARDIO/PLAN-02에서 완성한다. 그 전 **모든 사용자 조합의 생성 가능성이 입증됐다고 표시하지 않는다**.
+
+#### 2.7.4 출처와 가정 — E/N 구분
+
+E는 기존 계약 전사이며 문헌이 앱의 정확한 분량을 정했다는 의미가 아니다. N은 이번에 승인한 새 정책 또는 witness 가정이다.
+
+| 구분 | 항목 | 내용·범위 |
+| --- | --- | --- |
+| E | 기존 계약 | §2.3 S/C/H 주간 구성, §3.1 RPE 5~6/7~8 척도, 48h 제품 가드레일, HIIT 주1회, 연속 성공2회 후 한 축 진행, §2.4 cap 8/12/16/20/24, 시간 옵션 30/45/60/75/90분 |
+| N01 | 감량 분량 | H 10/15/20/25/30분, C 15/25/35/45/55분 |
+| N02 | 근비대 분량 | H 5/5/10/10/15분, C 없음 |
+| N03 | 스트렝스 분량 | H 5/5/5/10/10분, C 10/15/20/25/30분 |
+| N04 | 일반체력 분량 | H 10/10/15/20/20분, C 15/20/30/40/45분 |
+| N05 | 지구력 분량·long | H/C는 N01과 같은 분량. 마지막 유산소일 long은 15/30/40/55/70분, 2일은 10/20/30/40/50분 |
+| N06 | Interval 자격·구조·상한 | §2.7.2 자격, rounds 6/8/10/10/10, work/recovery 60/60초, recovery RPE2~3, 마지막 recovery 포함, 진행 상한12round |
+| N07 | 하체 노출 proxy | lower/fullbody working resistance 전부. unknown이면 interval 자격 추정 금지 |
+| N08 | **witness 가정** | S/C/H 문자를 V1 SCHEDULES 요일·focus 배열에 순서 결합, C일 저항 없음, 인접주 동일 반복. explicit_witness_infeasible·original_lower_days·calendar_days의 판정 입력이며 실제 달력은 PLAN-02 |
+
+V1 배열 출처는 `apps/api/src/programs/program-rules.ts`의 SCHEDULES다. 배열 전사와 .09.0 문자에 순서 결합한 N08은 구분한다. golden의 policy_inputs.dayOffsets/focuses·각 case provenance에도 N08을 명시한다.
+
+#### 2.7.5 승인된 시간 부족 불가 목록 — 16건(D3-A)
+
+감량·일반체력은 4·5일 30분, 지구력은 4·5일 30·45분이다. 각 조합의 not_cleared/cleared 두 profile을 모두 나열한다. 사용자에게 시간을 늘리거나 일수를 줄이도록 안내하며 부분 프로그램·자동 분량 축소로 성공 처리하지 않는다.
+
+| case id | 승인 사유 |
+| --- | --- |
+| `diet-4-30-not_cleared` | 시간 부족(T) |
+| `diet-4-30-cleared` | 시간 부족(T) |
+| `diet-5-30-not_cleared` | 시간 부족(T) |
+| `diet-5-30-cleared` | 시간 부족(T) |
+| `general_fitness-4-30-not_cleared` | 시간 부족(T) |
+| `general_fitness-4-30-cleared` | 시간 부족(T) |
+| `general_fitness-5-30-not_cleared` | 시간 부족(T) |
+| `general_fitness-5-30-cleared` | 시간 부족(T) |
+| `endurance-4-30-not_cleared` | 시간 부족(T) |
+| `endurance-4-30-cleared` | 시간 부족(T) |
+| `endurance-4-45-not_cleared` | 시간 부족(T) |
+| `endurance-4-45-cleared` | 시간 부족(T) |
+| `endurance-5-30-not_cleared` | 시간 부족(T) |
+| `endurance-5-30-cleared` | 시간 부족(T) |
+| `endurance-5-45-not_cleared` | 시간 부족(T) |
+| `endurance-5-45-cleared` | 시간 부족(T) |
+
+**D4-A: 회복 충돌만 있는 22건은 N08 가정 산물이므로 승인 불가 목록에서 제외**한다. golden의 `explicit_witness_infeasible`는 원래38건을 보존하되 T 포함16건은 `approved:true`, R-only22건은 `approved:false, deferred_to:"PLAN-02"`다. T와 R이 겹친8건은 시간 부족 때문에 승인 불가이며 R 사유를 별도 확정한 것이 아니다. 38건 전체는 명시 witness의 결과이지 보편 불가 목록이 아니다.
+
+PLAN-02는 interval 자격자의 4·5일 처리를 **(i) interval을 배정하지 않고 steady를 원래 fallback으로 정의(생성 가능), (ii) 생성 불가** 중 결정한다. 이번 동결은 어느 선택도 미리 확정하지 않는다. 실제 확정 달력으로 재판정하며 48h 완화·"악화 없음 허용"·개편 유발 donor 축소를 도입하지 않는다. case의 revised_4_5_outcome/revised_failure_reasons는 원 witness 결과로 보존하고 R-only case의 policy_status는 유보를 명시한다.
+
+#### 2.7.6 외부 참고와 승인 범위 밖
+
+- **WHO**는 성인 주간 중강도150–300분 또는 고강도75–150분을 공중보건 참고량으로 제시하고 적은 활동부터 점진적으로 늘릴 것을 권한다. 이 표가 그 주간량을 보장한다고 쓰지 않으며 사용자 시간보다 강제하지 않는다. 특정 목표×시간의 초기 분량은 WHO 값이 아니다. [WHO 2020 권고](https://www.ncbi.nlm.nih.gov/books/NBK566046/)
+- **CDC**의 상대강도0–10 척도는 중강도5–6, 고강도7–8 및 talk test의 근거다. RPE2–3 회복 배정과 목표별 수치는 이 제안의 정책 선택이다. [CDC 강도 척도](https://www.cdc.gov/physical-activity-basics/measuring/index.html)
+- **Hood 등(2011)**은 건강한 비활동 성인7명에게 1분 cycling/1분 recovery를10회 적용한 소규모 연구다. interval 구조의 참고이며 이 앱의 6/8round·RPE·주1회·효과·안전성을 검증한 연구로 쓰지 않는다. [원 연구 PMID21448086](https://pubmed.ncbi.nlm.nih.gov/21448086/)
+
+승인 패킷 §7에 따라 **의학적 효과·감량 결과 약속, screening/readiness 저장·암호화 방식(SECURITY_PIPA 별도), 실제 카탈로그 선택·저항 처방·V2 세트 packer(티켓07), 진행 규칙 전체 history fixture**는 승인 범위 밖이다. 오래된 readiness1~5/폐기 fatigue 필드를 재도입하지 않는다. 실제 generator·wire·activation은 기존 V2 트랙과 §2.3.1 순서를 따른다.
 
 ---
 

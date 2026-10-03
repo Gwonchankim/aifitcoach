@@ -5,6 +5,7 @@
   "exercises": [
     {
       "id": "e_back_squat",
+      "modality": "resistance",
       "name_ko": "바벨 백스쿼트",
       "name_en": "Barbell Back Squat",
       "movement_pattern": "squat",
@@ -42,6 +43,7 @@
     },
     {
       "id": "e_leg_press",
+      "modality": "resistance",
       "name_ko": "레그 프레스",
       "name_en": "Leg Press",
       "movement_pattern": "squat",
@@ -76,6 +78,7 @@
     },
     {
       "id": "e_goblet_squat",
+      "modality": "resistance",
       "name_ko": "고블릿 스쿼트",
       "name_en": "Goblet Squat",
       "movement_pattern": "squat",
@@ -110,6 +113,7 @@
     },
     {
       "id": "e_rdl",
+      "modality": "resistance",
       "name_ko": "루마니안 데드리프트",
       "name_en": "Romanian Deadlift",
       "movement_pattern": "hinge",
@@ -145,6 +149,7 @@
     },
     {
       "id": "e_deadlift",
+      "modality": "resistance",
       "name_ko": "데드리프트",
       "name_en": "Conventional Deadlift",
       "movement_pattern": "hinge",
@@ -183,6 +188,7 @@
     },
     {
       "id": "e_hip_thrust",
+      "modality": "resistance",
       "name_ko": "힙 쓰러스트",
       "name_en": "Barbell Hip Thrust",
       "movement_pattern": "hinge",
@@ -216,6 +222,7 @@
     },
     {
       "id": "e_walking_lunge",
+      "modality": "resistance",
       "name_ko": "워킹 런지",
       "name_en": "Walking Lunge",
       "movement_pattern": "lunge",
@@ -251,6 +258,7 @@
     },
     {
       "id": "e_leg_extension",
+      "modality": "resistance",
       "name_ko": "레그 익스텐션",
       "name_en": "Leg Extension",
       "movement_pattern": "knee_extension",
@@ -282,6 +290,7 @@
     },
     {
       "id": "e_leg_curl",
+      "modality": "resistance",
       "name_ko": "레그 컬",
       "name_en": "Lying Leg Curl",
       "movement_pattern": "knee_flexion",
@@ -314,6 +323,7 @@
     },
     {
       "id": "e_calf_raise",
+      "modality": "resistance",
       "name_ko": "스탠딩 카프 레이즈",
       "name_en": "Standing Calf Raise",
       "movement_pattern": "calf",
@@ -342,6 +352,7 @@
     },
     {
       "id": "e_bench_press",
+      "modality": "resistance",
       "name_ko": "바벨 벤치프레스",
       "name_en": "Barbell Bench Press",
       "movement_pattern": "horizontal_push",
@@ -378,6 +389,7 @@
     },
     {
       "id": "e_incline_db_press",
+      "modality": "resistance",
       "name_ko": "인클라인 덤벨 프레스",
       "name_en": "Incline Dumbbell Press",
       "movement_pattern": "horizontal_push",
@@ -412,6 +424,7 @@
     },
     {
       "id": "e_chest_press_machine",
+      "modality": "resistance",
       "name_ko": "체스트 프레스 머신",
       "name_en": "Chest Press Machine",
       "movement_pattern": "horizontal_push",
@@ -446,6 +459,7 @@
     },
     {
       "id": "e_ohp",
+      "modality": "resistance",
       "name_ko": "오버헤드 프레스",
       "name_en": "Overhead Press",
       "movement_pattern": "vertical_push",
@@ -480,6 +494,7 @@
     },
     {
       "id": "e_db_shoulder_press",
+      "modality": "resistance",
       "name_ko": "덤벨 숄더 프레스",
       "name_en": "Dumbbell Shoulder Press",
       "movement_pattern": "vertical_push",
@@ -513,6 +528,7 @@
     },
     {
       "id": "e_dips",
+      "modality": "resistance",
       "name_ko": "딥스",
       "name_en": "Dips",
       "movement_pattern": "horizontal_push",
@@ -547,6 +563,7 @@
     },
     {
       "id": "e_triceps_pushdown",
+      "modality": "resistance",
       "name_ko": "케이블 트라이셉 푸시다운",
       "name_en": "Cable Triceps Pushdown",
       "movement_pattern": "elbow_extension",
@@ -577,6 +594,7 @@
     },
     {
       "id": "e_overhead_triceps_ext",
+      "modality": "resistance",
       "name_ko": "오버헤드 트라이셉 익스텐션",
       "name_en": "Overhead Triceps Extension",
       "movement_pattern": "elbow_extension",
@@ -607,6 +625,7 @@
     },
     {
       "id": "e_lateral_raise",
+      "modality": "resistance",
       "name_ko": "사이드 레터럴 레이즈",
       "name_en": "Dumbbell Lateral Raise",
       "movement_pattern": "shoulder_isolation",
@@ -636,6 +655,7 @@
     },
     {
       "id": "e_lat_pulldown",
+      "modality": "resistance",
       "name_ko": "랫풀다운",
       "name_en": "Lat Pulldown",
       "movement_pattern": "vertical_pull",
@@ -670,6 +690,7 @@
     },
     {
       "id": "e_pullup",
+      "modality": "resistance",
       "name_ko": "풀업",
       "name_en": "Pull-up",
       "movement_pattern": "vertical_pull",
@@ -703,6 +724,7 @@
     },
     {
       "id": "e_barbell_row",
+      "modality": "resistance",
       "name_ko": "바벨 로우",
       "name_en": "Barbell Row",
       "movement_pattern": "horizontal_pull",
@@ -740,6 +762,7 @@
     },
     {
       "id": "e_seated_cable_row",
+      "modality": "resistance",
       "name_ko": "시티드 케이블 로우",
       "name_en": "Seated Cable Row",
       "movement_pattern": "horizontal_pull",
@@ -775,6 +798,7 @@
     },
     {
       "id": "e_one_arm_db_row",
+      "modality": "resistance",
       "name_ko": "원암 덤벨 로우",
       "name_en": "One-Arm Dumbbell Row",
       "movement_pattern": "horizontal_pull",
@@ -810,6 +834,7 @@
     },
     {
       "id": "e_face_pull",
+      "modality": "resistance",
       "name_ko": "페이스 풀",
       "name_en": "Face Pull",
       "movement_pattern": "shoulder_isolation",
@@ -841,6 +866,7 @@
     },
     {
       "id": "e_barbell_curl",
+      "modality": "resistance",
       "name_ko": "바벨 컬",
       "name_en": "Barbell Curl",
       "movement_pattern": "elbow_flexion",
@@ -874,6 +900,7 @@
     },
     {
       "id": "e_db_curl",
+      "modality": "resistance",
       "name_ko": "덤벨 컬",
       "name_en": "Dumbbell Curl",
       "movement_pattern": "elbow_flexion",
@@ -907,6 +934,7 @@
     },
     {
       "id": "e_hammer_curl",
+      "modality": "resistance",
       "name_ko": "해머 컬",
       "name_en": "Hammer Curl",
       "movement_pattern": "elbow_flexion",
@@ -939,6 +967,7 @@
     },
     {
       "id": "e_plank",
+      "modality": "resistance",
       "name_ko": "플랭크",
       "name_en": "Plank",
       "movement_pattern": "core",
@@ -973,6 +1002,7 @@
     },
     {
       "id": "e_cable_crunch",
+      "modality": "resistance",
       "name_ko": "케이블 크런치",
       "name_en": "Cable Crunch",
       "movement_pattern": "core",
@@ -1005,6 +1035,7 @@
     },
     {
       "id": "e_front_squat",
+      "modality": "resistance",
       "name_ko": "프론트 스쿼트",
       "name_en": "Front Squat",
       "movement_pattern": "squat",
@@ -1041,6 +1072,7 @@
     },
     {
       "id": "e_hack_squat",
+      "modality": "resistance",
       "name_ko": "핵 스쿼트",
       "name_en": "Hack Squat",
       "movement_pattern": "squat",
@@ -1074,6 +1106,7 @@
     },
     {
       "id": "e_smith_squat",
+      "modality": "resistance",
       "name_ko": "스미스머신 스쿼트",
       "name_en": "Smith Machine Squat",
       "movement_pattern": "squat",
@@ -1108,6 +1141,7 @@
     },
     {
       "id": "e_bulgarian_split_squat",
+      "modality": "resistance",
       "name_ko": "불가리안 스플릿 스쿼트",
       "name_en": "Bulgarian Split Squat",
       "movement_pattern": "lunge",
@@ -1142,6 +1176,7 @@
     },
     {
       "id": "e_split_squat",
+      "modality": "resistance",
       "name_ko": "스플릿 스쿼트",
       "name_en": "Split Squat",
       "movement_pattern": "lunge",
@@ -1175,6 +1210,7 @@
     },
     {
       "id": "e_reverse_lunge",
+      "modality": "resistance",
       "name_ko": "리버스 런지",
       "name_en": "Reverse Lunge",
       "movement_pattern": "lunge",
@@ -1209,6 +1245,7 @@
     },
     {
       "id": "e_step_up",
+      "modality": "resistance",
       "name_ko": "스텝업",
       "name_en": "Step-up",
       "movement_pattern": "lunge",
@@ -1244,6 +1281,7 @@
     },
     {
       "id": "e_belt_squat",
+      "modality": "resistance",
       "name_ko": "벨트 스쿼트",
       "name_en": "Belt Squat",
       "movement_pattern": "squat",
@@ -1278,6 +1316,7 @@
     },
     {
       "id": "e_sissy_squat",
+      "modality": "resistance",
       "name_ko": "시시 스쿼트",
       "name_en": "Sissy Squat",
       "movement_pattern": "knee_extension",
@@ -1308,6 +1347,7 @@
     },
     {
       "id": "e_sumo_deadlift",
+      "modality": "resistance",
       "name_ko": "스모 데드리프트",
       "name_en": "Sumo Deadlift",
       "movement_pattern": "hinge",
@@ -1344,6 +1384,7 @@
     },
     {
       "id": "e_trap_bar_deadlift",
+      "modality": "resistance",
       "name_ko": "트랩바 데드리프트",
       "name_en": "Trap Bar Deadlift",
       "movement_pattern": "hinge",
@@ -1380,6 +1421,7 @@
     },
     {
       "id": "e_single_leg_rdl",
+      "modality": "resistance",
       "name_ko": "싱글레그 RDL",
       "name_en": "Single-leg Romanian Deadlift",
       "movement_pattern": "hinge",
@@ -1413,6 +1455,7 @@
     },
     {
       "id": "e_good_morning",
+      "modality": "resistance",
       "name_ko": "굿모닝",
       "name_en": "Good Morning",
       "movement_pattern": "hinge",
@@ -1447,6 +1490,7 @@
     },
     {
       "id": "e_cable_pull_through",
+      "modality": "resistance",
       "name_ko": "케이블 풀 스루",
       "name_en": "Cable Pull-through",
       "movement_pattern": "hinge",
@@ -1479,6 +1523,7 @@
     },
     {
       "id": "e_glute_bridge",
+      "modality": "resistance",
       "name_ko": "글루트 브릿지",
       "name_en": "Glute Bridge",
       "movement_pattern": "hinge",
@@ -1511,6 +1556,7 @@
     },
     {
       "id": "e_back_extension",
+      "modality": "resistance",
       "name_ko": "백 익스텐션",
       "name_en": "Back Extension",
       "movement_pattern": "hinge",
@@ -1545,6 +1591,7 @@
     },
     {
       "id": "e_hip_abduction",
+      "modality": "resistance",
       "name_ko": "힙 어브덕션 머신",
       "name_en": "Hip Abduction Machine",
       "movement_pattern": "hinge",
@@ -1574,6 +1621,7 @@
     },
     {
       "id": "e_kettlebell_swing",
+      "modality": "resistance",
       "name_ko": "케틀벨 스윙",
       "name_en": "Kettlebell Swing",
       "movement_pattern": "hinge",
@@ -1608,6 +1656,7 @@
     },
     {
       "id": "e_seated_leg_curl",
+      "modality": "resistance",
       "name_ko": "시티드 레그 컬",
       "name_en": "Seated Leg Curl",
       "movement_pattern": "knee_flexion",
@@ -1641,6 +1690,7 @@
     },
     {
       "id": "e_nordic_curl",
+      "modality": "resistance",
       "name_ko": "노르딕 컬",
       "name_en": "Nordic Hamstring Curl",
       "movement_pattern": "knee_flexion",
@@ -1674,6 +1724,7 @@
     },
     {
       "id": "e_seated_calf_raise",
+      "modality": "resistance",
       "name_ko": "시티드 카프 레이즈",
       "name_en": "Seated Calf Raise",
       "movement_pattern": "calf",
@@ -1703,6 +1754,7 @@
     },
     {
       "id": "e_leg_press_calf_raise",
+      "modality": "resistance",
       "name_ko": "레그프레스 카프 레이즈",
       "name_en": "Leg Press Calf Raise",
       "movement_pattern": "calf",
@@ -1733,6 +1785,7 @@
     },
     {
       "id": "e_adduction_machine",
+      "modality": "resistance",
       "name_ko": "힙 어덕션 머신",
       "name_en": "Hip Adduction Machine",
       "movement_pattern": "knee_extension",
@@ -1764,6 +1817,7 @@
     },
     {
       "id": "e_incline_bench_press",
+      "modality": "resistance",
       "name_ko": "인클라인 바벨 벤치프레스",
       "name_en": "Incline Barbell Bench Press",
       "movement_pattern": "horizontal_push",
@@ -1798,6 +1852,7 @@
     },
     {
       "id": "e_decline_bench_press",
+      "modality": "resistance",
       "name_ko": "디클라인 벤치프레스",
       "name_en": "Decline Bench Press",
       "movement_pattern": "horizontal_push",
@@ -1832,6 +1887,7 @@
     },
     {
       "id": "e_flat_db_press",
+      "modality": "resistance",
       "name_ko": "플랫 덤벨 프레스",
       "name_en": "Flat Dumbbell Press",
       "movement_pattern": "horizontal_push",
@@ -1865,6 +1921,7 @@
     },
     {
       "id": "e_smith_bench_press",
+      "modality": "resistance",
       "name_ko": "스미스머신 벤치프레스",
       "name_en": "Smith Machine Bench Press",
       "movement_pattern": "horizontal_push",
@@ -1898,6 +1955,7 @@
     },
     {
       "id": "e_smith_incline_bench_press",
+      "modality": "resistance",
       "name_ko": "스미스머신 인클라인 벤치프레스",
       "name_en": "Smith Machine Incline Bench Press",
       "movement_pattern": "horizontal_push",
@@ -1932,6 +1990,7 @@
     },
     {
       "id": "e_pushup",
+      "modality": "resistance",
       "name_ko": "푸시업",
       "name_en": "Push-up",
       "movement_pattern": "horizontal_push",
@@ -1967,6 +2026,7 @@
     },
     {
       "id": "e_cable_fly",
+      "modality": "resistance",
       "name_ko": "케이블 플라이",
       "name_en": "Cable Fly",
       "movement_pattern": "horizontal_push",
@@ -1999,6 +2059,7 @@
     },
     {
       "id": "e_pec_deck",
+      "modality": "resistance",
       "name_ko": "펙덱 플라이",
       "name_en": "Pec Deck Fly",
       "movement_pattern": "horizontal_push",
@@ -2031,6 +2092,7 @@
     },
     {
       "id": "e_db_fly",
+      "modality": "resistance",
       "name_ko": "덤벨 플라이",
       "name_en": "Dumbbell Fly",
       "movement_pattern": "horizontal_push",
@@ -2064,6 +2126,7 @@
     },
     {
       "id": "e_seated_db_shoulder_press",
+      "modality": "resistance",
       "name_ko": "시티드 덤벨 숄더프레스",
       "name_en": "Seated Dumbbell Shoulder Press",
       "movement_pattern": "vertical_push",
@@ -2097,6 +2160,7 @@
     },
     {
       "id": "e_shoulder_press_machine",
+      "modality": "resistance",
       "name_ko": "숄더프레스 머신",
       "name_en": "Shoulder Press Machine",
       "movement_pattern": "vertical_push",
@@ -2130,6 +2194,7 @@
     },
     {
       "id": "e_arnold_press",
+      "modality": "resistance",
       "name_ko": "아놀드 프레스",
       "name_en": "Arnold Press",
       "movement_pattern": "vertical_push",
@@ -2162,6 +2227,7 @@
     },
     {
       "id": "e_push_press",
+      "modality": "resistance",
       "name_ko": "푸시 프레스",
       "name_en": "Push Press",
       "movement_pattern": "vertical_push",
@@ -2195,6 +2261,7 @@
     },
     {
       "id": "e_pike_pushup",
+      "modality": "resistance",
       "name_ko": "파이크 푸시업",
       "name_en": "Pike Push-up",
       "movement_pattern": "vertical_push",
@@ -2227,6 +2294,7 @@
     },
     {
       "id": "e_chinup",
+      "modality": "resistance",
       "name_ko": "친업",
       "name_en": "Chin-up",
       "movement_pattern": "vertical_pull",
@@ -2261,6 +2329,7 @@
     },
     {
       "id": "e_neutral_grip_pulldown",
+      "modality": "resistance",
       "name_ko": "뉴트럴그립 랫풀다운",
       "name_en": "Neutral-grip Lat Pulldown",
       "movement_pattern": "vertical_pull",
@@ -2294,6 +2363,7 @@
     },
     {
       "id": "e_assisted_pullup",
+      "modality": "resistance",
       "name_ko": "어시스트 풀업 머신",
       "name_en": "Assisted Pull-up Machine",
       "movement_pattern": "vertical_pull",
@@ -2327,6 +2397,7 @@
     },
     {
       "id": "e_straight_arm_pulldown",
+      "modality": "resistance",
       "name_ko": "스트레이트암 풀다운",
       "name_en": "Straight-arm Pulldown",
       "movement_pattern": "vertical_pull",
@@ -2358,6 +2429,7 @@
     },
     {
       "id": "e_chest_supported_row",
+      "modality": "resistance",
       "name_ko": "체스트 서포티드 로우",
       "name_en": "Chest-supported Row",
       "movement_pattern": "horizontal_pull",
@@ -2392,6 +2464,7 @@
     },
     {
       "id": "e_t_bar_row",
+      "modality": "resistance",
       "name_ko": "티바 로우",
       "name_en": "T-Bar Row",
       "movement_pattern": "horizontal_pull",
@@ -2428,6 +2501,7 @@
     },
     {
       "id": "e_pendlay_row",
+      "modality": "resistance",
       "name_ko": "펜들레이 로우",
       "name_en": "Pendlay Row",
       "movement_pattern": "horizontal_pull",
@@ -2462,6 +2536,7 @@
     },
     {
       "id": "e_inverted_row",
+      "modality": "resistance",
       "name_ko": "인버티드 로우",
       "name_en": "Inverted Row",
       "movement_pattern": "horizontal_pull",
@@ -2496,6 +2571,7 @@
     },
     {
       "id": "e_machine_row",
+      "modality": "resistance",
       "name_ko": "머신 로우",
       "name_en": "Machine Row",
       "movement_pattern": "horizontal_pull",
@@ -2529,6 +2605,7 @@
     },
     {
       "id": "e_shrug",
+      "modality": "resistance",
       "name_ko": "슈러그",
       "name_en": "Shrug",
       "movement_pattern": "horizontal_pull",
@@ -2560,6 +2637,7 @@
     },
     {
       "id": "e_barbell_shrug",
+      "modality": "resistance",
       "name_ko": "바벨 슈러그",
       "name_en": "Barbell Shrug",
       "movement_pattern": "horizontal_pull",
@@ -2591,6 +2669,7 @@
     },
     {
       "id": "e_cable_lateral_raise",
+      "modality": "resistance",
       "name_ko": "케이블 레터럴 레이즈",
       "name_en": "Cable Lateral Raise",
       "movement_pattern": "shoulder_isolation",
@@ -2621,6 +2700,7 @@
     },
     {
       "id": "e_machine_lateral_raise",
+      "modality": "resistance",
       "name_ko": "레터럴 레이즈 머신",
       "name_en": "Lateral Raise Machine",
       "movement_pattern": "shoulder_isolation",
@@ -2651,6 +2731,7 @@
     },
     {
       "id": "e_rear_delt_fly",
+      "modality": "resistance",
       "name_ko": "리어 델트 플라이",
       "name_en": "Rear Delt Fly",
       "movement_pattern": "shoulder_isolation",
@@ -2683,6 +2764,7 @@
     },
     {
       "id": "e_reverse_pec_deck",
+      "modality": "resistance",
       "name_ko": "리버스 펙덱",
       "name_en": "Reverse Pec Deck",
       "movement_pattern": "shoulder_isolation",
@@ -2715,6 +2797,7 @@
     },
     {
       "id": "e_front_raise",
+      "modality": "resistance",
       "name_ko": "프론트 레이즈",
       "name_en": "Front Raise",
       "movement_pattern": "shoulder_isolation",
@@ -2744,6 +2827,7 @@
     },
     {
       "id": "e_upright_row",
+      "modality": "resistance",
       "name_ko": "업라이트 로우",
       "name_en": "Upright Row",
       "movement_pattern": "shoulder_isolation",
@@ -2778,6 +2862,7 @@
     },
     {
       "id": "e_close_grip_bench",
+      "modality": "resistance",
       "name_ko": "클로즈그립 벤치프레스",
       "name_en": "Close-grip Bench Press",
       "movement_pattern": "elbow_extension",
@@ -2812,6 +2897,7 @@
     },
     {
       "id": "e_skull_crusher",
+      "modality": "resistance",
       "name_ko": "스컬 크러셔",
       "name_en": "Skull Crusher",
       "movement_pattern": "elbow_extension",
@@ -2842,6 +2928,7 @@
     },
     {
       "id": "e_rope_pushdown",
+      "modality": "resistance",
       "name_ko": "로프 푸시다운",
       "name_en": "Rope Pushdown",
       "movement_pattern": "elbow_extension",
@@ -2872,6 +2959,7 @@
     },
     {
       "id": "e_bench_dip",
+      "modality": "resistance",
       "name_ko": "벤치 딥",
       "name_en": "Bench Dip",
       "movement_pattern": "elbow_extension",
@@ -2905,6 +2993,7 @@
     },
     {
       "id": "e_kickback",
+      "modality": "resistance",
       "name_ko": "트라이셉 킥백",
       "name_en": "Triceps Kickback",
       "movement_pattern": "elbow_extension",
@@ -2935,6 +3024,7 @@
     },
     {
       "id": "e_incline_db_curl",
+      "modality": "resistance",
       "name_ko": "인클라인 덤벨 컬",
       "name_en": "Incline Dumbbell Curl",
       "movement_pattern": "elbow_flexion",
@@ -2967,6 +3057,7 @@
     },
     {
       "id": "e_preacher_curl",
+      "modality": "resistance",
       "name_ko": "프리처 컬",
       "name_en": "Preacher Curl",
       "movement_pattern": "elbow_flexion",
@@ -3000,6 +3091,7 @@
     },
     {
       "id": "e_cable_curl",
+      "modality": "resistance",
       "name_ko": "케이블 컬",
       "name_en": "Cable Curl",
       "movement_pattern": "elbow_flexion",
@@ -3032,6 +3124,7 @@
     },
     {
       "id": "e_concentration_curl",
+      "modality": "resistance",
       "name_ko": "컨센트레이션 컬",
       "name_en": "Concentration Curl",
       "movement_pattern": "elbow_flexion",
@@ -3062,6 +3155,7 @@
     },
     {
       "id": "e_reverse_curl",
+      "modality": "resistance",
       "name_ko": "리버스 컬",
       "name_en": "Reverse Curl",
       "movement_pattern": "elbow_flexion",
@@ -3093,6 +3187,7 @@
     },
     {
       "id": "e_wrist_curl",
+      "modality": "resistance",
       "name_ko": "리스트 컬",
       "name_en": "Wrist Curl",
       "movement_pattern": "elbow_flexion",
@@ -3122,6 +3217,7 @@
     },
     {
       "id": "e_farmer_walk",
+      "modality": "resistance",
       "name_ko": "파머스 워크",
       "name_en": "Farmer's Walk",
       "movement_pattern": "horizontal_pull",
@@ -3156,6 +3252,7 @@
     },
     {
       "id": "e_hanging_leg_raise",
+      "modality": "resistance",
       "name_ko": "행잉 레그레이즈",
       "name_en": "Hanging Leg Raise",
       "movement_pattern": "core",
@@ -3188,6 +3285,7 @@
     },
     {
       "id": "e_lying_leg_raise",
+      "modality": "resistance",
       "name_ko": "라잉 레그레이즈",
       "name_en": "Lying Leg Raise",
       "movement_pattern": "core",
@@ -3220,6 +3318,7 @@
     },
     {
       "id": "e_crunch",
+      "modality": "resistance",
       "name_ko": "크런치",
       "name_en": "Crunch",
       "movement_pattern": "core",
@@ -3250,6 +3349,7 @@
     },
     {
       "id": "e_ab_wheel",
+      "modality": "resistance",
       "name_ko": "앱 롤아웃",
       "name_en": "Ab Wheel Rollout",
       "movement_pattern": "core",
@@ -3283,6 +3383,7 @@
     },
     {
       "id": "e_russian_twist",
+      "modality": "resistance",
       "name_ko": "러시안 트위스트",
       "name_en": "Russian Twist",
       "movement_pattern": "core",
@@ -3315,6 +3416,7 @@
     },
     {
       "id": "e_cable_woodchop",
+      "modality": "resistance",
       "name_ko": "케이블 우드찹",
       "name_en": "Cable Woodchop",
       "movement_pattern": "core",
@@ -3346,6 +3448,7 @@
     },
     {
       "id": "e_dead_bug",
+      "modality": "resistance",
       "name_ko": "데드버그",
       "name_en": "Dead Bug",
       "movement_pattern": "core",
@@ -3378,6 +3481,7 @@
     },
     {
       "id": "e_bird_dog",
+      "modality": "resistance",
       "name_ko": "버드독",
       "name_en": "Bird Dog",
       "movement_pattern": "core",
@@ -3411,6 +3515,7 @@
     },
     {
       "id": "e_side_plank",
+      "modality": "resistance",
       "name_ko": "사이드 플랭크",
       "name_en": "Side Plank",
       "movement_pattern": "core",
@@ -3444,6 +3549,7 @@
     },
     {
       "id": "e_hollow_hold",
+      "modality": "resistance",
       "name_ko": "할로우 홀드",
       "name_en": "Hollow Hold",
       "movement_pattern": "core",
@@ -3476,6 +3582,7 @@
     },
     {
       "id": "e_low_row_machine",
+      "modality": "resistance",
       "name_ko": "로우 로우 머신",
       "name_en": "Low Row Machine",
       "movement_pattern": "horizontal_pull",
@@ -3510,6 +3617,7 @@
     },
     {
       "id": "e_high_row_machine",
+      "modality": "resistance",
       "name_ko": "하이 로우 머신",
       "name_en": "High Row Machine",
       "movement_pattern": "horizontal_pull",
@@ -3545,6 +3653,7 @@
     },
     {
       "id": "e_incline_chest_press_machine",
+      "modality": "resistance",
       "name_ko": "머신 인클라인 벤치프레스",
       "name_en": "Incline Chest Press Machine",
       "movement_pattern": "horizontal_push",
@@ -3579,6 +3688,7 @@
     },
     {
       "id": "e_assisted_dips",
+      "modality": "resistance",
       "name_ko": "어시스트 딥스 머신",
       "name_en": "Assisted Dip Machine",
       "movement_pattern": "horizontal_push",
@@ -3610,6 +3720,47 @@
         "image_url": null,
         "video_url": null
       }
+    },
+    {
+      "id": "e_stationary_bike",
+      "modality": "cardio",
+      "name_ko": "고정식 자전거",
+      "name_en": "Stationary Bike",
+      "movement_pattern": null,
+      "mechanic": null,
+      "region": null,
+      "primary_muscles": [],
+      "secondary_muscles": [],
+      "equipment": "stationary_bike",
+      "difficulty": "beginner",
+      "metric": "time",
+      "default_reps_low": null,
+      "default_reps_high": null,
+      "default_time_low_sec": null,
+      "default_time_high_sec": null,
+      "default_step_kg": null,
+      "load_semantics": null,
+      "unilateral": false,
+      "substitutions": [],
+      "cues": [],
+      "media": {},
+      "cardio_movement_regions": [
+        "lower"
+      ],
+      "prescription_kinds_supported": [
+        "steady_cardio",
+        "interval_cardio"
+      ],
+      "blocked_reported_pain_areas": [
+        "knee",
+        "lower_back",
+        "shoulder",
+        "elbow",
+        "wrist",
+        "hip",
+        "neck",
+        "ankle"
+      ]
     }
   ]
 }

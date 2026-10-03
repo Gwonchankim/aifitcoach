@@ -1,3 +1,4 @@
+import { assertResistanceExercise } from "../src/exercises/exercise-domain";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -13,14 +14,20 @@ import { buildProgramSelectionContext, DIFFICULTY_RANK } from "../src/programs/p
 import { excludedPatternsFor } from "../src/programs/program-rules";
 
 describe("ticket02 retains 109 baseline and freezes 110 selection effects", () => {
-  it("pins all 109 objects, with only assisted dips added", () => {
+  it("pins all 109 objects with additive assisted dips and S2 bike", () => {
     expect(
       createHash("sha256")
         .update(readFileSync(path.join(__dirname, "support/catalog-baseline-109.fixture")))
         .digest("hex"),
     ).toBe("c3170d88c30207811b0c1ae8d280e4933ded8567364cb12ca8fa74bc05d15174");
-    expect(CURRENT_CATALOG).toHaveLength(110);
-    expect(CURRENT_RAW.filter((row) => row.id !== "e_assisted_dips")).toEqual(CATALOG109_RAW);
+    expect(CURRENT_CATALOG).toHaveLength(111);
+    const baselineRows = CURRENT_RAW.filter(
+      (row) => row.id !== "e_assisted_dips" && row.id !== "e_stationary_bike",
+    );
+    for (const row of baselineRows) expect(row.modality).toBe("resistance");
+    expect(baselineRows.map(({ modality: _modality, ...oldFields }) => oldFields)).toEqual(
+      CATALOG109_RAW,
+    );
     expect(CURRENT_CATALOG.find((row) => row.id === "e_assisted_dips")).toMatchObject({
       nameKo: "어시스트 딥스 머신",
       nameEn: "Assisted Dip Machine",
@@ -70,6 +77,7 @@ describe("ticket02 retains 109 baseline and freezes 110 selection effects", () =
       const excluded = excludedPatternsFor(input.pain_areas ?? []);
       for (const id of after.flatMap((day) => day.ids)) {
         const row = CURRENT_CATALOG.find((item) => item.id === id)!;
+        assertResistanceExercise(row);
         expect(row).toBeDefined();
         expect(DIFFICULTY_RANK[row.difficulty]).toBeLessThanOrEqual(
           DIFFICULTY_RANK[input.experience_level],

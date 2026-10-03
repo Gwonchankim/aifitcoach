@@ -14,6 +14,15 @@ import { readThroughReadModel, type ReadModelEnvelope } from "./read-model-cache
 
 export const MAX_ANALYTICS_WEEKS = 12;
 
+export function currentProgramReadModel(userId = DEV_USER_SCOPE) {
+  return readThroughReadModel({
+    userId,
+    kind: "program",
+    cacheKey: "program:current",
+    fetcher: api.currentProgram,
+  });
+}
+
 type BoundedE1rmQuery = E1rmAnalyticsQuery & Required<Pick<E1rmAnalyticsQuery, "from" | "to">>;
 
 export function dashboardReadModel(

@@ -86,47 +86,69 @@ function resolveRef(schema: SchemaNode): SchemaNode {
  * 응답에 user_id·평문 pain 같은 값이 새어도 스키마 게이트가 못 잡는다(STEP 4 평가 PIPA 결함).
  * 스키마가 additionalProperties 를 명시적으로 허용한 자리(Mutation.payload 등)는 건너뛴다.
  */
+const branchValidators = new WeakMap<SchemaNode, ValidateFunction>();
+function matchesBranch(schema: SchemaNode, value: unknown): boolean {
+  let validate = branchValidators.get(schema);
+  if (!validate) {
+    validate = instance().compile({ ...schema, components: openapiDocument().components });
+    branchValidators.set(schema, validate);
+  }
+  return Boolean(validate(value));
+}
+
+/** Inspect only matching union branches; merge allOf declarations at the same object level. */
+function applicableNodes(schema: SchemaNode, value: unknown): SchemaNode[] {
+  const node = resolveRef(schema);
+  const allOf = node.allOf as SchemaNode[] | undefined;
+  if (allOf) return [node, ...allOf.flatMap((branch) => applicableNodes(branch, value))];
+  const union = (node.oneOf ?? node.anyOf) as SchemaNode[] | undefined;
+  if (union)
+    return [
+      node,
+      ...union
+        .filter((branch) => matchesBranch(branch, value))
+        .flatMap((branch) => applicableNodes(branch, value)),
+    ];
+  return [node];
+}
+
 function collectUndeclaredKeys(
   schema: SchemaNode,
   value: unknown,
   pointer: string,
   found: string[],
 ): void {
-  const node = resolveRef(schema);
-  const allOf = node.allOf as SchemaNode[] | undefined;
-  if (allOf) {
-    for (const branch of allOf) collectUndeclaredKeys(branch, value, pointer, found);
-    return;
-  }
-  const anyOf = node.anyOf as SchemaNode[] | undefined;
-  if (anyOf) {
-    for (const branch of anyOf) {
-      if (branch.type !== "null") collectUndeclaredKeys(branch, value, pointer, found);
-    }
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    const items = node.items as SchemaNode | undefined;
-    if (items) {
-      value.forEach((item, index) =>
-        collectUndeclaredKeys(items, item, `${pointer}[${index}]`, found),
-      );
-    }
-    return;
-  }
   if (value === null || typeof value !== "object") return;
-
-  const properties = node.properties as Record<string, SchemaNode> | undefined;
-  if (!properties || node.additionalProperties) return;
-
+  const nodes = applicableNodes(schema, value);
+  if (Array.isArray(value)) {
+    for (const node of nodes) {
+      const items = node.items as SchemaNode | undefined;
+      if (items)
+        value.forEach((item, index) =>
+          collectUndeclaredKeys(items, item, pointer + "[" + index + "]", found),
+        );
+    }
+    return;
+  }
+  if (nodes.some((node) => node.additionalProperties)) return;
+  const declarations = nodes
+    .map((node) => node.properties as Record<string, SchemaNode> | undefined)
+    .filter((node) => node !== undefined);
+  if (declarations.length === 0) return;
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    const declared = properties[key];
-    if (!declared) {
-      found.push(`${pointer}.${key}`);
+    const declared = declarations
+      .map((properties) => properties[key])
+      .filter((property) => property !== undefined);
+    if (declared.length === 0) {
+      found.push(pointer + "." + key);
       continue;
     }
-    collectUndeclaredKeys(declared, child, `${pointer}.${key}`, found);
+    collectUndeclaredKeys(
+      declared.length === 1 ? declared[0] : { allOf: declared },
+      child,
+      pointer + "." + key,
+      found,
+    );
   }
 }
 

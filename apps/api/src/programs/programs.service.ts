@@ -11,12 +11,39 @@ import { PrismaService } from "../prisma/prisma.service";
 import { GenerateProgramDto } from "./dto/generate-program.dto";
 import { PlannedSetFactory, PlannedSetRow, toPackCandidate } from "./planned-set.factory";
 import { RecommendationService, requireHistory } from "../recommendation/recommendation.service";
-import { isV2RulesBundle, packSession } from "shared";
+import {
+  isV2RulesBundle,
+  packSession,
+  planMixedSession,
+  resolveRulesBundle,
+  RULES_BUNDLE_V2_SPLIT,
+  MixedSessionPlanError,
+  parseCardioSnapshot,
+  estimateSessionSeconds,
+  mandatoryBlockSeconds,
+  assignRoles,
+  getProgramComposition,
+  validateSplitPreference,
+  buildSplitPreferenceSnapshot,
+  legacySplitPreferenceSnapshot,
+  parseSplitPreferenceSnapshot,
+  checkRepeatedFocusRecovery,
+} from "shared";
+import type {
+  CardioBlockDescriptor,
+  CardioSlotPlan,
+  CardioSnapshot,
+  Goal,
+  SplitProgramSnapshot,
+} from "shared";
+import { cardioProgramPlan } from "./cardio-program-plan";
+import { cardioPlannedSet, snapshotFromCardioRow } from "./cardio-planned-set";
+import { FeatureConflictException } from "../common/http/feature-conflict";
+import { ProgramRulesBundleProvider } from "./program-rules-bundle.provider";
+import { assertResistanceExercise, isResistanceExercise } from "../exercises/exercise-domain";
 import {
   Focus,
   MovementPattern,
-  RULES_VERSION,
-  ScheduledDay,
   WEEKDAYS,
   excludedPatternsFor,
   exerciseCountFor,
@@ -38,6 +65,7 @@ export interface ProgramResponse {
   total_weeks: number;
   current_week: number;
   status: "active" | "completed";
+  split_preference_snapshot: SplitProgramSnapshot;
   /** pain_areas 로 후보에서 뺀 운동과 사유(docs/SAFETY_PAIN_MAPPING.md 규칙 3). */
   excluded_exercises: {
     exercise_id: string;
@@ -48,19 +76,31 @@ export interface ProgramResponse {
   sessions: {
     day: string;
     focus: string;
-    exercises: {
-      exercise_id: string;
-      sets: number;
-      /** metric=time 종목(e_plank)은 반복·RIR 축이 없다 → null + time_*_sec. */
-      reps_low: number | null;
-      reps_high: number | null;
-      target_rir: number | null;
-      rest_sec: number;
-      time_low_sec: number | null;
-      time_high_sec: number | null;
-    }[];
+    exercises: (ResistanceProgramExercise | CardioProgramExercise)[];
   }[];
 }
+export interface ResistanceProgramExercise {
+  prescription_kind?: "resistance";
+  exercise_id: string;
+  sets: number;
+  /** metric=time 종목(e_plank)은 반복·RIR 축이 없다 → null + time_*_sec. */
+  reps_low: number | null;
+  reps_high: number | null;
+  target_rir: number | null;
+  rest_sec: number;
+  time_low_sec: number | null;
+  time_high_sec: number | null;
+}
+export type CardioProgramExercise = CardioSnapshot & {
+  exercise_id: string;
+  sets: null;
+  reps_low: null;
+  reps_high: null;
+  target_rir: null;
+  rest_sec: null;
+  time_low_sec: null;
+  time_high_sec: null;
+};
 
 /** 현재 주와 다음 주만 materialize해 추천을 쓸 다음 세션을 확보한다. 12주 전체 생성은 금지한다(D-37). */
 const MATERIALIZED_WEEK_WINDOW = 2;
@@ -74,16 +114,28 @@ const NO_EXCLUSION = "";
 /** 난이도 서열(초급 < 중급 < 고급). 즉석 세션도 같은 서열로 종목을 고른다. */
 export const DIFFICULTY_RANK = { beginner: 0, intermediate: 1, advanced: 2 } as const;
 
+/** Internal five-goal planning input; the public DTO intentionally remains three-goal. */
+export type GenerateProgramInput = Omit<GenerateProgramDto, "goal"> & { goal: Goal };
+export interface SlotPlanningInput {
+  /** Explicit descriptors only. Automatic composition/cardio generation belongs to S2. */
+  mandatoryBlocksByDay: Partial<
+    Record<(typeof WEEKDAYS)[number], readonly CardioBlockDescriptor[]>
+  >;
+  /** Only a pure planner's immutable output; never a health or eligibility override. */
+  cardioSlots?: readonly CardioSlotPlan[];
+}
+
 @Injectable()
 export class ProgramsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly plannedSets: PlannedSetFactory,
     private readonly recommendation: RecommendationService,
+    private readonly rulesBundle: ProgramRulesBundleProvider,
   ) {}
 
   async generate(userId: string, dto: GenerateProgramDto): Promise<ProgramResponse> {
-    return this.generateWithRulesVersion(userId, dto, RULES_VERSION);
+    return this.generateWithRulesVersion(userId, dto, this.rulesBundle.current());
   }
 
   /**
@@ -92,10 +144,37 @@ export class ProgramsService {
    */
   async generateWithRulesVersion(
     userId: string,
-    dto: GenerateProgramDto,
+    dto: GenerateProgramInput,
     rulesVersion: string,
+    slotPlanning?: SlotPlanningInput,
   ): Promise<ProgramResponse> {
-    const schedule = scheduleFor(dto.days_per_week);
+    const bundle = resolveRulesBundle(rulesVersion);
+    const splitInput = {
+      rulesVersion: bundle,
+      daysPerWeek: dto.days_per_week,
+      requestedPreference: dto.split_preference,
+    };
+    try {
+      validateSplitPreference(splitInput);
+    } catch {
+      throw new BadRequestException(
+        "선택한 계획 방식과 운동일 수에서는 이 분할 선호를 적용할 수 없습니다.",
+      );
+    }
+    if (slotPlanning && !isV2RulesBundle(bundle)) {
+      throw new BadRequestException("고정 블록은 V2 내부 계획에서만 지원한다.");
+    }
+    let schedule: { day: (typeof WEEKDAYS)[number]; focus: Focus | "cardio" }[] = scheduleFor(
+      dto.days_per_week,
+    );
+    if (
+      slotPlanning &&
+      Object.keys(slotPlanning.mandatoryBlocksByDay).some(
+        (day) => !schedule.some((slot) => slot.day === day),
+      )
+    ) {
+      throw new BadRequestException("계획에 없는 요일의 고정 블록이다.");
+    }
     const catalog = await this.prisma.exercise.findMany();
 
     if (catalog.length === 0) {
@@ -104,34 +183,145 @@ export class ProgramsService {
 
     // 선택 문맥 조립은 pure helper 가 소유한다 — 테스트가 같은 함수를 써야 갈라지지 않는다.
     const { allowed, removed, excluded, options } = buildProgramSelectionContext(catalog, dto);
+    // Explicit fixed-block inputs retain the S1 packer seam. Automatic composition is .09.1 only.
+    const cardioPlan =
+      bundle === RULES_BUNDLE_V2_SPLIT && (!slotPlanning || slotPlanning.cardioSlots)
+        ? cardioProgramPlan(dto, catalog)
+        : null;
+    const composition =
+      cardioPlan?.composition ??
+      (bundle === RULES_BUNDLE_V2_SPLIT && (dto.days_per_week === 4 || dto.days_per_week === 5)
+        ? getProgramComposition({
+            rulesVersion: bundle,
+            goal: dto.goal,
+            daysPerWeek: dto.days_per_week,
+            splitPreference: dto.split_preference,
+          })
+        : null);
+    if (composition) {
+      schedule = schedule.map((slot, index) => ({
+        ...slot,
+        day:
+          composition.slots[index]!.dayOffset === null
+            ? slot.day
+            : WEEKDAYS[composition.slots[index]!.dayOffset!]!,
+        focus:
+          composition.slots[index]!.container === "C"
+            ? "cardio"
+            : (composition.slots[index]!.resistanceFocus ?? slot.focus),
+      }));
+    }
+    if (cardioPlan) {
+      if (slotPlanning?.cardioSlots) {
+        if (slotPlanning.cardioSlots.length !== schedule.length)
+          throw new BadRequestException("유산소 슬롯 수가 일치하지 않습니다.");
+        for (const [index, slot] of slotPlanning.cardioSlots.entries()) {
+          if (slot.source_day !== schedule[index]!.day || slot.source_ordinal !== index + 1)
+            throw new BadRequestException("유산소 슬롯 identity가 일치하지 않습니다.");
+          const expected = cardioPlan.byDay.get(slot.source_day);
+          if (!expected || (expected.descriptor === null) !== (slot.descriptor === null))
+            throw new FeatureConflictException("cardio_preservation_failed");
+          cardioPlan.byDay.set(slot.source_day, slot);
+        }
+      }
+    }
 
-    // focus 별 선택은 결정론적이므로 한 번만 계산해 같은 focus 인 날마다 재사용한다.
-    // **선택을 먼저 전부 끝낸 뒤** 이력을 한 번 읽는다 — focus 마다 읽으면 focus 수만큼 늘어난다.
-    const plannedByFocus = new Map<Focus, ReturnType<typeof planFocus>>();
-    for (const { focus } of schedule) {
-      if (plannedByFocus.has(focus)) continue;
-      const planned = planFocus(allowed, focus, dto, options, rulesVersion);
+    let splitSnapshot: SplitProgramSnapshot;
+    try {
+      splitSnapshot = buildSplitPreferenceSnapshot({
+        ...splitInput,
+        focuses: schedule.map((slot) => slot.focus),
+      });
+    } catch {
+      throw new BadRequestException("생성된 분할이 요청한 선호와 일치하지 않습니다.");
+    }
+    const requiredPrimaryByDay = new Map<string, string>();
+    if (splitSnapshot.applicable) {
+      // Preflight every focus before packing any time budget: missing candidates are 400.
+      // This is the new immutable week repeated at ±7 days, not another Program's actuals.
+      if (
+        !checkRepeatedFocusRecovery(
+          schedule.map((slot) => ({
+            dayOffset: WEEKDAYS.indexOf(slot.day),
+            focus: slot.focus,
+          })),
+        )
+      )
+        throw new BadRequestException("같은 운동 부위 사이에는 48시간이 필요합니다.");
+      for (const { day, focus } of schedule) {
+        if (focus !== "upper" && focus !== "lower")
+          throw new BadRequestException("분할 계획에 상체 또는 하체 운동일이 없습니다.");
+        const candidates = selectPrePackExercises(
+          { allowed, options } as ProgramSelectionContext,
+          focus,
+        );
+        const roles = assignRoles(
+          candidates.map((exercise) => toPackCandidate(dto.goal, exercise)),
+        );
+        const primary = candidates.find((exercise) => roles.get(exercise.id) === "primary");
+        if (!primary || primary.movementPattern === "core" || primary.region !== focus)
+          throw new BadRequestException("조건에 맞는 주 운동이 없습니다.");
+        requiredPrimaryByDay.set(day, primary.id);
+      }
+    }
+
+    // 동일 focus라도 mandatory 시간이 다를 수 있으므로 최종 처방은 날짜별로 유지한다.
+    // **선택을 먼저 전부 끝낸 뒤** 이력을 한 번 읽는다 — 날짜별 DB 질의는 추가하지 않는다.
+    const plannedByDay = new Map<string, ReturnType<typeof planFocus>>();
+    for (const { day, focus } of schedule) {
+      const block = cardioPlan?.byDay.get(day)?.descriptor;
+      const mandatory = cardioPlan
+        ? [...(block ? [block] : []), ...(slotPlanning?.mandatoryBlocksByDay[day] ?? [])]
+        : slotPlanning?.mandatoryBlocksByDay[day];
+      if (focus === "cardio") {
+        if (!block) throw new FeatureConflictException("cardio_preservation_failed");
+        if (
+          estimateSessionSeconds({
+            exercises: [],
+            restSec: 0,
+            additional_fixed_block_sec: mandatoryBlockSeconds(mandatory ?? []),
+          }) >
+          dto.minutes_per_day * 60
+        )
+          throw new FeatureConflictException("insufficient_time_for_mixed_focus");
+        plannedByDay.set(day, []);
+        continue;
+      }
+      let planned: ReturnType<typeof planFocus>;
+      try {
+        planned = planFocus(allowed, focus, dto, options, bundle, mandatory);
+      } catch (error) {
+        if (cardioPlan && error instanceof MixedSessionPlanError) {
+          if (error.cause === "mixed_time_budget")
+            throw new FeatureConflictException("insufficient_time_for_mixed_focus");
+          throw new BadRequestException("조건에 맞는 주 운동이 없습니다.");
+        }
+        throw error;
+      }
       // 통증 제외로 비었다면 에러 대신 축소된(빈) 세션을 만든다(SAFETY_PAIN_MAPPING.md 규칙 2).
       if (planned.length === 0 && removed.length === 0) {
         throw new BadRequestException(
           `조건(equipment/avoid_exercises)에 맞는 ${focus} 운동이 없다.`,
         );
       }
-      plannedByFocus.set(focus, planned);
+      plannedByDay.set(day, planned);
     }
 
     // 호출 전체에서 **latest 1 + lifetime 1 + calibration 1** 을 공유한다.
     const prefetched = await this.recommendation.prefetchHistories(
       userId,
-      [...plannedByFocus.values()].flat().map((item) => ({
-        exerciseId: item.exercise.id,
-        loadSemantics: item.exercise.loadSemantics,
-      })),
+      [...plannedByDay.values()].flat().map((item) => {
+        assertResistanceExercise(item.exercise);
+        return {
+          exerciseId: item.exercise.id,
+          loadSemantics: item.exercise.loadSemantics,
+        };
+      }),
     );
     const calibration = await this.recommendation.calibrationFor(userId);
 
-    const rowsByFocus = new Map<Focus, PlannedSetRow[]>();
-    for (const [focus, planned] of plannedByFocus) {
+    const rowsByDay = new Map<string, PlannedSetRow[]>();
+    for (const [day, planned] of plannedByDay) {
       const rows: PlannedSetRow[] = [];
       for (const [orderIndex, item] of planned.entries()) {
         rows.push(
@@ -142,11 +332,24 @@ export class ProgramsService {
             orderIndex,
             history: requireHistory(prefetched, item.exercise.id),
             calibration,
+            rulesVersion: bundle,
             ...(item.sets === undefined ? {} : { sets: item.sets }),
           })),
         );
       }
-      rowsByFocus.set(focus, rows);
+      const cardio = cardioPlan?.byDay.get(day);
+      if (cardio?.descriptor && cardioPlan?.exercise)
+        rows.push(cardioPlannedSet(cardioPlan.exercise, cardio, planned.length, bundle));
+      rowsByDay.set(day, rows);
+    }
+
+    // Assert actual factory output, not merely labels or planned set counts.
+    for (const [day, exerciseId] of requiredPrimaryByDay) {
+      const primaryRows = (rowsByDay.get(day) ?? []).filter(
+        (row) => row.exerciseId === exerciseId && row.prescriptionKind === "resistance",
+      );
+      if (primaryRows.length < 2)
+        throw new BadRequestException("주 운동에는 두 작업 세트 이상이 필요합니다.");
     }
 
     // "오늘"은 utcToday() 한 곳에서만 온다 — 여기서 new Date() 를 쓰면 테스트의 날짜 고정(ADR-50)이
@@ -163,7 +366,7 @@ export class ProgramsService {
           daysPerWeek: dto.days_per_week,
           minutesPerDay: dto.minutes_per_day,
           splitType: splitTypeFor(dto.days_per_week),
-          rulesVersion,
+          rulesVersion: bundle,
           startedAt: weekStart,
           totalWeeks: 12,
           status: "active",
@@ -175,8 +378,9 @@ export class ProgramsService {
             equipment: dto.equipment ?? [],
             avoid_exercises: dto.avoid_exercises ?? [],
             pain_areas: dto.pain_areas ?? [],
+            split_preference_snapshot: { ...splitSnapshot },
           },
-          template: templateFor(schedule, rowsByFocus),
+          template: templateFor(schedule, rowsByDay) as unknown as Prisma.InputJsonValue,
           excludedExercises: excluded,
         },
       });
@@ -252,11 +456,11 @@ export class ProgramsService {
             },
           },
         })
-      ).map((row) => [row.id, row]),
+      ).map((row) => [row.id, row] as const),
     );
     const prefetched = await this.recommendation.prefetchHistories(
       userId,
-      [...catalog.values()].map((row) => ({
+      [...catalog.values()].filter(isResistanceExercise).map((row) => ({
         exerciseId: row.id,
         loadSemantics: row.loadSemantics,
       })),
@@ -264,7 +468,7 @@ export class ProgramsService {
     );
     const calibration = await this.recommendation.calibrationFor(userId, tx);
 
-    for (const session of template) {
+    for (const [sourceIndex, session] of template.entries()) {
       const day = session.day as (typeof WEEKDAYS)[number];
       const date = addDays(program.startedAt, (week - 1) * 7 + WEEKDAYS.indexOf(day));
       const rows: PlannedSetRow[] = [];
@@ -272,6 +476,50 @@ export class ProgramsService {
         const exercise = catalog.get(planned.exercise_id);
         // prefetch map miss 는 **fail closed** 다 — per-exercise fallback 질의를 만들지 않는다.
         if (!exercise) throw new BadRequestException(`운동을 찾을 수 없다: ${planned.exercise_id}`);
+        if (
+          planned.prescription_kind === "steady_cardio" ||
+          planned.prescription_kind === "interval_cardio"
+        ) {
+          const snapshot = parseCardioSnapshot(planned);
+          if (
+            !snapshot ||
+            snapshot.source_day !== day ||
+            snapshot.source_ordinal !== sourceIndex + 1
+          )
+            throw new FeatureConflictException("cardio_preservation_failed");
+          const {
+            prescription_kind,
+            source_day,
+            source_ordinal,
+            intensity_seconds: _intensity,
+            cardio_fallback,
+            ...descriptor
+          } = snapshot;
+          rows.push(
+            cardioPlannedSet(
+              exercise,
+              {
+                source_day,
+                source_ordinal,
+                cardio_fallback,
+                descriptor: {
+                  ...descriptor,
+                  kind:
+                    prescription_kind === "interval_cardio"
+                      ? "interval"
+                      : descriptor.long_session_flag
+                        ? "long"
+                        : "steady",
+                },
+              },
+              orderIndex,
+              program.rulesVersion,
+            ),
+          );
+          continue;
+        }
+        assertResistanceExercise(exercise);
+        if (planned.sets === null) throw new BadRequestException("저항 세트 수가 없습니다.");
         rows.push(
           ...(await this.plannedSets.build({
             userId,
@@ -281,6 +529,7 @@ export class ProgramsService {
             sets: planned.sets,
             history: requireHistory(prefetched, exercise.id),
             calibration,
+            rulesVersion: program.rulesVersion,
           })),
         );
       }
@@ -321,6 +570,17 @@ export class ProgramsService {
    * excluded_exercises 는 계약상 "제외된 운동 목록"이므로 통증 부위 기록(NO_EXCLUSION)은 걸러낸다.
    */
   private toResponse(program: Program): ProgramResponse {
+    const generationInput = program.generationInput;
+    const template = program.template as unknown as ProgramSessionTemplate[];
+    const stored =
+      generationInput && typeof generationInput === "object" && !Array.isArray(generationInput)
+        ? generationInput.split_preference_snapshot
+        : undefined;
+    const snapshot =
+      stored === undefined
+        ? legacySplitPreferenceSnapshot(template.map((day) => day.focus))
+        : parseSplitPreferenceSnapshot(stored);
+    if (!snapshot) throw new BadRequestException("저장된 분할 선호가 올바르지 않습니다.");
     return {
       program_id: program.id,
       goal: program.goal,
@@ -330,6 +590,7 @@ export class ProgramsService {
       total_weeks: program.totalWeeks,
       current_week: currentWeek(program.startedAt, program.totalWeeks, utcToday()),
       status: lifecycleStatus(program, utcToday()),
+      split_preference_snapshot: snapshot,
       excluded_exercises: (program.excludedExercises as unknown as ExcludedExercise[]).filter(
         (item) => item.exercise_id !== NO_EXCLUSION,
       ),
@@ -363,37 +624,44 @@ type ExcludedExercise = ProgramResponse["excluded_exercises"][number];
 
 /** 주 1회분 템플릿. 실제 세션들은 이 템플릿을 날짜에 펼친 인스턴스다. */
 function templateFor(
-  schedule: ScheduledDay[],
-  rowsByFocus: Map<Focus, PlannedSetRow[]>,
+  schedule: { day: string; focus: string }[],
+  rowsByDay: Map<string, PlannedSetRow[]>,
 ): ProgramSessionTemplate[] {
   return schedule.map(({ day, focus }) => ({
     day,
     focus,
-    exercises: groupByOrder(rowsByFocus.get(focus) ?? []),
+    exercises: groupByOrder(rowsByDay.get(day) ?? []),
   }));
 }
 
-type TemplateSetRow = Pick<
-  PlannedSetRow,
-  | "exerciseId"
-  | "orderIndex"
-  | "targetRepsLow"
-  | "targetRepsHigh"
-  | "targetRir"
-  | "restSec"
-  | "targetTimeLowSec"
-  | "targetTimeHighSec"
->;
+type TemplateSetRow = PlannedSetRow;
 
 function groupByOrder(plannedSets: TemplateSetRow[]): ProgramExercise[] {
   const byOrder = new Map<number, ProgramExercise>();
   for (const set of plannedSets) {
     const existing = byOrder.get(set.orderIndex);
     if (existing) {
+      if (existing.sets === null) throw new BadRequestException("유산소 block 중복입니다.");
       existing.sets += 1;
       continue;
     }
+    if (set.prescriptionKind === "steady_cardio" || set.prescriptionKind === "interval_cardio") {
+      byOrder.set(set.orderIndex, {
+        ...snapshotFromCardioRow(set),
+        exercise_id: set.exerciseId,
+        sets: null,
+        reps_low: null,
+        reps_high: null,
+        target_rir: null,
+        rest_sec: null,
+        time_low_sec: null,
+        time_high_sec: null,
+      });
+      continue;
+    }
+    if (set.restSec == null) throw new BadRequestException("저항 처방의 휴식 정보가 없습니다.");
     byOrder.set(set.orderIndex, {
+      ...(isV2RulesBundle(set.rulesVersion) ? { prescription_kind: "resistance" as const } : {}),
       exercise_id: set.exerciseId,
       sets: 1,
       reps_low: set.targetRepsLow ?? null,
@@ -415,6 +683,7 @@ function excludedExercises(
   return available
     .filter((exercise) => excludedPatterns.has(exercise.movementPattern as MovementPattern))
     .map((exercise) => {
+      assertResistanceExercise(exercise);
       const painArea = excludedPatterns.get(exercise.movementPattern as MovementPattern)!;
       return {
         exercise_id: exercise.id,
@@ -474,14 +743,16 @@ export interface ProgramSelectionContext {
 
 export function buildProgramSelectionContext(
   catalog: Exercise[],
-  dto: GenerateProgramDto,
+  dto: GenerateProgramInput,
 ): ProgramSelectionContext {
   // equipment/avoid_exercises 로 먼저 거르고, 그 위에 통증 부위 제외(안전)를 얹는다.
-  const available = catalog.filter(
-    (exercise) =>
-      !(dto.avoid_exercises ?? []).includes(exercise.id) &&
-      ((dto.equipment ?? []).length === 0 || dto.equipment!.includes(exercise.equipment)),
-  );
+  const available = catalog
+    .filter(isResistanceExercise)
+    .filter(
+      (exercise) =>
+        !(dto.avoid_exercises ?? []).includes(exercise.id) &&
+        ((dto.equipment ?? []).length === 0 || dto.equipment!.includes(exercise.equipment)),
+    );
   const painAreas = dto.pain_areas ?? [];
   const excludedPatterns = excludedPatternsFor(painAreas);
   const removed = excludedExercises(available, excludedPatterns);
@@ -611,9 +882,10 @@ function addDays(date: Date, days: number): Date {
 function planFocus(
   allowed: Exercise[],
   focus: Focus,
-  dto: GenerateProgramDto,
+  dto: GenerateProgramInput,
   options: SelectionOptions,
   rulesVersion: string,
+  mandatoryBlocks?: readonly CardioBlockDescriptor[],
 ): { exercise: Exercise; sets?: number }[] {
   const patterns = patternsFor(focus);
   if (!isV2RulesBundle(rulesVersion)) {
@@ -630,9 +902,14 @@ function planFocus(
   // **collector 와 같은 helper**를 쓴다. 갈라지면 테스트가 다른 후보를 보게 된다.
   const candidates = selectPrePackExercises({ allowed, options } as ProgramSelectionContext, focus);
   const byId = new Map(candidates.map((exercise) => [exercise.id, exercise]));
-  return packSession({
+  const input = {
     candidates: candidates.map((exercise) => toPackCandidate(dto.goal, exercise)),
     minutesPerDay: dto.minutes_per_day,
     restSec: restSecFor(dto.goal),
-  }).map((packed) => ({ exercise: byId.get(packed.candidate.id)!, sets: packed.sets }));
+  };
+  const packed =
+    mandatoryBlocks === undefined
+      ? packSession(input)
+      : planMixedSession({ ...input, mandatoryBlocks }).resistance;
+  return packed.map((item) => ({ exercise: byId.get(item.candidate.id)!, sets: item.sets }));
 }

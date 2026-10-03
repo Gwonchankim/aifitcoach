@@ -10,8 +10,8 @@ describe("canonical assisted exercise IDs parity", () => {
     expect(API_ASSISTED_EXERCISE_IDS).toEqual(ASSISTED_EXERCISE_IDS);
   });
 
-  it("keeps load semantics equal for all 110 seed IDs and an unknown ID", () => {
-    expect(catalog.exercises).toHaveLength(110);
+  it("keeps load semantics equal for all 111 seed IDs and an unknown ID", () => {
+    expect(catalog.exercises).toHaveLength(111);
     const unknownId = "unknown_assisted_parity";
     const ids = catalog.exercises.map((exercise) => exercise.id);
     expect(ids).not.toContain(unknownId);

@@ -8,7 +8,7 @@
  *   (예외: 통증 부위는 민감정보라 저장하지 않는다 — draft.ts 참고)
  * - 제출은 `isPending` 으로 잠근다 → generate 가 두 번 호출되지 않는다(AC-S1-2).
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Card, Kicker } from "../ui";
@@ -36,6 +36,8 @@ import {
   toGenerateRequest,
 } from "./draft";
 import { api } from "../../lib/api";
+import { useOnline } from "../../lib/use-online";
+import { OfflinePreferenceStatus } from "./OfflinePreferenceStatus";
 import { GENERATE_PROGRAM_ERRORS, toUiError } from "../../lib/error-copy";
 
 /** 순서는 STEP_TITLES 와 1:1 이어야 한다(FEATURES_UX F0 수집 순서). */
@@ -57,6 +59,8 @@ function readStepFromHash(): number {
 export function OnboardingWizard() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const online = useOnline();
+  const profile = useQuery({ queryKey: ["auth", "me"], queryFn: api.me, retry: false });
 
   const [draft, setDraft] = useState<OnboardingDraft>(INITIAL_DRAFT);
   const [step, setStep] = useState(0);
@@ -67,6 +71,17 @@ export function OnboardingWizard() {
   const headingRef = useRef<HTMLHeadingElement>(null);
   /** 이 화면에서 직접 쌓은 히스토리 항목 수. 0이면 뒤로가기가 온보딩 밖으로 나간다. */
   const pushedRef = useRef(0);
+  // Derive the untouched value; a late profile read never writes over the user's draft.
+  const effectiveDraft =
+    draft.split_preference === undefined
+      ? { ...draft, split_preference: profile.data?.split_preference ?? null }
+      : draft;
+  const supported = profile.data?.split_preference_supported === true;
+  const requiresBalancedChoice =
+    supported &&
+    draft.days_per_week === 4 &&
+    (effectiveDraft.split_preference === "upper_priority" ||
+      effectiveDraft.split_preference === "lower_priority");
 
   // 저장된 초안 복원 + 해시 동기화.
   useEffect(() => {
@@ -116,7 +131,13 @@ export function OnboardingWizard() {
   }, [hydrated, step]);
 
   const mutation = useMutation({
-    mutationFn: () => api.generateProgram(toGenerateRequest(draft)),
+    mutationFn: async () => {
+      if (draft.split_preference !== undefined) {
+        const saved = await api.updateProfile({ split_preference: draft.split_preference });
+        queryClient.setQueryData(["auth", "me"], saved);
+      }
+      return api.generateProgram(toGenerateRequest(effectiveDraft, supported));
+    },
     onSuccess: (program) => {
       queryClient.setQueryData(["program", "current"], program);
       clearDraft();
@@ -131,7 +152,7 @@ export function OnboardingWizard() {
   });
 
   const submit = () => {
-    if (mutation.isPending) return;
+    if (mutation.isPending || requiresBalancedChoice || profile.isPending) return;
     setSubmitError(null);
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setSubmitError({
@@ -218,7 +239,12 @@ export function OnboardingWizard() {
       </h1>
 
       <div className="mt-6 min-h-[52dvh]">
-        <StepComponent draft={draft} onChange={patch} />
+        <StepComponent
+          draft={effectiveDraft}
+          onChange={patch}
+          splitPreferenceSupported={profile.data?.split_preference_supported}
+          splitPreferenceDisabled={!online || (profile.data != null && profile.isError)}
+        />
       </div>
 
       {/* 상태 면은 Phase B 배지와 같은 소프트 어법이다 — 면 `danger-bg` + 1px `danger` 테두리.
@@ -238,7 +264,12 @@ export function OnboardingWizard() {
           </Button>
         ) : null}
         {isLast ? (
-          <Button size="lg" fullWidth onClick={submit} disabled={mutation.isPending}>
+          <Button
+            size="lg"
+            fullWidth
+            onClick={submit}
+            disabled={mutation.isPending || requiresBalancedChoice || profile.isPending}
+          >
             계획 만들기
           </Button>
         ) : (
@@ -247,6 +278,18 @@ export function OnboardingWizard() {
           </Button>
         )}
       </ActionBar>
+      {requiresBalancedChoice ? (
+        <p role="status" className="mt-3 text-sm text-ink-2">
+          주 4일은 균형 배치만 가능해요. 운동 일수 단계에서 ‘균형 있게’ 또는 ‘선호 없음’을 골라
+          주세요.
+        </p>
+      ) : null}
+      <OfflinePreferenceStatus online={online} stale={profile.data != null && profile.isError} />
+      {profile.isError && online && !profile.data ? (
+        <p role="status" className="mt-3 text-sm text-ink-2">
+          저장된 선호를 불러오지 못했어요. 선호를 적용하지 않고 기본 계획을 만들어요.
+        </p>
+      ) : null}
 
       {mutation.isPending ? (
         <div

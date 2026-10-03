@@ -224,7 +224,10 @@ export interface paths {
     };
     options?: never;
     head?: never;
-    /** 프로필 수정(목표 변경 시 프로그램 재구성 트리거) */
+    /**
+     * 상·하체 빈도 선호 저장 또는 지우기
+     * @description split_preference만 수정한다. null은 지우기다. 빈 객체는 기존 501을 유지한다. 기존 weight_kg/body_fat_pct/goal/days_per_week/minutes_per_day/experience_level 수정은 아직 지원하지 않아 501이며 혼합 요청도 부분 적용하지 않는다. 현재 Program은 바뀌지 않는다.
+     */
     patch: {
       parameters: {
         query?: never;
@@ -442,6 +445,15 @@ export interface paths {
           };
         };
         400: components["responses"]["BadRequest"];
+        /** @description Reserved mixed planning fails atomically. */
+        409: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["FeatureConflict"];
+          };
+        };
         503: components["responses"]["ServiceUnavailable"];
       };
     };
@@ -1741,7 +1753,22 @@ export interface components {
         is_new: boolean;
       };
     };
+    SplitProgramSnapshot: {
+      /** @enum {string|null} */
+      requested_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      /** @enum {string|null} */
+      effective_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      applicable: boolean;
+      /** @enum {string|null} */
+      reason: null | "unsupported_days" | "four_day_balanced_only" | "legacy_input";
+      upper_days: number;
+      lower_days: number;
+    };
     Profile: {
+      /** @enum {string|null} */
+      split_preference: null | "balanced" | "upper_priority" | "lower_priority";
+      /** @description 활성 규칙 묶음에서 파생한 선호 적용 지원 여부. 버전 문자열이나 선택 입력은 노출하지 않는다. false이면 UI는 선호를 저장·지울 수 있지만 생성 요청에는 포함하지 않는다. */
+      readonly split_preference_supported: boolean;
       id: string;
       /** @enum {string} */
       sex: "male" | "female" | "other";
@@ -1759,6 +1786,11 @@ export interface components {
       plan_tier: "free" | "pro";
     };
     ProfileUpdate: {
+      /**
+       * @description 미지정은 유지, null은 저장된 선호 지우기. 프로그램 재생성은 하지 않는다.
+       * @enum {string|null}
+       */
+      split_preference?: null | "balanced" | "upper_priority" | "lower_priority";
       weight_kg?: number;
       body_fat_pct?: number;
       /** @enum {string} */
@@ -1811,6 +1843,11 @@ export interface components {
       };
     };
     GenerateProgramRequest: {
+      /**
+       * @description 요청 원문이 권위이며 저장 프로필을 자동 대입하지 않는다. null은 400. priority는 지원되는 5일 계획에만 허용한다.
+       * @enum {string}
+       */
+      split_preference?: "balanced" | "upper_priority" | "lower_priority";
       /** @enum {string} */
       goal: "diet" | "hypertrophy" | "strength";
       days_per_week: number;
@@ -1820,13 +1857,27 @@ export interface components {
       experience_level: "beginner" | "intermediate" | "advanced";
       equipment?: string[];
       avoid_exercises?: string[];
+      /** @description S2 reserved .09.1: omitted means unavailable; [] means known no pain. Screening/readiness/history remain unknown. Active .08.1 behavior is unchanged. */
       pain_areas?: (
         "knee" | "lower_back" | "shoulder" | "elbow" | "wrist" | "hip" | "neck" | "ankle"
       )[];
     };
+    FeatureConflict: {
+      error: {
+        /** @enum {string} */
+        code: "CONFLICT";
+        message: string;
+        details: {
+          /** @enum {string} */
+          reason: "insufficient_time_for_mixed_focus" | "cardio_preservation_failed";
+        };
+      };
+    };
     Program: {
       program_id: string;
-      goal: string;
+      split_preference_snapshot: components["schemas"]["SplitProgramSnapshot"];
+      /** @enum {string} */
+      goal: "diet" | "hypertrophy" | "strength" | "general_fitness" | "endurance";
       /** @example upper_lower */
       split_type: string;
       /** @example 2026.08.1 */
@@ -1852,30 +1903,90 @@ export interface components {
         day: string;
         /** @example upper */
         focus: string;
-        exercises: {
-          exercise_id: string;
-          sets: number;
-          reps_low: number | null;
-          reps_high: number | null;
-          target_rir: number | null;
-          rest_sec: number;
-          time_low_sec?: number | null;
-          time_high_sec?: number | null;
-        }[];
+        exercises: (
+          | components["schemas"]["LegacyProgramExercise"]
+          | components["schemas"]["ResistanceProgramExercise"]
+          | components["schemas"]["CardioProgramExercise"]
+        )[];
       }[];
+    };
+    ResistanceProgramExerciseBase: {
+      exercise_id: string;
+      sets: number;
+      reps_low: number | null;
+      reps_high: number | null;
+      target_rir: number | null;
+      rest_sec: number;
+      time_low_sec?: number | null;
+      time_high_sec?: number | null;
+    };
+    LegacyProgramExercise: components["schemas"]["ResistanceProgramExerciseBase"] & unknown;
+    ResistanceProgramExercise: components["schemas"]["ResistanceProgramExerciseBase"] & {
+      /** @enum {string} */
+      prescription_kind: "resistance";
+    };
+    CardioProgramExercise: {
+      exercise_id: string;
+      /** @enum {string} */
+      prescription_kind: "steady_cardio" | "interval_cardio";
+      /** @enum {unknown|null} */
+      sets: null;
+      /** @enum {unknown|null} */
+      reps_low: null;
+      /** @enum {unknown|null} */
+      reps_high: null;
+      /** @enum {unknown|null} */
+      target_rir: null;
+      /** @enum {unknown|null} */
+      rest_sec: null;
+      /** @enum {unknown|null} */
+      time_low_sec: null;
+      /** @enum {unknown|null} */
+      time_high_sec: null;
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      work_sec: number | null;
+      recovery_sec: number | null;
+      rounds: number | null;
+      recovery_rpe_low: number | null;
+      recovery_rpe_high: number | null;
+      final_recovery_included: boolean | null;
+      long_session_flag: boolean;
+      /** @enum {string} */
+      progression_axis: "duration_sec" | "rounds";
+      /** @enum {string} */
+      source_day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+      source_ordinal: number;
+      intensity_seconds: {
+        moderate: number;
+        high: number;
+        recovery: number;
+      };
+      cardio_fallback: components["schemas"]["CardioFallback"] | null;
     };
     Exercise: {
       id: string;
+      /** @enum {string|null} */
+      modality: "resistance" | "cardio" | "mobility" | "warmup" | null;
+      /** @description D7 qualitative cardio motion only; never an N07 resistance exposure. Empty for resistance. */
+      cardio_movement_regions: "lower"[];
+      prescription_kinds_supported: ("steady_cardio" | "interval_cardio")[];
+      blocked_reported_pain_areas: (
+        "knee" | "lower_back" | "shoulder" | "elbow" | "wrist" | "hip" | "neck" | "ankle"
+      )[];
       name_ko: string;
       name_en: string;
-      movement_pattern: string;
+      movement_pattern: string | null;
       primary_muscles: string[];
       equipment: string;
       difficulty: string;
-      /** @enum {string} */
-      mechanic: "compound" | "isolation";
-      /** @enum {string} */
-      region: "upper" | "lower" | "core";
+      /** @enum {string|null} */
+      mechanic: "compound" | "isolation" | null;
+      /** @enum {string|null} */
+      region: "upper" | "lower" | "core" | null;
       /** @enum {string} */
       metric: "reps" | "time";
       step_kg: number | null;
@@ -1897,7 +2008,12 @@ export interface components {
       status: "scheduled" | "in_progress" | "completed";
       planned_sets: components["schemas"]["PlannedSet"][];
     };
-    PlannedSet: {
+    PlannedSet:
+      | components["schemas"]["LegacyPlannedSet"]
+      | components["schemas"]["ResistancePlannedSet"]
+      | components["schemas"]["SteadyCardioPlannedSet"]
+      | components["schemas"]["IntervalCardioPlannedSet"];
+    ResistancePlannedSetBase: {
       id: string;
       exercise_id: string;
       set_no: number;
@@ -1940,6 +2056,250 @@ export interface components {
       /** @description 같은 raw/source/cohort snapshot의 복사 자격. 날짜·cap·소유권의 쓰기 허가는 아니다. */
       append_eligibility: components["schemas"]["AppendEligibility"] | null;
       performed_set: components["schemas"]["PerformedSetSummary"] | null;
+    };
+    LegacyPlannedSet: components["schemas"]["ResistancePlannedSetBase"] & unknown;
+    ResistancePlannedSet: components["schemas"]["ResistancePlannedSetBase"] & {
+      /** @enum {string} */
+      prescription_kind: "resistance";
+    };
+    SteadyCardioPlannedSet: {
+      id: string;
+      exercise_id: string;
+      set_no: number;
+      /** @enum {unknown|null} */
+      target_reps_low: null;
+      /** @enum {unknown|null} */
+      target_reps_high: null;
+      /** @enum {unknown|null} */
+      target_rir: null;
+      /** @enum {unknown|null} */
+      rest_sec: null;
+      /** @enum {unknown|null} */
+      target_time_low_sec: null;
+      /** @enum {unknown|null} */
+      target_time_high_sec: null;
+      /** @enum {unknown|null} */
+      recommended_weight: null;
+      /** @enum {unknown|null} */
+      recommended_reps: null;
+      /** @enum {unknown|null} */
+      reason_code: null;
+      /** @enum {unknown|null} */
+      confidence: null;
+      rules_version: string;
+      /** @enum {string} */
+      load_kind: "not_applicable";
+      /** @enum {string} */
+      recommendation_state: "ready" | "substitution_required" | "unavailable";
+      /** @enum {unknown|null} */
+      assistance_provenance: null;
+      /** @enum {unknown|null} */
+      recommended_action: null;
+      /** @enum {unknown|null} */
+      assistance_safety_status: null;
+      /** @description analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다. */
+      recommendation_gate: components["schemas"]["DisplayGateState"];
+      /** @description 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision. */
+      source_revision: string;
+      /**
+       * Format: uuid
+       * @description 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+       */
+      correlation_id: string | null;
+      /** @enum {unknown|null} */
+      append_eligibility: null;
+      /** @enum {unknown|null} */
+      performed_set: null;
+      /** @enum {string} */
+      prescription_kind: "steady_cardio";
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      /** @enum {unknown|null} */
+      work_sec: null;
+      /** @enum {unknown|null} */
+      recovery_sec: null;
+      /** @enum {unknown|null} */
+      rounds: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_low: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_high: null;
+      /** @enum {unknown|null} */
+      final_recovery_included: null;
+      long_session_flag: boolean;
+      /** @enum {string} */
+      progression_axis: "duration_sec";
+      /** @enum {string} */
+      source_day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+      source_ordinal: number;
+      intensity_seconds: {
+        moderate: number;
+        high: number;
+        recovery: number;
+      };
+      cardio_fallback: components["schemas"]["CardioFallback"] | null;
+    };
+    IntervalCardioPlannedSet: {
+      id: string;
+      exercise_id: string;
+      set_no: number;
+      /** @enum {unknown|null} */
+      target_reps_low: null;
+      /** @enum {unknown|null} */
+      target_reps_high: null;
+      /** @enum {unknown|null} */
+      target_rir: null;
+      /** @enum {unknown|null} */
+      rest_sec: null;
+      /** @enum {unknown|null} */
+      target_time_low_sec: null;
+      /** @enum {unknown|null} */
+      target_time_high_sec: null;
+      /** @enum {unknown|null} */
+      recommended_weight: null;
+      /** @enum {unknown|null} */
+      recommended_reps: null;
+      /** @enum {unknown|null} */
+      reason_code: null;
+      /** @enum {unknown|null} */
+      confidence: null;
+      rules_version: string;
+      /** @enum {string} */
+      load_kind: "not_applicable";
+      /** @enum {string} */
+      recommendation_state: "ready" | "substitution_required" | "unavailable";
+      /** @enum {unknown|null} */
+      assistance_provenance: null;
+      /** @enum {unknown|null} */
+      recommended_action: null;
+      /** @enum {unknown|null} */
+      assistance_safety_status: null;
+      /** @description analysis-only. 기존 이름을 /v1 호환용으로 유지하며 confidence만 제어한다. 처방 공개를 막지 않는다. */
+      recommendation_gate: components["schemas"]["DisplayGateState"];
+      /** @description 실제 수행값·표시 게이트·updated_at을 제외한 원본 raw snapshot의 opaque revision. */
+      source_revision: string;
+      /**
+       * Format: uuid
+       * @description 생성 시 고정한 correlation identity. ACK 이전 GET에서도 정확히 중복을 판별하며 성공 receipt를 대신하지 않는다.
+       */
+      correlation_id: string | null;
+      /** @enum {unknown|null} */
+      append_eligibility: null;
+      /** @enum {unknown|null} */
+      performed_set: null;
+      /** @enum {string} */
+      prescription_kind: "interval_cardio";
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      work_sec: number;
+      recovery_sec: number;
+      rounds: number;
+      recovery_rpe_low: number;
+      recovery_rpe_high: number;
+      /** @enum {boolean} */
+      final_recovery_included: true;
+      /** @enum {boolean} */
+      long_session_flag: false;
+      /** @enum {string} */
+      progression_axis: "rounds";
+      /** @enum {string} */
+      source_day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+      source_ordinal: number;
+      intensity_seconds: {
+        moderate: number;
+        high: number;
+        recovery: number;
+      };
+      cardio_fallback: components["schemas"]["CardioFallback"] | null;
+    };
+    CardioBlockDescriptor:
+      | components["schemas"]["SteadyCardioDescriptor"]
+      | components["schemas"]["LongCardioDescriptor"]
+      | components["schemas"]["IntervalCardioDescriptor"];
+    SteadyCardioDescriptor: {
+      /** @enum {string} */
+      kind: "steady";
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      /** @enum {unknown|null} */
+      work_sec: null;
+      /** @enum {unknown|null} */
+      recovery_sec: null;
+      /** @enum {unknown|null} */
+      rounds: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_low: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_high: null;
+      /** @enum {unknown|null} */
+      final_recovery_included: null;
+      /** @enum {boolean} */
+      long_session_flag: false;
+      /** @enum {string} */
+      progression_axis: "duration_sec";
+    };
+    LongCardioDescriptor: {
+      /** @enum {string} */
+      kind: "long";
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      /** @enum {unknown|null} */
+      work_sec: null;
+      /** @enum {unknown|null} */
+      recovery_sec: null;
+      /** @enum {unknown|null} */
+      rounds: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_low: null;
+      /** @enum {unknown|null} */
+      recovery_rpe_high: null;
+      /** @enum {unknown|null} */
+      final_recovery_included: null;
+      /** @enum {boolean} */
+      long_session_flag: true;
+      /** @enum {string} */
+      progression_axis: "duration_sec";
+    };
+    IntervalCardioDescriptor: {
+      /** @enum {string} */
+      kind: "interval";
+      duration_sec: number;
+      /** @enum {string} */
+      rpe_scale_id: "relative_effort_0_10_v1";
+      target_rpe_low: number;
+      target_rpe_high: number;
+      work_sec: number;
+      recovery_sec: number;
+      rounds: number;
+      recovery_rpe_low: number;
+      recovery_rpe_high: number;
+      /** @enum {boolean} */
+      final_recovery_included: true;
+      /** @enum {boolean} */
+      long_session_flag: false;
+      /** @enum {string} */
+      progression_axis: "rounds";
+    };
+    CardioFallback: {
+      /** @enum {string} */
+      cause: "source_eligibility_fallback" | "redesign_recovery";
+      /** @enum {string} */
+      source_day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+      source_ordinal: number;
+      original_descriptor: components["schemas"]["CardioBlockDescriptor"];
+      effective_descriptor: components["schemas"]["CardioBlockDescriptor"];
     };
     PerformedSet: {
       planned_set_id?: string;

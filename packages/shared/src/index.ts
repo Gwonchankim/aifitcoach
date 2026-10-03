@@ -1,4 +1,5 @@
 export * from "./types";
+export * from "./exercise-domain";
 export * from "./assistance-transition";
 export * from "./assistance";
 export * from "./assistance-safety";
@@ -7,6 +8,11 @@ export * from "./display-gate";
 export * from "./recommendation-state";
 export * from "./rules-version";
 export * from "./session-plan";
+export * from "./program-composition";
+export * from "./split-preference";
+export * from "./mixed-session-plan";
+export * from "./cardio-prescription";
+export * from "./cardio-prescription-codec";
 export { correctedRir, estimateE1rm, recommendNextSet } from "./recommend";
 export type { E1rmSet } from "./recommend";
 export * from "./routine-plan";

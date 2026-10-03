@@ -451,6 +451,7 @@ describe("sessions", () => {
       const stored = await prisma.plannedSet.findFirstOrThrow({
         where: { sessionId: thursday.id, exerciseId },
       });
+      if (stored.reasonCode === null) throw new Error("Expected resistance recommendation reason");
       return { reason_code: stored.reasonCode, weight: Number(stored.recommendedWeight) };
     }
 
