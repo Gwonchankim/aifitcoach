@@ -319,6 +319,9 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
       expect(typeof row.reasonCode).toBe("string");
       expect(row.reasonCode).not.toMatch(/^ASSISTANCE_/);
       expect(row.assistanceProvenance).toBeNull();
+      // 위 값은 심은 행도 이미 갖고 있어 재계산을 건너뛰어도 통과한다(BUG-10 M5, base a74aa81 동일).
+      // 일반 부하로 **실제로 계산해 썼다**: 20kg 12회(목표 상단)는 한 스텝 증량이다.
+      expect(Number(row.recommendedWeight)).toBe(22.5);
     });
 
     it.each([["2026.09.0"], ["2026.09.1"]])("target %s bundle 을 보존한다", async (version) => {
@@ -332,6 +335,9 @@ describe("어시스트 쓰기 경로 fail-safe", () => {
       });
       // 전역 포인터(.08.1)로 재구성하면 .08.2 로 강등된다.
       expect(row.rulesVersion).toBe(version);
+      // 보존만 보면 쓰기를 건너뛴 재계산도 통과한다(BUG-10 M5, base a74aa81 동일) —
+      // 실제로 계산해 썼는지도 본다: 20 에서 snapshot step(2.5) 한 칸 줄인 17.5.
+      expect(Number(row.recommendedWeight)).toBe(17.5);
     });
   });
 

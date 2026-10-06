@@ -708,6 +708,8 @@ describe("production call-site batch · action gate", () => {
 
       // 종목마다 lifetime 질의를 하면 calls 가 종목 수만큼 늘어난다.
       expect(calls).toBeLessThan(exerciseIds.length);
+      // 상한만 보면 재계산을 건너뛰어도(0회) 통과한다(BUG-10 M5, base a74aa81 동일).
+      expect(calls).toBeGreaterThan(0);
     });
   });
 
