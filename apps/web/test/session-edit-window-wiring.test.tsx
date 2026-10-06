@@ -105,7 +105,8 @@ const weight = (n = 1) => `벤치프레스 ${n}세트 무게, 킬로그램`;
 function expectOnlyNotice(expected: string | null) {
   for (const copy of Object.values(EDIT_WINDOW_COPY))
     if (copy !== expected) expect(screen.queryByText(copy)).toBeNull();
-  if (expected) expect(screen.getByText(expected)).toBeTruthy();
+  // The same notice may also stand as a locked exercise's reason (D8), so presence is ≥ 1.
+  if (expected) expect(screen.getAllByText(expected).length).toBeGreaterThan(0);
   if (expected !== EDIT_WINDOW_COPY.previousCompleted)
     expect(screen.queryByText(/운동에 반영돼요\.$/)).toBeNull();
 }
@@ -149,6 +150,26 @@ it("a finished previous-day session reopens for values only, and the notice says
   await waitFor(async () =>
     expect((await sessionDb.outbox.toArray()).map((row) => row.entity)).toEqual(["performed_set"]),
   );
+});
+
+/**
+ * The record lock ("기록이 있는 운동이라 빼거나 바꿀 수 없어요. 완료 체크를 해제해 주세요.") promises
+ * that unchecking frees the exercise. That holds only where both the check and the routine are
+ * open — today. A finished previous-day session closes the routine by date, an older session
+ * closes the check: neither may show that promise (D8: copy never claims more than the rights).
+ */
+const RECORD_LOCK = /완료 체크를 해제해 주세요/;
+it("a finished previous-day session with a logged set never says unchecking frees the exercise", async () => {
+  await useSessionLog.getState().begin("A");
+  await useSessionLog
+    .getState()
+    .completeSet("set-1", { weight: 60, reps: 9, rir: 2, timeSec: null });
+  mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
+  await screen.findByLabelText(weight(2));
+  expectOnlyNotice(EDIT_WINDOW_COPY.previousCompleted);
+  expect(screen.queryByText(RECORD_LOCK)).toBeNull();
 });
 
 it.each([
@@ -196,13 +217,23 @@ it("an older scheduled session with a logged set: the expired notice, the logged
   const queued = await sessionDb.outbox.count();
   mocks.session.mockResolvedValue(session("2026-08-12", "in_progress"));
   mount();
-  await screen.findByText(EDIT_WINDOW_COPY.expired);
+  // Header notice + the logged exercise's lock reason: both say the date, never "uncheck".
+  expect(await screen.findAllByText(EDIT_WINDOW_COPY.expired)).toHaveLength(2);
   expectOnlyNotice(EDIT_WINDOW_COPY.expired);
+  expect(screen.queryByText(RECORD_LOCK)).toBeNull(); // the check is closed: unchecking is impossible
   expect(document.querySelector('[data-planned-set-id="set-1"]')?.textContent).toMatch(
     /기록\s*60\s*kg × 9회 · RIR 2/,
   );
   expect(screen.queryByLabelText(weight())).toBeNull();
   expect(screen.queryByRole("button", { name: /운동 종료|수정 마치기/ })).toBeNull();
+  // The routine is open (not finished) but the logged exercise stays locked: pressing remove
+  // explains the date, not "uncheck it" (the check is closed).
+  fireEvent.click(screen.getByRole("button", { name: "벤치프레스 메뉴" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "벤치프레스 삭제" }));
+  await waitFor(() =>
+    expect(screen.getByRole("status", { hidden: true }).textContent).toBe(EDIT_WINDOW_COPY.expired),
+  );
+  expect(screen.queryByText(RECORD_LOCK)).toBeNull();
   expect(await sessionDb.outbox.count()).toBe(queued);
 });
 
@@ -234,6 +265,8 @@ it("today with a logged set (C-43/C-44): swap/remove are locked by the record, p
   const queued = await sessionDb.outbox.count();
   mocks.session.mockResolvedValue(session("2026-08-14", "in_progress"));
   mount();
+  // Today both are open, so the record lock and its "uncheck" instruction are true here.
+  expect(await screen.findByText(RECORD_LOCK)).toBeTruthy();
   fireEvent.click(await screen.findByRole("button", { name: "벤치프레스 메뉴" }));
   const swap = await screen.findByRole("menuitem", { name: "벤치프레스 교체" });
   const remove = screen.getByRole("menuitem", { name: "벤치프레스 삭제" });

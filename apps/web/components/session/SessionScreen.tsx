@@ -1493,6 +1493,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               ) : (
                 groups.map((group, index) => {
                   const locked = group.sets.some((set) => drafts[set.id]?.completed);
+                  /*
+                    기록이 있는 운동은 빼거나 바꿀 수 없다(잠금은 그대로). 다만 그 이유의 "완료 체크를 해제해
+                    주세요"는 체크·루틴이 다 열린 날(오늘)에만 참이다(BUG-10 D8 — 권한보다 넓게 말하지 않는다).
+                    기록이 닫힌 날은 그 날짜 문구가 이유이고, 루틴이 날짜로 닫힌 날은 메뉴가 없어 둘 다 없다.
+                  */
+                  const recordLock = !locked
+                    ? null
+                    : routineLocked
+                      ? null
+                      : factsLocked
+                        ? (rights?.notice ?? LOCKED_REASON)
+                        : LOCKED_REASON;
                   const appendContext: AppendContext | null = appendStateQuery.data
                     ? {
                         user_id: DEV_USER_SCOPE,
@@ -1557,9 +1569,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                             }
                           : undefined
                       }
-                      lockedReason={
-                        cardioRows.length > 0 ? MIXED_READ_ONLY : locked ? LOCKED_REASON : null
-                      }
+                      lockedReason={cardioRows.length > 0 ? MIXED_READ_ONLY : recordLock}
                       painScore={painOf(
                         drafts,
                         group.sets.map((set) => set.id),
@@ -1586,7 +1596,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                         setRemoveExerciseId(group.exerciseId);
                       }}
                       onRemoveBlocked={() =>
-                        setNotice(cardioRows.length > 0 ? MIXED_READ_ONLY : LOCKED_REASON)
+                        setNotice(
+                          cardioRows.length > 0 ? MIXED_READ_ONLY : (recordLock ?? LOCKED_REASON),
+                        )
                       }
                       onReportPain={() =>
                         // 통증은 세트 기록에 실리는 사실이다 — 기록이 닫힌 날에는 쓰지 않고 이유만 알린다.
