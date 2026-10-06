@@ -26,7 +26,7 @@ import {
   restoreRestTimer,
   type RestoreCoordinator,
 } from "./rest-timer-store";
-import { isUtcToday, utcDateString } from "../../lib/utc-day";
+import { utcDateString } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
 import { CardioPrescriptionCard } from "./CardioPrescriptionCard";
@@ -51,7 +51,8 @@ import {
   type PositionRecord,
   type SessionPosition,
 } from "./session-position";
-import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
+import { errorMessage, isConflict, shouldRefetch } from "./errors";
+import { sessionEditRights } from "./session-edit-rights";
 import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
 import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
@@ -713,12 +714,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
   const { completedCount } = summarize(drafts);
   /*
-    F6-1. 종료했다고 잠그지 않는다 — **오늘 세션이면** 세트를 더하거나 고칠 수 있다(재개/편집 모드).
-    잠그는 건 **다른 날짜**의 종료된 세션뿐이다(서버도 같은 조건으로 409 를 낸다).
-    판정 기준은 서버와 같은 UTC 다(lib/utc-day.ts) — 로컬 시간대로 보면 자정 근처가 어긋난다.
+    F6-1 + BUG-10 D. 무엇을 쓸 수 있는지는 session-edit-rights 한 곳이 정한다 — 서버 가드와 **같은**
+    shared 판정이다(UTC 오늘·직전 하루, 기준은 서버와 같은 UTC: lib/utc-day.ts).
+    - 기록(값·체크·종료/재종료)은 그 창에서만 열린다. 종료한 세션도 창 안이면 다시 열어 고친다.
+    - 루틴 편집(추가·교체·삭제·세트 추가)은 기존 규칙 그대로다: 종료한 세션은 그날만.
   */
-  const finishedToday = session?.status === "completed" && isUtcToday(session.scheduled_date);
-  const readOnly = session?.status === "completed" && !finishedToday;
+  const rights = session ? sessionEditRights(session, completedCount > 0) : null;
+  const factsLocked = rights !== null && !rights.facts;
+  const routineLocked = rights !== null && !rights.routine;
+  /** 종료한 세션을 기록 수정으로 다시 연 상태(오늘·직전 하루). CTA 는 [수정 마치기]. */
+  const finishedEditable = session?.status === "completed" && !factsLocked;
   const modalOpen =
     rest != null ||
     picker != null ||
@@ -739,19 +744,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   /**
    * 409 는 세 원인(다른 날짜의 종료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
    * 서버 한국어 메시지를 매칭하면 문구가 바뀔 때 깨지므로, **세션 상태를 다시 받아** 판정한다.
-   * 종료된 세션이어도 **오늘이면 편집이 열려 있다**(F6-1) → 날짜까지 봐야 원인을 맞게 고른다.
+   * 다시 받은 세션의 루틴 편집이 닫혀 있으면 그 날짜 분류의 승인 문구를 고른다(BUG-10 D):
+   * 직전 하루 = 루틴만 닫힘, 그보다 오래됨 = 기간 경과. 문구가 없는 경우(미래 종료)는 일반 409 문구다.
    */
   const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
     if (shouldRefetch(error)) {
       const latest = await refetchAuthoritativeSession(queryClient, sessionId, () =>
         api.session(sessionId),
       );
-      if (
-        isConflict(error) &&
-        latest?.status === "completed" &&
-        !isUtcToday(latest.scheduled_date)
-      ) {
-        setEditError(SESSION_COMPLETED);
+      const latestRights = latest ? sessionEditRights(latest, completedCount > 0) : null;
+      if (isConflict(error) && latestRights && !latestRights.routine && latestRights.notice) {
+        setEditError(latestRights.notice);
         return;
       }
     }
@@ -1230,7 +1233,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ? null
       : ((summary?.session.id === sessionId ? summary : null) ??
         (session.status === "completed" &&
-        (readOnly || positionScope.current?.sessionId !== sessionId || !editingCompleted)
+        (factsLocked || positionScope.current?.sessionId !== sessionId || !editingCompleted)
           ? { session, next_recommendations: [] }
           : null));
   const summaryContent = shownSummary ? (
@@ -1248,10 +1251,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         {...summaryMetricsFor(session.planned_sets, drafts)}
         nextRecommendations={shownSummary.next_recommendations}
         catalogById={catalogById}
-        /* F6-1: 오늘이면 종료 후에도 돌아가서 더 하거나 고칠 수 있다. */
+        /* F6-1 + BUG-10 D: 기록을 쓸 수 있는 날(오늘·직전 하루)이면 종료 후에도 돌아가서 고칠 수 있다. */
         onResume={
           shownSummary.session.status !== "completed" ||
-          isUtcToday(shownSummary.session.scheduled_date)
+          sessionEditRights(shownSummary.session, completedCount > 0).facts
             ? () => {
                 setSummary(null);
                 setEditingCompleted(true);
@@ -1317,20 +1320,32 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               <p className="text-sm text-fg-muted">
                 {completedCount}세트 완료 · 계획 {orderedSets.length}세트
               </p>
-              {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
+              {/* 기록이 닫힌 세션(BUG-10 D): 그 날짜 분류의 승인 문구. 문구가 없는 미래 종료는 기존 문구. */}
+              {factsLocked ? (
+                <p className="text-sm text-fg-muted">
+                  {rights?.notice ?? "이미 종료한 운동이에요."}
+                </p>
+              ) : null}
               {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
-              {finishedToday ? (
+              {finishedEditable ? (
                 /* "지금 편집 모드"를 알리는 면이라 primary 소프트로 둔다(§2.3 파랑 = 지금·계획과 다름).
                `bg-raised` 단독은 페이지 `bg` 와 1.05:1 이라 상자가 사실상 안 보였다 —
                면을 만드는 건 1px 테두리다(Badge.tsx). 대비: fg 15:1 / fg-muted 5.03:1. */
                 <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
-                  <p className="text-sm text-fg">
-                    이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
-                  </p>
-                  {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
-                  <p className="text-sm text-fg-muted">
-                    고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
-                  </p>
+                  {rights?.notice ? (
+                    /* 직전 하루: 기록 값만 고칠 수 있고 루틴은 닫혀 있다(BUG-10 D 승인 문구). */
+                    <p className="text-sm text-fg">{rights.notice}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm text-fg">
+                        이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
+                      </p>
+                      {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
+                      <p className="text-sm text-fg-muted">
+                        고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : null}
             </header>
@@ -1360,9 +1375,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               className="flex flex-col gap-3"
               // Only explicit routine interaction keeps an ongoing edit open across a remote completion.
               // Hydration and programmatic focus do not opt in; route changes and local completion reset it.
-              onClickCapture={() => !readOnly && setEditingCompleted(true)}
-              onChangeCapture={() => !readOnly && setEditingCompleted(true)}
-              onKeyDownCapture={() => !readOnly && setEditingCompleted(true)}
+              onClickCapture={() => !factsLocked && setEditingCompleted(true)}
+              onChangeCapture={() => !factsLocked && setEditingCompleted(true)}
+              onKeyDownCapture={() => !factsLocked && setEditingCompleted(true)}
             >
               {groups.length === 0 && cardioRows.length === 0 ? (
                 <Card className="flex flex-col gap-3">
@@ -1430,7 +1445,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                       catalogById={catalogById}
                       sets={group.sets}
                       drafts={drafts}
-                      readOnly={readOnly}
+                      readOnly={factsLocked}
+                      routineLocked={routineLocked}
+                      ended={session.status === "completed"}
                       onAppend={() => {
                         if (!appendContext) return;
                         const result = captureAppendSource(appendContext);
@@ -1478,7 +1495,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                       onRemoveBlocked={() =>
                         setNotice(cardioRows.length > 0 ? MIXED_READ_ONLY : LOCKED_REASON)
                       }
-                      onReportPain={() => setPainExerciseId(group.exerciseId)}
+                      onReportPain={() =>
+                        // 통증은 세트 기록에 실리는 사실이다 — 기록이 닫힌 날에는 쓰지 않고 이유만 알린다.
+                        factsLocked
+                          ? setNotice(rights?.notice ?? "")
+                          : setPainExerciseId(group.exerciseId)
+                      }
                       onComplete={(set, values) =>
                         void handleComplete(nameOf(group.exerciseId, index), set, values)
                       }
@@ -1496,7 +1518,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 />
               ))}
 
-              {readOnly || !catalogResolved || cardioRows.length > 0 ? null : (
+              {routineLocked || !catalogResolved || cardioRows.length > 0 ? null : (
                 <Button
                   variant="secondary"
                   size="md"
@@ -1517,7 +1539,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             </p>
           </div>
 
-          {readOnly ? null : (
+          {factsLocked ? null : (
             <div
               inert={modalOpen}
               className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
@@ -1532,7 +1554,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                     setFinishOpen(true);
                   }}
                 >
-                  {finishedToday ? "수정 마치기" : "운동 종료"}
+                  {finishedEditable ? "수정 마치기" : "운동 종료"}
                 </Button>
                 {cardioRows.length > 0 ? (
                   <p className="mt-2 text-xs text-fg-muted">
@@ -1633,7 +1655,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
       <FinishSheet
         open={finishOpen}
-        resumed={finishedToday === true}
+        resumed={finishedEditable === true}
         completedCount={completedCount}
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}

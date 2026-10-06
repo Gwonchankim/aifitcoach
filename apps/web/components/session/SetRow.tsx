@@ -142,6 +142,11 @@ export type SetRowProps = {
   /** 같은 운동의 직전 완료 세트. */
   previous: SetDraft | null;
   readOnly: boolean;
+  /**
+   * 종료한 세션인가(기본값 true). 잠긴 행에 기록이 없을 때 종료한 세션은 "종료한 운동이라…"를,
+   * 아직 끝나지 않은 세션(BUG-10 D: 지난·미래 예정 세션)은 그 세트의 계획 목표를 보여 준다.
+   */
+  ended?: boolean;
   /** 완료 행이 펼쳐져 있는지(F6-1 값 수정). 한 번에 하나만 펼친다 — 상태는 부모가 갖는다(AC-SET-8). */
   expanded: boolean;
   active?: boolean;
@@ -162,6 +167,7 @@ export function SetRow({
   fallbackWeight,
   previous,
   readOnly,
+  ended = true,
   expanded,
   active = false,
   focusOnExpand = true,
@@ -362,8 +368,10 @@ export function SetRow({
         <span className={cn("min-w-0 text-sm", recorded ? "text-fg" : "text-fg-muted")}>
           {draft && recorded ? (
             <>기록 {recordContent(draft)}</>
-          ) : (
+          ) : ended ? (
             "종료한 운동이라 입력할 수 없어요."
+          ) : (
+            targetLabel(kind, set)
           )}
         </span>
       </li>
