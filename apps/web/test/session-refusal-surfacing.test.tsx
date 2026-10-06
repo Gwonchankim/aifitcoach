@@ -55,6 +55,7 @@ const { sessionDb, DEV_USER_SCOPE } = await import("../components/session/sessio
 const { SyncCoordinator } = await import("../components/session/sync-coordinator");
 const { useSessionLog } = await import("../components/session/session-store");
 const { EDIT_WINDOW_COPY } = await import("../components/session/session-edit-rights");
+const { restTimerStore } = await import("../components/session/rest-timer-store");
 
 const NOW = new Date("2026-08-14T10:00:00.000Z");
 /** The UTC midnight that turns 08-13 into an older day. */
@@ -331,7 +332,7 @@ it("another session's refusal is not said here; it is said when that session is 
 
   mount("B");
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
-  expect(await notices()).toEqual(["shown"]);
+  await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
 });
 
 it("re-entry: a refusal recorded while no screen was open is said once on mount, never again", async () => {
@@ -341,7 +342,7 @@ it("re-entry: a refusal recorded while no screen was open is said once on mount,
   mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
   const first = mount();
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
-  expect(await notices()).toEqual(["shown"]);
+  await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
   first.unmount();
 
   mount();
@@ -380,7 +381,7 @@ it.each(["mount only", "sync event only", "both at once"] as const)(
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
     await settle();
     expect(screen.getAllByRole("alert", { hidden: true })).toHaveLength(1);
-    expect(await notices()).toEqual(["shown"]);
+    await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
   },
 );
 
@@ -398,7 +399,7 @@ it("entry while the session cannot be read and the device has no copy: the refus
   mount();
   await waitFor(() => expect(alertTexts()).toContain(SET_COUNT));
   expect(alertTexts()).toHaveLength(2); // the other one is the connection notice
-  expect(await notices()).toEqual(["shown"]);
+  await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
 });
 
 it("a screen that goes away before it has said a refusal leaves it pending; the next screen says it", async () => {
@@ -418,7 +419,40 @@ it("a screen that goes away before it has said a refusal leaves it pending; the 
 
   mount();
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
-  expect(await notices()).toEqual(["shown"]);
+  await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
+});
+
+/**
+ * The negative pin for the acknowledgement (coordinator, round 2): decided is not said. The judge
+ * decides on a mounted screen, for this session — but the finish sheet shows another error first
+ * (`finishError ?? refusal`), so the refusal is not on screen and must stay pending. Without this,
+ * "shown after the render" would also pass as "shown at the decision".
+ */
+it("a refusal decided while the sheet shows another error stays pending until the screen says it", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  // The finish commits locally, then fails on its own (the timer store) — the sheet stays open.
+  vi.spyOn(restTimerStore, "clear").mockRejectedValueOnce(new Error("timer store unavailable"));
+  const first = mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBeTruthy());
+  const other = within(sheet).getByRole("alert").textContent;
+  vi.setSystemTime(CLOSED);
+  await act(async () => {
+    await sync(refuseAsServer); // the set and the finish are refused while that error is up
+  });
+  await settle();
+  expect(within(sheet).getByRole("alert").textContent).toBe(other);
+  expect(await notices()).toEqual(["pending", "pending"]); // decided, not on screen
+  first.unmount();
+
+  mount();
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1} ${FINISH_TOO}`),
+  );
+  await expect.poll(notices).toEqual(["shown", "shown"]);
 });
 
 it("a screen reused for another session never shows the first session's refusal; it waits for that session", async () => {
@@ -446,5 +480,13 @@ it("a screen reused for another session never shows the first session's refusal;
 
   view.show("A");
   await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
-  expect(await notices()).toEqual(["shown"]);
+  await expect.poll(notices).toEqual(["shown"]); // the acknowledgement follows the render
+
+  // Said once: away and back again, the same screen does not say it a second time.
+  view.show("B");
+  await waitFor(() => expect(screen.queryByText(EXPIRED)).toBeNull());
+  view.show("A");
+  await screen.findAllByText(EXPIRED); // A is up again (its header notice)
+  await settle();
+  expect(alertTexts()).toEqual([]);
 });
