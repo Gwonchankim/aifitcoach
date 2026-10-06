@@ -23,6 +23,13 @@ const T3 = "2026-08-14T08:00:03.000Z";
 type Wire = {
   applied: string[];
   conflicts: { client_id: string; reason: string }[];
+  changes: {
+    entity: string;
+    entity_id: string;
+    op: string;
+    data: Record<string, unknown> | null;
+    server_seq: string;
+  }[];
   planned_set_mappings: {
     correlation_id: string;
     planned_set_id: string;
@@ -244,7 +251,30 @@ describe("I05 M2 old routine and lost correlated child response boundaries", () 
       expect(after.rows.find((row) => row.id === targetId)).toEqual(snapshotRow(target));
       expect((await receipt(old.client_id)).correlationClaims).toEqual([]);
       const replay = await sync([old]);
-      expect(replay).toEqual(result);
+      // BUG-10 Q10 (a). Every row of the first response that carries next_recommendations is
+      // pinned by server_seq: only `old`'s own row, with the `[]` its no-write recompute of a
+      // scheduled session returned. The lone replay recomputes nothing, so the key is ABSENT
+      // there — absent, not `[]`.
+      const prescribed = (body: Wire) =>
+        body.changes.flatMap((row) =>
+          row.data !== null && "next_recommendations" in row.data
+            ? [[row.server_seq, row.data.next_recommendations]]
+            : [],
+        );
+      expect(prescribed(result)).toEqual([
+        [(await receipt(old.client_id)).serverSeq.toString(), []],
+      ]);
+      expect(prescribed(replay)).toEqual([]);
+      // Everything else stays exact: only that key, by name, leaves the comparison.
+      const withoutPrescription = ({ changes, ...body }: Wire) => ({
+        ...body,
+        changes: changes.map(({ data, ...row }) => {
+          if (data === null) return { ...row, data };
+          const { next_recommendations: _prescription, ...rest } = data;
+          return { ...row, data: rest };
+        }),
+      });
+      expect(withoutPrescription(replay)).toEqual(withoutPrescription(result));
       expect(await state(f.session.id)).toEqual(after);
       expect(JSON.stringify(old)).toBe(bytes);
       // A fresh exact existing-row reference includes the append's existing claim. It is not a creator.
