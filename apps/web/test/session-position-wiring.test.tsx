@@ -1288,11 +1288,13 @@ it("append remains disabled for an old mirror without eligibility and a full ten
   expect(await sessionDb.outbox.count()).toBe(0);
 });
 
-it.each(["2026-08-13", "2026-08-15"])(
+it.each(["2026-08-13"])(
   "append alone explains the non-today date %s without changing other edit controls",
   async (scheduled_date) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-08-14T23:59:59.000Z"));
+    // "Today" is pinned, not the real clock: 2026-08-13 is the previous UTC day (logging open).
+    expect(new Date().toISOString().slice(0, 10)).toBe("2026-08-14");
     try {
       const { sessionId, server } = await preparePendingAppend();
       await sessionDb.syncMeta.delete([USER, `session-set-append:${sessionId}`]);
@@ -1311,6 +1313,34 @@ it.each(["2026-08-13", "2026-08-15"])(
     }
   },
 );
+
+/**
+ * BUG-10 W2 (additive): the future side of the same boundary. Append still explains its own
+ * reason, and — by the fact-write window — logging is now closed too, with the upcoming notice
+ * (not the "older" one). Only the old "weight input stays enabled" expectation was dropped here.
+ */
+it("append explains the future date 2026-08-15 and logging waits with the upcoming notice", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-08-14T23:59:59.000Z"));
+  // "Today" is pinned, not the real clock: 2026-08-15 is the future, not an older day.
+  expect(new Date().toISOString().slice(0, 10)).toBe("2026-08-14");
+  try {
+    const { sessionId, server } = await preparePendingAppend();
+    await sessionDb.syncMeta.delete([USER, `session-set-append:${sessionId}`]);
+    await sessionDb.outbox.clear();
+    mocks.session.mockResolvedValue({ ...server, scheduled_date: "2026-08-15" });
+    mount(sessionId);
+    await screen.findByText("예정된 운동이에요. 그날이 되면 기록할 수 있어요.");
+    expect(screen.queryByText("지난 날짜의 운동은 기록할 수 없어요.")).toBeNull();
+    expect(screen.queryByLabelText("벤치프레스 1세트 무게, 킬로그램")).toBeNull();
+    const button = await screen.findByRole("button", { name: "벤치프레스 세트 추가" });
+    await screen.findByText("세트는 오늘 운동에만 추가할 수 있어요.");
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(await sessionDb.outbox.count()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("UTC today completed edit can append at the KST next-day boundary", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
