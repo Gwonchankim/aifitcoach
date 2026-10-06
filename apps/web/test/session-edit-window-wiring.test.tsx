@@ -364,9 +364,14 @@ it.each([
     if (copy) {
       await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(copy));
     } else {
-      // `conflict` is decided by the refetch; any other reason is not considered at all.
+      // `conflict` is decided by the refetch; any other reason is not considered at all — no
+      // refetch, given the time a refetch takes to land (real timers; only Date is faked).
       if (reason === "conflict")
         await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
+      else {
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+        expect(mocks.session.mock.calls.length).toBe(reads);
+      }
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
       expect(screen.queryByRole("alert")).toBeNull();
     }
@@ -408,6 +413,44 @@ it("P1: a `conflict` on a finished previous-day session with logging open stays 
   await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("P1: another session's refused set never alerts this screen", async () => {
+  mocks.session.mockResolvedValue(session("2026-08-12", "in_progress")); // logging closed here
+  mount();
+  await screen.findByText(EDIT_WINDOW_COPY.pastUnlogged);
+  const reads = mocks.session.mock.calls.length;
+  await act(async () => {
+    await new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async () => refusal([{ client_id: "x", entity_id: "other-set" }], "conflict"),
+    }).request();
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  expect(mocks.session.mock.calls.length).toBe(reads);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("C1: a finish refused for the date window through the real coordinator is said once, in the sheet", async () => {
+  await logFirstSet();
+  mocks.session.mockResolvedValue(session("2026-08-13", "in_progress"));
+  mocks.sync.mockImplementation(async () => {
+    if (!(await sessionDb.outbox.toArray()).some((row) => row.entity === "session")) return null;
+    vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
+    return new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async (body) => refusal(body.mutations, "conflict"),
+    }).request();
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() =>
+    expect(within(sheet).getByRole("alert").textContent).toBe(EDIT_WINDOW_COPY.expired),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(screen.getAllByRole("alert", { hidden: true })).toHaveLength(1);
 });
 
 it("C4: an offline finish refused later for the date window no longer claims the finish", async () => {
