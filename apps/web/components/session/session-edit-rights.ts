@@ -20,6 +20,16 @@ export const EDIT_WINDOW_COPY = {
   upcoming: "예정된 운동이에요. 그날이 되면 기록할 수 있어요.",
 } as const;
 
+/**
+ * Which day a previous-day edit lands on — the session's OWN scheduled_date, never a relative
+ * "어제" (which flips between UTC and KST at exactly the boundary this window exists for).
+ * Same "M월 D일" UTC format as the history list (HistoryScreen `dateLabel`).
+ */
+export function reflectsOnCopy(scheduledDate: string): string {
+  const date = new Date(`${scheduledDate}T00:00:00.000Z`);
+  return `이 기록은 ${date.getUTCMonth() + 1}월 ${date.getUTCDate()}일 운동에 반영돼요.`;
+}
+
 export type SessionEditRights = {
   facts: boolean;
   routine: boolean;

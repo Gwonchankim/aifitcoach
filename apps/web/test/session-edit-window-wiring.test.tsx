@@ -76,11 +76,16 @@ function mount() {
   );
 }
 const weight = (n = 1) => `벤치프레스 ${n}세트 무게, 킬로그램`;
-/** Every approved notice that is NOT `expected` must be absent (a notice never over-claims). */
+/**
+ * Every approved notice that is NOT `expected` must be absent (a notice never over-claims), and the
+ * "which day this lands on" line exists only beside the previous-day notice.
+ */
 function expectOnlyNotice(expected: string | null) {
   for (const copy of Object.values(EDIT_WINDOW_COPY))
     if (copy !== expected) expect(screen.queryByText(copy)).toBeNull();
   if (expected) expect(screen.getByText(expected)).toBeTruthy();
+  if (expected !== EDIT_WINDOW_COPY.previousCompleted)
+    expect(screen.queryByText(/운동에 반영돼요\.$/)).toBeNull();
 }
 
 beforeEach(async () => {
@@ -109,6 +114,9 @@ it("a finished previous-day session reopens for values only, and the notice says
   // Values (facts) are open...
   const input = await screen.findByLabelText(weight());
   expectOnlyNotice(EDIT_WINDOW_COPY.previousCompleted);
+  // The day it lands on, from the session's own date — not "오늘", not "어제".
+  expect(screen.getByText("이 기록은 8월 13일 운동에 반영돼요.")).toBeTruthy();
+  expect(screen.queryByText(/오늘 기록에 반영돼요/)).toBeNull();
   expect(screen.getByRole("button", { name: "수정 마치기" })).toBeTruthy();
   // ...the routine is not.
   expect(screen.queryByRole("button", { name: "운동 추가" })).toBeNull();

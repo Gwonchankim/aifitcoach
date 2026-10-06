@@ -52,7 +52,7 @@ import {
   type SessionPosition,
 } from "./session-position";
 import { errorMessage, isConflict, shouldRefetch } from "./errors";
-import { sessionEditRights } from "./session-edit-rights";
+import { reflectsOnCopy, sessionEditRights } from "./session-edit-rights";
 import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
 import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
@@ -1333,8 +1333,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                면을 만드는 건 1px 테두리다(Badge.tsx). 대비: fg 15:1 / fg-muted 5.03:1. */
                 <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
                   {rights?.notice ? (
-                    /* 직전 하루: 기록 값만 고칠 수 있고 루틴은 닫혀 있다(BUG-10 D 승인 문구). */
-                    <p className="text-sm text-fg">{rights.notice}</p>
+                    /* 직전 하루: 기록 값만 고칠 수 있고 루틴은 닫혀 있다(BUG-10 D 승인 문구).
+                       고친 값이 **어느 날** 기록인지는 그 세션 자신의 날짜로 말한다("어제" 금지). */
+                    <>
+                      <p className="text-sm text-fg">{rights.notice}</p>
+                      <p className="text-sm text-fg-muted">
+                        {reflectsOnCopy(session.scheduled_date)}
+                      </p>
+                    </>
                   ) : (
                     <>
                       <p className="text-sm text-fg">

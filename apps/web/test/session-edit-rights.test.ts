@@ -4,7 +4,11 @@
  * the notice is the approved copy for the date class and never claims more than the rights.
  */
 import { describe, expect, it } from "vitest";
-import { EDIT_WINDOW_COPY, sessionEditRights } from "../components/session/session-edit-rights";
+import {
+  EDIT_WINDOW_COPY,
+  reflectsOnCopy,
+  sessionEditRights,
+} from "../components/session/session-edit-rights";
 
 const at = (iso: string) => new Date(iso);
 const NOW = at("2026-08-14T10:00:00.000Z");
@@ -50,6 +54,16 @@ describe("sessionEditRights — facts follow the shared window, routine keeps it
       expect(notice).not.toBe(EDIT_WINDOW_COPY.expired);
       expect(notice).not.toBe(EDIT_WINDOW_COPY.pastUnlogged);
     }
+  });
+});
+
+describe("reflectsOnCopy — a previous-day edit names its own day, never a relative one", () => {
+  it.each([
+    ["2026-10-05", "이 기록은 10월 5일 운동에 반영돼요."],
+    ["2026-08-13", "이 기록은 8월 13일 운동에 반영돼요."],
+    ["2025-12-31", "이 기록은 12월 31일 운동에 반영돼요."],
+  ] as const)("%s → %s", (date, copy) => {
+    expect(reflectsOnCopy(date)).toBe(copy);
   });
 });
 
