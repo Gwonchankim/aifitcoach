@@ -367,25 +367,38 @@ async function logFirstSet() {
 }
 
 it.each([
-  // The UTC midnight that closes 08-13 passes while the sheet is open.
-  ["2026-08-15T00:00:01.000Z", "conflict", EDIT_WINDOW_COPY.expired],
-  // Logging is still open: not the date window, the generic 409 stays.
-  [null, "stale_update", GENERIC_409],
+  // The UTC midnight that closes 08-13 passes while the sheet is open: the reason, then the finish.
+  [
+    "2026-08-15T00:00:01.000Z",
+    "conflict",
+    `${EDIT_WINDOW_COPY.expired} 운동 종료는 저장되지 않았어요.`,
+  ],
+  // Not the date window: only what is known — the finish was not saved. The generic 409 copy
+  // asserted a cause ("다른 곳에서 먼저 바뀐…") and promised a reload that never happened.
+  [null, "stale_update", "운동 종료는 저장되지 않았어요."],
 ] as const)("C1: a finish refused at %s (%s) explains: %s", async (closesAt, reason, copy) => {
   await logFirstSet();
   mocks.session.mockResolvedValue(session("2026-08-13", "in_progress"));
+  // Through the real coordinator (the one judge reads what it recorded): the set is applied, the
+  // finish refused for `reason`.
   mocks.sync.mockImplementation(async () => {
     const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
     if (!finish) return null;
     if (closesAt) vi.setSystemTime(new Date(closesAt));
-    return refusal([finish], reason);
+    return new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async (body) => ({
+        ...refusal([finish], reason),
+        applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+      }),
+    }).request();
   });
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
   const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
   fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
   await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBe(copy));
-  if (copy !== GENERIC_409) expect(screen.queryByText(GENERIC_409)).toBeNull();
+  expect(screen.queryByText(GENERIC_409)).toBeNull();
 });
 
 it.each([
