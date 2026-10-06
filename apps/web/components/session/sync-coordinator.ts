@@ -192,7 +192,10 @@ export class SyncCoordinator {
           }),
         );
       if (
-        (committed.draftsChanged || committed.local_session_ids.length) &&
+        (committed.draftsChanged ||
+          committed.local_session_ids.length ||
+          // BUG-10 P1: 거부만 담긴 응답도 알린다. 화면이 날짜 창 거부를 침묵 삭제로 두지 않게 한다.
+          response.conflicts.length) &&
         typeof window !== "undefined"
       )
         window.dispatchEvent(

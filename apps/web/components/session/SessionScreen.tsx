@@ -163,6 +163,23 @@ export async function refetchAuthoritativeSession(
   return fetched;
 }
 
+/**
+ * BUG-10 D(C1·P1): 기록(값·체크·종료) 거부가 날짜 창 때문인지 routine 의 409 와 같은 장치로 가린다 —
+ * **세션을 다시 받아** 그 기록이 지금 닫혀 있으면 그 날짜 분류의 승인 문구, 열려 있으면 null 이다
+ * (날짜 창이 아닌 다른 원인이니 각 경로의 현행 처리로 둔다). 새 문구는 없다.
+ */
+async function dateWindowNotice(
+  queryClient: QueryClient,
+  sessionId: string,
+  recorded: boolean,
+): Promise<string | null> {
+  const latest = await refetchAuthoritativeSession(queryClient, sessionId, () =>
+    api.session(sessionId),
+  );
+  const latestRights = latest ? sessionEditRights(latest, recorded) : null;
+  return latestRights && !latestRights.facts ? latestRights.notice : null;
+}
+
 export function SessionScreen({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
   const storedDrafts = useSessionLog((state) => state.drafts);
@@ -202,6 +219,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [summary, setSummary] = useState<CompleteResponse | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  /** BUG-10 P1·C4: 화면 밖 sync 가 날짜 창으로 거부한 기록·종료의 승인 문구. 요약·루틴 어느 쪽에도 보인다. */
+  const [refusedNotice, setRefusedNotice] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [appendFocus, setAppendFocus] = useState<{
     sessionId: string;
@@ -1095,8 +1114,54 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       queryClient.setQueryData(["session", sessionId], data.session);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: (error) => setFinishError(errorMessage(error, "complete")),
+    onError: async (error) => {
+      // C1: 창이 닫혀 거부된 종료는 그 날짜의 승인 문구다. 일반 409("다른 곳에서 먼저 바뀐 것 같아요…")는
+      // 다른 원인을 단정하므로 날짜 창이 아닐 때만 쓴다.
+      const notice = isConflict(error)
+        ? await dateWindowNotice(queryClient, sessionId, completedCount > 0)
+        : null;
+      setFinishError(notice ?? errorMessage(error, "complete"));
+    },
   });
+
+  /** 화면 밖 sync 의 거부 리스너가 렌더 시점의 최신 값을 읽게 한다. */
+  const factWindowRef = useRef({ recorded: false, finishing: false });
+  factWindowRef.current = { recorded: completedCount > 0, finishing: completeMutation.isPending };
+
+  /**
+   * P1·C4: 백그라운드 sync(온라인 복귀·포커스·세트 저장 뒤)가 이 세션의 기록이나 종료를 `conflict` 로
+   * 거부하면 침묵하지 않는다. coordinator 는 감사 행만 남기고 outbox 를 지우므로 여기서 알리지 않으면
+   * 사용자는 저장된 줄 안다. 날짜 창인지는 C1 과 같은 재조회로 가리고, 아니면 현행 그대로다(BUG-03).
+   * 서버가 거부한 종료라면 이 화면의 로컬 요약도 내린다 — 종료되지 않은 세션을 끝났다고 말하지 않는다.
+   */
+  useEffect(() => {
+    const onRefused = (event: Event) => {
+      // 종료 중이면 같은 응답을 C1(종료 시트)이 알린다 — 두 번 말하지 않는다.
+      if (factWindowRef.current.finishing) return;
+      const { conflicts } = (event as CustomEvent<SyncResponseEventDetail>).detail;
+      const log = useSessionLog.getState();
+      const mine = new Set([
+        sessionId,
+        ...(queryClient.getQueryData<Session>(["session", sessionId])?.planned_sets ?? []).map(
+          (set) => set.id,
+        ),
+        ...(log.sessionId === sessionId ? Object.keys(log.drafts) : []),
+      ]);
+      const refused = conflicts.filter(
+        (conflict) => conflict.reason === "conflict" && mine.has(conflict.entity_id),
+      );
+      if (refused.length === 0) return;
+      void dateWindowNotice(queryClient, sessionId, factWindowRef.current.recorded)
+        .then((notice) => {
+          if (!notice) return;
+          if (refused.some((conflict) => conflict.entity_id === sessionId)) setSummary(null);
+          setRefusedNotice(notice);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(SYNC_RESPONSE_EVENT, onRefused);
+    return () => window.removeEventListener(SYNC_RESPONSE_EVENT, onRefused);
+  }, [queryClient, sessionId]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
@@ -1249,6 +1314,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           {notice}
         </p>
       ) : null}
+      {/* BUG-10 D8: 기록이 닫힌 종료 세션(직전 하루보다 오래된 날)은 요약에서도 그 날짜의 승인 문구를 말한다. */}
+      {factsLocked && rights?.notice ? (
+        <p className="mb-3 text-sm text-fg-muted">{rights.notice}</p>
+      ) : null}
+      {refusedNotice ? (
+        <p
+          role="alert"
+          className="mb-3 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+        >
+          {refusedNotice}
+        </p>
+      ) : null}
       <SessionSummary
         {...summaryMetricsFor(session.planned_sets, drafts)}
         nextRecommendations={shownSummary.next_recommendations}
@@ -1376,6 +1453,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
               >
                 {editError}
+              </p>
+            ) : null}
+            {refusedNotice ? (
+              <p
+                role="alert"
+                className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+              >
+                {refusedNotice}
               </p>
             ) : null}
 
