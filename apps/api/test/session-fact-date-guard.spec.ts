@@ -621,6 +621,18 @@ describe("BUG-10 D — sync fact writers honor the shared UTC fact-write window"
         .post(`/v1/sessions/${missed.id}/exercises`)
         .send({ exercise_id: "e_face_pull" })
         .expect(200);
+      // The sync routine path keeps the same allowance: the fact window never applies to routine.
+      const routine: MutationDto = {
+        client_id: randomUUID(),
+        entity: "session_routine",
+        entity_id: missed.id,
+        op: "upsert",
+        updated_at: at(dayAt(0)),
+        payload: { exercise_ids: [BENCH] },
+      };
+      const routineResult = await sync([routine]);
+      expect(routineResult.applied).toEqual([routine.client_id]);
+      expect(routineResult.conflicts).toEqual([]);
       const fact = perf(missed.planned[0].id, at(dayAt(0)));
       await expectRejected(p.id, [fact], [fact]);
     });
