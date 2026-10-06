@@ -150,6 +150,19 @@ it("a finished previous-day session reopens for values only, and the notice says
   );
 });
 
+it.each([
+  ["2026-08-13", "이 기록은 8월 13일 운동에 반영돼요."],
+  ["2026-08-14", "고친 내용을 오늘 기록에 반영할게요."],
+] as const)("re-finishing the session of %s says where the edit lands: %s", async (date, copy) => {
+  mocks.session.mockResolvedValue(session(date, "completed"));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
+  const dialog = await screen.findByRole("dialog", { name: "수정 마치기" });
+  expect(dialog.textContent).toContain(copy);
+  if (date !== "2026-08-14") expect(dialog.textContent).not.toContain("오늘 기록에 반영");
+});
+
 it("a finished older session stays on its summary with no way back into edits", async () => {
   mocks.session.mockResolvedValue(session("2026-08-12", "completed"));
   mount();

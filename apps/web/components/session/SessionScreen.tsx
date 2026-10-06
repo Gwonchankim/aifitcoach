@@ -1664,6 +1664,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       <FinishSheet
         open={finishOpen}
         resumed={finishedEditable === true}
+        // 직전 하루의 종료 세션(그 승인 문구가 뜨는 바로 그 경우)만 "오늘" 대신 그 세션의 날짜로 말한다.
+        reflectsOn={
+          finishedEditable && rights?.notice ? reflectsOnCopy(session.scheduled_date) : null
+        }
         completedCount={completedCount}
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}
