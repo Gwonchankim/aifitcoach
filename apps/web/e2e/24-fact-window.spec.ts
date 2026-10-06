@@ -350,7 +350,10 @@ test("P1: a set logged offline that reaches the server after the window closed i
   // 이틀 뒤에야 연결된다: D0 은 이제 기록 기간이 지난 날이다.
   await moveTo(request, context, `${D2}T00:10:00.000Z`);
   await context.setOffline(false);
-  await expect(screenAlert(page)).toHaveText(COPY.expired);
+  // 사유 다음에 저장되지 않은 것 — 카드에 보이는 그 행(이름·세트 번호)을 그대로 말한다.
+  await expect(screenAlert(page)).toHaveText(
+    `${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요.`,
+  );
   expect(sync.flatMap((exchange) => exchange.conflicts)).toContainEqual({
     client_id: expect.any(String),
     entity_id: first,

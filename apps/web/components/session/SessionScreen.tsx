@@ -52,7 +52,12 @@ import {
   type SessionPosition,
 } from "./session-position";
 import { errorMessage, isConflict, shouldRefetch } from "./errors";
-import { reflectsOnCopy, sessionEditRights } from "./session-edit-rights";
+import {
+  reflectsOnCopy,
+  sessionEditRights,
+  unsavedCopy,
+  type RefusedRow,
+} from "./session-edit-rights";
 import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
 import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
@@ -730,6 +735,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   ]);
   const nameOf = (exerciseId: string, index: number) =>
     catalogById.get(exerciseId)?.name_ko ?? `운동 ${index + 1}`;
+  /**
+   * 카드가 그리는 그대로의 운동 이름·세트 번호(planned set id 기준, 카드 순서). 거부 알림이 카드와
+   * **같은 출처**를 읽게 한다 — 알림이 "2세트"라는데 화면의 그 행이 3세트면 사용자를 틀린 행으로 보낸다.
+   */
+  const cardRowsRef = useRef(new Map<string, RefusedRow>());
+  cardRowsRef.current = new Map(
+    groups.flatMap((group, index) =>
+      group.sets.map(
+        (set) =>
+          [
+            set.id,
+            {
+              exerciseId: group.exerciseId,
+              exerciseName: nameOf(group.exerciseId, index),
+              setNo: set.set_no,
+            },
+          ] as const,
+      ),
+    ),
+  );
 
   const { completedCount } = summarize(drafts);
   /*
@@ -1154,8 +1179,20 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       void dateWindowNotice(queryClient, sessionId, factWindowRef.current.recorded)
         .then((notice) => {
           if (!notice) return;
-          if (refused.some((conflict) => conflict.entity_id === sessionId)) setSummary(null);
-          setRefusedNotice(notice);
+          const finish = refused.some((conflict) => conflict.entity_id === sessionId);
+          if (finish) setSummary(null);
+          // 사유 다음에 저장되지 않은 것만(세트 단위, 카드의 이름·번호). 거부된 draft 는 화면에 남아
+          // "기록"으로 보이므로 어느 행인지 말해야 다시 넣을 수 있다.
+          const setIds = new Set(
+            refused.filter((conflict) => conflict.entity_id !== sessionId).map((c) => c.entity_id),
+          );
+          const rows = [...cardRowsRef.current].filter(([id]) => setIds.has(id));
+          const unsaved = unsavedCopy(
+            rows.map(([, row]) => row),
+            setIds.size - rows.length,
+            finish,
+          );
+          setRefusedNotice(`${notice} ${unsaved}`);
         })
         .catch(() => undefined);
     };

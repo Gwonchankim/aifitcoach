@@ -30,6 +30,33 @@ export function reflectsOnCopy(scheduledDate: string): string {
   return `이 기록은 ${date.getUTCMonth() + 1}월 ${date.getUTCDate()}일 운동에 반영돼요.`;
 }
 
+/** A refused record as its card shows it (the card's exercise name and set number). */
+export type RefusedRow = { exerciseId: string; exerciseName: string; setNo: number };
+
+/**
+ * BUG-10 P1·C4: what a date-window refusal did NOT save — set by set, never "this exercise" (its
+ * other sets may be saved). `rows` come in card order; at most two exercises are named, the rest
+ * and refused rows the screen cannot show fold into one count. The caller puts it after the date
+ * notice: the reason first, so the user does not resend what will be refused again.
+ */
+export function unsavedCopy(rows: readonly RefusedRow[], unknown: number, finish: boolean): string {
+  const byExercise = new Map<string, { name: string; sets: number[] }>();
+  for (const row of rows) {
+    const entry = byExercise.get(row.exerciseId) ?? { name: row.exerciseName, sets: [] };
+    entry.sets.push(row.setNo);
+    byExercise.set(row.exerciseId, entry);
+  }
+  const exercises = [...byExercise.values()];
+  const named = exercises
+    .slice(0, 2)
+    .map(({ name, sets }) => `${name} ${[...sets].sort((a, b) => a - b).join("·")}세트`);
+  const rest = exercises.slice(2).reduce((count, { sets }) => count + sets.length, unknown);
+  if (rest > 0) named.push(named.length > 0 ? `다른 세트 ${rest}개` : `세트 ${rest}개`);
+  const sets = named.length > 0 ? `${named.join(", ")} 기록은 저장되지 않았어요.` : "";
+  if (!finish) return sets;
+  return sets ? `${sets} 운동 종료도 저장되지 않았어요.` : "운동 종료는 저장되지 않았어요.";
+}
+
 export type SessionEditRights = {
   facts: boolean;
   routine: boolean;
