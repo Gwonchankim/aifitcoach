@@ -209,6 +209,13 @@ describe("STEP 6 sync 계약 잠금", () => {
         .send({ mutations: [performedMutation(planned.id, 50)] })
         .expect(200),
     );
+    // The cursor passes a real applied row, so the empty page below is a real comparison.
+    expect(first.body.applied).toHaveLength(1);
+    expect(first.body.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entity: "performed_set", entity_id: planned.id }),
+      ]),
+    );
     await request(app.getHttpServer())
       .post("/v1/sync")
       .send({ since: "1", mutations: [] })
@@ -282,6 +289,7 @@ describe("STEP 6 sync 계약 잠금", () => {
     });
     expect(planned).toHaveLength(2);
 
+    let applied = 0;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const clientId = randomUUID();
       const responses = await onSessionDay(prisma, planned[0].sessionId, () =>
@@ -303,7 +311,17 @@ describe("STEP 6 sync 계약 잠금", () => {
 
       expect(responses.map((response) => response.status)).not.toContain(500);
       await expect(prisma.syncMutation.count({ where: { id: clientId } })).resolves.toBe(1);
+      // A real race on the shared client_id, never the date window: the loser is always a
+      // client_id_mismatch (the winner may still lose an LWW tie on the same updated_at later).
+      const reasons = responses.flatMap((response) =>
+        response.body.conflicts.map((conflict: { reason: string }) => conflict.reason),
+      );
+      expect(reasons).toContain("client_id_mismatch");
+      expect(reasons).not.toContain("conflict");
+      applied += responses.flatMap((response) => response.body.applied).length;
     }
+    // ...and the race really applies facts (at least the first attempt's winner).
+    expect(applied).toBeGreaterThan(0);
   });
 
   it("한 mutation의 도메인 검증 실패는 별도 conflict로 남고 무관한 mutation은 적용된다", async () => {
