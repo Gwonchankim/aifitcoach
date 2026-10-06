@@ -14,6 +14,11 @@
  * - another session's refusal: not here; said when that session is opened
  * - a refused routine edit is never taken for a refused finish
  * - a finish refused for any reason (an unknown one too) withdraws the summary and says so
+ * - round 2 (evaluator): the FIRST read fails and the device has no copy — still said, beside the
+ *   connection notice; a screen that goes away before saying it, or is reused for another session,
+ *   consumes nothing — that session says it when it is on screen again
+ * "Said" is asserted as what is on screen, and the acknowledgement only after it — never as "the
+ * data arrived" (an intermediate state hides every path that breaks in between).
  */
 import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -130,6 +135,52 @@ async function finishOffline() {
   await screen.findByRole("heading", { name: "수고했어요" });
 }
 const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
+const alertTexts = () => screen.queryAllByRole("alert").map((alert) => alert.textContent);
+/** The nameless clause: no session to name the card from, and no date to give a reason for. */
+const SET_COUNT = "세트 1개 기록은 저장되지 않았어요.";
+
+/**
+ * Holds the judge's audit read (`pendingRefusals`, the only `conflicts.where("user_id")` reader)
+ * until released, so a test can unmount the screen or switch its session while the judge waits.
+ */
+function holdAuditReads() {
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const waiting = new Promise<void>((resolve) => (started = resolve));
+  const where = sessionDb.conflicts.where.bind(sessionDb.conflicts);
+  const spy = vi.spyOn(sessionDb.conflicts, "where").mockImplementation(((index: string) => {
+    const clause = where(index);
+    if (index !== "user_id") return clause;
+    const equals = clause.equals.bind(clause);
+    clause.equals = ((value: string) => {
+      const collection = equals(value);
+      const toArray = collection.toArray.bind(collection);
+      collection.toArray = (async () => {
+        spy.mockRestore(); // only the first read waits
+        started();
+        await gate;
+        return toArray();
+      }) as typeof collection.toArray;
+      return collection;
+    }) as typeof clause.equals;
+    return clause;
+  }) as typeof sessionDb.conflicts.where);
+  return { waiting, release };
+}
+
+/** One screen instance shown for one session and then another — the route reuses it. */
+function mountReusable(sessionId: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  clients.push(client);
+  const ui = (id: string) => (
+    <QueryClientProvider client={client}>
+      <SessionScreen sessionId={id} />
+    </QueryClientProvider>
+  );
+  const view = render(ui(sessionId));
+  return { show: (id: string) => view.rerender(ui(id)) };
+}
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -332,3 +383,68 @@ it.each(["mount only", "sync event only", "both at once"] as const)(
     expect(await notices()).toEqual(["shown"]);
   },
 );
+
+/**
+ * Round 2 (evaluator, no product change): the moment that matters is the FIRST read. The refusal
+ * is a local fact — a session that cannot be read on entry must not swallow it, and the connection
+ * notice cannot stand in for it: two different facts, both on screen.
+ */
+it("entry while the session cannot be read and the device has no copy: the refusal is on screen beside the connection notice", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  await sync(refuseAsServer); // nobody is looking
+  expect(await sessionDb.sessions.get([DEV_USER_SCOPE, "A"])).toBeUndefined(); // no copy
+  mocks.session.mockRejectedValue(new Error("GET unavailable on entry"));
+  mount();
+  await waitFor(() => expect(alertTexts()).toContain(SET_COUNT));
+  expect(alertTexts()).toHaveLength(2); // the other one is the connection notice
+  expect(await notices()).toEqual(["shown"]);
+});
+
+it("a screen that goes away before it has said a refusal leaves it pending; the next screen says it", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  await sync(refuseAsServer);
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  const read = holdAuditReads();
+  const first = mount();
+  await act(async () => {
+    await read.waiting; // the judge is reading the audit
+  });
+  first.unmount();
+  read.release();
+  await settle();
+  expect(await notices()).toEqual(["pending"]);
+
+  mount();
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
+  expect(await notices()).toEqual(["shown"]);
+});
+
+it("a screen reused for another session never shows the first session's refusal; it waits for that session", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  await sync(refuseAsServer);
+  mocks.session.mockImplementation(async (id: string) =>
+    id === "A"
+      ? session("A", "2026-08-13", "in_progress")
+      : session("B", "2026-08-15", "scheduled"),
+  );
+  const read = holdAuditReads();
+  const view = mountReusable("A");
+  await act(async () => {
+    await read.waiting; // A's judge is reading the audit
+  });
+  view.show("B");
+  // B is today's session: A's older-day notice is gone and B's routine is up.
+  await waitFor(() => expect(screen.queryByText(EXPIRED)).toBeNull());
+  await screen.findByLabelText(weight(2));
+  read.release();
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  expect(await notices()).toEqual(["pending"]);
+
+  view.show("A");
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1}`));
+  expect(await notices()).toEqual(["shown"]);
+});
