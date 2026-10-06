@@ -464,6 +464,9 @@ describe("sync 재시도 상태 머신 · tx 내부 질의", () => {
             .send({})
             .expect(500),
         );
+        // The 500 is the injected prefetch gap itself: recompute reached the seam (a 500 raised
+        // anywhere before it — or a guard answering first — fails here).
+        expect(spy).toHaveBeenCalled();
       } finally {
         spy.mockRestore();
       }
