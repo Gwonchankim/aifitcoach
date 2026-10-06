@@ -11,7 +11,7 @@ import {
   type SyncEntityType,
   type SyncOp,
 } from "@prisma/client";
-import { applyDisplayGate, displayGateState } from "shared";
+import { applyDisplayGate, displayGateState, isSessionFactWriteAllowed } from "shared";
 import { storedRecommendationPresentation } from "../recommendation/recommendation-presentation";
 import {
   rawAssistanceSafetyStatus,
@@ -19,7 +19,7 @@ import {
   toRawTargetRow,
 } from "../programs/assistance-migration";
 import { encryptNumber } from "../common/crypto/field-encryption";
-import { isUtcToday } from "../common/date/utc-day";
+import { isoDate, isUtcToday, utcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
 import { isResistanceExercise } from "../exercises/exercise-domain";
@@ -446,11 +446,12 @@ export class SyncService {
   ): Promise<void> {
     const planned = await tx.plannedSet.findFirst({
       where: { id: mutation.entity_id, session: { program: { userId } } },
-      include: { exercise: true },
+      include: { exercise: true, session: { select: { scheduledDate: true } } },
     });
     if (!planned) throw new NotFoundException("계획 세트를 찾을 수 없다.");
     if (!resistanceSnapshotMatchesCatalog(planned, planned.exercise))
       throw new BadRequestException("읽기 전용 처방은 수행 기록을 쓸 수 없다.");
+    assertFactWriteWindow(planned.session.scheduledDate);
     if (mutation.op === "delete") {
       await tx.performedSet.deleteMany({ where: { plannedSetId: planned.id } });
       return;
@@ -659,6 +660,7 @@ export class SyncService {
     });
     if (!session) throw new NotFoundException("세션을 찾을 수 없다.");
     if (mutation.op === "delete") throw new ConflictException("종료된 세션은 삭제할 수 없다.");
+    assertFactWriteWindow(session.scheduledDate);
     const payload = mutation.payload as SessionPayload;
     await tx.workoutSession.update({
       where: { id: session.id },
@@ -983,6 +985,16 @@ function validatePerformed(p: PerformedPayload): void {
   if (p.completed !== undefined && typeof p.completed !== "boolean")
     throw new BadRequestException("completed 값이 잘못되었다.");
 }
+/**
+ * BUG-10 D: actual/완료 쓰기는 shared 분류의 today·previous 에서만 열린다(UTC 오늘+직전 하루, 잠정 A).
+ * 판정 날짜는 잠금 뒤 다시 읽은 세션의 scheduledDate 다 — client updated_at 은 보지 않는다.
+ * 거부는 기존 매핑대로 envelope `conflict` 가 된다. routine 권한(applyRoutine)과는 별개다.
+ */
+function assertFactWriteWindow(scheduledDate: Date): void {
+  if (!isSessionFactWriteAllowed(isoDate(scheduledDate), isoDate(utcToday())))
+    throw new ConflictException("기록할 수 있는 날짜(UTC 오늘·직전 하루) 밖의 세션이다.");
+}
+
 function validatePerformedForMetric(p: PerformedPayload, metric: string): void {
   if (p.completed !== true)
     throw new BadRequestException("performed_set upsert 는 completed=true 이어야 한다.");
