@@ -16,6 +16,7 @@ import request from "supertest";
 import { AuthService } from "../src/auth/auth.service";
 import { TEST_TODAY_ENV } from "../src/common/date/utc-day";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { sourceRevision } from "../src/sessions/session-set-snapshot";
 import { createTestApp, resetUserData } from "./support/app";
 
 const OWNER_CODE = "test-owner-recovery-code-for-the-request-today-spec-only";
@@ -113,7 +114,7 @@ describe("BUG-10 C1 — the day is captured before the authentication wait", () 
   }
 
   /** One owner program with one session on `date` holding a single bench set. */
-  async function sessionOn(date: string, status: "scheduled" | "in_progress") {
+  async function sessionOn(date: string, status: "scheduled" | "in_progress" | "completed") {
     const program = await prisma.program.create({
       data: {
         userId: ownerId,
@@ -153,7 +154,7 @@ describe("BUG-10 C1 — the day is captured before the authentication wait", () 
         loadSemantics: "external_load",
       },
     });
-    return { sessionId: session.id, plannedSetId: planned.id };
+    return { sessionId: session.id, plannedSetId: planned.id, planned };
   }
 
   const authed = (call: request.Test) => call.set("Cookie", sid).set("X-CSRF-Token", csrf);
@@ -225,4 +226,52 @@ describe("BUG-10 C1 — the day is captured before the authentication wait", () 
       (await prisma.workoutSession.findUniqueOrThrow({ where: { id: sessionId } })).status,
     ).toBe("scheduled");
   });
+
+  /*
+   * The other REST entries that judge a date get the same arrival day. Each is checked on the side
+   * where the later day would refuse: a set appended to the arrival day's session (today-only), and
+   * a routine edit of the arrival day's finished session (ADR-38, same day only).
+   */
+  const exerciseIds = async (sessionId: string) =>
+    (await prisma.plannedSet.findMany({ where: { sessionId }, select: { exerciseId: true } })).map(
+      (row) => row.exerciseId,
+    );
+
+  it("REST append: the arrival day's session still takes a new set when the authentication wait crosses midnight", async () => {
+    const { sessionId, planned } = await sessionOn(ARRIVAL, "in_progress");
+    midnightDuringAuthentication();
+    await authed(request(app.getHttpServer()).post(`/v1/sessions/${sessionId}/sets`))
+      .send({
+        client_id: randomUUID(),
+        correlation_id: randomUUID(),
+        exercise_id: BENCH,
+        source: { source_planned_set_id: planned.id, source_revision: sourceRevision(planned) },
+      })
+      .expect(201);
+    expect(await exerciseIds(sessionId)).toEqual([BENCH, BENCH]);
+  });
+
+  const ADDED = "e_face_pull";
+  const routineEdits = {
+    add: (sessionId: string) =>
+      authed(request(app.getHttpServer()).post(`/v1/sessions/${sessionId}/exercises`)).send({
+        exercise_id: ADDED,
+      }),
+    remove: (sessionId: string) =>
+      authed(request(app.getHttpServer()).delete(`/v1/sessions/${sessionId}/exercises/${BENCH}`)),
+    swap: (sessionId: string) =>
+      authed(
+        request(app.getHttpServer()).post(`/v1/sessions/${sessionId}/exercises/${BENCH}/swap`),
+      ).send({ to_exercise_id: ADDED }),
+  };
+  const afterEdit = { add: [BENCH, ADDED], remove: [], swap: [ADDED] };
+  it.each(["add", "remove", "swap"] as const)(
+    "REST %s: the arrival day's finished session stays editable when the authentication wait crosses midnight",
+    async (edit) => {
+      const { sessionId } = await sessionOn(ARRIVAL, "completed");
+      midnightDuringAuthentication();
+      await routineEdits[edit](sessionId).expect(200);
+      expect([...new Set(await exerciseIds(sessionId))].sort()).toEqual(afterEdit[edit]);
+    },
+  );
 });
