@@ -7,7 +7,7 @@
  */
 import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Session as ApiSession } from "../lib/api";
 import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
@@ -57,7 +57,8 @@ vi.mock("../components/session/sync-coordinator", async () => {
   return { ...actual, requestForegroundSync: mocks.sync };
 });
 const { SessionScreen } = await import("../components/session/SessionScreen");
-const { sessionDb } = await import("../components/session/session-db");
+const { sessionDb, DEV_USER_SCOPE } = await import("../components/session/session-db");
+const { SyncCoordinator } = await import("../components/session/sync-coordinator");
 const { useSessionLog } = await import("../components/session/session-store");
 const { EDIT_WINDOW_COPY } = await import("../components/session/session-edit-rights");
 
@@ -167,6 +168,8 @@ it("a finished older session stays on its summary with no way back into edits", 
   mocks.session.mockResolvedValue(session("2026-08-12", "completed"));
   mount();
   await screen.findByRole("heading", { name: "오늘은 기록이 없어요" });
+  // D8: the summary says why (expired), and never "기록 값은 고칠 수 있어요".
+  expectOnlyNotice(EDIT_WINDOW_COPY.expired);
   expect(screen.queryByRole("button", { name: "기록 더하거나 고치기" })).toBeNull();
   expect(screen.queryByLabelText(weight())).toBeNull();
   expect(await sessionDb.outbox.count()).toBe(0);
@@ -292,6 +295,143 @@ it.each([
   fireEvent.click(await screen.findByRole("button", { name: /체스트 프레스 머신/ }));
   expect(await screen.findAllByText(copy)).not.toHaveLength(0);
   expect(screen.queryByText("이미 오늘 루틴에 있는 운동이에요.")).toBeNull();
+});
+
+/**
+ * C1 · P1 · C4 — a fact write refused by the server's date window is surfaced, never silent. The
+ * screen refetches the authoritative session (routine's device): logging closed → that date
+ * class's approved notice; still open → not the date window, so each path keeps its current
+ * handling (the finish sheet's generic 409; set refusals stay with BUG-03). No new copy.
+ */
+const GENERIC_409 = "다른 곳에서 먼저 바뀐 것 같아요. 최신 상태로 다시 불러올게요.";
+const refusal = (rows: { client_id: string; entity_id: string }[], reason: string) => ({
+  applied: [],
+  conflicts: rows.map((row) => ({ client_id: row.client_id, entity_id: row.entity_id, reason })),
+  changes: [],
+  planned_set_mappings: [],
+  next_cursor: "v1.test",
+});
+async function logFirstSet() {
+  await useSessionLog.getState().begin("A");
+  await useSessionLog
+    .getState()
+    .completeSet("set-1", { weight: 60, reps: 9, rir: 2, timeSec: null });
+}
+
+it.each([
+  // The UTC midnight that closes 08-13 passes while the sheet is open.
+  ["2026-08-15T00:00:01.000Z", "conflict", EDIT_WINDOW_COPY.expired],
+  // Logging is still open: not the date window, the generic 409 stays.
+  [null, "stale_update", GENERIC_409],
+] as const)("C1: a finish refused at %s (%s) explains: %s", async (closesAt, reason, copy) => {
+  await logFirstSet();
+  mocks.session.mockResolvedValue(session("2026-08-13", "in_progress"));
+  mocks.sync.mockImplementation(async () => {
+    const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
+    if (!finish) return null;
+    if (closesAt) vi.setSystemTime(new Date(closesAt));
+    return refusal([finish], reason);
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBe(copy));
+  if (copy !== GENERIC_409) expect(screen.queryByText(GENERIC_409)).toBeNull();
+});
+
+it.each([
+  ["2026-08-15T00:00:01.000Z", "conflict", EDIT_WINDOW_COPY.expired],
+  [null, "conflict", null], // refetched logging still open → not the date window
+  ["2026-08-15T00:00:01.000Z", "stale_update", null], // another reason → BUG-03, as before
+] as const)(
+  "P1: a logged set refused by a background sync at %s (%s) surfaces: %s",
+  async (closesAt, reason, copy) => {
+    await logFirstSet();
+    mocks.session.mockResolvedValue(session("2026-08-13", "in_progress"));
+    mount();
+    await screen.findByLabelText(weight(2));
+    const rows = (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set");
+    expect(rows).toHaveLength(1);
+    if (closesAt) vi.setSystemTime(new Date(closesAt));
+    const reads = mocks.session.mock.calls.length;
+    await act(async () => {
+      await new SyncCoordinator({
+        userId: DEV_USER_SCOPE,
+        transport: async () => refusal(rows, reason),
+      }).request();
+    });
+    if (copy) {
+      await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(copy));
+    } else {
+      // `conflict` is decided by the refetch; any other reason is not considered at all.
+      if (reason === "conflict")
+        await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(screen.queryByRole("alert")).toBeNull();
+    }
+  },
+);
+
+/**
+ * A finished previous-day session HAS an approved notice while logging is open. A `conflict` there
+ * is not the date window, so neither path may borrow that notice (only closed logging speaks).
+ */
+it("C1: a re-finish refused while the previous day is still open keeps the generic 409", async () => {
+  await logFirstSet();
+  mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
+  mocks.sync.mockImplementation(async () => {
+    const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
+    return finish ? refusal([finish], "conflict") : null;
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
+  const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
+  fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBe(GENERIC_409));
+});
+
+it("P1: a `conflict` on a finished previous-day session with logging open stays silent (not the date window)", async () => {
+  await logFirstSet();
+  mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
+  mount();
+  await screen.findByRole("heading", { name: "수고했어요" });
+  const rows = (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set");
+  const reads = mocks.session.mock.calls.length;
+  await act(async () => {
+    await new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async () => refusal(rows, "conflict"),
+    }).request();
+  });
+  await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("C4: an offline finish refused later for the date window no longer claims the finish", async () => {
+  await logFirstSet();
+  mocks.session.mockResolvedValue(session("2026-08-13", "in_progress"));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ })); // offline: sync → null
+  await screen.findByRole("heading", { name: "수고했어요" });
+  const queued = (await sessionDb.outbox.toArray()).filter((row) =>
+    ["performed_set", "session"].includes(row.entity),
+  );
+  expect(queued.map((row) => row.entity).sort()).toEqual(["performed_set", "session"]);
+  // Back online two UTC days later: the server refuses both for the date window.
+  vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
+  await act(async () => {
+    await new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async () => refusal(queued, "conflict"),
+    }).request();
+  });
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(EDIT_WINDOW_COPY.expired));
+  expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
 });
 
 it("KST 08:30 → 09:30: after UTC midnight logging stays open; one more midnight closes it", async () => {
