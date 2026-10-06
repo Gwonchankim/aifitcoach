@@ -19,6 +19,10 @@
  *   consumes nothing — that session says it when it is on screen again
  * "Said" is asserted as what is on screen, and the acknowledgement only after it — never as "the
  * data arrived" (an intermediate state hides every path that breaks in between).
+ * - round 2 (invariants table, r2/INVARIANTS.md): what the sheet could not say is said when it
+ *   closes, by the user or by a finish that succeeded; a refusal a later APPLIED write made false is
+ *   never said (superseded); a new refusal with the same sentence is still said; one notice holds
+ *   every pending refusal of the session; audit rows from before `notice` existed stay silent
  */
 import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -65,8 +69,8 @@ const SET1 = "벤치프레스 1세트 기록은 저장되지 않았어요.";
 const FINISH_TOO = "운동 종료도 저장되지 않았어요.";
 const FINISH_ONLY = "운동 종료는 저장되지 않았어요.";
 
-const plannedSets = (prefix: string) =>
-  [1, 2].map((n) => ({
+const plannedSets = (prefix: string, count = 2) =>
+  Array.from({ length: count }, (_, index) => index + 1).map((n) => ({
     id: `${prefix}-${n}`,
     exercise_id: "bench",
     set_no: n,
@@ -122,6 +126,17 @@ async function refuseAsServer(body: SyncRequest): Promise<SyncResponse> {
   };
 }
 
+/** The server applies everything it is sent. */
+async function applyAsServer(body: SyncRequest): Promise<SyncResponse> {
+  return {
+    applied: body.mutations.map((m) => m.client_id),
+    conflicts: [],
+    changes: [],
+    planned_set_mappings: [],
+    next_cursor: "v1.test",
+  };
+}
+
 async function logSet(sessionId: string, plannedSetId: string) {
   await useSessionLog.getState().begin(sessionId);
   await useSessionLog
@@ -168,6 +183,42 @@ function holdAuditReads() {
     return clause;
   }) as typeof sessionDb.conflicts.where);
   return { waiting, release };
+}
+
+/**
+ * Holds the acknowledgement write (`markRefusalsShown`, the only read-write transaction on the
+ * audit table alone) until released: the text is on screen, its "shown" not yet written.
+ */
+function holdAcknowledgements() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const transaction = sessionDb.transaction.bind(sessionDb) as (...args: unknown[]) => unknown;
+  vi.spyOn(sessionDb, "transaction").mockImplementation(((...args: unknown[]) =>
+    args.length === 3 && args[0] === "rw" && args[1] === sessionDb.conflicts
+      ? gate.then(() => transaction(...args))
+      : transaction(...args)) as unknown as typeof sessionDb.transaction);
+  return { release };
+}
+
+/** The finish commits locally, then fails on its own (the timer store): the sheet stays open. */
+async function finishFailingOnItsOwn() {
+  vi.spyOn(restTimerStore, "clear").mockRejectedValueOnce(new Error("timer store unavailable"));
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBeTruthy());
+  return sheet;
+}
+
+/**
+ * Closes the finish sheet — and proves it closed. "계속하기" is disabled while the finish is still
+ * settling, and a click on it then does nothing: the sheet's own alert would pass for the screen's.
+ */
+async function closeSheet(sheet: HTMLElement) {
+  const close = within(sheet).getByRole("button", { name: "계속하기" }) as HTMLButtonElement;
+  await waitFor(() => expect(close.disabled).toBe(false)); // the finish has settled
+  fireEvent.click(close);
+  expect(screen.queryByRole("dialog", { name: "운동 종료" })).toBeNull();
 }
 
 /** One screen instance shown for one session and then another — the route reuses it. */
@@ -489,4 +540,161 @@ it("a screen reused for another session never shows the first session's refusal;
   await screen.findAllByText(EXPIRED); // A is up again (its header notice)
   await settle();
   expect(alertTexts()).toEqual([]);
+});
+
+/*
+ * Round 2 — the empty cells of the invariants table (r2/INVARIANTS.md): 6 (two ways off the sheet),
+ * 1 (no repeat when the sheet closes), 5 (superseded), 7 (a new event), 14 (old rows), 15 (all in one).
+ */
+
+it("invariant 6 — the sheet closes while another error hid the refusal: said on the screen at once", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  const sheet = await finishFailingOnItsOwn();
+  vi.setSystemTime(CLOSED);
+  await act(async () => {
+    await sync(refuseAsServer); // the set and the finish are refused behind that error
+  });
+  await settle();
+  expect(await notices()).toEqual(["pending", "pending"]); // decided, not on screen
+  await closeSheet(sheet);
+  // No sync, no re-entry: closing the sheet is enough.
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1} ${FINISH_TOO}`]));
+  await expect.poll(notices).toEqual(["shown", "shown"]);
+});
+
+it("invariant 6 — the retried finish succeeds offline: the hidden refusal is said there and the summary is withdrawn", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  const sheet = await finishFailingOnItsOwn();
+  vi.setSystemTime(CLOSED);
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  await settle();
+  expect(await notices()).toEqual(["pending", "pending"]);
+  // The retry commits locally and the device is offline (sync → null): a local success. The
+  // session is out of the window and time only moves forward — this finish will be refused too.
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1} ${FINISH_TOO}`]));
+  expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
+  await expect.poll(notices).toEqual(["shown", "shown"]);
+});
+
+it("invariant 1 — said in the sheet, closed before the acknowledgement is written: not said again", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mocks.sync.mockImplementation(async () => {
+    if (!(await sessionDb.outbox.toArray()).some((row) => row.entity === "session")) return null;
+    vi.setSystemTime(CLOSED);
+    return sync(refuseAsServer);
+  });
+  const acknowledgements = holdAcknowledgements();
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await waitFor(() =>
+    expect(within(sheet).getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1} ${FINISH_TOO}`),
+  );
+  expect(await notices()).toEqual(["pending", "pending"]); // said; "shown" is still on its way
+  await closeSheet(sheet);
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  acknowledgements.release();
+  await expect.poll(notices).toEqual(["shown", "shown"]);
+});
+
+it("invariant 5 — a refusal a later write made false is never said: the retried finish was applied (superseded)", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+  const first = mount();
+  const sheet = await finishFailingOnItsOwn();
+  // Refused for a reason that is not the date, behind the timer error: decided, not on screen.
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+      conflicts: body.mutations
+        .filter((m) => m.entity === "session")
+        .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
+      changes: [],
+      planned_set_mappings: [],
+      next_cursor: "v1.test",
+    }));
+  });
+  await settle();
+  expect(await notices()).toEqual(["pending"]);
+  // The retry goes out online and the server applies it: the session IS finished now.
+  mocks.sync.mockImplementation(() => sync(applyAsServer));
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  expect(screen.queryByText(FINISH_ONLY)).toBeNull();
+  expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+  expect(await notices()).toEqual(["superseded"]);
+  // Nor on the next screen for this session.
+  first.unmount();
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed"));
+  mount();
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  expect(screen.queryByText(FINISH_ONLY)).toBeNull();
+  expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+});
+
+it("invariant 7 — the same set refused again is a new event: said again, though the sentence is the same", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // previous here
+  mount();
+  await screen.findByLabelText(weight(2));
+  // The server is a day ahead; the browser still has the day open, so the set can be entered again.
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  await expect.poll(notices).toEqual(["shown"]);
+  await act(async () => {
+    await logSet("A", "set-1");
+    await sync(refuseAsServer);
+  });
+  // The second refusal is its own row: it is put on screen (same words) and acknowledged.
+  await expect.poll(notices).toEqual(["shown", "shown"]);
+  expect(alertTexts()).toEqual([SET1]);
+});
+
+it("invariant 14 — an audit row from before `notice` existed is never surfaced", async () => {
+  await sessionDb.conflicts.add({
+    user_id: DEV_USER_SCOPE,
+    client_id: "22222222-2222-4222-8222-222222222222",
+    kind: "conflict",
+    payload: { entity: "performed_set", entity_id: "set-1" },
+    session_id: "A",
+  });
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  await screen.findByLabelText(weight(2));
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  expect(await notices()).toEqual([undefined]);
+});
+
+it("invariant 15 — one notice holds every pending refusal of the session, and not the one a later write saved", async () => {
+  // A session a day ahead: the server refuses its records until its day comes.
+  for (const id of ["set-1", "set-2", "set-3"]) await logSet("A", id);
+  await sync(refuseAsServer); // nobody is looking
+  expect(await notices()).toEqual(["pending", "pending", "pending"]);
+  vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z")); // its day has come
+  await logSet("A", "set-2"); // set 2 is entered again — and this time it is saved
+  await sync(applyAsServer);
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-15", "in_progress"),
+    planned_sets: plannedSets("set", 3),
+  });
+  mount();
+  await waitFor(() =>
+    expect(alertTexts()).toEqual(["벤치프레스 1·3세트 기록은 저장되지 않았어요."]),
+  );
+  await expect.poll(notices).toEqual(["shown", "superseded", "shown"]);
 });
