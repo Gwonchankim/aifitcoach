@@ -12,6 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
+import type { PlannedSet } from "@prisma/client";
 import request from "supertest";
 import { AggregationProjector } from "../src/analytics/aggregation.projector";
 import { devUserId } from "../src/auth/dev-user";
@@ -686,6 +687,217 @@ describe("BUG-10 D — sync fact writers honor the shared UTC fact-write window"
         expect.objectContaining({ client_id: dependent.client_id, reason: "conflict" }),
       );
       expect(await snapshot(p.id)).toEqual(before);
+    });
+  });
+
+  /**
+   * ADR-86 "서버 수신 시점": the window is judged at the instant the request enters the server,
+   * captured once. Eligibility is a property of the request, never of how busy the server was: a
+   * request queued behind the program row lock while UTC midnight passes is judged as it arrived.
+   * Both directions matter — a slow lock must neither drop a write that arrived in time nor let a
+   * future-dated write through once its date turns into "today".
+   * Method from the independent evaluator's reproduction (367b598c): hold the lock in another
+   * transaction, prove the request waits on it (pg_blocking_pids), move the clock, release.
+   */
+  describe("receive time — judged at request entry, never after a lock wait (ADR-86)", () => {
+    const ARRIVAL = "2026-09-18";
+    const LATER = "2026-09-19"; // the UTC day by the time the lock is released
+
+    async function whileLocked(programId: string, send: () => Promise<request.Response>) {
+      let unlock!: () => void;
+      let ready!: (pid: number) => void;
+      const gate = new Promise<void>((resolve) => (unlock = resolve));
+      const acquired = new Promise<number>((resolve) => (ready = resolve));
+      const holder = prisma.$transaction(
+        async (tx) => {
+          const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+          await tx.$queryRaw`SELECT id FROM programs WHERE id = ${programId}::uuid FOR UPDATE`;
+          ready(pid);
+          await gate;
+        },
+        { timeout: 15_000 },
+      );
+      const holderPid = await acquired;
+      const pending = send();
+      try {
+        let waiting = false;
+        for (let attempt = 0; attempt < 300 && !waiting; attempt++) {
+          const [row] = await prisma.$queryRaw<{ waiting: boolean }[]>`
+            SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                           WHERE ${holderPid}::int = ANY (pg_blocking_pids(pid))) AS waiting`;
+          waiting = row.waiting;
+          if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        // The request reached the server on ARRIVAL and is queued behind the lock.
+        expect(waiting).toBe(true);
+        moveServerToday(LATER);
+      } finally {
+        unlock();
+        await holder;
+      }
+      return pending;
+    }
+    const post = (path: string, body: object) => () =>
+      request(app.getHttpServer())
+        .post(path)
+        .send(body)
+        .then((response) => response);
+
+    it("sync: a write that arrived inside the window is accepted though midnight passes in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const workout = await session(p.id, dateOf("2026-09-17"), "scheduled"); // previous on arrival
+      const s1 = perf(workout.planned[0].id, at(dateOf(ARRIVAL), "23:59"));
+      const done = complete(workout.id, at(dateOf(ARRIVAL), "23:59"));
+      const response = await whileLocked(p.id, post("/v1/sync", { mutations: [s1, done] }));
+      expect(response.status).toBe(200);
+      expect(response.body.conflicts).toEqual([]);
+      expect(response.body.applied).toEqual(expect.arrayContaining([s1.client_id, done.client_id]));
+      const fact = await prisma.performedSet.findUniqueOrThrow({
+        where: { plannedSetId: workout.planned[0].id },
+      });
+      expect(fact.clientId).toBe(s1.client_id);
+      expect(
+        (await prisma.workoutSession.findUniqueOrThrow({ where: { id: workout.id } })).status,
+      ).toBe("completed");
+    });
+
+    it("sync: a future-dated write stays refused though its date turns into today in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const workout = await session(p.id, dateOf(LATER), "scheduled"); // future on arrival
+      const s1 = perf(workout.planned[0].id, at(dateOf(ARRIVAL), "23:59"));
+      const done = complete(workout.id, at(dateOf(ARRIVAL), "23:59"));
+      const before = await snapshot(p.id);
+      const response = await whileLocked(p.id, post("/v1/sync", { mutations: [s1, done] }));
+      expect(response.status).toBe(200);
+      expect(response.body.applied).toEqual([]);
+      expect(response.body.conflicts).toContainEqual({
+        client_id: s1.client_id,
+        entity_id: s1.entity_id,
+        reason: "conflict",
+      });
+      expect(response.body.conflicts.map((c: { client_id: string }) => c.client_id)).toContain(
+        done.client_id,
+      );
+      expect(await snapshot(p.id)).toEqual(before);
+    });
+
+    it("REST complete: a session that arrived inside the window completes though midnight passes in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const workout = await session(p.id, dateOf("2026-09-17"), "scheduled", [1]); // previous
+      const response = await whileLocked(p.id, post(`/v1/sessions/${workout.id}/complete`, {}));
+      expect(response.status).toBe(200);
+      expect(
+        (await prisma.workoutSession.findUniqueOrThrow({ where: { id: workout.id } })).status,
+      ).toBe("completed");
+    });
+
+    it("REST complete: a future-dated session stays refused (409) though its date turns into today in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const workout = await session(p.id, dateOf(LATER), "scheduled", [1]); // future on arrival
+      const before = await snapshot(p.id);
+      const response = await whileLocked(p.id, post(`/v1/sessions/${workout.id}/complete`, {}));
+      expect(response.status).toBe(409);
+      expect(await snapshot(p.id)).toEqual(before);
+    });
+
+    // The same "today" also decides the routine and append rules — one request, one today.
+    const routineEdit = (sessionId: string): MutationDto => ({
+      client_id: randomUUID(),
+      entity: "session_routine",
+      entity_id: sessionId,
+      op: "upsert",
+      updated_at: at(dateOf(ARRIVAL), "23:59"),
+      // The D7 shape: a valid routine snapshot, so only the date rule decides.
+      payload: { exercise_ids: [BENCH] },
+    });
+    const appendTo = (source: PlannedSet) => ({
+      client_id: randomUUID(),
+      exercise_id: BENCH,
+      correlation_id: randomUUID(),
+      source: { source_planned_set_id: source.id, source_revision: sourceRevision(source) },
+    });
+
+    it("sync routine: a session finished on the arrival day stays editable though midnight passes in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const finished = await session(p.id, dateOf(ARRIVAL), "completed", [1]);
+      const edit = routineEdit(finished.id);
+      const response = await whileLocked(p.id, post("/v1/sync", { mutations: [edit] }));
+      expect(response.status).toBe(200);
+      expect(response.body.conflicts).toEqual([]);
+      expect(response.body.applied).toEqual([edit.client_id]);
+    });
+
+    it("sync routine: a session finished on a later day stays read-only though that day arrives in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const finished = await session(p.id, dateOf(LATER), "completed", [1]); // not today on arrival
+      const edit = routineEdit(finished.id);
+      const response = await whileLocked(p.id, post("/v1/sync", { mutations: [edit] }));
+      expect(response.status).toBe(200);
+      expect(response.body.applied).toEqual([]);
+      expect(response.body.conflicts).toContainEqual(
+        expect.objectContaining({ client_id: edit.client_id, reason: "conflict" }),
+      );
+    });
+
+    it("sync batch: a set that waited on the lock and an append after it are judged on the same arrival day", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const previous = await session(p.id, dateOf("2026-09-17"), "scheduled");
+      const today = await session(p.id, dateOf(ARRIVAL), "scheduled");
+      const s1 = perf(previous.planned[0].id, at(dateOf(ARRIVAL), "23:59"));
+      const append = appendTo(today.planned[2]);
+      const appendMutation: MutationDto = {
+        client_id: append.client_id,
+        entity: "session_set",
+        entity_id: today.id,
+        op: "upsert",
+        updated_at: at(dateOf(ARRIVAL), "23:59"),
+        payload: {
+          exercise_id: append.exercise_id,
+          correlation_id: append.correlation_id,
+          source: append.source,
+        },
+      };
+      const response = await whileLocked(
+        p.id,
+        post("/v1/sync", { mutations: [s1, appendMutation] }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.body.conflicts).toEqual([]);
+      expect(response.body.applied).toEqual(
+        expect.arrayContaining([s1.client_id, appendMutation.client_id]),
+      );
+    });
+
+    it("REST routine: a session finished on the arrival day stays editable though midnight passes in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const finished = await session(p.id, dateOf(ARRIVAL), "completed", [1]);
+      const response = await whileLocked(
+        p.id,
+        post(`/v1/sessions/${finished.id}/exercises`, { exercise_id: "e_face_pull" }),
+      );
+      expect(response.status).toBe(200);
+    });
+
+    it("REST append: a set appended on the arrival day is accepted though midnight passes in the lock queue", async () => {
+      moveServerToday(ARRIVAL);
+      const p = await program();
+      const today = await session(p.id, dateOf(ARRIVAL), "scheduled");
+      const response = await whileLocked(
+        p.id,
+        post(`/v1/sessions/${today.id}/sets`, appendTo(today.planned[2])),
+      );
+      expect(response.status).toBe(201);
+      expect(
+        await prisma.plannedSet.count({ where: { sessionId: today.id, exerciseId: BENCH } }),
+      ).toBe(4);
     });
   });
 });
