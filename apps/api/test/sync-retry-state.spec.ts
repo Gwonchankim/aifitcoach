@@ -18,6 +18,7 @@ import { RecommendationService } from "../src/recommendation/recommendation.serv
 import { SyncService } from "../src/sync/sync.service";
 import type { SyncRequestDto } from "../src/sync/dto/sync-request.dto";
 import { createTestApp, resetUserData } from "./support/app";
+import { onSessionDay } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = "e_assisted_pullup";
@@ -457,10 +458,12 @@ describe("sync 재시도 상태 머신 · tx 내부 질의", () => {
       const recommendation = app.get(RecommendationService);
       const spy = jest.spyOn(recommendation, "prefetchHistories").mockResolvedValue(new Map());
       try {
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${sessionId}/complete`)
-          .send({})
-          .expect(500);
+        await onSessionDay(prisma, sessionId, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${sessionId}/complete`)
+            .send({})
+            .expect(500),
+        );
       } finally {
         spy.mockRestore();
       }
