@@ -5,7 +5,7 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Chip, Sheet } from "../ui";
 import { MEDICAL_DISCLAIMER, PAIN_ALERT_THRESHOLD } from "./set-rules";
 import { useModal } from "./useModal";
@@ -26,7 +26,8 @@ export type FinishSheetProps = {
   completedCount: number;
   remainingCount: number;
   pending: boolean;
-  errorText: string | null;
+  /** A node, not only a string (BUG-10): a refusal said here is acknowledged once it is on screen. */
+  errorText: ReactNode;
   onConfirm: (pain: number | null) => void;
   onClose: () => void;
 };

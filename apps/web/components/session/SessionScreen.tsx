@@ -104,6 +104,30 @@ type CompleteResponse = {
 type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 
 /**
+ * BUG-10: a refusal the one judge decided to say — for the session it judged, from these audit
+ * rows (`ids`), in the finish sheet or on the screen.
+ */
+type Refusal = { sessionId: string; text: string; inSheet: boolean; ids: number[] };
+
+/**
+ * BUG-10 round 2: "said" means on screen, not "the data arrived". This renders the refusal's text
+ * and reports it as shown only from an effect — which runs after React committed this text to the
+ * DOM, and never for a screen that unmounted or moved to another session before that.
+ */
+function RefusalText({
+  refusal,
+  onShown,
+}: {
+  refusal: Refusal;
+  onShown: (shown: Refusal) => void;
+}) {
+  useEffect(() => {
+    onShown(refusal);
+  }, [refusal, onShown]);
+  return <>{refusal.text}</>;
+}
+
+/**
  * 저장분을 지우지 못했을 때의 안내. **조용히 넘어가면 안 된다** — 새로고침에서 닫은 타이머가
  * 다시 열려 화면을 가린다(실제 Chromium E2E 에서 재현됐다).
  */
@@ -212,10 +236,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [editError, setEditError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
   /**
-   * BUG-10: what the one judge said about this session's refusals, and where it was said — in the
-   * finish sheet if that was open, else on the screen (summary or routine). Said once, in one place.
+   * BUG-10: what the one judge said about a session's refusals, and where — in the finish sheet if
+   * that was open, else on the screen. It carries the session it was judged for and the audit rows
+   * it came from: those rows turn "shown" only once this text is on screen (RefusalText).
    */
-  const [refusal, setRefusal] = useState<{ text: string; inSheet: boolean } | null>(null);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [notice, setNotice] = useState("");
   const [appendFocus, setAppendFocus] = useState<{
     sessionId: string;
@@ -1154,16 +1179,43 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * live (sync events), on re-entry (mount) and while finishing — no path decides on its own. It
    * reads what the coordinator recorded (this session's "pending" audit rows — a record of what WE
    * sent, not a guess at the server's taxonomy), asks describeRefusals whether a finish is withdrawn
-   * and what to say, says it — in the finish sheet if that is open, else on the screen — and marks
-   * the rows "shown". Mount and events share one serial queue, so both at once still say it once.
+   * and what to say, says it — in the finish sheet if that is open, else on the screen — and the
+   * rows turn "shown" once that text is on screen (RefusalText), not when the judge has decided.
+   * Mount and events share one serial queue, so both at once still say it once.
    * The session is re-read only to refresh the screen after a withdrawn finish, never to decide.
    */
+  /**
+   * BUG-10 round 2: a judge answers for the session it started with, and only while this screen is
+   * still up and still shows that session. The route reuses one SessionScreen across sessions, and a
+   * judge still reading the audit when the screen moves on or unmounts must neither speak nor
+   * consume: its rows stay pending for that session's own screen.
+   */
+  const shownSession = useRef(sessionId);
+  shownSession.current = sessionId;
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // What was said belongs to the session it was judged for; another session starts with nothing.
+  useEffect(() => {
+    setRefusal(null);
+  }, [sessionId]);
+  /** Rows turn "shown" only from RefusalText — once on screen, here, for this session. */
+  const acknowledge = useCallback((shown: Refusal) => {
+    if (!mounted.current || shownSession.current !== shown.sessionId) return;
+    void markRefusalsShown(shown.ids).catch(() => undefined);
+  }, []);
   const judgeQueue = useRef<Promise<void>>(Promise.resolve());
   const announceRefusals = useCallback(() => {
+    const judged = sessionId;
     judgeQueue.current = judgeQueue.current
       .then(async () => {
-        const rows = await pendingRefusals(DEV_USER_SCOPE, sessionId);
-        if (rows.length === 0) return;
+        const rows = await pendingRefusals(DEV_USER_SCOPE, judged);
+        // Gone, or moved on to another session, while reading: say nothing, consume nothing.
+        if (!mounted.current || shownSession.current !== judged || rows.length === 0) return;
         const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
         const outcome = describeRefusals(
           rows.map((row, index) => ({
@@ -1173,7 +1225,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           })),
           {
             scheduledDate:
-              queryClient.getQueryData<Session>(["session", sessionId])?.scheduled_date ?? null,
+              queryClient.getQueryData<Session>(["session", judged])?.scheduled_date ?? null,
             recorded: factWindowRef.current.recorded,
             cardRows: cardRowsRef.current,
           },
@@ -1185,14 +1237,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           const prior = sent.find((row) => row?.entity === "session" && row.prior_status)
             ?.prior_status as Session["status"] | undefined;
           if (prior)
-            queryClient.setQueryData<Session>(["session", sessionId], (current) =>
+            queryClient.setQueryData<Session>(["session", judged], (current) =>
               current?.status === "completed" ? { ...current, status: prior } : current,
             );
-          void refetchAuthoritativeSession(queryClient, sessionId, () => api.session(sessionId));
+          void refetchAuthoritativeSession(queryClient, judged, () => api.session(judged));
         }
         if (outcome.text)
-          setRefusal({ text: outcome.text, inSheet: factWindowRef.current.finishOpen });
-        await markRefusalsShown(rows.map((row) => row.id));
+          setRefusal({
+            sessionId: judged,
+            text: outcome.text,
+            inSheet: factWindowRef.current.finishOpen,
+            ids: rows.map((row) => row.id),
+          });
       })
       .catch(() => undefined);
   }, [queryClient, sessionId]);
@@ -1326,12 +1382,25 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     );
   }
 
+  // A refusal is shown only on the screen of the session it was judged for.
+  const shownRefusal = refusal?.sessionId === sessionId ? refusal : null;
+
   if (sessionQuery.isError || !session) {
     return (
       <div className="mx-auto flex max-w-md flex-col gap-3 p-4">
         <p role="alert" className="text-base text-fg">
           {errorMessage(sessionQuery.error, "session")}
         </p>
+        {/* BUG-10 round 2: the refusal is a local fact. A session that cannot be read does not
+            swallow it, and the connection notice does not stand in for it. */}
+        {shownRefusal && !shownRefusal.inSheet ? (
+          <p
+            role="alert"
+            className="sticky top-[env(safe-area-inset-top)] z-10 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          >
+            <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+          </p>
+        ) : null}
         <Button size="md" onClick={() => void sessionQuery.refetch()}>
           다시 불러오기
         </Button>
@@ -1362,12 +1431,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       {factsLocked && rights?.notice ? (
         <p className="mb-3 text-sm text-fg-muted">{rights.notice}</p>
       ) : null}
-      {refusal && !refusal.inSheet ? (
+      {shownRefusal && !shownRefusal.inSheet ? (
         <p
           role="alert"
-          className="mb-3 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          className="sticky top-[env(safe-area-inset-top)] z-10 mb-3 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
         >
-          {refusal.text}
+          <RefusalText refusal={shownRefusal} onShown={acknowledge} />
         </p>
       ) : null}
       <SessionSummary
@@ -1499,12 +1568,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 {editError}
               </p>
             ) : null}
-            {refusal && !refusal.inSheet ? (
+            {/* Sticky (round 2): re-entry scrolls the remembered set to the centre; drawn only up
+                here, the notice would be said — and acknowledged — out of sight. No close button
+                on purpose: it names the sets to enter again (two exercises by name, the rest as a
+                count, so its height is bounded), and reading it while re-entering them helps. */}
+            {shownRefusal && !shownRefusal.inSheet ? (
               <p
                 role="alert"
-                className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+                className="sticky top-[env(safe-area-inset-top)] z-10 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
               >
-                {refusal.text}
+                <RefusalText refusal={shownRefusal} onShown={acknowledge} />
               </p>
             ) : null}
 
@@ -1813,7 +1886,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}
         // A refusal said while the sheet was open belongs to the sheet; closing it closes the notice.
-        errorText={finishError ?? (refusal?.inSheet ? refusal.text : null)}
+        errorText={
+          finishError ??
+          (shownRefusal?.inSheet ? (
+            <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+          ) : null)
+        }
         onConfirm={(pain) => completeMutation.mutate(pain)}
         onClose={() => {
           setFinishOpen(false);
