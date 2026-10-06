@@ -48,6 +48,17 @@ export const phases = [
     project: "webkit-ios",
     args: ["23-cardio-prescription-read.spec.ts", "--config", "playwright.v2-split.config.ts"],
   },
+  // BUG-10: the server's UTC "today" moves only through the fact-window harness bootstrap.
+  {
+    name: "fact-window-c",
+    project: "chromium-mobile",
+    args: ["24-fact-window.spec.ts", "--config", "playwright.fact-window.config.ts"],
+  },
+  {
+    name: "fact-window-w",
+    project: "webkit-ios",
+    args: ["24-fact-window.spec.ts", "--config", "playwright.fact-window.config.ts"],
+  },
 ];
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

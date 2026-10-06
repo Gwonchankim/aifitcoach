@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { phases, phaseArgs } from "./ci-e2e.mjs";
 
 test("both browsers retain separate native and historical fresh-principal phases", () => {
-  assert.equal(phases.length, 14);
-  assert.equal(new Set(phases.map((phase) => phase.name)).size, 14);
+  assert.equal(phases.length, 16);
+  assert.equal(new Set(phases.map((phase) => phase.name)).size, 16);
   for (const project of ["chromium-mobile", "webkit-ios"]) {
     for (const spec of ["18-assistance-append.spec.ts", "19-assistance-historical.spec.ts"]) {
       assert.equal(
