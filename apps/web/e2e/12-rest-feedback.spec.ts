@@ -15,6 +15,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { openSession, seedExternalLoadProgram, todaySession } from "./helpers";
+import { TEST_NOW } from "./test-today";
 
 type ProbeEvent = { seq: number; kind: string; store?: string; pattern?: number[] };
 
@@ -156,7 +157,8 @@ test("세트 완료 클릭에서 AudioContext unlock 이 첫 비동기 저장보
 
 test("타이머가 0에 닿으면 비프·진동이 각각 정확히 한 번이다", async ({ page }) => {
   await installProbe(page);
-  await page.clock.install();
+  // fixture 와 같은 TEST_NOW — 비우면 러너의 실제 시각으로 깔려 서버의 오늘과 갈라진다.
+  await page.clock.install({ time: new Date(TEST_NOW) });
   const name = await completeFirstSet(page);
   await page.clock.fastForward("02:05");
 
@@ -188,7 +190,8 @@ test("타이머가 0에 닿으면 비프·진동이 각각 정확히 한 번이�
 
 test("휴식을 더하면 그 타이머가 끝날 때 다시 한 번 울린다", async ({ page }) => {
   await installProbe(page);
-  await page.clock.install();
+  // fixture 와 같은 TEST_NOW — 비우면 러너의 실제 시각으로 깔려 서버의 오늘과 갈라진다.
+  await page.clock.install({ time: new Date(TEST_NOW) });
   await completeFirstSet(page);
   await page.clock.fastForward("02:05");
   expect(await countOf(page, "beep-start")).toBe(1);
@@ -212,7 +215,8 @@ test("휴식을 더하면 그 타이머가 끝날 때 다시 한 번 울린다",
 
 test("백그라운드에서 끝난 휴식은 복귀해도 울리지 않는다", async ({ page }) => {
   await installProbe(page);
-  await page.clock.install();
+  // fixture 와 같은 TEST_NOW — 비우면 러너의 실제 시각으로 깔려 서버의 오늘과 갈라진다.
+  await page.clock.install({ time: new Date(TEST_NOW) });
   await completeFirstSet(page);
 
   // 탭을 숨긴 상태로 휴식이 끝난다.

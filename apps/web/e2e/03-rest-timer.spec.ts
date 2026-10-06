@@ -7,6 +7,7 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { openSession, seedExternalLoadProgram, shot, todaySession } from "./helpers";
+import { TEST_NOW } from "./test-today";
 
 let sessionId: string;
 
@@ -123,7 +124,8 @@ test("0초 도달 시 자동으로 닫지 않고 '휴식 완료' 상태가 된�
   page,
 }) => {
   // 여기만 가상 시계를 쓴다(휴식 120초를 실제로 기다리지 않기 위해).
-  await page.clock.install();
+  // 시각은 fixture 와 같은 TEST_NOW 다 — 비우면 러너의 실제 시각으로 다시 깔려 서버의 오늘과 갈라진다.
+  await page.clock.install({ time: new Date(TEST_NOW) });
   await openTimer(page);
   await page.clock.fastForward("02:05");
 
