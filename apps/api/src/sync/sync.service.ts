@@ -303,11 +303,7 @@ export class SyncService {
    * 직렬화/유니크 충돌과 변경된 routing hint는 전체 tx를 처음부터 유한 재시도한다.
    * 같은 mutation 은 멱등(client_id 로 판정)이라 재시도해도 두 번 적용되지 않는다.
    */
-  private async apply(
-    userId: string,
-    mutation: MutationDto,
-    today: Date,
-  ): Promise<MutationResult> {
+  private async apply(userId: string, mutation: MutationDto, today: Date): Promise<MutationResult> {
     for (let attempt = 0; ; attempt += 1) {
       try {
         return await this.applyOnce(userId, mutation, today);
