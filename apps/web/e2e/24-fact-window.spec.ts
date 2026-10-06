@@ -490,3 +490,50 @@ test("@chromium-only re-entry: refused while on the dashboard, said once when th
   await expect(home.getByText(COPY.expired).first()).toBeVisible();
   await expect(screenAlert(home)).toHaveCount(0);
 });
+
+/** 무게 입력이 있는 마지막 운동 — 기억된 위치를 화면 아래쪽에 두기 위해서다. */
+async function lastWeightedExercise(page: Page): Promise<string> {
+  const checks = page.getByRole("button", { name: / 1세트 완료 처리$/ });
+  for (let index = (await checks.count()) - 1; index >= 0; index--) {
+    const label = (await checks.nth(index).getAttribute("aria-label")) ?? "";
+    const name = label.replace(/ 1세트 완료 처리$/, "");
+    if (await page.getByLabel(`${name} 1세트 무게, 킬로그램`).count()) return name;
+  }
+  throw new Error("오늘 세션에 무게 입력이 있는 운동이 없다");
+}
+
+/*
+ * 2라운드(총괄): 말한 것으로 표시하는 순간에 사용자가 그 문장을 볼 수 있어야 한다. 재진입은 기억한
+ * 세트를 화면 가운데로 스크롤한다 — 그 세트가 아래쪽이면 위쪽에 그린 알림은 뷰포트 밖에 남는다.
+ * @chromium-only: 위 재진입과 같은 WebKit 오프라인 에뮬레이션 한계.
+ */
+test("@chromium-only re-entry far down: the refusal is in view where the screen restores the position", async ({
+  page,
+  context,
+  request,
+}) => {
+  await moveTo(request, context, `${D0}T23:30:00.000Z`);
+  await seedExternalLoadProgram(request, { days_per_week: 5 });
+  const sessionId = await todaySession(request);
+  await openSession(page, sessionId);
+  const name = await lastWeightedExercise(page);
+  const last = await plannedSetId(page, name, 1);
+  await context.setOffline(true);
+  await completeWeightedSet(page, name, 1, 50, 8); // 기억된 위치 = 아래쪽 세트
+  await page.close();
+  await moveTo(request, context, `${D2}T00:10:00.000Z`);
+  await context.setOffline(false);
+  const home = await context.newPage();
+  const sync = recordSync(home);
+  await home.goto("/");
+  await expect
+    .poll(() => sync.flatMap((exchange) => exchange.conflicts).length, { timeout: 40_000 })
+    .toBeGreaterThan(0);
+  await home.goto(`/session/${sessionId}`);
+  const alert = screenAlert(home);
+  await expect(alert).toHaveText(`${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요.`);
+  // 양성 단언 먼저: 화면이 실제로 아래쪽 세트로 위치를 복원했다(아니면 아래 단언은 공허하다).
+  await expect(home.locator(`#session-set-${last}`)).toBeInViewport();
+  await expect.poll(() => home.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+  await expect(alert).toBeInViewport();
+});
