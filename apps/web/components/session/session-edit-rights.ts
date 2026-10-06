@@ -57,6 +57,72 @@ export function unsavedCopy(rows: readonly RefusedRow[], unknown: number, finish
   return sets ? `${sets} 운동 종료도 저장되지 않았어요.` : "운동 종료는 저장되지 않았어요.";
 }
 
+/** One refused mutation, as WE sent it (the coordinator's record — never a guess at the server). */
+export type RefusalRecord = { entity: string; entityId: string; reason: string };
+export type RefusalContext = {
+  /** The session's own date from the screen's copy; null when the screen does not know it. */
+  scheduledDate: string | null;
+  /** Whether this session has records (a refused set counts) — older: expired vs unlogged. */
+  recorded: boolean;
+  /** The card's rows by planned set id: names and numbers exactly as the card shows them. */
+  cardRows: ReadonlyMap<string, RefusedRow>;
+  now?: Date;
+};
+/** The server's envelope reason for a fact write outside the window (its only `conflict` for facts). */
+const FACT_WINDOW_REFUSAL = "conflict";
+
+/**
+ * BUG-10 — the one judge for what the server refused (C1 · P1 · C4 · re-entry). Two questions,
+ * kept apart:
+ * 1. "Was my finish applied?" — any refused `session` row, whatever its reason (one no list knows
+ *    included), withdraws the finish. The reason is never consulted for this.
+ * 2. "What do we say?" — a date refusal (`conflict` on a set or the finish) gives the date reason
+ *    for the class the browser can see — older → expired/unlogged, future → upcoming — then only
+ *    what was not saved. today·previous·unknown: the clocks disagree and the server's refusal is
+ *    the truth, so the clause is said without a reason the screen cannot know. A non-date refusal
+ *    of the finish says only that the finish was not saved: we withdraw the summary, so we explain
+ *    it. A non-date refusal of a set stays silent (BUG-03): nothing on screen changes.
+ */
+export function describeRefusals(
+  records: readonly RefusalRecord[],
+  context: RefusalContext,
+): { text: string | null; finishRefused: boolean } {
+  const finishes = records.filter((record) => record.entity === "session");
+  const dateSets = [
+    ...new Set(
+      records
+        .filter(
+          (record) => record.entity === "performed_set" && record.reason === FACT_WINDOW_REFUSAL,
+        )
+        .map((record) => record.entityId),
+    ),
+  ];
+  const finishRefused = finishes.length > 0;
+  const dateRefusal =
+    dateSets.length > 0 || finishes.some((record) => record.reason === FACT_WINDOW_REFUSAL);
+  if (!dateRefusal) return { text: finishRefused ? unsavedCopy([], 0, true) : null, finishRefused };
+  const rows = dateSets.flatMap((id) => {
+    const row = context.cardRows.get(id);
+    return row ? [row] : [];
+  });
+  const clause = unsavedCopy(rows, dateSets.length - rows.length, finishRefused);
+  const reason = dateReason(context, context.recorded || dateSets.length > 0);
+  return { text: reason ? `${reason} ${clause}` : clause, finishRefused };
+}
+
+function dateReason(context: RefusalContext, recorded: boolean): string | null {
+  if (!context.scheduledDate) return null;
+  const today = utcDateString(context.now ?? new Date());
+  switch (classifySessionFactWriteDate(context.scheduledDate, today)) {
+    case "older":
+      return recorded ? EDIT_WINDOW_COPY.expired : EDIT_WINDOW_COPY.pastUnlogged;
+    case "future":
+      return EDIT_WINDOW_COPY.upcoming;
+    default:
+      return null; // today · previous: the browser believes the day is open
+  }
+}
+
 export type SessionEditRights = {
   facts: boolean;
   routine: boolean;

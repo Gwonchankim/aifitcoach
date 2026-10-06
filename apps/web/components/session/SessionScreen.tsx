@@ -53,9 +53,9 @@ import {
 } from "./session-position";
 import { errorMessage, isConflict, shouldRefetch } from "./errors";
 import {
+  describeRefusals,
   reflectsOnCopy,
   sessionEditRights,
-  unsavedCopy,
   type RefusedRow,
 } from "./session-edit-rights";
 import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
@@ -65,10 +65,14 @@ import {
   commitRoutineSnapshot,
   commitSessionCompletion,
   DEV_USER_SCOPE,
+  markRefusalsShown,
+  pendingRefusals,
   readThroughSession,
   readMirroredSession,
+  refusalRecorded,
   safeMappings,
   sessionDb,
+  type OutboxMutation,
   type RoutineCorrelation,
 } from "./session-db";
 import {
@@ -168,23 +172,6 @@ export async function refetchAuthoritativeSession(
   return fetched;
 }
 
-/**
- * BUG-10 D(C1·P1): 기록(값·체크·종료) 거부가 날짜 창 때문인지 routine 의 409 와 같은 장치로 가린다 —
- * **세션을 다시 받아** 그 기록이 지금 닫혀 있으면 그 날짜 분류의 승인 문구, 열려 있으면 null 이다
- * (날짜 창이 아닌 다른 원인이니 각 경로의 현행 처리로 둔다). 새 문구는 없다.
- */
-async function dateWindowNotice(
-  queryClient: QueryClient,
-  sessionId: string,
-  recorded: boolean,
-): Promise<string | null> {
-  const latest = await refetchAuthoritativeSession(queryClient, sessionId, () =>
-    api.session(sessionId),
-  );
-  const latestRights = latest ? sessionEditRights(latest, recorded) : null;
-  return latestRights && !latestRights.facts ? latestRights.notice : null;
-}
-
 export function SessionScreen({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
   const storedDrafts = useSessionLog((state) => state.drafts);
@@ -224,8 +211,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [summary, setSummary] = useState<CompleteResponse | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
-  /** BUG-10 P1·C4: 화면 밖 sync 가 날짜 창으로 거부한 기록·종료의 승인 문구. 요약·루틴 어느 쪽에도 보인다. */
-  const [refusedNotice, setRefusedNotice] = useState<string | null>(null);
+  /**
+   * BUG-10: what the one judge said about this session's refusals, and where it was said — in the
+   * finish sheet if that was open, else on the screen (summary or routine). Said once, in one place.
+   */
+  const [refusal, setRefusal] = useState<{ text: string; inSheet: boolean } | null>(null);
   const [notice, setNotice] = useState("");
   const [appendFocus, setAppendFocus] = useState<{
     sessionId: string;
@@ -1097,7 +1087,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
        * 종료 자체는 이미 로컬 커밋이 끝났으므로 **되돌리지 않는다**. 실패는 알리기만 한다.
        */
       if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
-        throw new ApiError(409, "SYNC_CONFLICT", "completion sync conflict");
+        throw Object.assign(new ApiError(409, "SYNC_CONFLICT", "completion sync conflict"), {
+          refusedClientId: clientId,
+        });
       if ((await sessionDb.outbox.get(clientId))?.append_dependencies)
         throw new Error("append completion is awaiting acknowledgement");
       const timerCleared = await restTimerStore.clear(sessionId);
@@ -1140,65 +1132,78 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: async (error) => {
-      // C1: 창이 닫혀 거부된 종료는 그 날짜의 승인 문구다. 일반 409("다른 곳에서 먼저 바뀐 것 같아요…")는
-      // 다른 원인을 단정하므로 날짜 창이 아닐 때만 쓴다.
-      const notice = isConflict(error)
-        ? await dateWindowNotice(queryClient, sessionId, completedCount > 0)
-        : null;
-      setFinishError(notice ?? errorMessage(error, "complete"));
+      // BUG-10 C1: a finish the server refused is said by the one judge (below), from what the
+      // coordinator recorded — this path adds no sentence of its own. Other failures keep theirs.
+      const refused = (error as { refusedClientId?: string }).refusedClientId;
+      if (refused && (await refusalRecorded(DEV_USER_SCOPE, refused))) {
+        setFinishError(null);
+        return;
+      }
+      setFinishError(errorMessage(error, "complete"));
     },
   });
 
-  /** 화면 밖 sync 의 거부 리스너가 렌더 시점의 최신 값을 읽게 한다. */
-  const factWindowRef = useRef({ recorded: false, finishing: false });
-  factWindowRef.current = { recorded: completedCount > 0, finishing: completeMutation.isPending };
+  /** The judge runs later, from a queue: let it read this render's values. */
+  const factWindowRef = useRef({ recorded: false, finishOpen: false });
+  factWindowRef.current = { recorded: completedCount > 0, finishOpen };
 
   /**
-   * P1·C4: 백그라운드 sync(온라인 복귀·포커스·세트 저장 뒤)가 이 세션의 기록이나 종료를 `conflict` 로
-   * 거부하면 침묵하지 않는다. coordinator 는 감사 행만 남기고 outbox 를 지우므로 여기서 알리지 않으면
-   * 사용자는 저장된 줄 안다. 날짜 창인지는 C1 과 같은 재조회로 가리고, 아니면 현행 그대로다(BUG-03).
-   * 서버가 거부한 종료라면 이 화면의 로컬 요약도 내린다 — 종료되지 않은 세션을 끝났다고 말하지 않는다.
+   * BUG-10 — the one judge. Every refusal the server sent back for this session is said here, once:
+   * live (sync events), on re-entry (mount) and while finishing — no path decides on its own. It
+   * reads what the coordinator recorded (this session's "pending" audit rows — a record of what WE
+   * sent, not a guess at the server's taxonomy), asks describeRefusals whether a finish is withdrawn
+   * and what to say, says it — in the finish sheet if that is open, else on the screen — and marks
+   * the rows "shown". Mount and events share one serial queue, so both at once still say it once.
+   * The session is re-read only to refresh the screen after a withdrawn finish, never to decide.
    */
-  useEffect(() => {
-    const onRefused = (event: Event) => {
-      // 종료 중이면 같은 응답을 C1(종료 시트)이 알린다 — 두 번 말하지 않는다.
-      if (factWindowRef.current.finishing) return;
-      const { conflicts } = (event as CustomEvent<SyncResponseEventDetail>).detail;
-      const log = useSessionLog.getState();
-      const mine = new Set([
-        sessionId,
-        ...(queryClient.getQueryData<Session>(["session", sessionId])?.planned_sets ?? []).map(
-          (set) => set.id,
-        ),
-        ...(log.sessionId === sessionId ? Object.keys(log.drafts) : []),
-      ]);
-      const refused = conflicts.filter(
-        (conflict) => conflict.reason === "conflict" && mine.has(conflict.entity_id),
-      );
-      if (refused.length === 0) return;
-      void dateWindowNotice(queryClient, sessionId, factWindowRef.current.recorded)
-        .then((notice) => {
-          if (!notice) return;
-          const finish = refused.some((conflict) => conflict.entity_id === sessionId);
-          if (finish) setSummary(null);
-          // 사유 다음에 저장되지 않은 것만(세트 단위, 카드의 이름·번호). 거부된 draft 는 화면에 남아
-          // "기록"으로 보이므로 어느 행인지 말해야 다시 넣을 수 있다.
-          const setIds = new Set(
-            refused.filter((conflict) => conflict.entity_id !== sessionId).map((c) => c.entity_id),
-          );
-          const rows = [...cardRowsRef.current].filter(([id]) => setIds.has(id));
-          const unsaved = unsavedCopy(
-            rows.map(([, row]) => row),
-            setIds.size - rows.length,
-            finish,
-          );
-          setRefusedNotice(`${notice} ${unsaved}`);
-        })
-        .catch(() => undefined);
-    };
-    window.addEventListener(SYNC_RESPONSE_EVENT, onRefused);
-    return () => window.removeEventListener(SYNC_RESPONSE_EVENT, onRefused);
+  const judgeQueue = useRef<Promise<void>>(Promise.resolve());
+  const announceRefusals = useCallback(() => {
+    judgeQueue.current = judgeQueue.current
+      .then(async () => {
+        const rows = await pendingRefusals(DEV_USER_SCOPE, sessionId);
+        if (rows.length === 0) return;
+        const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
+        const outcome = describeRefusals(
+          rows.map((row, index) => ({
+            entity: sent[index]?.entity ?? "",
+            entityId: sent[index]?.canonical_entity_id ?? sent[index]?.entity_id ?? "",
+            reason: row.kind,
+          })),
+          {
+            scheduledDate:
+              queryClient.getQueryData<Session>(["session", sessionId])?.scheduled_date ?? null,
+            recorded: factWindowRef.current.recorded,
+            cardRows: cardRowsRef.current,
+          },
+        );
+        if (outcome.finishRefused) {
+          // "Was my finish applied?" — no: whatever the reason, the screen stops claiming it, and
+          // our own optimistic "completed" goes back (the coordinator did the same for the mirror).
+          setSummary(null);
+          const prior = sent.find((row) => row?.entity === "session" && row.prior_status)
+            ?.prior_status as Session["status"] | undefined;
+          if (prior)
+            queryClient.setQueryData<Session>(["session", sessionId], (current) =>
+              current?.status === "completed" ? { ...current, status: prior } : current,
+            );
+          void refetchAuthoritativeSession(queryClient, sessionId, () => api.session(sessionId));
+        }
+        if (outcome.text)
+          setRefusal({ text: outcome.text, inSheet: factWindowRef.current.finishOpen });
+        await markRefusalsShown(rows.map((row) => row.id));
+      })
+      .catch(() => undefined);
   }, [queryClient, sessionId]);
+  // Judge once the card can name what it shows (session and catalog read, or failed to read).
+  const judgeReady =
+    (sessionQuery.isSuccess || sessionQuery.isError) &&
+    (catalogQuery.isSuccess || catalogQuery.isError);
+  useEffect(() => {
+    if (!judgeReady) return;
+    announceRefusals(); // re-entry: refused while this screen was not open
+    window.addEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+    return () => window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+  }, [judgeReady, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
@@ -1355,12 +1360,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       {factsLocked && rights?.notice ? (
         <p className="mb-3 text-sm text-fg-muted">{rights.notice}</p>
       ) : null}
-      {refusedNotice ? (
+      {refusal && !refusal.inSheet ? (
         <p
           role="alert"
           className="mb-3 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
         >
-          {refusedNotice}
+          {refusal.text}
         </p>
       ) : null}
       <SessionSummary
@@ -1492,12 +1497,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 {editError}
               </p>
             ) : null}
-            {refusedNotice ? (
+            {refusal && !refusal.inSheet ? (
               <p
                 role="alert"
                 className="rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
               >
-                {refusedNotice}
+                {refusal.text}
               </p>
             ) : null}
 
@@ -1805,9 +1810,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         completedCount={completedCount}
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}
-        errorText={finishError}
+        // A refusal said while the sheet was open belongs to the sheet; closing it closes the notice.
+        errorText={finishError ?? (refusal?.inSheet ? refusal.text : null)}
         onConfirm={(pain) => completeMutation.mutate(pain)}
-        onClose={() => setFinishOpen(false)}
+        onClose={() => {
+          setFinishOpen(false);
+          setRefusal((current) => (current?.inSheet ? null : current));
+        }}
       />
     </>
   );

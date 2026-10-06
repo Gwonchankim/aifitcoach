@@ -35,6 +35,11 @@ export type OutboxMutation = {
   sync_reason?: string;
   cause_client_id?: string;
   cause_reason?: string;
+  /**
+   * Local only, never on the wire: the mirror's status before a finish claimed "completed". If the
+   * server refuses that finish, the claim is withdrawn back to this (BUG-10).
+   */
+  prior_status?: string;
   /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
   removed_planned_sets?: {
     planned_set_id: string;
@@ -77,7 +82,16 @@ type ConflictAudit = {
   client_id: string;
   kind: string;
   payload: unknown;
+  /** The session the refused mutation belongs to (resolved when it is recorded). */
+  session_id?: string;
+  /**
+   * BUG-10: a refused fact (a set or the finish) is said once by that session's screen —
+   * "pending" until then, "shown" after. Rows recorded before this field existed carry none and are
+   * never surfaced (intended: there is no way to say them truthfully any more).
+   */
+  notice?: "pending" | "shown";
 };
+export type RefusalAudit = ConflictAudit & { id: number };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
 export type ReadModelKind =
   "program" | "current-week" | "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
@@ -911,20 +925,78 @@ export async function commitSessionCompletion(
         },
       );
       const current = await sessionDb.sessions.get([userId, sessionId]);
+      let prior: string | undefined;
       if (
         !mutation.append_dependencies &&
         current &&
         typeof current.session === "object" &&
         current.session != null
       ) {
+        const status = (current.session as { status?: unknown }).status;
+        if (typeof status === "string" && status !== "completed") prior = status;
         await sessionDb.sessions.put({
           ...current,
           session: { ...(current.session as Record<string, unknown>), status: "completed" },
           updated_at: updatedAt,
         });
       }
-      await sessionDb.outbox.put(mutation);
+      // BUG-10: remember what this optimistic "completed" replaced, so a refusal can withdraw it.
+      await sessionDb.outbox.put(prior ? { ...mutation, prior_status: prior } : mutation);
     },
+  );
+}
+
+/**
+ * BUG-10: the session a refused mutation belongs to. A set's entity id is its planned set id
+ * (`mutationFor`), so it is resolved through the draft that produced it; everything else names its
+ * session directly. Runs inside the coordinator's commit transaction (drafts are in its scope).
+ */
+export async function refusedSessionOf(
+  userId: string,
+  row: OutboxMutation,
+): Promise<string | undefined> {
+  if (row.append_dependencies) return row.append_dependencies.session_id;
+  if (row.entity !== "performed_set") return row.entity_id;
+  const plannedSetId = row.canonical_entity_id ?? row.entity_id;
+  const draft = await sessionDb.drafts
+    .where("planned_set_id")
+    .equals(plannedSetId)
+    .filter((candidate) => candidate.user_id === userId)
+    .first();
+  return draft?.session_id;
+}
+
+/** BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too. */
+export async function undoOptimisticCompletionInTransaction(
+  userId: string,
+  row: OutboxMutation,
+): Promise<void> {
+  if (row.entity !== "session" || !row.prior_status) return;
+  const current = await sessionDb.sessions.get([userId, row.entity_id]);
+  const session = current?.session as Record<string, unknown> | null | undefined;
+  if (!current || !session || session.status !== "completed") return;
+  await sessionDb.sessions.put({ ...current, session: { ...session, status: row.prior_status } });
+}
+
+/** BUG-10: the refusals of this session that its screen has not said yet. */
+export async function pendingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
+  return (await sessionDb.conflicts.where("user_id").equals(userId).toArray()).filter(
+    (row): row is RefusalAudit =>
+      row.id !== undefined && row.session_id === sessionId && row.notice === "pending",
+  );
+}
+
+/** BUG-10: the acknowledgement — said once, never again. */
+export async function markRefusalsShown(ids: readonly number[]): Promise<void> {
+  await sessionDb.transaction("rw", sessionDb.conflicts, async () => {
+    for (const id of ids) await sessionDb.conflicts.update(id, { notice: "shown" });
+  });
+}
+
+/** BUG-10: whether this refused mutation was recorded for the one judge to say. */
+export async function refusalRecorded(userId: string, clientId: string): Promise<boolean> {
+  return (await sessionDb.conflicts.where("client_id").equals(clientId).toArray()).some(
+    (row) => row.user_id === userId && row.notice !== undefined,
   );
 }
 

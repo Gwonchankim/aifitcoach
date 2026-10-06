@@ -9,9 +9,11 @@ import {
   markerKeyFor,
   markRemediationPending,
   processRemediationMarkers,
+  refusedSessionOf,
   remediationStateOf,
   safeMappings,
   sessionDb,
+  undoOptimisticCompletionInTransaction,
   type OutboxMutation,
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
@@ -253,12 +255,23 @@ export class SyncCoordinator {
           if (row.append_dependencies) touched.add(row.append_dependencies.session_id);
           if (conflicts.has(clientId)) {
             if (await preserveAppendConflictInTransaction(row, conflicts.get(clientId)!)) continue;
+            /*
+             * BUG-10: the screen judges a refusal from this record of what WE sent (entity, owning
+             * session) — never by guessing the server's taxonomy from a generic reason. A refused
+             * fact (a set or the finish) waits here, "pending", for its session's screen to say it;
+             * a refused finish also takes back our own optimistic "completed" from the mirror.
+             */
+            const sessionId = await refusedSessionOf(this.userId, row);
+            const fact = row.entity === "performed_set" || row.entity === "session";
             await sessionDb.conflicts.add({
               user_id: this.userId,
               client_id: clientId,
               kind: conflicts.get(clientId)!.reason,
               payload: row,
+              ...(sessionId ? { session_id: sessionId } : {}),
+              ...(sessionId && fact ? { notice: "pending" as const } : {}),
             });
+            await undoOptimisticCompletionInTransaction(this.userId, row);
           } else if (row.entity === "session") {
             await completeAppendSessionInTransaction(row);
             if (row.append_dependencies) completed.add(row.entity_id);
