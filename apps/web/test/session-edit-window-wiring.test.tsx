@@ -441,22 +441,33 @@ it.each([
 );
 
 /**
- * A finished previous-day session HAS an approved notice while logging is open. A `conflict` there
- * is not the date window, so neither path may borrow that notice (only closed logging speaks).
+ * A finished previous-day session HAS an approved notice while logging is open. A date refusal
+ * there means the clocks disagree: neither path may borrow that notice, and the screen cannot know
+ * which side the server is on — so only what was not saved is said.
  */
-it("C1: a re-finish refused while the previous day is still open keeps the generic 409", async () => {
+it("C1: a re-finish refused while the browser still sees the previous day open says only that the finish was not saved", async () => {
   await logFirstSet();
   mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
   mocks.sync.mockImplementation(async () => {
     const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
-    return finish ? refusal([finish], "conflict") : null;
+    if (!finish) return null;
+    return new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async (body) => ({
+        ...refusal([finish], "conflict"),
+        applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+      }),
+    }).request();
   });
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
   fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
   const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
   fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
-  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBe(GENERIC_409));
+  await waitFor(() =>
+    expect(within(sheet).getByRole("alert").textContent).toBe("운동 종료는 저장되지 않았어요."),
+  );
+  expect(screen.queryByText(GENERIC_409)).toBeNull();
 });
 
 it("P1: a `conflict` on a finished previous-day session with logging open stays silent (not the date window)", async () => {
