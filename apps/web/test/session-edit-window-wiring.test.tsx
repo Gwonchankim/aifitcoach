@@ -407,7 +407,9 @@ it.each([
     "conflict",
     `${EDIT_WINDOW_COPY.expired} 벤치프레스 1세트 기록은 저장되지 않았어요.`,
   ],
-  [null, "conflict", null], // refetched logging still open → not the date window
+  // The browser still thinks 08-13 is open, but the server refused for the date: its refusal is the
+  // truth. What was not saved is said; the reason is not, since the screen cannot know which side.
+  [null, "conflict", "벤치프레스 1세트 기록은 저장되지 않았어요."],
   ["2026-08-15T00:00:01.000Z", "stale_update", null], // another reason → BUG-03, as before
 ] as const)(
   "P1: a logged set refused by a background sync at %s (%s) surfaces: %s",
@@ -429,15 +431,10 @@ it.each([
     if (copy) {
       await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(copy));
     } else {
-      // `conflict` is decided by the refetch; any other reason is not considered at all — no
+      // A set refused for a non-date reason changes nothing on screen (BUG-03): no alert, and no
       // refetch, given the time a refetch takes to land (real timers; only Date is faked).
-      if (reason === "conflict")
-        await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
-      else {
-        await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
-        expect(mocks.session.mock.calls.length).toBe(reads);
-      }
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+      expect(mocks.session.mock.calls.length).toBe(reads);
       expect(screen.queryByRole("alert")).toBeNull();
     }
   },
