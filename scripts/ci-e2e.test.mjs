@@ -76,6 +76,27 @@ test("reserved split and cardio each run once per browser with independent princ
   }
 });
 
+test("fact window runs once per browser with its own config and independent principals", () => {
+  const spec = "24-fact-window.spec.ts";
+  const selected = phases.filter((phase) => phase.args.includes(spec));
+  assert.equal(selected.length, 2);
+  assert.equal(new Set(selected.map((phase) => phase.name)).size, 2);
+  for (const project of ["chromium-mobile", "webkit-ios"]) {
+    const matching = selected.filter((phase) => phase.project === project);
+    assert.equal(matching.length, 1);
+    assert.notEqual(matching[0].core, true);
+    assert.deepEqual(matching[0].args, [spec, "--config", "playwright.fact-window.config.ts"]);
+    assert.deepEqual(phaseArgs(matching[0]).slice(0, 6), [
+      "exec",
+      "playwright",
+      "test",
+      spec,
+      "--config",
+      "playwright.fact-window.config.ts",
+    ]);
+  }
+});
+
 test("persistent headed case is moved, not skipped; retry/timeout assertions stay unchanged", () => {
   const core = phases.find((phase) => phase.name === "core-c");
   const persistent = phases.find((phase) => phase.name === "persistent-c");
