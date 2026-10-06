@@ -528,15 +528,18 @@ it("C1: a finish refused for the date window through the real coordinator is sai
     vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
     return new SyncCoordinator({
       userId: DEV_USER_SCOPE,
-      transport: async (body) => refusal(body.mutations, "conflict"),
+      transport: async (body) => serverRefusal(body.mutations),
     }).request();
   });
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
   const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
   fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  // One judge for C1 too: the reason, then everything this batch did not save — the set as well.
   await waitFor(() =>
-    expect(within(sheet).getByRole("alert").textContent).toBe(EDIT_WINDOW_COPY.expired),
+    expect(within(sheet).getByRole("alert").textContent).toBe(
+      `${EDIT_WINDOW_COPY.expired} 벤치프레스 1세트 기록은 저장되지 않았어요. 운동 종료도 저장되지 않았어요.`,
+    ),
   );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(screen.getAllByRole("alert", { hidden: true })).toHaveLength(1);
