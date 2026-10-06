@@ -344,6 +344,21 @@ const refusal = (rows: { client_id: string; entity_id: string }[], reason: strin
   planned_set_mappings: [],
   next_cursor: "v1.test",
 });
+/** The server's real taxonomy: a date-refused set is `conflict`; its completion `dependent_conflict`. */
+const serverRefusal = (rows: { client_id: string; entity: string; entity_id: string }[]) => {
+  const refusedSet = rows.some((row) => row.entity === "performed_set");
+  return {
+    applied: [],
+    conflicts: rows.map((row) => ({
+      client_id: row.client_id,
+      entity_id: row.entity_id,
+      reason: row.entity === "session" && refusedSet ? "dependent_conflict" : "conflict",
+    })),
+    changes: [],
+    planned_set_mappings: [],
+    next_cursor: "v1.test",
+  };
+};
 async function logFirstSet() {
   await useSessionLog.getState().begin("A");
   await useSessionLog
@@ -539,12 +554,14 @@ it("C4: an offline finish refused later for the date window no longer claims the
     ["performed_set", "session"].includes(row.entity),
   );
   expect(queued.map((row) => row.entity).sort()).toEqual(["performed_set", "session"]);
-  // Back online two UTC days later: the server refuses both for the date window.
+  // Back online two UTC days later: the server refuses both for the date window — in its real
+  // taxonomy the set is `conflict` and the completion that depended on it `dependent_conflict`
+  // (sync.service). One fabricated reason for both hid exactly the branch that failed.
   vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
   await act(async () => {
     await new SyncCoordinator({
       userId: DEV_USER_SCOPE,
-      transport: async () => refusal(queued, "conflict"),
+      transport: async () => serverRefusal(queued),
     }).request();
   });
   await waitFor(() =>
