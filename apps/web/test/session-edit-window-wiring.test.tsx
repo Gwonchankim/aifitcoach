@@ -470,22 +470,24 @@ it("C1: a re-finish refused while the browser still sees the previous day open s
   expect(screen.queryByText(GENERIC_409)).toBeNull();
 });
 
-it("P1: a `conflict` on a finished previous-day session with logging open stays silent (not the date window)", async () => {
+it("P1: a `conflict` on a finished previous-day session the browser still sees open is said, without a date reason", async () => {
   await logFirstSet();
   mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
   mount();
   await screen.findByRole("heading", { name: "수고했어요" });
   const rows = (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set");
-  const reads = mocks.session.mock.calls.length;
   await act(async () => {
     await new SyncCoordinator({
       userId: DEV_USER_SCOPE,
       transport: async () => refusal(rows, "conflict"),
     }).request();
   });
-  await waitFor(() => expect(mocks.session.mock.calls.length).toBeGreaterThan(reads));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-  expect(screen.queryByRole("alert")).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe(
+      "벤치프레스 1세트 기록은 저장되지 않았어요.",
+    ),
+  );
+  expect(screen.queryByText(EDIT_WINDOW_COPY.previousCompleted)).toBeNull();
 });
 
 /**
