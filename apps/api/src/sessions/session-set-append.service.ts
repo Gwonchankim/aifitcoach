@@ -36,6 +36,13 @@ export type AppendApplyResult =
     }
   | { status: "pending" | "conflict"; reason: SessionAppendReason | "validation_failed" };
 
+/**
+ * BUG-10 I: the sync adapter must tell an applied receipt that was only acknowledged again from a
+ * new append (a replay must not recompute). Kept beside the result so `apply`'s public result —
+ * and its replay-equality contract — stays exactly as it was.
+ */
+export type AppendApplyOutcome = { result: AppendApplyResult; replayed: boolean };
+
 /** One ledger/atomic domain path for direct POST and the subsequent sync topology adapter. */
 @Injectable()
 export class SessionSetAppendService {
@@ -47,6 +54,17 @@ export class SessionSetAppendService {
     request: AppendSetDto,
     transportUpdatedAt?: string,
   ): Promise<AppendApplyResult> {
+    return (await this.applyWithReplay(userId, sessionId, request, transportUpdatedAt)).result;
+  }
+
+  /** `apply`, plus whether an already-applied receipt was only acknowledged again (no write). */
+  async applyWithReplay(
+    userId: string,
+    sessionId: string,
+    request: AppendSetDto,
+    transportUpdatedAt?: string,
+  ): Promise<AppendApplyOutcome> {
+    let replayed = false;
     const clientId = request.client_id.toLowerCase();
     const correlationId = request.correlation_id.toLowerCase();
     const requestHash = appendIntentHash(sessionId, request);
@@ -56,12 +74,13 @@ export class SessionSetAppendService {
       correlation_id: request.correlation_id,
       source: { ...request.source },
     } satisfies Prisma.InputJsonObject;
-    return sessionWriteTransaction(
+    const result = await sessionWriteTransaction(
       this.prisma,
       userId,
       sessionId,
       [{ clientId, entity: "session_set", entityId: sessionId }],
-      async (tx, session) => {
+      async (tx, session): Promise<AppendApplyResult> => {
+        replayed = false; // a retried attempt decides again from its own reads
         const sourceCorrelationId =
           "source_correlation_id" in request.source
             ? request.source.source_correlation_id.toLowerCase()
@@ -106,9 +125,9 @@ export class SessionSetAppendService {
               row.exerciseId === request.exercise_id &&
               row.clientCorrelationId === correlationId,
           );
-          return target
-            ? applied(target.id)
-            : { status: "conflict", reason: "append_target_removed" };
+          if (!target) return { status: "conflict", reason: "append_target_removed" };
+          replayed = true;
+          return applied(target.id);
         }
         if (existing?.status === "conflict") {
           return { status: "conflict", reason: storedReason(existing.conflictReason) };
@@ -236,6 +255,7 @@ export class SessionSetAppendService {
         return applied(created.id);
       },
     );
+    return { result, replayed };
   }
 }
 

@@ -85,6 +85,8 @@ export class SyncService {
   async sync(userId: string, dto: SyncRequestDto) {
     const applied = new Set<string>();
     const conflicts: Conflict[] = [];
+    // Sessions whose facts changed in this request. An exact replay (`replayed`) is acknowledged
+    // but never added: recomputing from it rewrites targets from an old source (BUG-10 I).
     const changedSessions = new Set<string>();
     const mutationSessions = new Map<string, string>();
     const recommendations = new Map<string, unknown>();
@@ -101,7 +103,7 @@ export class SyncService {
       if (result.applied) {
         applied.add(mutation.client_id);
         if (result.sessionId) {
-          changedSessions.add(result.sessionId);
+          if (!result.replayed) changedSessions.add(result.sessionId);
           mutationSessions.set(mutation.client_id, result.sessionId);
         }
       } else if (result.conflict) {
@@ -131,7 +133,7 @@ export class SyncService {
       for (const original of pending) {
         let result: MutationResult;
         if (original.entity === "session_set") {
-          const append = await this.appendSets.apply(
+          const { result: append, replayed } = await this.appendSets.applyWithReplay(
             userId,
             original.entity_id,
             { ...original.payload, client_id: original.client_id } as AppendSetDto,
@@ -139,7 +141,7 @@ export class SyncService {
           );
           result =
             append.status === "applied"
-              ? { applied: true, sessionId: append.sessionId }
+              ? { applied: true, sessionId: append.sessionId, replayed }
               : {
                   applied: false,
                   conflict: {
@@ -173,7 +175,7 @@ export class SyncService {
           applied.add(original.client_id);
           pendingConflicts.delete(original.client_id);
           if (result.sessionId) {
-            changedSessions.add(result.sessionId);
+            if (!result.replayed) changedSessions.add(result.sessionId);
             mutationSessions.set(original.client_id, result.sessionId);
           }
         } else if (result.conflict) {
@@ -202,7 +204,7 @@ export class SyncService {
         : await this.apply(userId, mutation);
       if (result.applied) {
         applied.add(mutation.client_id);
-        changedSessions.add(mutation.entity_id);
+        if (!result.replayed) changedSessions.add(mutation.entity_id);
         mutationSessions.set(mutation.client_id, mutation.entity_id);
       } else if (result.conflict) {
         conflicts.push(result.conflict);
@@ -296,10 +298,7 @@ export class SyncService {
    * 직렬화/유니크 충돌과 변경된 routing hint는 전체 tx를 처음부터 유한 재시도한다.
    * 같은 mutation 은 멱등(client_id 로 판정)이라 재시도해도 두 번 적용되지 않는다.
    */
-  private async apply(
-    userId: string,
-    mutation: MutationDto,
-  ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
+  private async apply(userId: string, mutation: MutationDto): Promise<MutationResult> {
     for (let attempt = 0; ; attempt += 1) {
       try {
         return await this.applyOnce(userId, mutation);
@@ -317,10 +316,7 @@ export class SyncService {
     }
   }
 
-  private async applyOnce(
-    userId: string,
-    mutation: MutationDto,
-  ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
+  private async applyOnce(userId: string, mutation: MutationDto): Promise<MutationResult> {
     validateMutation(mutation);
     try {
       const sessionHint = await this.sessionFor(userId, mutation);
@@ -352,7 +348,7 @@ export class SyncService {
             if (!sameMutation(existing, mutation))
               return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
             return existing.status === "applied"
-              ? { applied: true, sessionId: lockedSession.id }
+              ? { applied: true, sessionId: lockedSession.id, replayed: true }
               : { applied: false, conflict: conflictOf(mutation, "stale_update") };
           }
           const latest = await tx.syncMutation.findFirst({
@@ -402,7 +398,11 @@ export class SyncService {
     }
   }
 
-  private async recordConflict(userId: string, mutation: MutationDto, reason: string) {
+  private async recordConflict(
+    userId: string,
+    mutation: MutationDto,
+    reason: string,
+  ): Promise<MutationResult> {
     validateMutation(mutation);
     return this.prisma.$transaction(async (tx) => {
       await this.lockMutation(tx, userId, mutation);
@@ -419,6 +419,7 @@ export class SyncService {
         return {
           applied: true,
           sessionId: await this.sessionFor(userId, mutation),
+          replayed: true,
         };
       if (!existing)
         await tx.syncMutation.create({ data: mutationRow(userId, mutation, "conflict") });
