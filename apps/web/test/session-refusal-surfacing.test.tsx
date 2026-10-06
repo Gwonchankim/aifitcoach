@@ -696,5 +696,16 @@ it("invariant 15 — one notice holds every pending refusal of the session, and 
   await waitFor(() =>
     expect(alertTexts()).toEqual(["벤치프레스 1·3세트 기록은 저장되지 않았어요."]),
   );
-  await expect.poll(notices).toEqual(["shown", "superseded", "shown"]);
+  // Per set, not by row order: the three were refused in one batch whose order is the outbox's
+  // (same updated_at under the frozen clock, then a random client_id).
+  const noticeBySet = async () =>
+    Object.fromEntries(
+      (await sessionDb.conflicts.toArray()).map((row) => [
+        (row.payload as { entity_id: string }).entity_id,
+        row.notice,
+      ]),
+    );
+  await expect
+    .poll(noticeBySet)
+    .toEqual({ "set-1": "shown", "set-2": "superseded", "set-3": "shown" });
 });
