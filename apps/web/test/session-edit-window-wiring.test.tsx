@@ -374,7 +374,11 @@ it.each([
 });
 
 it.each([
-  ["2026-08-15T00:00:01.000Z", "conflict", EDIT_WINDOW_COPY.expired],
+  [
+    "2026-08-15T00:00:01.000Z",
+    "conflict",
+    `${EDIT_WINDOW_COPY.expired} 벤치프레스 1세트 기록은 저장되지 않았어요.`,
+  ],
   [null, "conflict", null], // refetched logging still open → not the date window
   ["2026-08-15T00:00:01.000Z", "stale_update", null], // another reason → BUG-03, as before
 ] as const)(
@@ -448,6 +452,43 @@ it("P1: a `conflict` on a finished previous-day session with logging open stays 
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
+/**
+ * The not-saved clause names what the CARD shows: its exercise name and its set number. Here the
+ * refused row is the second card's set 1 — the 3rd planned set overall — so an index or an id
+ * would send the user to the wrong row.
+ */
+it("P1: the not-saved clause names the card's exercise and set number", async () => {
+  const chest = [1, 2].map((n) => ({
+    ...sets[0],
+    id: `chest-${n}`,
+    exercise_id: "e_chest_press_machine",
+    set_no: n,
+  }));
+  mocks.session.mockResolvedValue({
+    ...session("2026-08-13", "in_progress"),
+    planned_sets: [...sets, ...chest],
+  });
+  await useSessionLog.getState().begin("A");
+  await useSessionLog
+    .getState()
+    .completeSet("chest-1", { weight: 40, reps: 10, rir: 2, timeSec: null });
+  mount();
+  await screen.findByLabelText(weight(2));
+  const rows = (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set");
+  vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
+  await act(async () => {
+    await new SyncCoordinator({
+      userId: DEV_USER_SCOPE,
+      transport: async () => refusal(rows, "conflict"),
+    }).request();
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe(
+      `${EDIT_WINDOW_COPY.expired} 체스트 프레스 머신 1세트 기록은 저장되지 않았어요.`,
+    ),
+  );
+});
+
 it("P1: another session's refused set never alerts this screen", async () => {
   mocks.session.mockResolvedValue(session("2026-08-12", "in_progress")); // logging closed here
   mount();
@@ -506,7 +547,11 @@ it("C4: an offline finish refused later for the date window no longer claims the
       transport: async () => refusal(queued, "conflict"),
     }).request();
   });
-  await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(EDIT_WINDOW_COPY.expired));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toBe(
+      `${EDIT_WINDOW_COPY.expired} 벤치프레스 1세트 기록은 저장되지 않았어요. 운동 종료도 저장되지 않았어요.`,
+    ),
+  );
   expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
 });
 

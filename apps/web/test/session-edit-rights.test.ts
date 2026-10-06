@@ -8,6 +8,7 @@ import {
   EDIT_WINDOW_COPY,
   reflectsOnCopy,
   sessionEditRights,
+  unsavedCopy,
 } from "../components/session/session-edit-rights";
 
 const at = (iso: string) => new Date(iso);
@@ -64,6 +65,56 @@ describe("reflectsOnCopy — a previous-day edit names its own day, never a rela
     ["2025-12-31", "이 기록은 12월 31일 운동에 반영돼요."],
   ] as const)("%s → %s", (date, copy) => {
     expect(reflectsOnCopy(date)).toBe(copy);
+  });
+});
+
+/**
+ * P1·C4 (approved form, option 1): only what was refused, set by set — never "this exercise".
+ * Names and numbers are the card's (the screen passes them in card order). Two exercises by name;
+ * the rest and rows the screen does not show fold into "다른 세트 n개".
+ */
+describe("unsavedCopy — what a date-window refusal did not save", () => {
+  const row = (exerciseId: string, exerciseName: string, setNo: number) => ({
+    exerciseId,
+    exerciseName,
+    setNo,
+  });
+  const bench = (setNo: number) => row("bench", "벤치프레스", setNo);
+  const curl = (setNo: number) => row("curl", "레그 컬", setNo);
+  const squat = (setNo: number) => row("squat", "스쿼트", setNo);
+  it.each([
+    [[bench(2), bench(1)], 0, false, "벤치프레스 1·2세트 기록은 저장되지 않았어요."],
+    [
+      [bench(1), bench(2), curl(2)],
+      0,
+      false,
+      "벤치프레스 1·2세트, 레그 컬 2세트 기록은 저장되지 않았어요.",
+    ],
+    // The cap: a third exercise is counted, not named.
+    [
+      [bench(1), bench(2), curl(2), squat(1), squat(2), squat(3)],
+      0,
+      false,
+      "벤치프레스 1·2세트, 레그 컬 2세트, 다른 세트 3개 기록은 저장되지 않았어요.",
+    ],
+    // The approved example: the overflow and rows the screen cannot name share one tail.
+    [
+      [bench(1), bench(2), curl(2), squat(1), squat(2), squat(3)],
+      6,
+      false,
+      "벤치프레스 1·2세트, 레그 컬 2세트, 다른 세트 9개 기록은 저장되지 않았어요.",
+    ],
+    [[bench(1)], 1, false, "벤치프레스 1세트, 다른 세트 1개 기록은 저장되지 않았어요."],
+    [[], 2, false, "세트 2개 기록은 저장되지 않았어요."],
+    [[], 0, true, "운동 종료는 저장되지 않았어요."],
+    [
+      [bench(1)],
+      0,
+      true,
+      "벤치프레스 1세트 기록은 저장되지 않았어요. 운동 종료도 저장되지 않았어요.",
+    ],
+  ] as const)("%j + %i unknown, finish %s → %s", (rows, unknown, finish, copy) => {
+    expect(unsavedCopy(rows, unknown, finish)).toBe(copy);
   });
 });
 
