@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma, type SyncMutation } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { identityObject } from "../sessions/session-set-receipt";
@@ -256,6 +261,7 @@ export class SessionDependencyService {
               // These writer guards run before their first mutation. Other errors roll back the tx.
               if (error instanceof BadRequestException) return terminal("validation_failed");
               if (error instanceof NotFoundException) return terminal("append_target_removed");
+              if (error instanceof ConflictException) return terminal("conflict");
               throw error;
             }
             await persist("applied", null, target!);
