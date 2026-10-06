@@ -1203,9 +1203,17 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     setRefusal(null);
   }, [sessionId]);
+  /**
+   * Audit rows this screen has put on screen. The "shown" write is asynchronous, so a judge running
+   * before it lands (the sheet just closed, the screen came back to this session) would say them
+   * again — keyed by row id, so a NEW refusal with the same sentence is still said. A reload while
+   * that write is in flight may say the same true sentence once more (accepted, BUG-10 ticket).
+   */
+  const said = useRef(new Set<number>());
   /** Rows turn "shown" only from RefusalText — once on screen, here, for this session. */
   const acknowledge = useCallback((shown: Refusal) => {
     if (!mounted.current || shownSession.current !== shown.sessionId) return;
+    for (const id of shown.ids) said.current.add(id);
     void markRefusalsShown(shown.ids).catch(() => undefined);
   }, []);
   const judgeQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1213,7 +1221,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     const judged = sessionId;
     judgeQueue.current = judgeQueue.current
       .then(async () => {
-        const rows = await pendingRefusals(DEV_USER_SCOPE, judged);
+        const rows = (await pendingRefusals(DEV_USER_SCOPE, judged)).filter(
+          (row) => !said.current.has(row.id),
+        );
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
         if (!mounted.current || shownSession.current !== judged || rows.length === 0) return;
         const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
@@ -1262,6 +1272,19 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     window.addEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
     return () => window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
   }, [judgeReady, announceRefusals]);
+  /**
+   * The finish sheet closed — by the user, by a finish that succeeded, by an acknowledged append
+   * completion. What it said closes with it; what it could not say (another error was up) is said
+   * on the screen now, not at the next sync or entry.
+   */
+  const sheetWasOpen = useRef(false);
+  useEffect(() => {
+    if (sheetWasOpen.current && !finishOpen) {
+      setRefusal((current) => (current?.inSheet ? null : current));
+      announceRefusals();
+    }
+    sheetWasOpen.current = finishOpen;
+  }, [finishOpen, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
@@ -1893,10 +1916,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           ) : null)
         }
         onConfirm={(pain) => completeMutation.mutate(pain)}
-        onClose={() => {
-          setFinishOpen(false);
-          setRefusal((current) => (current?.inSheet ? null : current));
-        }}
+        onClose={() => setFinishOpen(false)}
       />
     </>
   );

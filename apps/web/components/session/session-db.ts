@@ -86,10 +86,12 @@ type ConflictAudit = {
   session_id?: string;
   /**
    * BUG-10: a refused fact (a set or the finish) is said once by that session's screen —
-   * "pending" until then, "shown" after. Rows recorded before this field existed carry none and are
-   * never surfaced (intended: there is no way to say them truthfully any more).
+   * "pending" until then, "shown" after. "superseded": a later write of the same fact was APPLIED
+   * before it was said — "not saved" is false now, so it is never said. Rows recorded before this
+   * field existed carry none and are never surfaced (intended: there is no way to say them
+   * truthfully any more).
    */
-  notice?: "pending" | "shown";
+  notice?: "pending" | "shown" | "superseded";
 };
 export type RefusalAudit = ConflictAudit & { id: number };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
@@ -984,6 +986,33 @@ export async function pendingRefusals(userId: string, sessionId: string): Promis
     (row): row is RefusalAudit =>
       row.id !== undefined && row.session_id === sessionId && row.notice === "pending",
   );
+}
+
+/**
+ * BUG-10: a refusal is a statement about an earlier attempt. Once the server APPLIED a write of the
+ * same fact (the same set, or the finish of the same session), "not saved" is false: its unsaid
+ * refusals are superseded and never said. Runs inside the coordinator's commit transaction, after
+ * that response's refusals were recorded (a refusal and a write of the same fact can share a batch).
+ * Called only with fact writes (sets, finishes), and returns Dexie's own promise: an await inside
+ * the commit that does no IndexedDB work spends its zone echoes (Dexie 4). An early-returning async
+ * version of this, awaited on every response, made the commit lose its zone in
+ * rest-timer-sync-remap's mapping-hold case (PrematureCommitError, 10 of 10 runs).
+ */
+export function supersedeRefusalsInTransaction(userId: string, applied: readonly OutboxMutation[]) {
+  const ids = (row: Partial<OutboxMutation>) => [row.entity_id, row.canonical_entity_id];
+  return sessionDb.conflicts
+    .where("user_id")
+    .equals(userId)
+    .filter((audit) => {
+      if (audit.notice !== "pending") return false;
+      const refused = audit.payload as Partial<OutboxMutation>;
+      return applied.some(
+        (write) =>
+          write.entity === refused.entity &&
+          ids(refused).some((id) => id !== undefined && ids(write).includes(id)),
+      );
+    })
+    .modify({ notice: "superseded" });
 }
 
 /** BUG-10: the acknowledgement — said once, never again. */

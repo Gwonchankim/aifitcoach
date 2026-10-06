@@ -13,6 +13,7 @@ import {
   remediationStateOf,
   safeMappings,
   sessionDb,
+  supersedeRefusalsInTransaction,
   undoOptimisticCompletionInTransaction,
   type OutboxMutation,
 } from "./session-db";
@@ -248,9 +249,16 @@ export class SyncCoordinator {
         await acknowledgeAppendsInTransaction(this.userId, response);
         /** server 가 적용한 세션 종료. 여기가 governing §F 의 "server 성공 + outbox drain" 지점이다. */
         const completedSessions = new Set<string>();
+        /** BUG-10: fact writes the server applied — they supersede unsaid refusals of the same fact. */
+        const appliedFacts: OutboxMutation[] = [];
         for (const clientId of [...applied, ...conflicts.keys()]) {
           const row = await sessionDb.outbox.get(clientId);
           if (!row || row.user_id !== this.userId) continue;
+          if (
+            !conflicts.has(clientId) &&
+            (row.entity === "performed_set" || row.entity === "session")
+          )
+            appliedFacts.push(row);
           if (row.entity === "session_set") touched.add(row.entity_id);
           if (row.append_dependencies) touched.add(row.append_dependencies.session_id);
           if (conflicts.has(clientId)) {
@@ -292,6 +300,7 @@ export class SyncCoordinator {
             await clearAppendAuditInTransaction(this.userId, clientId);
           await sessionDb.outbox.delete(clientId);
         }
+        if (appliedFacts.length) await supersedeRefusalsInTransaction(this.userId, appliedFacts);
         await reconcileBlockedAppendsInTransaction(this.userId);
         await this.cleanupCompletedRemediation(completedSessions);
 
