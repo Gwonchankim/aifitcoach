@@ -473,6 +473,7 @@ export class SyncService {
         painScore: encryptNumber(payload.pain_score ?? null),
         completed: payload.completed ?? false,
       },
+      // BUG-10 M: performedAt is the first save (create above). A correction moves only updatedAt.
       update: {
         actualWeight: payload.actual_weight ?? null,
         actualReps: payload.actual_reps ?? null,
@@ -480,7 +481,6 @@ export class SyncService {
         actualTimeSec: payload.actual_time_sec ?? null,
         painScore: encryptNumber(payload.pain_score ?? null),
         completed: payload.completed ?? false,
-        performedAt: new Date(mutation.updated_at),
         updatedAt: new Date(mutation.updated_at),
       },
     });
