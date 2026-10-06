@@ -12,6 +12,7 @@ import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
+import { onSessionDay } from "./support/utc-today";
 
 const USER_ID = devUserId();
 /** 맨몸·시간 진행축을 격리하기 위해 세 대표 종목만 허용하는 제어 fixture. */
@@ -101,10 +102,9 @@ describe("맨몸·시간 종목 E2E", () => {
   }
 
   async function complete(sessionId: string) {
-    const response = await request(app.getHttpServer())
-      .post(`/v1/sessions/${sessionId}/complete`)
-      .send({})
-      .expect(200);
+    const response = await onSessionDay(prisma, sessionId, () =>
+      request(app.getHttpServer()).post(`/v1/sessions/${sessionId}/complete`).send({}).expect(200),
+    );
     expectMatchesContract("post", COMPLETE_PATH, 200, response.body);
     return response.body as {
       next_recommendations: {
