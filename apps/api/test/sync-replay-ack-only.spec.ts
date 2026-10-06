@@ -615,4 +615,54 @@ describe("BUG-10 I — an exact sync replay is an ACK with no side effects", () 
       expect(await targetOf(next.id)).toEqual([62.5, 6]);
     });
   });
+
+  /**
+   * V2 — another client pulls the owner's changes page by page (100 rows a page). A replay after a
+   * lost response adds no receipt, so the original change is pulled exactly once, the pages stay
+   * contiguous past the 100-row boundary, and the pulled rows converge on the authoritative facts.
+   */
+  it("V2: a replay adds no change row; a paged pull past 100 rows sees the original once and converges", async () => {
+    const p = await program();
+    const today = await session(p.id, utcToday(), "scheduled");
+    const [first, second] = today.planned;
+    const original = perf(first.id, at(utcToday()), 60, 8);
+    expect((await sync([original])).applied).toEqual([original.client_id]);
+    // 120 later real edits of another set (one applied receipt each) push it past one page.
+    const edits = Array.from({ length: 120 }, (_, i) =>
+      perf(second.id, at(utcToday()), 60, 6 + (i % 6)),
+    );
+    for (let from = 0; from < edits.length; from += 40)
+      expect((await sync(edits.slice(from, from + 40))).applied).toHaveLength(40);
+    const before = await prisma.syncMutation.count({ where: { userId: USER } });
+
+    const replay = await sync([original]); // the lost response is retransmitted
+    expect(replay.applied).toEqual([original.client_id]);
+    expect(replay.conflicts).toEqual([]);
+    expect(await prisma.syncMutation.count({ where: { userId: USER } })).toBe(before);
+
+    // Another client pulls from the beginning.
+    const pulled: Wire["changes"] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const result = await sync([], cursor);
+      pulled.push(...result.changes);
+      if (result.changes.length < 100) break;
+      cursor = result.next_cursor;
+    }
+    expect(pulled).toHaveLength(121);
+    const seqs = pulled.map((change) => BigInt(change.server_seq));
+    expect(seqs.every((seq, i) => i === 0 || seq > seqs[i - 1])).toBe(true);
+    const originals = pulled.filter((change) => change.entity_id === first.id);
+    expect(originals).toHaveLength(1);
+    expect(originals[0].data).toMatchObject({ actual_weight: 60, actual_reps: 8 });
+    // The last pulled change of each set is what the server holds.
+    const facts = await prisma.performedSet.findMany({
+      where: { plannedSetId: { in: [first.id, second.id] } },
+    });
+    for (const fact of facts) {
+      const last = pulled.filter((change) => change.entity_id === fact.plannedSetId).at(-1)!;
+      expect(last.data).toMatchObject({ actual_reps: fact.actualReps });
+    }
+    expect(facts.find((fact) => fact.plannedSetId === second.id)?.actualReps).toBe(6 + (119 % 6));
+  }, 60_000); // 121 real mutations
 });
