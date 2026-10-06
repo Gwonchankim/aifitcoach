@@ -281,9 +281,11 @@ describe("STEP 6 sync 계약 잠금", () => {
   });
 
   it("서로 다른 entity가 동일 client_id로 동시에 오면 한 mutation만 적용되고 500이 아니다", async () => {
-    // BUG-10 Q1 C4: both sets come from one session so one date aligns both (two entities still).
+    // BUG-10 Q1 C4: two different entities from one session (one date aligns both), both reps
+    // exercises so the reps payload below is valid for either: the outcome is decided by the
+    // client_id race / the intended validation, never by a random time-metric pick.
     const planned = await prisma.plannedSet.findMany({
-      where: { sessionId: (await firstPlannedSet()).sessionId },
+      where: { sessionId: (await firstPlannedSet()).sessionId, exercise: { metric: "reps" } },
       orderBy: { id: "asc" },
       take: 2,
     });
@@ -318,16 +320,23 @@ describe("STEP 6 sync 계약 잠금", () => {
       );
       expect(reasons).toContain("client_id_mismatch");
       expect(reasons).not.toContain("conflict");
-      applied += responses.flatMap((response) => response.body.applied).length;
+      const appliedNow = responses.flatMap((response) => response.body.applied).length;
+      if (attempt === 0) expect(appliedNow).toBe(1); // structural on the first attempt (see below)
+      applied += appliedNow;
     }
-    // ...and the race really applies facts (at least the first attempt's winner).
+    // ...and the race really applies facts. Structural, not observed: on attempt 0 neither set has
+    // an applied receipt (a fresh program per test), the date is aligned and the reps payload is
+    // valid, so whichever request wins the client_id lock is applied. Later attempts may lose an
+    // LWW tie on the same updated_at (stale_update), which is why this is counted over all eight.
     expect(applied).toBeGreaterThan(0);
   });
 
   it("한 mutation의 도메인 검증 실패는 별도 conflict로 남고 무관한 mutation은 적용된다", async () => {
-    // BUG-10 Q1 C4: both sets come from one session so one date aligns both (two entities still).
+    // BUG-10 Q1 C4: two different entities from one session (one date aligns both), both reps
+    // exercises so the reps payload below is valid for either: the outcome is decided by the
+    // client_id race / the intended validation, never by a random time-metric pick.
     const planned = await prisma.plannedSet.findMany({
-      where: { sessionId: (await firstPlannedSet()).sessionId },
+      where: { sessionId: (await firstPlannedSet()).sessionId, exercise: { metric: "reps" } },
       orderBy: { id: "asc" },
       take: 2,
     });
