@@ -392,3 +392,101 @@ test("P1: a set logged offline that reaches the server after the window closed i
     contentType: "image/png",
   });
 });
+
+/** 오프라인으로 첫 세트를 기록해 둔다(서버는 아직 아무것도 모른다). */
+async function logOffline(page: Page, context: BrowserContext, request: APIRequestContext) {
+  await moveTo(request, context, `${D0}T23:30:00.000Z`);
+  await seedExternalLoadProgram(request, { days_per_week: 5 });
+  const sessionId = await todaySession(request);
+  const sync = recordSync(page);
+  await openSession(page, sessionId);
+  const name = await weightedExercise(page);
+  const first = await plannedSetId(page, name, 1);
+  await context.setOffline(true);
+  await completeWeightedSet(page, name, 1, 50, 8);
+  return { sessionId, sync, name, first };
+}
+
+test("C4 on the real API: an offline set and finish refused two days later — the summary is withdrawn and both are named", async ({
+  page,
+  context,
+  request,
+}) => {
+  const { sessionId, sync, name } = await logOffline(page, context, request);
+  await finish(page); // 오프라인: 요약이 종료를 주장한다
+  await moveTo(request, context, `${D2}T00:10:00.000Z`);
+  await context.setOffline(false);
+  await expect(screenAlert(page)).toHaveText(
+    `${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요. 운동 종료도 저장되지 않았어요.`,
+  );
+  await expect(page.getByRole("heading", { name: "수고했어요" })).toHaveCount(0);
+  // 서버의 실제 taxonomy 그대로다 — 세트는 conflict, 그 세트에 걸린 종료는 dependent_conflict.
+  await expect
+    .poll(() =>
+      sync
+        .flatMap((exchange) => exchange.conflicts)
+        .map((conflict) => conflict.reason)
+        .sort(),
+    )
+    .toEqual(["conflict", "dependent_conflict"]);
+  expect((await serverSession(request, sessionId)).status).toBe("scheduled");
+});
+
+test("P1: the browser's clock lags the server — what was not saved is said, without a date reason (evaluator 367b598c)", async ({
+  page,
+  context,
+  request,
+}) => {
+  const { sessionId, name, first } = await logOffline(page, context, request);
+  await setServerToday(request, D2); // 브라우저는 일부러 D0 에 남는다
+  await context.setOffline(false);
+  await expect(screenAlert(page)).toHaveText(`${name} 1세트 기록은 저장되지 않았어요.`);
+  expect(await serverSet(request, sessionId, first)).toBeNull();
+});
+
+/*
+ * @chromium-only: on WebKit, after offline emulation, page.route did not intercept requests and new
+ * navigations failed in the service worker (`FetchEvent.respondWith … no-response`) — an observed
+ * Playwright WebKit environment limit (evidence bug10-generator/exp-p1-mount-04f6321.txt), not a
+ * product finding. These two paths are pinned on Chromium.
+ */
+test("@chromium-only P1: session reads fail after the refusal — it is still said (evaluator 367b598c)", async ({
+  page,
+  context,
+  request,
+}) => {
+  const { sessionId, name } = await logOffline(page, context, request);
+  await moveTo(request, context, `${D2}T00:10:00.000Z`);
+  await page.route(`${API_V1}/sessions/${sessionId}`, (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
+  );
+  await context.setOffline(false);
+  await expect(screenAlert(page)).toHaveText(
+    `${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요.`,
+  );
+});
+
+test("@chromium-only re-entry: refused while on the dashboard, said once when the session is opened", async ({
+  page,
+  context,
+  request,
+}) => {
+  const { sessionId, name } = await logOffline(page, context, request);
+  await page.close(); // 오프라인으로 앱을 닫는다 — outbox 는 IndexedDB 에 남는다
+  await moveTo(request, context, `${D2}T00:10:00.000Z`);
+  await context.setOffline(false);
+  const home = await context.newPage();
+  const sync = recordSync(home);
+  await home.goto("/");
+  await expect
+    .poll(() => sync.flatMap((exchange) => exchange.conflicts).length, { timeout: 40_000 })
+    .toBeGreaterThan(0);
+  await expect(screenAlert(home)).toHaveCount(0); // 대시보드에는 그 세션의 카드가 없다
+  await home.goto(`/session/${sessionId}`);
+  await expect(screenAlert(home)).toHaveText(
+    `${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요.`,
+  );
+  await home.reload(); // 확인 표시: 한 번 말한 것은 다시 말하지 않는다
+  await expect(home.getByText(COPY.expired).first()).toBeVisible();
+  await expect(screenAlert(home)).toHaveCount(0);
+});
