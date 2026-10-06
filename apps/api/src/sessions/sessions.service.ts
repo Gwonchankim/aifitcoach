@@ -215,8 +215,9 @@ export class SessionsService {
     return this.toResponse(userId, { id: sessionId });
   }
 
-  async appendSet(userId: string, sessionId: string, dto: AppendSetDto) {
-    const result = await this.appendSets.apply(userId, sessionId, dto);
+  /** `today` = 요청 진입에서 첫 미들웨어가 잡은 날(ADR-86, common/date/request-today). */
+  async appendSet(userId: string, sessionId: string, dto: AppendSetDto, today: Date) {
+    const result = await this.appendSets.apply(userId, sessionId, dto, undefined, today);
     if (result.status !== "applied") {
       if (result.reason === "validation_failed")
         throw new BadRequestException("원본 처방 형식이 잘못되었습니다.");
@@ -263,9 +264,11 @@ export class SessionsService {
     userId: string,
     sessionId: string,
     dto: CompleteSessionDto,
+    requestToday: Date,
   ): Promise<CompleteSessionResponse> {
-    // ADR-86: 요청 진입에서 한 번 잡은 오늘 — 잠금을 기다리는 동안 자정이 지나도 판정은 도착한 날의 것이다.
-    const today = isoDate(utcToday());
+    // ADR-86: 요청 진입에서 첫 미들웨어가 한 번 잡은 오늘(인증 대기보다 먼저) — 인증·잠금을 기다리는
+    // 동안 자정이 지나도 판정은 도착한 날의 것이다. 여기서 시계를 다시 읽지 않는다.
+    const today = isoDate(requestToday);
     const outcome = await sessionWriteTransaction(
       this.prisma,
       userId,
@@ -709,8 +712,8 @@ export class SessionsService {
     userId: string,
     sessionId: string,
     dto: AddExerciseDto,
+    today: Date, // ADR-86: 요청 진입에서 첫 미들웨어가 잡은 날(common/date/request-today)
   ): Promise<SessionResponse> {
-    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, dto.exercise_id, async (tx, session) => {
       assertEditable(session, today);
       const exercise = await tx.exercise.findUnique({ where: { id: dto.exercise_id } });
@@ -749,8 +752,8 @@ export class SessionsService {
     userId: string,
     sessionId: string,
     exerciseId: string,
+    today: Date, // ADR-86: 요청 진입에서 첫 미들웨어가 잡은 날(common/date/request-today)
   ): Promise<SessionResponse> {
-    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, exerciseId, async (tx, session) => {
       assertEditable(session, today);
       const ids = await this.removableSetIds(session.plannedSets, exerciseId, tx);
@@ -774,8 +777,8 @@ export class SessionsService {
     sessionId: string,
     exerciseId: string,
     dto: SwapExerciseDto,
+    today: Date, // ADR-86: 요청 진입에서 첫 미들웨어가 잡은 날(common/date/request-today)
   ): Promise<SessionResponse> {
-    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, dto.to_exercise_id, async (tx, session) => {
       assertEditable(session, today);
       const target = await tx.exercise.findUnique({ where: { id: dto.to_exercise_id } });

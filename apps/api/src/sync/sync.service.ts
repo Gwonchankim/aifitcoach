@@ -19,7 +19,7 @@ import {
   toRawTargetRow,
 } from "../programs/assistance-migration";
 import { encryptNumber } from "../common/crypto/field-encryption";
-import { isoDate, isUtcToday, utcToday } from "../common/date/utc-day";
+import { isoDate, isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
 import { isResistanceExercise } from "../exercises/exercise-domain";
@@ -82,10 +82,12 @@ export class SyncService {
     private readonly dependencies: SessionDependencyService,
   ) {}
 
-  async sync(userId: string, dto: SyncRequestDto) {
-    // ADR-86 "서버 수신 시점": 이 요청의 오늘은 진입에서 한 번만 잡는다. 아래의 모든 날짜 판정(기록 창·
-    // 루틴·세트 추가)이 이 값을 쓴다 — 잠금을 기다리는 동안 자정이 지나도 판정은 도착한 날의 것이다.
-    const today = utcToday();
+  /**
+   * ADR-86 "서버 수신 시점": `today` 는 이 요청이 도착했을 때 첫 미들웨어가 잡은 날이다(인증 대기보다
+   * 먼저, common/date/request-today). 아래의 모든 날짜 판정(기록 창·루틴·세트 추가)이 이 값을 쓴다 —
+   * 인증·잠금을 기다리는 동안 자정이 지나도 판정은 도착한 날의 것이다. 여기서 시계를 다시 읽지 않는다.
+   */
+  async sync(userId: string, dto: SyncRequestDto, today: Date) {
     const applied = new Set<string>();
     const conflicts: Conflict[] = [];
     // Sessions whose facts changed in this request. An exact replay (`replayed`) is acknowledged

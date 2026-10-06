@@ -3,6 +3,7 @@ import { authenticationMode } from "./auth/auth-mode";
 import { AuthService } from "./auth/auth.service";
 import { assertDevUserAuthAllowed, devUserMiddleware } from "./auth/dev-user";
 import { sessionAuthMiddleware } from "./auth/session-auth.middleware";
+import { captureRequestToday } from "./common/date/request-today";
 import { TEST_TODAY_ENV, isoDate, testTodayOverride } from "./common/date/utc-day";
 import { corsOptions } from "./common/http/cors";
 
@@ -30,6 +31,8 @@ function warnOnTestOverrides(): void {
 
 export function configureApp(app: INestApplication): INestApplication {
   warnOnTestOverrides();
+  // BUG-10 (ADR-86): the request's day is captured FIRST — before authentication can wait on the DB.
+  app.use(captureRequestToday);
   app.enableCors(corsOptions());
   app.setGlobalPrefix(API_PREFIX);
   if (authenticationMode() === "dev-user") {

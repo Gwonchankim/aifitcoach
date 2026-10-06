@@ -979,7 +979,7 @@ describe("session set dependencies / original intent / canonical ledger / deleti
       // Service owner-filter evidence, not an alternate authentication claim.
       const otherOwner = await app
         .get(SyncService)
-        .sync(randomUUID(), { since: previous.next_cursor, mutations: [] });
+        .sync(randomUUID(), { since: previous.next_cursor, mutations: [] }, utcToday());
       expect(otherOwner.changes).toEqual([]);
       expect(await facts(f.session.id)).toEqual([]);
     },

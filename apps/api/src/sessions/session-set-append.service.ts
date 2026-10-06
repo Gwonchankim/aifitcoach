@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { isUtcToday, utcToday } from "../common/date/utc-day";
+import { isUtcToday } from "../common/date/utc-day";
 import {
   SESSION_APPEND_REASONS,
   type SessionAppendReason,
@@ -48,13 +48,16 @@ export type AppendApplyOutcome = { result: AppendApplyResult; replayed: boolean 
 export class SessionSetAppendService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The direct (REST) entry: this request's today is captured here, before any lock (ADR-86). */
+  /**
+   * The direct (REST) entry. `today` is the request's day, captured once by the first middleware
+   * before authentication (ADR-86, common/date/request-today) — this service never reads the clock.
+   */
   async apply(
     userId: string,
     sessionId: string,
     request: AppendSetDto,
-    transportUpdatedAt?: string,
-    today: Date = utcToday(),
+    transportUpdatedAt: string | undefined,
+    today: Date,
   ): Promise<AppendApplyResult> {
     return (await this.applyWithReplay(userId, sessionId, request, transportUpdatedAt, today))
       .result;
