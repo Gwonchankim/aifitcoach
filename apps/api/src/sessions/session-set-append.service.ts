@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { isUtcToday } from "../common/date/utc-day";
+import { isUtcToday, utcToday } from "../common/date/utc-day";
 import {
   SESSION_APPEND_REASONS,
   type SessionAppendReason,
@@ -48,21 +48,28 @@ export type AppendApplyOutcome = { result: AppendApplyResult; replayed: boolean 
 export class SessionSetAppendService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** The direct (REST) entry: this request's today is captured here, before any lock (ADR-86). */
   async apply(
     userId: string,
     sessionId: string,
     request: AppendSetDto,
     transportUpdatedAt?: string,
+    today: Date = utcToday(),
   ): Promise<AppendApplyResult> {
-    return (await this.applyWithReplay(userId, sessionId, request, transportUpdatedAt)).result;
+    return (await this.applyWithReplay(userId, sessionId, request, transportUpdatedAt, today))
+      .result;
   }
 
-  /** `apply`, plus whether an already-applied receipt was only acknowledged again (no write). */
+  /**
+   * `apply`, plus whether an already-applied receipt was only acknowledged again (no write).
+   * `today` is the caller's request day (a sync batch passes the one it captured at its entry).
+   */
   async applyWithReplay(
     userId: string,
     sessionId: string,
     request: AppendSetDto,
-    transportUpdatedAt?: string,
+    transportUpdatedAt: string | undefined,
+    today: Date,
   ): Promise<AppendApplyOutcome> {
     let replayed = false;
     const clientId = request.client_id.toLowerCase();
@@ -187,7 +194,7 @@ export class SessionSetAppendService {
           return { status, reason };
         };
         if (targetClaim || liveCollision) return reject("correlation_mismatch", false);
-        if (!isUtcToday(session.scheduledDate)) return reject("readonly");
+        if (!isUtcToday(session.scheduledDate, today)) return reject("readonly");
 
         let sourceId: string;
         let expectedRevision: string;

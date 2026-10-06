@@ -41,7 +41,11 @@ export function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** scheduled_date(@db.Date, UTC 자정)가 오늘인지. */
-export function isUtcToday(date: Date): boolean {
-  return isoDate(date) === isoDate(utcToday());
+/**
+ * scheduled_date(@db.Date, UTC 자정)가 `today` 인지.
+ * `today` 는 요청 진입에서 **한 번** 잡은 값이다(ADR-86 "서버 수신 시점"). 잠금을 기다린 뒤 시계를 다시
+ * 읽으면 같은 요청의 판정이 그때 서버가 얼마나 바빴는지에 따라 달라진다 — 그래서 인자로만 받는다.
+ */
+export function isUtcToday(date: Date, today: Date): boolean {
+  return isoDate(date) === isoDate(today);
 }

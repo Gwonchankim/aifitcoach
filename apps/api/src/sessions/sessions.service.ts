@@ -264,6 +264,8 @@ export class SessionsService {
     sessionId: string,
     dto: CompleteSessionDto,
   ): Promise<CompleteSessionResponse> {
+    // ADR-86: 요청 진입에서 한 번 잡은 오늘 — 잠금을 기다리는 동안 자정이 지나도 판정은 도착한 날의 것이다.
+    const today = isoDate(utcToday());
     const outcome = await sessionWriteTransaction(
       this.prisma,
       userId,
@@ -271,7 +273,6 @@ export class SessionsService {
       [{ entity: "session", entityId: sessionId }],
       async (tx, current) => {
         const scheduled = isoDate(current.scheduledDate);
-        const today = isoDate(utcToday());
         if (current.status === "completed") {
           if (classifySessionFactWriteDate(scheduled, today) !== "today")
             return { session: current, wrote: false };
@@ -709,8 +710,9 @@ export class SessionsService {
     sessionId: string,
     dto: AddExerciseDto,
   ): Promise<SessionResponse> {
+    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, dto.exercise_id, async (tx, session) => {
-      assertEditable(session);
+      assertEditable(session, today);
       const exercise = await tx.exercise.findUnique({ where: { id: dto.exercise_id } });
       if (!exercise) {
         // 카탈로그에 없는 exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
@@ -748,8 +750,9 @@ export class SessionsService {
     sessionId: string,
     exerciseId: string,
   ): Promise<SessionResponse> {
+    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, exerciseId, async (tx, session) => {
-      assertEditable(session);
+      assertEditable(session, today);
       const ids = await this.removableSetIds(session.plannedSets, exerciseId, tx);
       // audit 는 planned row 에 매달린 기술 기록이고 FK 가 RESTRICT 다 — 같은 트랜잭션에서
       // 먼저 지우지 않으면 정상 편집이 FK 위반으로 실패한다(F-3 fixup).
@@ -772,8 +775,9 @@ export class SessionsService {
     exerciseId: string,
     dto: SwapExerciseDto,
   ): Promise<SessionResponse> {
+    const today = utcToday(); // ADR-86: 요청 진입에서 한 번
     await this.editTransaction(userId, sessionId, dto.to_exercise_id, async (tx, session) => {
-      assertEditable(session);
+      assertEditable(session, today);
       const target = await tx.exercise.findUnique({ where: { id: dto.to_exercise_id } });
       if (!target) {
         // 카탈로그에 없는 to_exercise_id 는 "없는 리소스"가 아니라 잘못된 입력이다(제품 오너 확정).
@@ -1019,10 +1023,10 @@ export class SessionsService {
  * 편집 가능 여부는 **날짜** 기준이다(FEATURES_UX F6-1).
  * 당일 세션은 종료 후에도 고칠 수 있다 — 끝내고 더 하거나 잘못 입력한 값을 고치는 일이 흔하다.
  * 다른 날짜의 종료된 세션은 읽기 전용이다: 이미 나간 추천의 근거(과거 계획세트)를 소급해 바꾸지 않는다 → 409.
- * "오늘"의 기준은 대시보드와 같은 UTC 다(common/date/utc-day).
+ * "오늘"의 기준은 대시보드와 같은 UTC 다(common/date/utc-day). 요청 진입에서 한 번 잡은 값이다(ADR-86).
  */
-function assertEditable(session: { status: string; scheduledDate: Date }): void {
-  if (session.status === "completed" && !isUtcToday(session.scheduledDate)) {
+function assertEditable(session: { status: string; scheduledDate: Date }, today: Date): void {
+  if (session.status === "completed" && !isUtcToday(session.scheduledDate, today)) {
     throw new ConflictException("다른 날짜의 종료된 세션은 바꿀 수 없다.");
   }
 }
