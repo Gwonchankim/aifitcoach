@@ -1134,8 +1134,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     onError: async (error) => {
       // BUG-10 C1: a finish the server refused is said by the one judge (below), from what the
       // coordinator recorded — this path adds no sentence of its own. Other failures keep theirs.
+      // An unreadable record counts as not recorded: the existing message, never silence (and a
+      // throw here would surface as an unhandled rejection — TanStack re-raises onError failures).
       const refused = (error as { refusedClientId?: string }).refusedClientId;
-      if (refused && (await refusalRecorded(DEV_USER_SCOPE, refused))) {
+      if (refused && (await refusalRecorded(DEV_USER_SCOPE, refused).catch(() => false))) {
         setFinishError(null);
         return;
       }
