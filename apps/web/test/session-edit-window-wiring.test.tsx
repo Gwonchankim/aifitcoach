@@ -189,6 +189,30 @@ it("a future scheduled session waits for its day; routine stays open and the pai
   expect(await sessionDb.outbox.count()).toBe(0);
 });
 
+it("today with a logged set (C-43/C-44): swap/remove are locked by the record, pain stays active and opens its sheet", async () => {
+  await useSessionLog.getState().begin("A");
+  await useSessionLog
+    .getState()
+    .completeSet("set-1", { weight: 60, reps: 9, rir: 2, timeSec: null });
+  const queued = await sessionDb.outbox.count();
+  mocks.session.mockResolvedValue(session("2026-08-14", "in_progress"));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "벤치프레스 메뉴" }));
+  const swap = await screen.findByRole("menuitem", { name: "벤치프레스 교체" });
+  const remove = screen.getByRole("menuitem", { name: "벤치프레스 삭제" });
+  const pain = screen.getByRole("menuitem", { name: "벤치프레스 통증 기록" });
+  expect(swap.getAttribute("aria-disabled")).toBe("true");
+  expect(remove.getAttribute("aria-disabled")).toBe("true");
+  expect(pain.hasAttribute("aria-disabled")).toBe(false);
+  fireEvent.click(remove);
+  expect(await sessionDb.outbox.count()).toBe(queued); // C-44: a locked item sends nothing…
+  expect(screen.getByRole("menu")).toBeTruthy(); // …and the menu stays open
+  fireEvent.click(pain);
+  // Facts are open today, so the pain item does open its sheet (not the date notice).
+  expect(await screen.findByRole("dialog")).toBeTruthy();
+  expectOnlyNotice(null);
+});
+
 it("today: logging and finishing as before, with no date notice", async () => {
   mocks.session.mockResolvedValue(session("2026-08-14", "scheduled"));
   mount();
