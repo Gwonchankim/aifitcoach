@@ -6,7 +6,12 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { Exercise, PlannedSet } from "@prisma/client";
-import { applyDisplayGate, displayGateState } from "shared";
+import {
+  applyDisplayGate,
+  classifySessionFactWriteDate,
+  displayGateState,
+  isSessionFactWriteAllowed,
+} from "shared";
 import type {
   AssistanceProvenance,
   DisplayGateState,
@@ -16,7 +21,7 @@ import type {
   RecommendedAction,
 } from "shared";
 import { encryptNumber } from "../common/crypto/field-encryption";
-import { isUtcToday, utcToday } from "../common/date/utc-day";
+import { isoDate, isUtcToday, utcToday } from "../common/date/utc-day";
 import { PrismaService } from "../prisma/prisma.service";
 import { isResistanceExercise } from "../exercises/exercise-domain";
 import { AggregationProjector } from "../analytics/aggregation.projector";
@@ -247,18 +252,34 @@ export class SessionsService {
    * 재완료는 **멱등**이다(409 로 막지 않는다): STEP 6 오프라인 아웃박스가 같은 요청을 재전송하는데
    * 그때 피드백을 통째로 갈아끼우면 이미 저장된 pain(암호문)이 사라진다. 추천 재계산 입력(수행기록)이
    * 같으므로 결과도 같다.
+   *
+   * BUG-10 R: 날짜 판정은 sync 와 같은 shared 분류(UTC 오늘+직전 하루)를 잠금 뒤 다시 읽은 세션에 쓴다.
+   * - 미완료(scheduled·in_progress) + 창 밖(older·future) → 새 완료 거부(409, D-43). 쓰기 0.
+   * - 완료 + 오늘이 아님(previous·older·future) → 무쓰기 no-op 200. receipt 가 없는 REST 재요청은
+   *   여기서 원 요청과 구별할 수 없으므로 상태·피드백·재계산·projector 를 하나도 건드리지 않는다.
+   * - 오늘 완료 재요청과 창 안의 최초 완료는 기존 경로 그대로다.
    */
   async complete(
     userId: string,
     sessionId: string,
     dto: CompleteSessionDto,
   ): Promise<CompleteSessionResponse> {
-    const session = await sessionWriteTransaction(
+    const outcome = await sessionWriteTransaction(
       this.prisma,
       userId,
       sessionId,
       [{ entity: "session", entityId: sessionId }],
       async (tx, current) => {
+        const scheduled = isoDate(current.scheduledDate);
+        const today = isoDate(utcToday());
+        if (current.status === "completed") {
+          if (classifySessionFactWriteDate(scheduled, today) !== "today")
+            return { session: current, wrote: false };
+        } else if (!isSessionFactWriteAllowed(scheduled, today)) {
+          throw new ConflictException(
+            "기록할 수 있는 날짜(UTC 오늘·직전 하루) 밖의 세션은 완료할 수 없다.",
+          );
+        }
         await tx.workoutSession.update({
           where: { id: current.id },
           data: {
@@ -268,9 +289,18 @@ export class SessionsService {
             sessionFeedback: mergeFeedback(current.sessionFeedback, dto),
           },
         });
-        return current;
+        return { session: current, wrote: true };
       },
     );
+    if (!outcome.wrote)
+      return {
+        session: await this.toResponse(userId, { id: sessionId }),
+        next_recommendations: await this.gateRecommendations(
+          userId,
+          await this.storedNextRecommendations(outcome.session),
+        ),
+      };
+    const session = outcome.session;
 
     const next_recommendations = await this.recompute(userId, session);
     await this.projector.recomputeSession(userId, session.id);
@@ -278,6 +308,51 @@ export class SessionsService {
       session: await this.toResponse(userId, await this.load(userId, sessionId)),
       next_recommendations: await this.gateRecommendations(userId, next_recommendations),
     };
+  }
+
+  /**
+   * BUG-10 R2: 무쓰기 재요청 응답의 처방 — 재계산하지 않고 **현재 저장된** 다음 target 행만 읽는다.
+   * target 기준은 recompute 와 같다(수행한 종목이 든, 원천 날짜 이후의 첫 미완료 세션). 읽기만 하며
+   * materialize·recompute·projector 를 부르지 않는다. 저장 target 이 없는 종목(최종 주·대체된
+   * 프로그램·미생성 주)은 넣지 않으므로 목록이 비어도 "처방이 없다"는 뜻이 아니다(openapi 200 설명).
+   */
+  private async storedNextRecommendations(session: LockedSession): Promise<ApiRecommendation[]> {
+    const exerciseIds = [
+      ...new Set(
+        session.plannedSets
+          .filter((set) => set.performedSets.some((fact) => fact.completed))
+          .map((set) => set.exerciseId),
+      ),
+    ];
+    if (exerciseIds.length === 0) return [];
+    const candidates = await this.prisma.workoutSession.findMany({
+      where: {
+        programId: session.programId,
+        id: { not: session.id },
+        status: { not: "completed" },
+        scheduledDate: { gte: session.scheduledDate },
+        plannedSets: { some: { exerciseId: { in: exerciseIds } } },
+      },
+      orderBy: { scheduledDate: "asc" },
+      include: {
+        plannedSets: {
+          where: { exerciseId: { in: exerciseIds } },
+          orderBy: { setNo: "asc" },
+          include: { exercise: true },
+        },
+      },
+    });
+    return exerciseIds.flatMap((exerciseId) => {
+      const target = candidates.find((candidate) =>
+        candidate.plannedSets.some((set) => set.exerciseId === exerciseId),
+      );
+      const rows = (target?.plannedSets ?? []).filter(
+        (set) => set.exerciseId === exerciseId && resistanceReadMatchesCatalog(set, set.exercise),
+      );
+      return rows.length === 0
+        ? []
+        : [this.recommendation.plannedToApi(exerciseId, rows.length, rows[0])];
+    });
   }
 
   /**
