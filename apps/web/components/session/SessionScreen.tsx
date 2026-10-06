@@ -745,7 +745,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * 409 는 세 원인(다른 날짜의 종료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
    * 서버 한국어 메시지를 매칭하면 문구가 바뀔 때 깨지므로, **세션 상태를 다시 받아** 판정한다.
    * 다시 받은 세션의 루틴 편집이 닫혀 있으면 그 날짜 분류의 승인 문구를 고른다(BUG-10 D):
-   * 직전 하루 = 루틴만 닫힘, 그보다 오래됨 = 기간 경과. 문구가 없는 경우(미래 종료)는 일반 409 문구다.
+   * 직전 하루 = 루틴만 닫힘, 그보다 오래됨 = 기간 경과. 문구가 없는 비정상 상태(미래 종료)는
+   * **일반 409 문구**다 — 동작별 409 문구("이미 루틴에 있어요"·"기록이 남은 운동")는 다른 원인을
+   * 단정하므로 여기로 떨어지지 않게 한다.
    */
   const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
     if (shouldRefetch(error)) {
@@ -753,8 +755,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         api.session(sessionId),
       );
       const latestRights = latest ? sessionEditRights(latest, completedCount > 0) : null;
-      if (isConflict(error) && latestRights && !latestRights.routine && latestRights.notice) {
-        setEditError(latestRights.notice);
+      if (isConflict(error) && latestRights && !latestRights.routine) {
+        setEditError(latestRights.notice ?? errorMessage(error, "session"));
         return;
       }
     }

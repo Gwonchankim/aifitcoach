@@ -26,6 +26,27 @@ vi.mock("../components/session/exercise-catalog", async () => {
     ...actual,
     fetchAllExercises: async () => [
       { id: "bench", name_ko: "벤치프레스", metric: "reps", step_kg: 2.5, primary_muscles: [] },
+      {
+        id: "e_chest_press_machine",
+        name_ko: "체스트 프레스 머신",
+        name_en: "Chest Press Machine",
+        primary_muscles: ["chest"],
+        modality: "resistance",
+        cardio_movement_regions: [],
+        prescription_kinds_supported: [],
+        blocked_reported_pain_areas: [],
+        movement_pattern: "horizontal_push",
+        equipment: "machine",
+        difficulty: "beginner",
+        mechanic: "compound",
+        region: "upper",
+        metric: "reps",
+        step_kg: 2.5,
+        default_time_low_sec: null,
+        default_time_high_sec: null,
+        substitutions: [],
+        media_url: null,
+      },
     ],
   };
 });
@@ -220,6 +241,44 @@ it("today: logging and finishing as before, with no date notice", async () => {
   expectOnlyNotice(null);
   expect(screen.getByRole("button", { name: "운동 종료" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "운동 추가" })).toBeTruthy();
+});
+
+/**
+ * A routine edit the screen believed open is refused (409) because the session turned out to be
+ * finished on another day. The copy comes from the refetched session's date class; a finished
+ * future session (abnormal, no approved copy) gets the generic 409 copy — never an action copy
+ * that asserts a different cause ("이미 오늘 루틴에 있는 운동이에요.").
+ */
+it.each([
+  ["2026-08-13", EDIT_WINDOW_COPY.previousCompleted],
+  ["2026-08-12", EDIT_WINDOW_COPY.expired],
+  ["2026-08-15", "다른 곳에서 먼저 바뀐 것 같아요. 최신 상태로 다시 불러올게요."],
+] as const)("a refused routine edit on a session finished %s explains: %s", async (date, copy) => {
+  let refused = false;
+  mocks.session.mockImplementation(async () =>
+    refused ? session(date, "completed") : session("2026-08-14", "scheduled"),
+  );
+  mocks.sync.mockImplementation(async () => {
+    const routine = (await sessionDb.outbox.toArray()).find(
+      (row) => row.entity === "session_routine",
+    );
+    if (!routine) return null;
+    refused = true;
+    return {
+      applied: [],
+      conflicts: [
+        { client_id: routine.client_id, entity_id: routine.entity_id, reason: "conflict" },
+      ],
+      changes: [],
+      planned_set_mappings: [],
+      next_cursor: "v1.test",
+    };
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "운동 추가" }));
+  fireEvent.click(await screen.findByRole("button", { name: /체스트 프레스 머신/ }));
+  expect(await screen.findAllByText(copy)).not.toHaveLength(0);
+  expect(screen.queryByText("이미 오늘 루틴에 있는 운동이에요.")).toBeNull();
 });
 
 it("KST 08:30 → 09:30: after UTC midnight logging stays open; one more midnight closes it", async () => {
