@@ -18,6 +18,7 @@ import {
   rawAssistanceSafetyStatus,
   toRawTargetRow as rawTargetRow,
 } from "../src/programs/assistance-migration";
+import { SessionsService } from "../src/sessions/sessions.service";
 import { plannedSetResponse } from "../src/sync/sync.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { onSessionDay, withUtcToday } from "./support/utc-today";
@@ -38,10 +39,16 @@ describe("assisted dips actual API metadata, history and analytics", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let recommendations: RecommendationService;
+  let recompute: jest.SpyInstance;
   beforeAll(async () => {
     app = await createTestApp();
     prisma = app.get(PrismaService);
     recommendations = app.get(RecommendationService);
+    // Delegating spy (calls through): proves POST complete runs the real recompute.
+    recompute = jest.spyOn(
+      app.get(SessionsService) as unknown as { recompute: () => unknown },
+      "recompute",
+    );
   }, 60_000);
   afterAll(async () => {
     try {
@@ -239,12 +246,15 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
       if (sourceId) {
+        recompute.mockClear();
         const completed = await onSessionDay(prisma, sourceId, () =>
           request(app.getHttpServer())
             .post(`/v1/sessions/${sourceId}/complete`)
             .send({})
             .expect(200),
         );
+        // Not the past-date no-op projection: this act recomputed (its subject).
+        expect(recompute).toHaveBeenCalledTimes(1);
         const item = completed.body.next_recommendations.find(
           (row: { exercise_id: string }) => row.exercise_id === id,
         );
@@ -376,12 +386,15 @@ describe("assisted dips actual API metadata, history and analytics", () => {
       await prisma.plannedSet.createMany({
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
+      recompute.mockClear();
       await withUtcToday(latest.scheduledDate, () =>
         request(app.getHttpServer())
           .post(`/v1/sessions/${latest.id}/complete`)
           .send({})
           .expect(200),
       );
+      // Not the past-date no-op projection: this act recomputed (its subject).
+      expect(recompute).toHaveBeenCalledTimes(1);
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
       expect(row.reasonCode).toBe(result.reason_code);
       expect(row.recommendedWeight).toBeNull();
