@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "../node_modules/.fact-window-harness",
+    "incremental": false
+  },
+  "include": ["support/fact-window-e2e-server.ts"],
+  "exclude": []
+}
