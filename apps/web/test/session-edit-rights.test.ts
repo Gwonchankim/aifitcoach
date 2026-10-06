@@ -5,10 +5,13 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  describeRefusals,
   EDIT_WINDOW_COPY,
   reflectsOnCopy,
   sessionEditRights,
   unsavedCopy,
+  type RefusalRecord,
+  type RefusedRow,
 } from "../components/session/session-edit-rights";
 
 const at = (iso: string) => new Date(iso);
@@ -147,5 +150,111 @@ describe("sessionEditRights — UTC midnight (KST 09:00) and calendar boundaries
     ["2024-02-29", "2024-03-01T05:00:00.000Z", true],
   ] as const)("%s at %s → facts %s", (date, now, facts) => {
     expect(sessionEditRights(session(date, "completed"), true, at(now)).facts).toBe(facts);
+  });
+});
+
+/**
+ * BUG-10 — one judge for every refusal the server sent back (C1 · P1 · C4 · re-entry).
+ * Two questions, kept apart:
+ * - "was my finish applied?" — a refused `session` row of any reason, known or not, withdraws it;
+ * - "what do we say?" — a date-window refusal (`conflict` on a fact row) gives the date reason for
+ *   the class the browser can see, then only what was not saved. When the browser still thinks the
+ *   day is open (today · previous) or does not know the date, the clocks disagree: the server's
+ *   refusal is the truth, so the clause is said without a reason the screen cannot know.
+ * A non-date refusal of the finish says only that the finish was not saved (we withdraw the
+ * summary, so we explain it). A non-date refusal of a set stays silent (BUG-03): nothing on screen
+ * changes, so there is nothing to explain.
+ */
+describe("describeRefusals — what the server refused, said once", () => {
+  const bench = (setNo: number): RefusedRow => ({
+    exerciseId: "bench",
+    exerciseName: "벤치프레스",
+    setNo,
+  });
+  const card = new Map<string, RefusedRow>([
+    ["set-1", bench(1)],
+    ["set-2", bench(2)],
+  ]);
+  const set = (entityId: string, reason = "conflict"): RefusalRecord => ({
+    entity: "performed_set",
+    entityId,
+    reason,
+  });
+  const finish = (reason = "conflict"): RefusalRecord => ({
+    entity: "session",
+    entityId: "A",
+    reason,
+  });
+  const SET1 = "벤치프레스 1세트 기록은 저장되지 않았어요.";
+  const context = (scheduledDate: string | null, recorded = true) => ({
+    scheduledDate,
+    recorded,
+    cardRows: card,
+    now: NOW, // UTC 2026-08-14
+  });
+
+  it.each([
+    // date the browser classifies, records → reason sentence (or none)
+    ["2026-08-12", [set("set-1")], `${EDIT_WINDOW_COPY.expired} ${SET1}`],
+    ["2026-08-15", [set("set-1")], `${EDIT_WINDOW_COPY.upcoming} ${SET1}`],
+    ["2026-08-13", [set("set-1")], SET1], // previous: the browser thinks it is open
+    ["2026-08-14", [set("set-1")], SET1], // today: the browser thinks it is open
+    [null, [set("set-1")], SET1], // date unknown
+  ] as const)("a date refusal on %s → %s", (date, records, text) => {
+    expect(describeRefusals(records, context(date))).toEqual({ text, finishRefused: false });
+  });
+
+  it("a set and the finish refused together (the server's taxonomy) name both", () => {
+    expect(
+      describeRefusals([set("set-1"), finish("dependent_conflict")], context("2026-08-12")),
+    ).toEqual({
+      text: `${EDIT_WINDOW_COPY.expired} ${SET1} 운동 종료도 저장되지 않았어요.`,
+      finishRefused: true,
+    });
+  });
+
+  it("a finish alone refused for the date with nothing recorded uses the unlogged reason", () => {
+    expect(describeRefusals([finish()], context("2026-08-12", false))).toEqual({
+      text: `${EDIT_WINDOW_COPY.pastUnlogged} 운동 종료는 저장되지 않았어요.`,
+      finishRefused: true,
+    });
+  });
+
+  it.each(["stale_update", "not_found", "zz_reason_no_list_knows"])(
+    "a finish refused for %s is withdrawn and said, without a date reason",
+    (reason) => {
+      expect(describeRefusals([finish(reason)], context("2026-08-12"))).toEqual({
+        text: "운동 종료는 저장되지 않았어요.",
+        finishRefused: true,
+      });
+    },
+  );
+
+  it("a set refused for a non-date reason changes nothing on screen, so nothing is said", () => {
+    expect(describeRefusals([set("set-1", "stale_update")], context("2026-08-12"))).toEqual({
+      text: null,
+      finishRefused: false,
+    });
+  });
+
+  it("a refused routine edit is never a refused finish (same session id, same `conflict`)", () => {
+    expect(
+      describeRefusals(
+        [{ entity: "session_routine", entityId: "A", reason: "conflict" }],
+        context("2026-08-12"),
+      ),
+    ).toEqual({ text: null, finishRefused: false });
+  });
+
+  it("the same set refused twice (an edit, then an uncheck) is one set", () => {
+    expect(
+      describeRefusals([set("set-1"), set("set-1"), set("set-2")], context("2026-08-12")).text,
+    ).toBe(`${EDIT_WINDOW_COPY.expired} 벤치프레스 1·2세트 기록은 저장되지 않았어요.`);
+  });
+
+  it("a refused set the card does not show is counted, never dropped", () => {
+    expect(describeRefusals([set("gone")], context("2026-08-12")).text).toBe(
+      `${EDIT_WINDOW_COPY.expired} 세트 1개 기록은 저장되지 않았어요.`,
+    );
   });
 });
