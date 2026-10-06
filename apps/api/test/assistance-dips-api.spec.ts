@@ -20,6 +20,7 @@ import {
 } from "../src/programs/assistance-migration";
 import { plannedSetResponse } from "../src/sync/sync.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { onSessionDay, withUtcToday } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = ["e_assisted_pullup", "e_assisted_dips"] as const;
@@ -238,10 +239,12 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
       if (sourceId) {
-        const completed = await request(app.getHttpServer())
-          .post(`/v1/sessions/${sourceId}/complete`)
-          .send({})
-          .expect(200);
+        const completed = await onSessionDay(prisma, sourceId, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${sourceId}/complete`)
+            .send({})
+            .expect(200),
+        );
         const item = completed.body.next_recommendations.find(
           (row: { exercise_id: string }) => row.exercise_id === id,
         );
@@ -373,10 +376,12 @@ describe("assisted dips actual API metadata, history and analytics", () => {
       await prisma.plannedSet.createMany({
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
-      await request(app.getHttpServer())
-        .post(`/v1/sessions/${latest.id}/complete`)
-        .send({})
-        .expect(200);
+      await withUtcToday(latest.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${latest.id}/complete`)
+          .send({})
+          .expect(200),
+      );
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
       expect(row.reasonCode).toBe(result.reason_code);
       expect(row.recommendedWeight).toBeNull();
