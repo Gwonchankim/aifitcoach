@@ -261,6 +261,25 @@ test("D6·D8 online: KST 08:30→09:30 crosses UTC midnight; the previous day st
   expect(today.scheduled_date).toBe(D1);
   expect(today.status).toBe("scheduled");
   expect(today.planned_sets.filter((set) => set.performed_set)).toEqual([]);
+  // 서버 커밋은 브라우저가 그 /sync 응답을 받기 전에 보일 수 있다 — 서버가 본 마지막 값(55kg·11회)을
+  // 실은 교환이 기록된 뒤에 판정한다. 세트 id 만으로는 첫 완료 교환이 이미 있어 기다림이 되지 않는다.
+  await expect
+    .poll(() =>
+      sync
+        .flatMap((exchange) => exchange.mutations)
+        .filter((mutation) => mutation.entity === "performed_set")
+        .map((mutation) => [
+          mutation.entity_id,
+          mutation.payload?.actual_weight,
+          mutation.payload?.actual_reps,
+        ]),
+    )
+    .toEqual(
+      expect.arrayContaining([
+        [first, 55, 8],
+        [second, 50, 11],
+      ]),
+    );
   expectAllApplied(sync);
 
   // ---- 다음 경계: 이제 이틀 전 → 신규 사실은 막히고, exact replay 는 ACK 다 ----
@@ -272,10 +291,14 @@ test("D6·D8 online: KST 08:30→09:30 crosses UTC midnight; the previous day st
   await expect(page.getByText("기록 값은 고칠 수 있어요", { exact: false })).toHaveCount(0);
   await shot(page, "fw-03-older-summary-expired");
 
-  const lastEdit = sync
-    .flatMap((exchange) => exchange.mutations)
-    .filter((mutation) => mutation.entity === "performed_set" && mutation.entity_id === second)
-    .at(-1)!;
+  const editsOfSecond = () =>
+    sync
+      .flatMap((exchange) => exchange.mutations)
+      .filter((mutation) => mutation.entity === "performed_set" && mutation.entity_id === second);
+  // 마지막 교환이 기록에서 빠지면 아래가 앞선 receipt(10회)를 골라 의도와 다른 것을 검사하고 통과한다.
+  // 고르기 전에, 기록된 마지막 수정이 바로 그 11회 수정인지 기다려 확인한다.
+  await expect.poll(() => editsOfSecond().at(-1)?.payload?.actual_reps).toBe(11);
+  const lastEdit = editsOfSecond().at(-1)!;
   const replay = await postSync(request, [lastEdit]);
   expect(replay.applied).toEqual([lastEdit.client_id]);
   expect(replay.conflicts).toEqual([]);
@@ -326,6 +349,10 @@ test("D6 offline-first: every first write leaves the device only after UTC midni
   await expect.poll(async () => (await serverSession(request, sessionId)).status).toBe("completed");
   await expect.poll(async () => (await serverSet(request, sessionId, first))?.actual_reps).toBe(8);
   expect((await serverSet(request, sessionId, second))?.actual_reps).toBe(10);
+  // 서버 커밋은 브라우저가 그 /sync 응답을 받기 전에 보일 수 있다 — 세 쓰기를 실은 교환이 기록된 뒤에 판정한다.
+  await expect
+    .poll(() => sync.flatMap((exchange) => exchange.mutations.map((m) => m.entity_id)))
+    .toEqual(expect.arrayContaining([first, second, sessionId]));
   expectAllApplied(sync);
   const saved = await dbSession(sessionId);
   expect(saved.scheduledDate.slice(0, 10)).toBe(D0);
@@ -354,11 +381,10 @@ test("P1: a set logged offline that reaches the server after the window closed i
   await expect(screenAlert(page)).toHaveText(
     `${COPY.expired} ${name} 1세트 기록은 저장되지 않았어요.`,
   );
-  expect(sync.flatMap((exchange) => exchange.conflicts)).toContainEqual({
-    client_id: expect.any(String),
-    entity_id: first,
-    reason: "conflict",
-  });
+  // 알림은 앱이 응답을 받은 뒤라는 뜻일 뿐 기록기가 받았다는 뜻은 아니다 — 같은 기다림으로 읽는다.
+  await expect
+    .poll(() => sync.flatMap((exchange) => exchange.conflicts))
+    .toContainEqual({ client_id: expect.any(String), entity_id: first, reason: "conflict" });
   expect(await serverSet(request, sessionId, first)).toBeNull();
   // 관측(단언 아님): 거부된 로컬 draft 는 이 티켓에서 되돌리지 않는다 — 화면에 남은 모습을 증거로 둔다.
   await test.info().attach("p1-after-refusal", {
