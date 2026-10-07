@@ -40,6 +40,14 @@ export type OutboxMutation = {
    * server refuses that finish, the claim is withdrawn back to this (BUG-10).
    */
   prior_status?: string;
+  /**
+   * Local only, never on the wire: a read wrote this session's mirror after this finish claimed
+   * "completed" there, so the status the mirror holds is the server's since, not this claim's — a
+   * refusal of this finish takes nothing back (BUG-10 R6: by provenance, not by value). A read is the
+   * only authoritative writer while the claim waits: a pulled change never writes a session with a
+   * write of ours waiting (`applyChange`).
+   */
+  claim_overtaken?: true;
   /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
   removed_planned_sets?: {
     planned_set_id: string;
@@ -482,6 +490,13 @@ export async function commitAuthoritativeSession(
         ...(merged.local_ids !== undefined ? { local_ids: merged.local_ids } : {}),
         updated_at: new Date().toISOString(),
       });
+      // BUG-10 R6: the mirror's status is the server's from here. A finish of ours still waiting does
+      // not own it any more: its refusal must not take this status back, whatever its value.
+      await sessionDb.outbox
+        .where("[user_id+entity_id]")
+        .equals([userId, sessionId])
+        .filter((row) => row.entity === "session" && !!row.prior_status)
+        .modify({ claim_overtaken: true });
       await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
     },
   );
@@ -970,12 +985,16 @@ export async function refusedSessionOf(
   return draft?.session_id;
 }
 
-/** BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too. */
+/**
+ * BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too — our own
+ * only (R6): once a read wrote the mirror after this claim, the status there is the server's.
+ */
 export async function undoOptimisticCompletionInTransaction(
   userId: string,
   row: OutboxMutation,
 ): Promise<void> {
   if (row.entity !== "session" || !row.prior_status) return;
+  if (row.claim_overtaken) return;
   const current = await sessionDb.sessions.get([userId, row.entity_id]);
   const session = current?.session as Record<string, unknown> | null | undefined;
   if (!current || !session || session.status !== "completed") return;
@@ -1086,8 +1105,9 @@ function supersedeFinishRefusals(userId: string, sessionId: string) {
  * of the session lands in the mirror (`readThroughSession` → `commitAuthoritativeSession`), so the
  * mirror is where what the device knows meets, whichever read brought it. Our own optimistic
  * "completed" lives there only while its finish waits in the outbox: a refusal deletes that row and
- * takes the optimistic status back in one transaction. So "completed, and no finish of ours waiting"
- * is the server's. Not seen: a read whose mirror write itself failed (a storage error).
+ * takes the optimistic status back in one transaction — its own only (R6): a status a read wrote
+ * since is the server's and stays. So "completed, and no finish of ours waiting" is the server's.
+ * Not seen: a read whose mirror write itself failed (a storage error).
  */
 async function finishedOnServer(userId: string, sessionId: string): Promise<boolean> {
   const mirror = await sessionDb.sessions.get([userId, sessionId]);
