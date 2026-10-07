@@ -1584,6 +1584,129 @@ it("invariant 5c — the session finished elsewhere takes back only the finish: 
 });
 
 /*
+ * Evaluator R5 (총괄: one truth evaluation right before a notice is composed, not a trigger per
+ * source). The session being finished on the server makes a finish refusal false, like a strictly
+ * later write (F1) does: for every row, said or not, whatever woke the judge — not only while the
+ * finish refusal is new. The order below is the evaluator's (real Chrome + API confirmed it): the
+ * re-read after the refusal fails, so the refusal is said and marked; a later ordinary read shows
+ * the session finished; a set is refused after that. A discriminating pair: the same order, and
+ * only what the server says about the session differs — completed takes the finish out of the next
+ * notice, in progress keeps it (the guard against taking it out without looking). The pair's third
+ * member is the first 5c test above: the session finished from the start.
+ */
+const todayThreeSets = (status: Session["status"]) => ({
+  ...session("A", "2026-08-14", status),
+  planned_sets: plannedSets("set", 3),
+});
+/** The finish is refused while the session cannot be read again: said from the refusal, marked. */
+async function finishRefusalSaidWithoutReread() {
+  await logSet("A", "set-1");
+  await sync(applyAsServer); // set 1 is saved
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+  const view = mount();
+  await finishOffline();
+  mocks.session.mockRejectedValue(new Error("GET 503")); // the re-read after the refusal fails
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+  await settle();
+  expect(await notices()).toEqual(["shown"]);
+  return view;
+}
+/** Set 2 is refused: a new event, after the session was read again. */
+async function refuseSet2() {
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(refuseAsServer);
+  });
+}
+
+it("invariant 5c — a finish refusal already said is false once a later read shows the session finished: the next notice holds the set alone", async () => {
+  const first = await finishRefusalSaidWithoutReread();
+  first.unmount();
+  mocks.session.mockResolvedValue(todayThreeSets("completed")); // an ordinary read succeeds
+  mount();
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  expect(alertTexts()).toEqual([]); // said once already: not raised again
+  await refuseSet2();
+  const SET2_ALONE = "벤치프레스 2세트 기록은 저장되지 않았어요.";
+  await waitFor(() => expect(alertTexts()).toEqual([SET2_ALONE]));
+  await settle();
+  expect(alertTexts()).toEqual([SET2_ALONE]);
+  await expect.poll(perSet).toEqual({ A: "superseded", "set-2": "shown" });
+});
+
+it("invariant 5c — the contrast: a later read shows the session still in progress, so the finish refusal is still true and stays in the next notice", async () => {
+  const first = await finishRefusalSaidWithoutReread();
+  first.unmount();
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress")); // the server: NOT finished
+  mount();
+  await screen.findByLabelText(weight(2)); // the routine, not the summary
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  await refuseSet2();
+  const SET2_AND_FINISH = `벤치프레스 2세트 기록은 저장되지 않았어요. ${FINISH_TOO}`;
+  await waitFor(() => expect(alertTexts()).toEqual([SET2_AND_FINISH]));
+  await settle();
+  expect(alertTexts()).toEqual([SET2_AND_FINISH]);
+  await expect.poll(perSet).toEqual({ A: "shown", "set-2": "shown" });
+});
+
+it("invariant 5c — a finish refusal on screen is taken back when this screen's own later read shows the session finished", async () => {
+  await finishRefusalSaidWithoutReread(); // still on screen, beside the routine
+  mocks.session.mockResolvedValue(todayThreeSets("completed"));
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await waitFor(() => expect(alertTexts()).toEqual([]));
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  expect(await notices()).toEqual(["superseded"]);
+});
+
+/*
+ * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
+ * finish too. That run is ASSERTED to do nothing — no alert, no audit write — not judged harmless (a
+ * "harmless no-op" in this ticket was once not). That a judge ran on the finished session is asserted
+ * first, or "nothing happened" would hold vacuously. Another session's refused finish, waiting to be
+ * said when that session is opened, is there for a run that forgot its session to take.
+ */
+it("invariant 5c — on an ordinary finish, the judge that runs on the finished session says nothing and writes no audit row", async () => {
+  await sessionDb.conflicts.add({
+    user_id: DEV_USER_SCOPE,
+    client_id: "33333333-3333-4333-8333-333333333333",
+    kind: "stale_update",
+    payload: { entity: "session", entity_id: "B" },
+    session_id: "B",
+    notice: "pending",
+  });
+  const before = await sessionDb.conflicts.toArray();
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+  mount();
+  await screen.findByLabelText(weight(2));
+  const read = sessionDbModule.standingRefusals;
+  const finishedWhenJudged: boolean[] = [];
+  vi.spyOn(sessionDbModule, "standingRefusals").mockImplementation(async (...args) => {
+    const shown = clients[0].getQueryData<Session>(["session", "A"])?.status;
+    finishedWhenJudged.push(shown === "completed");
+    return read(...args);
+  });
+  await finishOffline(); // the user finishes …
+  mocks.session.mockResolvedValue(todayThreeSets("completed"));
+  await act(async () => {
+    await sync(applyAsServer); // … and the server applies it
+  });
+  await settle();
+  expect(finishedWhenJudged).toContain(true); // a judge ran on the finished session
+  expect(alertTexts()).toEqual([]);
+  expect(await sessionDb.conflicts.toArray()).toEqual(before); // no audit row written or changed
+});
+
+/*
  * Evaluator R4 EVAL_PHANTOM (총괄: 기능 정지 — 최우선): a modal held by an id whose target a re-read
  * removed. What is DRAWN decides whether the screen is inert, target included. The pain sheet
  * draws nothing without its exercise — with `main` left inert behind no dialog, the routine froze
