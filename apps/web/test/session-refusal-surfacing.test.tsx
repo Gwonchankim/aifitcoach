@@ -2076,94 +2076,175 @@ it.each([
 ] as const)(
   "invariant 10 — one answer refuses our finish that carried a pain report and applies our later finish: only the pain is said (the session's completion row %s)",
   async (_, page) => {
-    const sessionId = "00000000-0000-4000-8000-000000000001";
-    const A_ID = "00000000-0000-4000-8000-0000000000a1";
-    const C_ID = "00000000-0000-4000-8000-0000000000c1";
-    const source = appendSource();
-    const server = { ...session(sessionId, "2026-08-14", "in_progress"), planned_sets: [source] };
-    await sessionDb.sessions.put({
-      user_id: DEV_USER_SCOPE,
-      session_id: sessionId,
-      session: server,
-      updated_at: NOW.toISOString(),
-    });
-    await logSet(sessionId, source.id);
-    await sync(applyAsServer); // set 1 is saved
-    // A: a finish with a pain report, offline (a claim over "in progress").
-    await sessionDbModule.commitSessionCompletion(
-      DEV_USER_SCOPE,
-      sessionId,
-      { pain: 3 },
-      A_ID,
-      NOW.toISOString(),
-    );
-    // A set added afterwards, then C: the finish again, without a pain report (append-dependent).
-    const t2 = new Date(NOW.getTime() + 1000).toISOString();
-    vi.setSystemTime(new Date(t2));
-    const { commitSessionSetAppend } = await import("../components/session/session-set-append-db");
-    await commitSessionSetAppend(
-      { user_id: DEV_USER_SCOPE, session_id: sessionId },
-      {
-        exercise_id: "bench",
-        today: "2026-08-14",
-        generation: 0,
-        client_id: APPEND,
-        correlation_id: PROVISIONAL,
-        updated_at: t2,
-      },
-    );
-    const t3 = new Date(NOW.getTime() + 2000).toISOString();
-    vi.setSystemTime(new Date(t3));
-    await sessionDbModule.commitSessionCompletion(DEV_USER_SCOPE, sessionId, {}, C_ID, t3);
-    const finishes = (await sessionDb.outbox.filter((row) => row.entity === "session").toArray())
-      .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
-      .map((row) => [
-        row.client_id,
-        row.prior_status ?? null,
-        row.append_dependencies !== undefined,
-      ]);
-    expect(finishes).toEqual([
-      [A_ID, "in_progress", false],
-      [C_ID, null, true],
-    ]);
-    expect(
-      ((await sessionDb.sessions.get([DEV_USER_SCOPE, sessionId]))?.session as Session).status,
-    ).toBe("completed");
-    mocks.session.mockRejectedValue(new Error("offline")); // no read brings the server's status
-    mount(sessionId);
-    await settle();
-    const drawn = alertsDrawn();
-    await act(async () => {
-      await sync(async (body) => ({
-        applied: body.mutations.filter((m) => m.client_id !== A_ID).map((m) => m.client_id),
-        conflicts: [{ client_id: A_ID, entity_id: sessionId, reason: "stale_update" }],
-        changes: page(sessionId).map((row) => ({
-          ...row,
-          op: "upsert",
-          server_seq: "1",
-        })) as SyncResponse["changes"],
-        planned_set_mappings: [
-          {
-            correlation_id: PROVISIONAL,
-            planned_set_id: "00000000-0000-4000-8000-000000000500",
-            planned_set: {
-              ...source,
-              id: "00000000-0000-4000-8000-000000000500",
-              set_no: 2,
-              correlation_id: PROVISIONAL,
-            },
-          },
-        ],
-        next_cursor: "v1.test",
-      }));
-    });
-    await settle();
-    drawn.stop();
+    const drawn = await w1Answer(3, page);
     expect(drawn.texts).toEqual([PAIN_ONLY]); // the finish sentence was never drawn
     expect(alertTexts()).toEqual([PAIN_ONLY]);
     expect(await notices()).toEqual(["shown"]);
   },
 );
+
+/*
+ * The evaluator's order (above), with what is on the device and on screen after the answer. A, then
+ * C over it, then one answer: A refused, C applied. Returns the recorder of what was drawn during it.
+ */
+async function w1Answer(pain: number | undefined, page: (sessionId: string) => readonly object[]) {
+  const sessionId = W1_SESSION;
+  const A_ID = "00000000-0000-4000-8000-0000000000a1";
+  const C_ID = "00000000-0000-4000-8000-0000000000c1";
+  const source = appendSource();
+  const server = { ...session(sessionId, "2026-08-14", "in_progress"), planned_sets: [source] };
+  await sessionDb.sessions.put({
+    user_id: DEV_USER_SCOPE,
+    session_id: sessionId,
+    session: server,
+    updated_at: NOW.toISOString(),
+  });
+  await logSet(sessionId, source.id);
+  await sync(applyAsServer); // set 1 is saved
+  // A: a finish (with the given pain report), offline — a claim over "in progress".
+  await sessionDbModule.commitSessionCompletion(
+    DEV_USER_SCOPE,
+    sessionId,
+    pain === undefined ? {} : { pain },
+    A_ID,
+    NOW.toISOString(),
+  );
+  // A set added afterwards, then C: the finish again, without a pain report (append-dependent).
+  const t2 = new Date(NOW.getTime() + 1000).toISOString();
+  vi.setSystemTime(new Date(t2));
+  const { commitSessionSetAppend } = await import("../components/session/session-set-append-db");
+  await commitSessionSetAppend(
+    { user_id: DEV_USER_SCOPE, session_id: sessionId },
+    {
+      exercise_id: "bench",
+      today: "2026-08-14",
+      generation: 0,
+      client_id: APPEND,
+      correlation_id: PROVISIONAL,
+      updated_at: t2,
+    },
+  );
+  const t3 = new Date(NOW.getTime() + 2000).toISOString();
+  vi.setSystemTime(new Date(t3));
+  await sessionDbModule.commitSessionCompletion(DEV_USER_SCOPE, sessionId, {}, C_ID, t3);
+  const finishes = (await sessionDb.outbox.filter((row) => row.entity === "session").toArray())
+    .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
+    .map((row) => [row.client_id, row.prior_status ?? null, row.append_dependencies !== undefined]);
+  expect(finishes).toEqual([
+    [A_ID, "in_progress", false],
+    [C_ID, null, true],
+  ]);
+  expect(
+    ((await sessionDb.sessions.get([DEV_USER_SCOPE, sessionId]))?.session as Session).status,
+  ).toBe("completed");
+  mocks.session.mockRejectedValue(new Error("offline")); // no read brings the server's status
+  mount(sessionId);
+  await settle();
+  const drawn = alertsDrawn();
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: body.mutations.filter((m) => m.client_id !== A_ID).map((m) => m.client_id),
+      conflicts: [{ client_id: A_ID, entity_id: sessionId, reason: "stale_update" }],
+      changes: page(sessionId).map((row) => ({
+        ...row,
+        op: "upsert",
+        server_seq: "1",
+      })) as SyncResponse["changes"],
+      planned_set_mappings: [
+        {
+          correlation_id: PROVISIONAL,
+          planned_set_id: "00000000-0000-4000-8000-000000000500",
+          planned_set: {
+            ...source,
+            id: "00000000-0000-4000-8000-000000000500",
+            set_no: 2,
+            correlation_id: PROVISIONAL,
+          },
+        },
+      ],
+      next_cursor: "v1.test",
+    }));
+  });
+  await settle();
+  drawn.stop();
+  return drawn;
+}
+const W1_SESSION = "00000000-0000-4000-8000-000000000001";
+
+/*
+ * 총괄 R7-2 (α): our later finish the server applied in the same answer makes the session's
+ * "completed" the server's — the refused earlier claim takes nothing back, so nothing on the device
+ * says the session is still going (the diagnostics saw mirror and screen cache left "in progress" when
+ * the completion row was pushed past the page). Without a pain report nothing is left to say.
+ */
+it("invariant 10 — one answer refuses our earlier finish and applies our later one: the device keeps the session finished, though its completion row is past this page", async () => {
+  const drawn = await w1Answer(undefined, (sessionId) => [
+    { entity: "session_routine", entity_id: sessionId, data: {} },
+    ...Array.from({ length: 99 }, () => ({
+      entity: "session_routine",
+      entity_id: OTHER_SESSION,
+      data: {},
+    })),
+  ]);
+  expect(drawn.texts).toEqual([]);
+  expect(alertTexts()).toEqual([]);
+  expect(await notices()).toEqual(["superseded"]);
+  expect(
+    ((await sessionDb.sessions.get([DEV_USER_SCOPE, W1_SESSION]))?.session as Session).status,
+  ).toBe("completed");
+  expect(clients[clients.length - 1].getQueryData<Session>(["session", W1_SESSION])?.status).toBe(
+    "completed",
+  );
+});
+
+/*
+ * α's scope: our finish of one session, applied, overtakes no other session's waiting finish. B's
+ * finish is refused in the same answer that applies A's: B's refusal still takes B's own "completed"
+ * back and is said on B's screen (marked too widely, B would look finished and its refusal would be
+ * taken back unsaid — the silent direction).
+ */
+it("invariant 10 — our finish of one session applied in an answer overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen", async () => {
+  await logSet("B", "b-1");
+  await logSet("A", "set-1");
+  await sync(applyAsServer); // both sets are saved, before either finish
+  let readable = true;
+  mocks.session.mockImplementation(async (id: string) => {
+    if (!readable) throw new Error("GET 503");
+    return session(id, "2026-08-14", "in_progress");
+  });
+  const onB = mount("B");
+  await finishOffline(); // B's finish waits: a claim
+  onB.unmount();
+  const onA = mount("A");
+  await finishOffline(); // A's finish waits: a claim
+  onA.unmount();
+  const finishes = await sessionDb.outbox.filter((row) => row.entity === "session").toArray();
+  expect(finishes.map((row) => [row.entity_id, row.prior_status ?? null]).sort()).toEqual([
+    ["A", "in_progress"],
+    ["B", "in_progress"],
+  ]);
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: body.mutations.filter((m) => m.entity_id === "A").map((m) => m.client_id),
+      conflicts: body.mutations
+        .filter((m) => m.entity_id === "B")
+        .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
+      changes: [],
+      planned_set_mappings: [],
+      next_cursor: "v1.test",
+    }));
+  });
+  const statusOf = async (id: string) =>
+    ((await sessionDb.sessions.get([DEV_USER_SCOPE, id]))?.session as Session | undefined)?.status;
+  expect(await statusOf("A")).toBe("completed"); // A's finish applied
+  expect(await statusOf("B")).toBe("in_progress"); // B's own claim, taken back
+  expect(await notices()).toEqual(["pending"]); // for B's screen to say
+  readable = false; // B is opened again and cannot be read: the device's copy is what it knows
+  mount("B");
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+  await settle();
+  expect(await notices()).toEqual(["shown"]);
+});
 
 /*
  * 총괄 R6 (R2): the judge's "no finish of ours waiting" counts only a finish that still OWNS the
