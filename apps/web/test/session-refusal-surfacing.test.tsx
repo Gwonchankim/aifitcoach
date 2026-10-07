@@ -1362,3 +1362,71 @@ it("invariant 2 — a notice already said keeps standing when its view changes w
   expect(alertTexts()).toContain(`${EXPIRED} ${SET1}`);
   expect(await notices()).toEqual(["shown"]);
 });
+
+/*
+ * The eleventh face (총괄 2026-10-07): "my write was refused" is not "it did not happen". A refusal
+ * is a fact about OUR attempt; whether the session was finished is another question, and the
+ * authoritative session — re-read after a refused finish — answers it. `stale_update` on a finish
+ * means a later completion was already applied: by another device, whose write has no row in this
+ * outbox to compare with (5a cannot see it). When the re-read says "completed", the finish was
+ * not lost: "운동 종료는 저장되지 않았어요" beside the summary would be false. A failed re-read
+ * changes nothing — the refusal is said from the refusal itself (the re-read is not a gate).
+ */
+/** The server's answer to this device's sync after ANOTHER device finished the session first. */
+const finishedElsewhere = async (body: SyncRequest): Promise<SyncResponse> => ({
+  applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+  conflicts: body.mutations
+    .filter((m) => m.entity === "session")
+    .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
+  changes: [],
+  planned_set_mappings: [],
+  next_cursor: "v1.test",
+});
+
+it("invariant 5c — a finish refused because another device finished the session first: the re-read says completed, so 'not saved' is not said beside the summary", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+  const first = mount();
+  await finishOffline();
+  // Another device finished this session first: the server holds it completed.
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed"));
+  await act(async () => {
+    await sync(finishedElsewhere);
+  });
+  await screen.findByRole("heading", { name: "수고했어요" }); // the session IS finished
+  await waitFor(() => expect(screen.queryByText(FINISH_ONLY)).toBeNull());
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+  expect(await notices()).toEqual(["superseded"]);
+  // Nor on the next screen for this session.
+  first.unmount();
+  mount();
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  expect(alertTexts()).toEqual([]);
+});
+
+it("invariant 5c — the session finished elsewhere takes back only the finish: a refused set is still said", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  await finishOffline();
+  vi.setSystemTime(CLOSED);
+  // Another device finished it while its window was open; this device's set and finish arrive late.
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "completed"));
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  // The set was not saved — that is still true; the session being finished does not change it.
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]));
+  await settle();
+  expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]);
+  await expect
+    .poll(async () =>
+      (await sessionDb.conflicts.toArray())
+        .map((row) => `${(row.payload as { entity: string }).entity}:${row.notice}`)
+        .sort(),
+    )
+    .toEqual(["performed_set:shown", "session:superseded"]);
+});
