@@ -790,6 +790,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     removeExerciseId != null ||
     painExerciseId != null ||
     finishOpen;
+  /**
+   * BUG-10 (2): what is actually drawn — each computed ONCE and used both to draw it and to decide
+   * where a refusal can be perceived. Two expressions that happen to agree drift apart at the next
+   * change (a `modalOpen` that held refusals back on an error view with no sheet and no `inert`).
+   * The error view draws neither the finish sheet nor `inert`.
+   */
+  const errorView = sessionQuery.isError || !session;
+  const screenInert = modalOpen && !errorView;
+  const sheetShown = finishOpen && !errorView;
 
   /**
    * 루틴이 바뀌면 서버가 추천을 다시 계산한다(F6-1) → 대시보드의 오늘 요약도 낡는다.
@@ -1172,8 +1181,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   /** The judge runs later, from a queue: let it read this render's values. */
-  const factWindowRef = useRef({ recorded: false, finishOpen: false, modalOpen: false });
-  factWindowRef.current = { recorded: completedCount > 0, finishOpen, modalOpen };
+  const factWindowRef = useRef({ recorded: false, sheetShown: false, screenInert: false });
+  factWindowRef.current = { recorded: completedCount > 0, sheetShown, screenInert };
 
   /**
    * BUG-10 — the one judge. Every refusal the server sent back for this session is said here, once:
@@ -1242,9 +1251,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
         if (!mounted.current || shownSession.current !== judged || rows.length === 0) return;
         // 2: behind a modal the screen is inert — not perceivable, and an alert put there is never
-        // announced, not even when `inert` lifts. Wait: the modal closing judges again (below).
-        // The finish sheet is not behind anything: it says it there.
-        if (factWindowRef.current.modalOpen && !factWindowRef.current.finishOpen) return;
+        // announced, not even when `inert` lifts. Wait: the screen ceasing to be inert (the modal
+        // closing, or a view with nothing over it) judges again (below). The finish sheet, when it
+        // is drawn, is not behind anything: it says it there. Both facts are the render's own.
+        if (factWindowRef.current.screenInert && !factWindowRef.current.sheetShown) return;
         const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
         const outcome = describeRefusals(
           rows.map((row, index) => ({
@@ -1275,7 +1285,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           setRefusal({
             sessionId: judged,
             text: outcome.text,
-            inSheet: factWindowRef.current.finishOpen,
+            inSheet: factWindowRef.current.sheetShown,
             ids: rows.map((row) => row.id),
           });
       })
@@ -1293,19 +1303,20 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   }, [judgeReady, announceRefusals]);
   rejudge.current = announceRefusals;
   /**
-   * A modal closed — the finish sheet (by the user, by a finish that succeeded, by an acknowledged
-   * append completion) or any sheet over the screen (rest, picker, pain, remove). What the finish
+   * The screen stopped being inert — a modal closed (the finish sheet: by the user, by a finish that
+   * succeeded, by an acknowledged append completion; or any sheet over the screen: rest, picker,
+   * pain, remove), or the view changed to one with nothing over it (the error view). What the finish
    * sheet said closes with it; what could not be said meanwhile — another error in the sheet, or the
-   * screen inert behind a modal (2) — is said on the screen now, not at the next sync or entry.
+   * screen inert behind a modal (2) — is said now, not at the next sync or entry.
    */
-  const modalWasOpen = useRef(false);
+  const screenWasInert = useRef(false);
   useEffect(() => {
-    if (modalWasOpen.current && !modalOpen) {
+    if (screenWasInert.current && !screenInert) {
       setRefusal((current) => (current?.inSheet ? null : current));
       announceRefusals();
     }
-    modalWasOpen.current = modalOpen;
-  }, [modalOpen, announceRefusals]);
+    screenWasInert.current = screenInert;
+  }, [screenInert, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
@@ -1429,7 +1440,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   // A refusal is shown only on the screen of the session it was judged for.
   const shownRefusal = refusal?.sessionId === sessionId ? refusal : null;
 
-  if (sessionQuery.isError || !session) {
+  // `|| !session` only narrows the type for what follows: `errorView` already includes it.
+  if (errorView || !session) {
     return (
       <div className="mx-auto flex max-w-md flex-col gap-3 p-4">
         <p role="alert" className="text-base text-fg">
@@ -1461,7 +1473,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           ? { session, next_recommendations: [] }
           : null));
   const summaryContent = shownSummary ? (
-    <div inert={modalOpen} className="mx-auto max-w-md p-4">
+    <div inert={screenInert} className="mx-auto max-w-md p-4">
       {/*
        * 종료 화면은 루틴 화면을 통째로 대체하므로 아래의 안내 영역이 렌더되지 않는다.
        * 정리 실패는 여기서도 보여야 사용자가 "재진입하면 휴식이 다시 뜰 수 있다"를 안다.
@@ -1540,7 +1552,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         <>
           {/* 랜드마크 <main> 과 스킵 링크는 app/layout.tsx 에 하나씩만 둔다(중복 금지). */}
           {/* pb-28 = 하단 고정 바(버튼 72 + 패딩 24)를 가릴 만큼만 비운다. */}
-          <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
+          <div inert={screenInert} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
             <header className="flex flex-col gap-1">
               <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
               {completionWaiting ? (
@@ -1807,7 +1819,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
 
           {factsLocked ? null : (
             <div
-              inert={modalOpen}
+              inert={screenInert}
               className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
             >
               <div className="mx-auto max-w-md pb-safe-bottom">
@@ -1920,7 +1932,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ) : null}
 
       <FinishSheet
-        open={finishOpen}
+        open={sheetShown}
         resumed={finishedEditable === true}
         // 직전 하루의 종료 세션(그 승인 문구가 뜨는 바로 그 경우)만 "오늘" 대신 그 세션의 날짜로 말한다.
         reflectsOn={
