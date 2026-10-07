@@ -1254,11 +1254,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * while it can be perceived (2): the page may have gone to the background, or a sheet come up,
    * after the judge decided. Then nothing is marked: the notice is taken back, and said when the
    * screen is perceivable again (the page visible, the sheet closed — both judge again, below).
-   * A notice rewritten from what is still true says nothing new: there is nothing to mark.
+   * Only what this screen has not put on screen yet is new. A notice rewritten from what is still
+   * true carries nothing new; one drawn again (its view changed, RefusalText mounted anew) was
+   * marked when it was first drawn — neither marks anything, nor is taken back.
    */
   const acknowledge = useCallback((shown: Refusal) => {
     if (!mounted.current || shownSession.current !== shown.sessionId) return;
-    if (shown.fresh.length === 0) return;
+    if (shown.fresh.every((id) => said.current.has(id))) return;
     if (!perceivable(factWindowRef.current, shown.inSheet)) {
       setRefusal((current) => (current === shown ? null : current));
       return;
