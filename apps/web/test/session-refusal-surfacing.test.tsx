@@ -906,6 +906,30 @@ it("invariant 2 — a refusal that arrives while the rest sheet makes the screen
   await expect.poll(notices).toEqual(["shown"]);
 });
 
+it("invariant 2 — held behind the rest sheet, then the screen turns to the connection notice (no sheet, no inert): said there", async () => {
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress"));
+  mount();
+  await screen.findByLabelText(weight(1));
+  fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" }));
+  await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  await settle();
+  expect(await notices()).toEqual(["pending"]); // held: the screen is inert behind the sheet
+  // The session cannot be read again and the device has no copy: the error view replaces the
+  // screen. A rest timer is still set, but nothing is over this view — it is perceivable.
+  await sessionDb.sessions.clear();
+  mocks.session.mockRejectedValue(new Error("GET unavailable"));
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  await screen.findByRole("button", { name: "다시 불러오기" });
+  expect(screen.queryByRole("dialog", { name: "벤치프레스 1세트 후 휴식" })).toBeNull();
+  await waitFor(() => expect(alertTexts()).toContain(SET1));
+  await expect.poll(notices).toEqual(["shown"]);
+});
+
 it("invariant 7 — the same set refused again is a new event: said again, though the sentence is the same", async () => {
   await logSet("A", "set-1");
   mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // previous here
