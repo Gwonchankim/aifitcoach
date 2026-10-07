@@ -1101,6 +1101,41 @@ it("invariant 5b — a notice already said holds only what is still true: rewrit
   expect(await perSet()).toEqual({ "set-1": "shown", "set-2": "superseded" });
 });
 
+it("invariant 5b — a notice rewritten while a sheet is up stays: a rewrite says nothing new, so it waits for nothing", async () => {
+  for (const id of ["set-1", "set-2"]) await logSet("A", id);
+  await sync(refuseAsServer); // nobody is looking
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-15", "scheduled"),
+    planned_sets: plannedSets("set", 3),
+  });
+  mount();
+  await waitFor(() =>
+    expect(alertTexts()).toEqual([
+      `${EDIT_WINDOW_COPY.upcoming} 벤치프레스 1·2세트 기록은 저장되지 않았어요.`,
+    ]),
+  );
+  await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "shown" });
+  // A sheet comes up over the screen …
+  fireEvent.click(screen.getByRole("button", { name: "운동 추가" }));
+  const picker = await screen.findByRole("dialog", { name: "운동 추가" });
+  // … and meanwhile its day comes and set 2 is saved.
+  vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(applyAsServer);
+  });
+  await settle();
+  // Behind the sheet the notice no longer claims set 2: a false sentence is not left standing.
+  const behind = [...document.querySelectorAll('[role="alert"]')].filter((el) =>
+    el.closest("[inert]"),
+  );
+  expect(behind.map((el) => el.textContent)).toEqual([SET1]);
+  fireEvent.click(within(picker).getByRole("button", { name: "닫기" }));
+  await settle();
+  expect(alertTexts()).toEqual([SET1]); // and it is still there: nothing took the rewrite back
+  expect(await perSet()).toEqual({ "set-1": "shown", "set-2": "superseded" });
+});
+
 it("invariant 15 — a new refusal's notice still holds the earlier ones that are still true, said before or not", async () => {
   mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // previous here
   mount();
