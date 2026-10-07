@@ -221,6 +221,53 @@ async function closeSheet(sheet: HTMLElement) {
   expect(screen.queryByRole("dialog", { name: "운동 종료" })).toBeNull();
 }
 
+const APPEND = "00000000-0000-4000-8000-000000000100";
+const PROVISIONAL = "00000000-0000-4000-8000-000000000101";
+/** Today's session whose second set was appended here and is not acknowledged yet. */
+async function sessionWithPendingAppend() {
+  const sessionId = "00000000-0000-4000-8000-000000000001";
+  const source = {
+    ...plannedSets("set", 1)[0],
+    id: "00000000-0000-4000-8000-000000000011",
+    source_revision: "fixture-append-source",
+    correlation_id: null,
+    append_eligibility: {
+      version: 1 as const,
+      source_revision: "fixture-append-source",
+      cohort_revision: "fixture-cohort",
+      status: "allowed" as const,
+      reason: null,
+    },
+    confidence: 0.3,
+    recommendation_state: "ready" as const,
+    assistance_provenance: null,
+    assistance_safety_status: null,
+    recommended_action: null,
+    recommendation_gate: "ready" as const,
+  };
+  const server = { ...session(sessionId, "2026-08-14", "in_progress"), planned_sets: [source] };
+  await sessionDb.sessions.put({
+    user_id: DEV_USER_SCOPE,
+    session_id: sessionId,
+    session: server,
+    updated_at: NOW.toISOString(),
+  });
+  const { commitSessionSetAppend } = await import("../components/session/session-set-append-db");
+  await commitSessionSetAppend(
+    { user_id: DEV_USER_SCOPE, session_id: sessionId },
+    {
+      exercise_id: "bench",
+      today: server.scheduled_date,
+      generation: 0,
+      client_id: APPEND,
+      correlation_id: PROVISIONAL,
+      updated_at: NOW.toISOString(),
+    },
+  );
+  mocks.session.mockResolvedValue(server);
+  return { sessionId, source };
+}
+
 /** One screen instance shown for one session and then another — the route reuses it. */
 function mountReusable(sessionId: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -581,6 +628,74 @@ it("invariant 6 — the retried finish succeeds offline: the hidden refusal is s
   await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1} ${FINISH_TOO}`]));
   expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
   await expect.poll(notices).toEqual(["shown", "shown"]);
+});
+
+/*
+ * The third way off the sheet: no click and no finish success — the coordinator acknowledges the
+ * appended set and its completion, and the screen closes the sheet itself (the append reconcile).
+ * The batches are constructed to put a refusal behind the sheet at that moment: a real server
+ * refusing this session's set for its date would refuse the pending append for the same date
+ * (`readonly`), and there would be no acknowledgement. What this pins is the mechanism — that this
+ * close goes through the state the re-judge watches.
+ */
+it("invariant 6 — the append completion is acknowledged and closes the sheet: the hidden refusal is said there", async () => {
+  const { sessionId, source } = await sessionWithPendingAppend();
+  mount(sessionId);
+  await screen.findByLabelText(weight(2)); // the appended set is on the card
+  await act(async () => {
+    await logSet(sessionId, source.id);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  // The completion waits for the appended set to be acknowledged; the sheet says so.
+  await waitFor(() => expect(within(sheet).getByRole("alert").textContent).toBeTruthy());
+  const waiting = within(sheet).getByRole("alert").textContent;
+  expect((await sessionDb.outbox.toArray()).find((row) => row.entity === "session")).toEqual(
+    expect.objectContaining({
+      append_dependencies: expect.objectContaining({ session_id: sessionId }),
+    }),
+  );
+  // A batch refuses the logged set and leaves the append and its completion unanswered.
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: [],
+      conflicts: body.mutations
+        .filter((m) => m.entity === "performed_set")
+        .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "conflict" })),
+      changes: [],
+      planned_set_mappings: [],
+      next_cursor: "v1.test",
+    }));
+  });
+  await settle();
+  expect(within(sheet).getByRole("alert").textContent).toBe(waiting); // behind the waiting notice
+  expect(await notices()).toEqual(["pending"]);
+  // The appended set and the completion are acknowledged: the screen closes the sheet itself.
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: body.mutations.map((m) => m.client_id),
+      conflicts: [],
+      changes: [],
+      planned_set_mappings: [
+        {
+          correlation_id: PROVISIONAL,
+          planned_set_id: "00000000-0000-4000-8000-000000000500",
+          planned_set: {
+            ...source,
+            id: "00000000-0000-4000-8000-000000000500",
+            set_no: 2,
+            correlation_id: PROVISIONAL,
+          },
+        },
+      ],
+      next_cursor: "v1.test",
+    }));
+  });
+  await screen.findByRole("heading", { name: "수고했어요" });
+  expect(screen.queryByRole("dialog", { name: "운동 종료" })).toBeNull();
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  await expect.poll(notices).toEqual(["shown"]);
 });
 
 it("invariant 1 — said in the sheet, closed before the acknowledgement is written: not said again", async () => {
