@@ -66,14 +66,15 @@ import {
   commitSessionCompletion,
   DEV_USER_SCOPE,
   markRefusalsShown,
-  pendingRefusals,
   readThroughSession,
   readMirroredSession,
   refusalRecorded,
   safeMappings,
   sessionDb,
-  stillPendingRefusals,
+  standingRefusals,
+  stillStandingRefusals,
   type OutboxMutation,
+  type RefusalAudit,
   type RoutineCorrelation,
 } from "./session-db";
 import {
@@ -105,10 +106,33 @@ type CompleteResponse = {
 type RestState = { plannedSetId: string; title: string; timer: RestTimer };
 
 /**
- * BUG-10: a refusal the one judge decided to say — for the session it judged, from these audit
- * rows (`ids`), in the finish sheet or on the screen.
+ * BUG-10: a notice the one judge put up — for the session it judged, in the finish sheet or on the
+ * screen. `ids`: every still-true refusal it holds, said before or not (15). `fresh`: the ones it
+ * says for the first time (the new event that raised it, 7) — empty when it is a notice rewritten
+ * from what is still true (5a·5b), which says nothing new.
  */
-type Refusal = { sessionId: string; text: string; inSheet: boolean; ids: number[] };
+type Refusal = {
+  sessionId: string;
+  text: string;
+  inSheet: boolean;
+  ids: number[];
+  fresh: number[];
+};
+
+/** BUG-10 (2): the page is in front of the user — the document's own state, never a copy of it. */
+const pageVisible = () => document.visibilityState === "visible";
+
+/**
+ * BUG-10 (2): whether a notice drawn now can be perceived. Not on a page in the background
+ * (another app in front, the screen off) — read from the document itself; and not behind a modal —
+ * the finish sheet when it is drawn, else the screen when it is not inert (what is drawn, computed
+ * once in the render). The judge asks it before it draws; the acknowledgement asks it again before
+ * it marks anything said — the page can go to the background, or a sheet come up, in between.
+ */
+function perceivable(drawn: { sheetShown: boolean; screenInert: boolean }, inSheet: boolean) {
+  if (!pageVisible()) return false;
+  return inSheet ? drawn.sheetShown : !drawn.screenInert;
+}
 
 /**
  * BUG-10 round 2: "said" means on screen, not "the data arrived". This renders the refusal's text
@@ -1187,11 +1211,14 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   /**
    * BUG-10 — the one judge. Every refusal the server sent back for this session is said here, once:
    * live (sync events), on re-entry (mount) and while finishing — no path decides on its own. It
-   * reads what the coordinator recorded (this session's "pending" audit rows — a record of what WE
-   * sent, not a guess at the server's taxonomy), asks describeRefusals whether a finish is withdrawn
-   * and what to say, says it — in the finish sheet if that is open, else on the screen — and the
-   * rows turn "shown" once that text is on screen (RefusalText), not when the judge has decided.
-   * Mount and events share one serial queue, so both at once still say it once.
+   * reads what the coordinator recorded (this session's audit rows that are still true — a record of
+   * what WE sent, not a guess at the server's taxonomy), asks describeRefusals whether a finish is
+   * withdrawn and what to say, says it — in the finish sheet if that is open, else on the screen —
+   * and the rows turn "shown" once that text is on screen (RefusalText), not when the judge has
+   * decided. Mount and events share one serial queue, so both at once still say it once.
+   * Two axes, kept apart (총괄 2026-10-07): SAID raises nothing again — only a refusal not said yet
+   * raises a notice (7); STILL TRUE decides what a notice holds — every still-true refusal of the
+   * session, said or not (15), and nothing a strictly later applied write made false (5a·5b).
    * The session is re-read only to refresh the screen after a withdrawn finish, never to decide.
    */
   /**
@@ -1222,9 +1249,20 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const said = useRef(new Set<number>());
   /** The latest judge: a notice that turned false while going on screen is judged again (5b). */
   const rejudge = useRef<() => void>(() => undefined);
-  /** Rows turn "shown" only from RefusalText — once on screen, here, for this session. */
+  /**
+   * Rows turn "shown" only from RefusalText — once on screen, here, for this session, and only
+   * while it can be perceived (2): the page may have gone to the background, or a sheet come up,
+   * after the judge decided. Then nothing is marked: the notice is taken back, and said when the
+   * screen is perceivable again (the page visible, the sheet closed — both judge again, below).
+   * A notice rewritten from what is still true says nothing new: there is nothing to mark.
+   */
   const acknowledge = useCallback((shown: Refusal) => {
     if (!mounted.current || shownSession.current !== shown.sessionId) return;
+    if (shown.fresh.length === 0) return;
+    if (!perceivable(factWindowRef.current, shown.inSheet)) {
+      setRefusal((current) => (current === shown ? null : current));
+      return;
+    }
     for (const id of shown.ids) said.current.add(id);
     void markRefusalsShown(shown.ids)
       .then((stale) => {
@@ -1242,52 +1280,75 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     const judged = sessionId;
     judgeQueue.current = judgeQueue.current
       .then(async () => {
-        const read = (await pendingRefusals(DEV_USER_SCOPE, judged)).filter(
-          (row) => !said.current.has(row.id),
-        );
-        // 5b: still true NOW, when it is about to be said — a later write may have superseded a
+        // Every refusal of this session that is still true, said before or not (15) …
+        const read = await standingRefusals(DEV_USER_SCOPE, judged);
+        // 5b: … as it is NOW, when it is about to be said — a later write may have superseded a
         // row after that read. Never speak from the earlier read.
-        const rows = await stillPendingRefusals(read);
+        const rows = await stillStandingRefusals(read);
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
-        if (!mounted.current || shownSession.current !== judged || rows.length === 0) return;
-        // 2: behind a modal the screen is inert — not perceivable, and an alert put there is never
-        // announced, not even when `inert` lifts. Wait: the screen ceasing to be inert (the modal
-        // closing, or a view with nothing over it) judges again (below). The finish sheet, when it
-        // is drawn, is not behind anything: it says it there. Both facts are the render's own.
-        if (factWindowRef.current.screenInert && !factWindowRef.current.sheetShown) return;
-        const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
-        const outcome = describeRefusals(
-          rows.map((row, index) => ({
-            entity: sent[index]?.entity ?? "",
-            entityId: sent[index]?.canonical_entity_id ?? sent[index]?.entity_id ?? "",
-            reason: row.kind,
-          })),
-          {
-            scheduledDate:
-              queryClient.getQueryData<Session>(["session", judged])?.scheduled_date ?? null,
-            recorded: factWindowRef.current.recorded,
-            cardRows: cardRowsRef.current,
-          },
-        );
-        if (outcome.finishRefused) {
+        if (!mounted.current || shownSession.current !== judged) return;
+        const sentBy = (row: RefusalAudit) => row.payload as Partial<OutboxMutation> | undefined;
+        const describe = (some: readonly RefusalAudit[]) =>
+          describeRefusals(
+            some.map((row) => ({
+              entity: sentBy(row)?.entity ?? "",
+              entityId: sentBy(row)?.canonical_entity_id ?? sentBy(row)?.entity_id ?? "",
+              reason: row.kind,
+            })),
+            {
+              scheduledDate:
+                queryClient.getQueryData<Session>(["session", judged])?.scheduled_date ?? null,
+              recorded: factWindowRef.current.recorded,
+              cardRows: cardRowsRef.current,
+            },
+          );
+        // 5a·5b, said ones too: a notice holds only what is still true. One a strictly later
+        // applied write made false is rewritten from what is left of it, or taken back when
+        // nothing is. A rewrite says nothing new, so it waits for nothing: even behind a modal, a
+        // false sentence is not left standing.
+        const still = new Map(rows.map((row) => [row.id, row]));
+        setRefusal((current) => {
+          if (current?.sessionId !== judged || current.ids.every((id) => still.has(id)))
+            return current;
+          const kept = current.ids.flatMap((id) => still.get(id) ?? []);
+          const text = kept.length > 0 ? describe(kept).text : null;
+          return text ? { ...current, text, ids: kept.map((row) => row.id), fresh: [] } : null;
+        });
+        // 7: a notice is raised only by a new event — a refusal not said yet …
+        const fresh = rows.filter((row) => row.notice === "pending" && !said.current.has(row.id));
+        if (fresh.length === 0) return;
+        // 2: … and only where it can be perceived. Behind a modal the screen is inert, and an alert
+        // put there is never announced, not even when `inert` lifts; a page in the background is
+        // seen by nobody. Wait: the screen ceasing to be inert (the modal closing, or a view with
+        // nothing over it) or the page becoming visible judges again (below). The finish sheet,
+        // when it is drawn, is not behind anything: it says it there.
+        const inSheet = factWindowRef.current.sheetShown;
+        if (!perceivable(factWindowRef.current, inSheet)) return;
+        const news = describe(fresh);
+        if (!news.text) return; // the new event itself has nothing to say (BUG-03's silent kinds)
+        if (news.finishRefused) {
           // "Was my finish applied?" — no: whatever the reason, the screen stops claiming it, and
           // our own optimistic "completed" goes back (the coordinator did the same for the mirror).
           setSummary(null);
-          const prior = sent.find((row) => row?.entity === "session" && row.prior_status)
-            ?.prior_status as Session["status"] | undefined;
+          const prior = fresh
+            .map(sentBy)
+            .find((row) => row?.entity === "session" && row.prior_status)?.prior_status as
+            Session["status"] | undefined;
           if (prior)
             queryClient.setQueryData<Session>(["session", judged], (current) =>
               current?.status === "completed" ? { ...current, status: prior } : current,
             );
           void refetchAuthoritativeSession(queryClient, judged, () => api.session(judged));
         }
-        if (outcome.text)
-          setRefusal({
-            sessionId: judged,
-            text: outcome.text,
-            inSheet: factWindowRef.current.sheetShown,
-            ids: rows.map((row) => row.id),
-          });
+        // 15: … and it holds every refusal of the session that is still true, said before or not
+        // — the sets the user has not entered again do not drop out because they were said once.
+        setRefusal({
+          sessionId: judged,
+          text: describe(rows).text ?? news.text,
+          inSheet,
+          ids: rows.map((row) => row.id),
+          fresh: fresh.map((row) => row.id),
+        });
       })
       .catch(() => undefined);
   }, [queryClient, sessionId]);
@@ -1298,8 +1359,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (!judgeReady) return;
     announceRefusals(); // re-entry: refused while this screen was not open
+    // 2: what waited while the page was in the background is said once it is visible again.
+    const visible = () => {
+      if (pageVisible()) announceRefusals();
+    };
     window.addEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
-    return () => window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+      document.removeEventListener("visibilitychange", visible);
+    };
   }, [judgeReady, announceRefusals]);
   rejudge.current = announceRefusals;
   /**

@@ -198,7 +198,9 @@ export class SyncCoordinator {
         (committed.draftsChanged ||
           committed.local_session_ids.length ||
           // BUG-10 P1: 거부만 담긴 응답도 알린다. 화면이 날짜 창 거부를 침묵 삭제로 두지 않게 한다.
-          response.conflicts.length) &&
+          response.conflicts.length ||
+          // BUG-10 F1: 거부를 거짓으로 만든 응답도 알린다. 이미 말한 알림을 화면이 다시 쓰거나 거둔다.
+          committed.refusalsSuperseded > 0) &&
         typeof window !== "undefined"
       )
         window.dispatchEvent(
@@ -219,6 +221,7 @@ export class SyncCoordinator {
 
   private async commitResponse(response: SyncResponse) {
     let draftsChanged = false;
+    let refusalsSuperseded = 0;
     const touched = new Set<string>();
     const completed = new Set<string>();
     await sessionDb.transaction(
@@ -249,7 +252,7 @@ export class SyncCoordinator {
         await acknowledgeAppendsInTransaction(this.userId, response);
         /** server 가 적용한 세션 종료. 여기가 governing §F 의 "server 성공 + outbox drain" 지점이다. */
         const completedSessions = new Set<string>();
-        /** BUG-10: fact writes the server applied — they supersede unsaid refusals of the same fact. */
+        /** BUG-10: fact writes the server applied — they supersede refusals of the same fact. */
         const appliedFacts: OutboxMutation[] = [];
         for (const clientId of [...applied, ...conflicts.keys()]) {
           const row = await sessionDb.outbox.get(clientId);
@@ -300,7 +303,8 @@ export class SyncCoordinator {
             await clearAppendAuditInTransaction(this.userId, clientId);
           await sessionDb.outbox.delete(clientId);
         }
-        if (appliedFacts.length) await supersedeRefusalsInTransaction(this.userId, appliedFacts);
+        if (appliedFacts.length)
+          refusalsSuperseded = await supersedeRefusalsInTransaction(this.userId, appliedFacts);
         await reconcileBlockedAppendsInTransaction(this.userId);
         await this.cleanupCompletedRemediation(completedSessions);
 
@@ -319,6 +323,7 @@ export class SyncCoordinator {
     );
     return {
       draftsChanged,
+      refusalsSuperseded,
       local_session_ids: [...touched],
       completed_session_ids: [...completed],
     };

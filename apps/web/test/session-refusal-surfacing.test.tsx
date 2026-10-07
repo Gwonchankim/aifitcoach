@@ -160,7 +160,7 @@ const alertTexts = () => screen.queryAllByRole("alert").map((alert) => alert.tex
 const SET_COUNT = "세트 1개 기록은 저장되지 않았어요.";
 
 /**
- * Holds the judge's audit read (`pendingRefusals`, the only `conflicts.where("user_id")` reader)
+ * Holds the judge's audit read (`standingRefusals`, the only `conflicts.where("user_id")` reader)
  * until released, so a test can unmount the screen or switch its session while the judge waits.
  */
 function holdAuditReads() {
@@ -861,12 +861,12 @@ it("invariant 5b — a refusal superseded after the judge read it is not said, a
   await logSet("A", "set-1");
   await sync(refuseAsServer);
   expect(await notices()).toEqual(["pending"]);
-  const read = sessionDbModule.pendingRefusals;
+  const read = sessionDbModule.standingRefusals;
   let reached!: () => void;
   let release!: () => void;
   const entered = new Promise<void>((resolve) => (reached = resolve));
   const gate = new Promise<void>((resolve) => (release = resolve));
-  vi.spyOn(sessionDbModule, "pendingRefusals").mockImplementationOnce(async (...args) => {
+  vi.spyOn(sessionDbModule, "standingRefusals").mockImplementationOnce(async (...args) => {
     const rows = await read(...args); // the judge HAS read the row …
     expect(rows).toHaveLength(1);
     reached();

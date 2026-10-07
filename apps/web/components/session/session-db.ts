@@ -85,11 +85,13 @@ type ConflictAudit = {
   /** The session the refused mutation belongs to (resolved when it is recorded). */
   session_id?: string;
   /**
-   * BUG-10: a refused fact (a set or the finish) is said once by that session's screen —
-   * "pending" until then, "shown" after. "superseded": a later write of the same fact was APPLIED
-   * before it was said — "not saved" is false now, so it is never said. Rows recorded before this
-   * field existed carry none and are never surfaced (intended: there is no way to say them
-   * truthfully any more).
+   * BUG-10: two axes, kept apart (총괄 2026-10-07 — "said" is not "done").
+   * - Still true: "pending" or "shown". "superseded": a strictly later write of the same fact was
+   *   APPLIED — "not saved" is false now, whether it had been said or not.
+   * - Said: "shown" — its notice was put on a perceivable screen; "pending" — not yet.
+   * A notice holds every still-true refusal of its session; only a "pending" one raises a notice.
+   * Rows recorded before this field existed carry none and are never surfaced (intended: there is
+   * no way to say them truthfully any more).
    */
   notice?: "pending" | "shown" | "superseded";
 };
@@ -980,19 +982,25 @@ export async function undoOptimisticCompletionInTransaction(
   await sessionDb.sessions.put({ ...current, session: { ...session, status: row.prior_status } });
 }
 
-/** BUG-10: the refusals of this session that its screen has not said yet. */
-export async function pendingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
+/** BUG-10: a refusal that still says something true — said or not yet (5a·5b·15). */
+const standing = (row: ConflictAudit | undefined) =>
+  row?.notice === "pending" || row?.notice === "shown";
+
+/** BUG-10: the refusals of this session that are still true — said or not (15). */
+export async function standingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
   return (await sessionDb.conflicts.where("user_id").equals(userId).toArray()).filter(
     (row): row is RefusalAudit =>
-      row.id !== undefined && row.session_id === sessionId && row.notice === "pending",
+      row.id !== undefined && row.session_id === sessionId && standing(row),
   );
 }
 
 /**
- * BUG-10: a refusal is a statement about an earlier attempt. Once the server APPLIED a write of the
- * same fact (the same set, or the finish of the same session), "not saved" is false: its unsaid
- * refusals are superseded and never said. Runs inside the coordinator's commit transaction, after
- * that response's refusals were recorded (a refusal and a write of the same fact can share a batch).
+ * BUG-10: a refusal is a statement about an earlier attempt. Once the server APPLIED a strictly
+ * later write of the same fact (the same set, or the finish of the same session), "not saved" is
+ * false: its refusals are superseded — the unsaid ones are never said, and a notice that already
+ * said one is rewritten from what is still true (SessionScreen). Whether it is true does not
+ * depend on whether it was said. Runs inside the coordinator's commit transaction, after that
+ * response's refusals were recorded (a refusal and a write of the same fact can share a batch).
  * Called only with fact writes (sets, finishes), and returns Dexie's own promise: an await inside
  * the commit that does no IndexedDB work spends its zone echoes (Dexie 4). An early-returning async
  * version of this, awaited on every response, made the commit lose its zone in
@@ -1005,7 +1013,7 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
     .where("user_id")
     .equals(userId)
     .filter((audit) => {
-      if (audit.notice !== "pending") return false;
+      if (!standing(audit)) return false;
       const refused = audit.payload as Partial<OutboxMutation>;
       return applied.some(
         (write) =>
@@ -1022,13 +1030,16 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
 }
 
 /**
- * BUG-10 5b: the rows among these that are still unsaid right now — read again when they are about
- * to be said. A later write may have superseded one since the judge's read; never speak from it.
+ * BUG-10 5b: the rows among these that are still true right now, as they are now (said or not) —
+ * read again when they are about to be said. A later write may have superseded one since the
+ * judge's read; never speak from it.
  */
-export async function stillPendingRefusals(rows: readonly RefusalAudit[]): Promise<RefusalAudit[]> {
+export async function stillStandingRefusals(
+  rows: readonly RefusalAudit[],
+): Promise<RefusalAudit[]> {
   if (rows.length === 0) return [];
   const current = await sessionDb.conflicts.bulkGet(rows.map((row) => row.id));
-  return current.filter((row): row is RefusalAudit => row?.notice === "pending");
+  return current.filter((row): row is RefusalAudit => standing(row));
 }
 
 /**
