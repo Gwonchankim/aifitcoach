@@ -1830,8 +1830,9 @@ it.each([
  * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
  * finish too. That run is ASSERTED to do nothing — no alert, no audit write — not judged harmless (a
  * "harmless no-op" in this ticket was once not). That a judge ran on the finished session is asserted
- * first, or "nothing happened" would hold vacuously. Another session's refused finish, waiting to be
- * said when that session is opened, is there for a run that forgot its session to take.
+ * first, or "nothing happened" would hold vacuously. Another session's refused finish waits to be
+ * said when that session is opened: nothing on this path may touch it. (This session has no refusal
+ * of its own, so the truth evaluation does not run here — its own session scope is pinned below.)
  */
 it("invariant 5c — on an ordinary finish, the judge that runs on the finished session says nothing and writes no audit row", async () => {
   await sessionDb.conflicts.add({
@@ -1863,6 +1864,46 @@ it("invariant 5c — on an ordinary finish, the judge that runs on the finished 
   expect(finishedWhenJudged).toContain(true); // a judge ran on the finished session
   expect(alertTexts()).toEqual([]);
   expect(await sessionDb.conflicts.toArray()).toEqual(before); // no audit row written or changed
+});
+
+/*
+ * The finished-on-server evaluation belongs to the session being judged. r7 (W-R62): dropping the
+ * session from it survived every test — the bait above is never reached, since a session with no
+ * refusal of its own does not run the evaluation. Here A runs it: its own refused finish is false
+ * (A is finished) and goes; B's refused finish is true and must stay, for B's screen to say.
+ */
+it("invariant 4 — evaluating a session finished on the server takes no other session's refusal with it", async () => {
+  const refusedFinish = (sessionId: string, notice: "pending" | "shown", clientId: string) => ({
+    user_id: DEV_USER_SCOPE,
+    client_id: clientId,
+    kind: "stale_update",
+    payload: { entity: "session", entity_id: sessionId, payload: { status: "completed" } },
+    session_id: sessionId,
+    notice,
+  });
+  await sessionDb.conflicts.add(
+    refusedFinish("A", "shown", "44444444-4444-4444-8444-444444444444"),
+  );
+  await sessionDb.conflicts.add(
+    refusedFinish("B", "pending", "55555555-5555-4555-8555-555555555555"),
+  );
+  mocks.session.mockImplementation(async (id: string) =>
+    id === "A"
+      ? session("A", "2026-08-14", "completed")
+      : session("B", "2026-08-14", "in_progress"),
+  );
+  const first = mount("A");
+  // A is finished on the server (its summary: no sets were recorded here).
+  await screen.findByRole("heading", { name: "오늘은 기록이 없어요" });
+  await settle();
+  const bySession = async () =>
+    Object.fromEntries(
+      (await sessionDb.conflicts.toArray()).map((row) => [row.session_id, row.notice]),
+    );
+  expect(await bySession()).toEqual({ A: "superseded", B: "pending" });
+  first.unmount();
+  mount("B");
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY])); // still true there: said
 });
 
 /*
