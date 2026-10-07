@@ -41,11 +41,10 @@ export type OutboxMutation = {
    */
   prior_status?: string;
   /**
-   * Local only, never on the wire: a read wrote this session's mirror after this finish claimed
-   * "completed" there, so the status the mirror holds is the server's since, not this claim's — a
-   * refusal of this finish takes nothing back (BUG-10 R6: by provenance, not by value). A read is the
-   * only authoritative writer while the claim waits: a pulled change never writes a session with a
-   * write of ours waiting (`applyChange`).
+   * Local only, never on the wire: after this finish claimed "completed", a read showed the server
+   * holds the session finished — judged from the read as it came, not from what an append overlay
+   * left in the mirror for display (BUG-10 R7). The "completed" there is the server's since, not
+   * this claim's: a refusal of this finish takes nothing back (R6: by provenance, not by value).
    */
   claim_overtaken?: true;
   /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
@@ -490,13 +489,17 @@ export async function commitAuthoritativeSession(
         ...(merged.local_ids !== undefined ? { local_ids: merged.local_ids } : {}),
         updated_at: new Date().toISOString(),
       });
-      // BUG-10 R6: the mirror's status is the server's from here. A finish of ours still waiting does
-      // not own it any more: its refusal must not take this status back, whatever its value.
-      await sessionDb.outbox
-        .where("[user_id+entity_id]")
-        .equals([userId, sessionId])
-        .filter((row) => row.entity === "session" && !!row.prior_status)
-        .modify({ claim_overtaken: true });
+      // BUG-10 R6/R7: once the server holds this session finished, a finish of ours still waiting does
+      // not own the status any more — its refusal must not take it back. Decided from the read as it
+      // came (`session`), never from what the overlay left in the mirror for display: an append made
+      // while this read was on its way keeps our own claim's "completed" on screen, and while the
+      // server holds the session in progress that claim still owns the status (R7).
+      if ((session as { status?: unknown }).status === "completed")
+        await sessionDb.outbox
+          .where("[user_id+entity_id]")
+          .equals([userId, sessionId])
+          .filter((row) => row.entity === "session" && !!row.prior_status)
+          .modify({ claim_overtaken: true });
       await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
     },
   );
@@ -987,7 +990,8 @@ export async function refusedSessionOf(
 
 /**
  * BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too — our own
- * only (R6): once a read wrote the mirror after this claim, the status there is the server's.
+ * only (R6): once a read showed the server holds the session finished after this claim (R7: the
+ * read as it came), the "completed" there is the server's.
  */
 export async function undoOptimisticCompletionInTransaction(
   userId: string,
@@ -1105,8 +1109,10 @@ function supersedeFinishRefusals(userId: string, sessionId: string) {
  * of the session lands in the mirror (`readThroughSession` → `commitAuthoritativeSession`), so the
  * mirror is where what the device knows meets, whichever read brought it. Our own optimistic
  * "completed" lives there only while its finish waits in the outbox: a refusal deletes that row and
- * takes the optimistic status back in one transaction — its own only (R6): a status a read wrote
- * since is the server's and stays. So "completed, and no claim of ours owning it" is the server's.
+ * takes the optimistic status back in one transaction — its own only (R6): a "completed" a read
+ * showed the server holds is the server's and stays (R7: judged from the read as it came, not from
+ * what an append overlay left on display). So "completed, and no claim of ours owning it" is the
+ * server's.
  * R6 (R2): only a finish that still owns the status counts — one that claimed it (a prior status)
  * and that no read overtook. A re-finish over "completed" claimed nothing; an overtaken claim owns
  * nothing any more. Not seen: a read whose mirror write itself failed (a storage error).
