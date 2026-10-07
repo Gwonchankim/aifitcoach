@@ -1528,13 +1528,27 @@ it("invariant 2 — a notice already said keeps standing when its view changes w
  * not lost: "운동 종료는 저장되지 않았어요" beside the summary would be false. A failed re-read
  * changes nothing — the refusal is said from the refusal itself (the re-read is not a gate).
  */
-/** The server's answer to this device's sync after ANOTHER device finished the session first. */
+/**
+ * The server's answer to this device's sync after ANOTHER device finished the session first. As the
+ * real API answers it: the other device's completion is in this answer's changes (evaluator R7-2,
+ * actual SyncService — `{ entity: "session", data: { status: "completed" } }`). Until R7-2 this answer
+ * carried no changes at all: a shape the server sends only when that row is pushed past the 100-row
+ * page — that case is pinned on its own below.
+ */
 const finishedElsewhere = async (body: SyncRequest): Promise<SyncResponse> => ({
   applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
   conflicts: body.mutations
     .filter((m) => m.entity === "session")
     .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
-  changes: [],
+  changes: body.mutations
+    .filter((m) => m.entity === "session")
+    .map((m) => ({
+      entity: "session" as const,
+      entity_id: m.entity_id,
+      op: "upsert" as const,
+      data: { status: "completed" },
+      server_seq: "2",
+    })),
   planned_set_mappings: [],
   next_cursor: "v1.test",
 });
@@ -1601,12 +1615,17 @@ it.each([
     await finishOffline(pain);
     // Another device finished this session first: the server holds it completed.
     mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed"));
+    const drawn = alertsDrawn();
     await act(async () => {
       await sync(finishedElsewhere);
     });
     await screen.findByRole("heading", { name: "수고했어요" }); // the session IS finished
     await waitFor(() => expect(screen.queryByText(FINISH_ONLY)).toBeNull());
     await settle();
+    drawn.stop();
+    // The completion row is in the answer: the finish sentence is never drawn, not even for a moment
+    // (R7-2: with that row pushed past the page it is — the accepted 5c trade, pinned below).
+    expect(drawn.texts).toEqual(left);
     expect(alertTexts()).toEqual(left);
     expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
     expect(await notices()).toEqual([audit]);
