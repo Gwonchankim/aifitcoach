@@ -1638,6 +1638,64 @@ it.each([
   },
 );
 
+/*
+ * The accepted 5c trade, pinned so it stays visible (총괄 R7-2: "보이지 않는 수용은 수용이 아니다").
+ * Another device finished the session and this answer does not carry its completion row (pushed past
+ * the 100-row page). The device knows only its own refused finish, so it says the finish was not saved
+ * — then the re-read says "completed" and the notice is taken back (or rewritten to the pain report).
+ * The finish sentence IS drawn first, and that is decided, not overlooked — the trade as 총괄 wrote it
+ * when 5c's timing was set: "`role="alert"` 는 즉시 낭독되고 거둬도 낭독은 취소되지 않는다. 다른 기기
+ * 경우의 보조기기 사용자는 거짓을 듣고 정정을 못 듣는다. 그래도 먼저 말한다 — 흔한 경우엔 참이고,
+ * 연결이 나쁠 때 데이터 유실 알림을 더 늦추는 것이 더 나쁘다." Waiting for the re-read (β) would bring
+ * back the delay 5c refused; knowing the page is incomplete (δ) is the follow-up
+ * sync-change-page-completeness. Observed: drawn once or twice (two alert elements — one mid-transition,
+ * one when the summary returns before the rewrite lands); the count follows timing, so it is not
+ * pinned. Drawn is observed; read aloud is inferred from `role="alert"` — no screen reader was run. A
+ * later page or a failed re-read is outside this pin (the follow-up's exposure).
+ *
+ * WHY THIS CAN FAIL — READ BEFORE "FIXING": this test pins an accepted trade (5c: say it first and
+ * correct it — so a data-loss notice is not delayed when the connection is bad). If it turns RED
+ * because the finish sentence is no longer drawn, that is an IMPROVEMENT, not a regression. Do not
+ * "fix" the code back: re-decide the trade, update this test deliberately, and record the decision
+ * (BUG-10 ticket, R7-2). It is also RED if another false sentence is drawn, or if the end is not
+ * corrected — those are regressions.
+ */
+it.each([
+  ["without a pain report: then taken back", undefined, [], "superseded"],
+  ["with a pain report: then rewritten to the pain report", 3, [PAIN_ONLY], "shown"],
+] as const)(
+  "invariant 5c — ACCEPTED TRADE (RED because the sentence is no longer drawn = an improvement: re-decide, update deliberately, record) — another device finished the session and its completion row is past this answer's page: the finish refusal is said first, then corrected by the re-read — %s",
+  async (_, pain, left, audit) => {
+    await logSet("A", "set-1");
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+    mount();
+    await finishOffline(pain);
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed")); // the server's
+    const drawn = alertsDrawn();
+    await act(async () => {
+      await sync(async (body) => ({
+        ...(await finishedElsewhere(body)),
+        // 100 earlier changes of another session fill the page: no completion row in this answer.
+        changes: Array.from({ length: 100 }, () => ({
+          entity: "session_routine" as const,
+          entity_id: "00000000-0000-4000-8000-0000000000f0",
+          op: "upsert" as const,
+          data: {},
+          server_seq: "1",
+        })),
+      }));
+    });
+    await screen.findByRole("heading", { name: "수고했어요" }); // the session IS finished
+    await waitFor(() => expect(screen.queryByText(FINISH_ONLY)).toBeNull());
+    await settle();
+    drawn.stop();
+    expect(drawn.texts[0]).toBe(FINISH_ONLY); // said first — the accepted cost
+    expect(drawn.texts.filter((text) => text !== FINISH_ONLY)).toEqual(left); // nothing else false
+    expect(alertTexts()).toEqual(left); // corrected
+    expect(await notices()).toEqual([audit]);
+  },
+);
+
 it.each([
   ["without a pain report", undefined, `${EXPIRED} ${SET1}`, "session:superseded"],
   [
