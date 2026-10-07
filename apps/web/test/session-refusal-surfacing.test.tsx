@@ -344,22 +344,126 @@ function setVisibility(state: "hidden" | "visible") {
 }
 
 /**
- * Every alert put into the screen (outside any dialog) from now on — one taken back at once
- * included: "never drawn there" is not the same as "not there any more".
+ * Every text an alert on the screen (outside any dialog) showed from now on: an alert put in, and
+ * a new text in one already there — React rewrites a text it rendered in place — one taken back
+ * at once included: "never drawn there" is not the same as "not there any more". The observer
+ * hands its changes over in batches (two renders in one `act` flush land in one), so a batch is
+ * replayed backwards from the tree as it is now: the old values and the nodes each change carries
+ * give back what every alert showed right after each change. Not seen: an element made an alert
+ * through its role attribute (no alert here is). Its positive control is the next test.
  */
 function alertsDrawn() {
   const texts: string[] = [];
   const observer = new MutationObserver((records) => {
-    for (const record of records)
-      for (const node of record.addedNodes)
-        if (node instanceof Element)
-          for (const alert of [node, ...node.querySelectorAll('[role="alert"]')])
-            if (alert.getAttribute("role") === "alert" && !alert.closest('[role="dialog"]'))
-              texts.push(alert.textContent ?? "");
+    // The tree right after the record being replayed — the later ones undone, back from now.
+    const values = new Map<Node, string | null>();
+    const kids = new Map<Node, Node[]>();
+    const parents = new Map<Node, Node | null>();
+    const childrenOf = (node: Node) => {
+      if (!kids.has(node)) kids.set(node, [...node.childNodes]);
+      return kids.get(node)!;
+    };
+    const textOf = (node: Node): string =>
+      node.nodeType === Node.TEXT_NODE
+        ? ((values.has(node) ? values.get(node) : node.nodeValue) ?? "")
+        : node.nodeType === Node.ELEMENT_NODE
+          ? childrenOf(node).map(textOf).join("")
+          : "";
+    const role = (node: Node) => (node instanceof Element ? node.getAttribute("role") : null);
+    /** The alert `node` is (or is in), if that is on the screen and not inside a dialog. */
+    const screenAlert = (node: Node) => {
+      let alert: Node | null = null;
+      let at: Node | null = node;
+      for (; at && at !== document; at = parents.has(at) ? parents.get(at)! : at.parentNode) {
+        if (role(at) === "dialog") return null;
+        if (!alert && role(at) === "alert") alert = at;
+      }
+      return at === document ? alert : null;
+    };
+    const alertsIn = (node: Node): Node[] => [
+      ...(role(node) === "alert" ? [node] : []),
+      ...childrenOf(node).flatMap(alertsIn),
+    ];
+    const replayed: string[][] = [];
+    for (let i = records.length - 1; i >= 0; i--) {
+      const record = records[i];
+      const shown = [...record.addedNodes]
+        .flatMap(alertsIn)
+        .filter((alert) => screenAlert(alert) === alert)
+        .map(textOf); // alerts this change put in
+      const around = screenAlert(record.target); // an alert this change rewrote from inside
+      const after = around ? textOf(around) : null;
+      if (record.type === "characterData") values.set(record.target, record.oldValue);
+      else {
+        const list = childrenOf(record.target);
+        for (const node of record.addedNodes) {
+          list.splice(list.indexOf(node), 1);
+          parents.set(node, null);
+        }
+        const at = record.previousSibling ? list.indexOf(record.previousSibling) + 1 : 0;
+        list.splice(at, 0, ...record.removedNodes);
+        for (const node of record.removedNodes) parents.set(node, record.target);
+      }
+      if (around && after !== textOf(around)) shown.push(after!);
+      replayed[i] = shown;
+    }
+    texts.push(...replayed.flat());
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    characterDataOldValue: true,
+  });
   return { texts, stop: () => observer.disconnect() };
 }
+
+/*
+ * The probe itself (diagnosis row 12: a probe's "not observed" is evidence only once it has been
+ * seen to report the thing). Positive control: a false sentence is deliberately put into an alert
+ * already on screen and taken back at once — in place, the way React rewrites a text it rendered,
+ * and by a node swapped inside it — and `alertsDrawn` must report it. Both within one observer
+ * batch, as two renders in one `act` flush would land.
+ */
+it.each([
+  [
+    "in place (the text node's value)",
+    (alert: Element, text: string) => {
+      const node = alert.firstChild!;
+      expect(node.nodeType).toBe(Node.TEXT_NODE); // React's own text node
+      const kept = node.nodeValue;
+      node.nodeValue = text;
+      node.nodeValue = kept;
+    },
+  ],
+  [
+    "by a node swapped inside it",
+    (alert: Element, text: string) => {
+      const kept = [...alert.childNodes];
+      alert.replaceChildren(document.createTextNode(text));
+      alert.replaceChildren(...kept);
+    },
+  ],
+])(
+  "alertsDrawn (positive control) — a false sentence put into an alert on screen and taken back at once is reported: %s",
+  async (_, putAndTakeBack) => {
+    await logSet("A", "set-1");
+    await sync(refuseAsServer);
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress"));
+    mount();
+    await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+    await settle();
+    const drawn = alertsDrawn();
+    await settle();
+    expect(drawn.texts).toEqual([]); // an alert left as it is: nothing reported
+    const FALSE = "벤치프레스 2세트 기록은 저장되지 않았어요."; // set 2 was never refused
+    putAndTakeBack(screen.getByRole("alert"), FALSE);
+    await settle();
+    drawn.stop();
+    expect(drawn.texts).toEqual([FALSE, SET1]);
+    expect(alertTexts()).toEqual([SET1]); // the screen is as it was: only the probe saw it
+  },
+);
 
 it("live finishing: a set and the finish refused together are both named in the sheet, once", async () => {
   await logSet("A", "set-1");
