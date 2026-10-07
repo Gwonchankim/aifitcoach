@@ -73,7 +73,6 @@ import {
   sessionDb,
   standingRefusals,
   stillStandingRefusals,
-  supersedeFinishRefusals,
   type OutboxMutation,
   type RefusalAudit,
   type RoutineCorrelation,
@@ -1352,15 +1351,15 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             queryClient.setQueryData<Session>(["session", judged], (current) =>
               current?.status === "completed" ? { ...current, status: prior } : current,
             );
-          // 11 (총괄 2026-10-07): "my write was refused" is not "it did not happen". The re-read
-          // answers whether the session was finished — by another device, whose write has no row
-          // here to compare with (5a). If it was, the finish refusal is not true any more: it is
-          // superseded, and the notice is rewritten without it. A failed re-read changes nothing:
-          // the refusal is said from the refusal itself (the re-read is not a gate).
+          // 11 (총괄 2026-10-07): "my write was refused" is not "it did not happen". Re-read the
+          // session — finished by another device, whose write has no row here to compare with
+          // (5a)? This only refreshes what the device knows (the mirror). Whether the finish
+          // refusal is still true is decided where every notice is composed, for every row
+          // (`stillStandingRefusals`, 총괄 R5) — so judge again once it says finished. A failed
+          // re-read changes nothing: the refusal is said from the refusal itself (not a gate).
           void refetchAuthoritativeSession(queryClient, judged, () => api.session(judged))
-            .then(async (authoritative) => {
-              if (authoritative?.status !== "completed") return;
-              if (await supersedeFinishRefusals(DEV_USER_SCOPE, judged)) rejudge.current();
+            .then((authoritative) => {
+              if (authoritative?.status === "completed") rejudge.current();
             })
             .catch(() => undefined);
         }

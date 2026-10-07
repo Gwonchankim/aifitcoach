@@ -1034,10 +1034,10 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
  * session says this session IS finished — another device finished it first, and its write has no
  * row in this outbox to compare with (5a cannot see it). A refusal of OUR finish is a fact about
  * our attempt, not about whether the session was finished: "not saved" is false now, so its finish
- * refusals are superseded, like those a later write of ours made false. Sets are left as they are:
- * the session being finished does not mean a refused set was saved.
+ * refusals are superseded, like those a later write of ours made false — said or not. Sets are left
+ * as they are: the session being finished does not mean a refused set was saved.
  */
-export function supersedeFinishRefusals(userId: string, sessionId: string) {
+function supersedeFinishRefusals(userId: string, sessionId: string) {
   return sessionDb.conflicts
     .where("user_id")
     .equals(userId)
@@ -1051,14 +1051,46 @@ export function supersedeFinishRefusals(userId: string, sessionId: string) {
 }
 
 /**
- * BUG-10 5b·15: this session's still-true refusals read AGAIN right before a notice is composed —
- * by session, not by the ids an earlier read returned (총괄 R4: "구성 직전"). A refusal superseded
- * since that read is left out; one that arrived since is in, so the list the user acts on is
- * complete. One that arrives after THIS read is not chased — the window is narrowed as far as the
- * mechanism allows, not to zero: its arrival wakes the judge, and the rewrite (F3) puts it in.
+ * BUG-10 (총괄 R5): the server holds this session finished, as far as this device knows. Every read
+ * of the session lands in the mirror (`readThroughSession` → `commitAuthoritativeSession`), so the
+ * mirror is where what the device knows meets, whichever read brought it. Our own optimistic
+ * "completed" lives there only while its finish waits in the outbox: a refusal deletes that row and
+ * takes the optimistic status back in one transaction. So "completed, and no finish of ours waiting"
+ * is the server's. Not seen: a read whose mirror write itself failed (a storage error).
+ */
+async function finishedOnServer(userId: string, sessionId: string): Promise<boolean> {
+  const mirror = await sessionDb.sessions.get([userId, sessionId]);
+  if ((mirror?.session as { status?: unknown } | null | undefined)?.status !== "completed")
+    return false;
+  const waiting = await sessionDb.outbox
+    .where("[user_id+entity_id]")
+    .equals([userId, sessionId])
+    .filter((row) => row.entity === "session")
+    .count();
+  return waiting === 0;
+}
+
+/**
+ * BUG-10 5b·15·R5: the truth evaluation right before a notice is composed — this session's refusals
+ * that are still true, every source that makes "not saved" false applied to every row, said or not,
+ * in one transaction with the read (총괄 R5: one evaluation, not a trigger per source):
+ * - a strictly later write applied (5a) — recorded as `superseded` when that response was committed;
+ * - the session finished on the server (11) — evaluated here, whatever woke the judge.
+ * What a notice holds is exactly what this returns. Read by session, not by the ids an earlier read
+ * returned (R4 "구성 직전"): one superseded since is out, one that arrived since is in. One arriving
+ * after THIS read is not chased — the window is narrowed as far as the mechanism allows, not to
+ * zero: its arrival wakes the judge, and the rewrite (F3) puts it in.
  */
 export function stillStandingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
-  return standingRefusals(userId, sessionId);
+  return sessionDb.transaction(
+    "rw",
+    [sessionDb.conflicts, sessionDb.sessions, sessionDb.outbox],
+    async () => {
+      if (await finishedOnServer(userId, sessionId))
+        await supersedeFinishRefusals(userId, sessionId);
+      return standingRefusals(userId, sessionId);
+    },
+  );
 }
 
 /**
