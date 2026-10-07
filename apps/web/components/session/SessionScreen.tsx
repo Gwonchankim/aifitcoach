@@ -54,6 +54,7 @@ import {
 import { errorMessage, isConflict, shouldRefetch } from "./errors";
 import {
   describeRefusals,
+  PAIN_UNSAVED,
   reflectsOnCopy,
   sessionEditRights,
   type RefusedRow,
@@ -73,6 +74,7 @@ import {
   sessionDb,
   standingRefusals,
   stillStandingRefusals,
+  type JudgedRefusal,
   type OutboxMutation,
   type RefusalAudit,
   type RoutineCorrelation,
@@ -117,6 +119,8 @@ type Refusal = {
   inSheet: boolean;
   ids: number[];
   fresh: number[];
+  /** R5 (i): the ids said as a pain report alone — their finish was true when this was composed. */
+  painOnly: number[];
 };
 
 /** BUG-10 (2): the page is in front of the user — the document's own state, never a copy of it. */
@@ -1297,14 +1301,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         // ids above: one superseded since is left out, one that arrived since is in. Never speak
         // from the earlier read. Nothing standing: nothing to compose, and a notice left on
         // screen is taken back by the rewrite below.
-        const rows = read.length > 0 ? await stillStandingRefusals(DEV_USER_SCOPE, judged) : read;
+        const rows: readonly JudgedRefusal[] =
+          read.length > 0 ? await stillStandingRefusals(DEV_USER_SCOPE, judged) : read;
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
         if (!mounted.current || shownSession.current !== judged) return;
         const sentBy = (row: RefusalAudit) => row.payload as Partial<OutboxMutation> | undefined;
-        const describe = (some: readonly RefusalAudit[]) =>
+        // R5 (i): a refused finish whose finish is true now says only the pain it carried.
+        const describe = (some: readonly JudgedRefusal[]) =>
           describeRefusals(
             some.map((row) => ({
-              entity: sentBy(row)?.entity ?? "",
+              entity: row.painOnly ? PAIN_UNSAVED : (sentBy(row)?.entity ?? ""),
               entityId: sentBy(row)?.canonical_entity_id ?? sentBy(row)?.entity_id ?? "",
               reason: row.kind,
             })),
@@ -1318,14 +1324,25 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         // 5a·5b, said ones too: a notice holds only what is still true. One a strictly later
         // applied write made false is rewritten from what is left of it, or taken back when
         // nothing is. A rewrite says nothing new, so it waits for nothing: even behind a modal, a
-        // false sentence is not left standing.
+        // false sentence is not left standing. R5 (i): nor one whose finish became true while its
+        // pain did not — it is rewritten to the pain report (re-announced: the correction is heard).
         const still = new Map(rows.map((row) => [row.id, row]));
+        const painOnlyOf = (some: readonly JudgedRefusal[]) =>
+          some.filter((row) => row.painOnly).map((row) => row.id);
         setRefusal((current) => {
-          if (current?.sessionId !== judged || current.ids.every((id) => still.has(id)))
-            return current;
+          if (current?.sessionId !== judged) return current;
           const kept = current.ids.flatMap((id) => still.get(id) ?? []);
+          const painOnly = painOnlyOf(kept);
+          if (
+            kept.length === current.ids.length &&
+            painOnly.length === current.painOnly.length &&
+            painOnly.every((id) => current.painOnly.includes(id))
+          )
+            return current;
           const text = kept.length > 0 ? describe(kept).text : null;
-          return text ? { ...current, text, ids: kept.map((row) => row.id), fresh: [] } : null;
+          return text
+            ? { ...current, text, ids: kept.map((row) => row.id), fresh: [], painOnly }
+            : null;
         });
         // 7: a notice is raised only by a new event — a refusal not said yet …
         const fresh = rows.filter((row) => row.notice === "pending" && !said.current.has(row.id));
@@ -1371,6 +1388,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           inSheet,
           ids: rows.map((row) => row.id),
           fresh: fresh.map((row) => row.id),
+          painOnly: painOnlyOf(rows),
         });
       })
       .catch(() => undefined);

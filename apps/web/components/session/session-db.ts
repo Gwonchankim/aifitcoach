@@ -986,6 +986,17 @@ export async function undoOptimisticCompletionInTransaction(
 const standing = (row: ConflictAudit | undefined) =>
   row?.notice === "pending" || row?.notice === "shown";
 
+/** BUG-10: what a refused write sent — the outbox row the coordinator recorded. */
+const sentRow = (audit: ConflictAudit | undefined) =>
+  audit?.payload as Partial<OutboxMutation> | undefined;
+
+/**
+ * BUG-10 R5 (i): a finish that sent the session's pain report. Without one it sends no `pain` field
+ * at all (`{}`): it neither sets nor clears the server's pain.
+ */
+const carriesPain = (row: Partial<OutboxMutation> | undefined) =>
+  row?.entity === "session" && (row.payload as { pain?: unknown } | undefined)?.pain != null;
+
 /** BUG-10: the refusals of this session that are still true — said or not (15). */
 export async function standingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
   return (await sessionDb.conflicts.where("user_id").equals(userId).toArray()).filter(
@@ -1005,28 +1016,46 @@ export async function standingRefusals(userId: string, sessionId: string): Promi
  * the commit that does no IndexedDB work spends its zone echoes (Dexie 4). An early-returning async
  * version of this, awaited on every response, made the commit lose its zone in
  * rest-timer-sync-remap's mapping-hold case (PrematureCommitError, 10 of 10 runs).
+ * R5 (i, 총괄): a later finish that sent no pain report saved none — the pain a refused finish
+ * carried is still not saved, so that refusal is not superseded: it now says only the pain (its
+ * finish is saved). Resolves to the number of refusals the response changed either way, so the
+ * coordinator announces it (the screen rewrites what is on it).
  */
 export function supersedeRefusalsInTransaction(userId: string, applied: readonly OutboxMutation[]) {
   const ids = (row: Partial<OutboxMutation>) => [row.entity_id, row.canonical_entity_id];
   const at = (row: Partial<OutboxMutation>) => Date.parse(row.updated_at ?? "");
+  const laterWrites = (audit: ConflictAudit) => {
+    const refused = audit.payload as Partial<OutboxMutation>;
+    return applied.filter(
+      (write) =>
+        write.entity === refused.entity &&
+        ids(refused).some((id) => id !== undefined && ids(write).includes(id)) &&
+        // 5a (evaluator R3): only a STRICTLY later write makes "not saved" false. An older write
+        // whose ACK was lost is no evidence that a newer edit was saved; the same instant or an
+        // unknown order (NaN never compares greater) is said, never silenced. Both are this
+        // device's outbox rows — one clock compared with itself, never with the server's.
+        at(write) > at(refused),
+    );
+  };
+  const changedBy = (painLeft: boolean) => (audit: ConflictAudit) => {
+    if (!standing(audit)) return false;
+    const writes = laterWrites(audit);
+    if (writes.length === 0) return false;
+    return (carriesPain(sentRow(audit)) && !writes.some(carriesPain)) === painLeft;
+  };
   return sessionDb.conflicts
     .where("user_id")
     .equals(userId)
-    .filter((audit) => {
-      if (!standing(audit)) return false;
-      const refused = audit.payload as Partial<OutboxMutation>;
-      return applied.some(
-        (write) =>
-          write.entity === refused.entity &&
-          ids(refused).some((id) => id !== undefined && ids(write).includes(id)) &&
-          // 5a (evaluator R3): only a STRICTLY later write makes "not saved" false. An older write
-          // whose ACK was lost is no evidence that a newer edit was saved; the same instant or an
-          // unknown order (NaN never compares greater) is said, never silenced. Both are this
-          // device's outbox rows — one clock compared with itself, never with the server's.
-          at(write) > at(refused),
-      );
-    })
-    .modify({ notice: "superseded" });
+    .filter(changedBy(false))
+    .modify({ notice: "superseded" })
+    .then((superseded) =>
+      sessionDb.conflicts
+        .where("user_id")
+        .equals(userId)
+        .filter(changedBy(true))
+        .count()
+        .then((reworded) => superseded + reworded),
+    );
 }
 
 /**
@@ -1035,7 +1064,8 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
  * row in this outbox to compare with (5a cannot see it). A refusal of OUR finish is a fact about
  * our attempt, not about whether the session was finished: "not saved" is false now, so its finish
  * refusals are superseded, like those a later write of ours made false — said or not. Sets are left
- * as they are: the session being finished does not mean a refused set was saved.
+ * as they are: the session being finished does not mean a refused set was saved. Nor a pain report
+ * (R5 (i), 총괄): a finish that carried one stays — its finish is true, its pain is not saved.
  */
 function supersedeFinishRefusals(userId: string, sessionId: string) {
   return sessionDb.conflicts
@@ -1045,7 +1075,8 @@ function supersedeFinishRefusals(userId: string, sessionId: string) {
       (audit) =>
         standing(audit) &&
         audit.session_id === sessionId &&
-        (audit.payload as Partial<OutboxMutation> | undefined)?.entity === "session",
+        sentRow(audit)?.entity === "session" &&
+        !carriesPain(sentRow(audit)),
     )
     .modify({ notice: "superseded" });
 }
@@ -1080,18 +1111,30 @@ async function finishedOnServer(userId: string, sessionId: string): Promise<bool
  * returned (R4 "구성 직전"): one superseded since is out, one that arrived since is in. One arriving
  * after THIS read is not chased — the window is narrowed as far as the mechanism allows, not to
  * zero: its arrival wakes the judge, and the rewrite (F3) puts it in.
+ * R5 (i): on a finished session a finish refusal that is still standing carried a pain report —
+ * returned as `painOnly`: only its pain is not saved, and only that is said.
  */
-export function stillStandingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
+export function stillStandingRefusals(userId: string, sessionId: string): Promise<JudgedRefusal[]> {
   return sessionDb.transaction(
     "rw",
     [sessionDb.conflicts, sessionDb.sessions, sessionDb.outbox],
     async () => {
-      if (await finishedOnServer(userId, sessionId))
-        await supersedeFinishRefusals(userId, sessionId);
-      return standingRefusals(userId, sessionId);
+      const finished = await finishedOnServer(userId, sessionId);
+      if (finished) await supersedeFinishRefusals(userId, sessionId);
+      const rows = await standingRefusals(userId, sessionId);
+      if (!finished) return rows;
+      return rows.map((row) =>
+        sentRow(row)?.entity === "session" ? { ...row, painOnly: true as const } : row,
+      );
     },
   );
 }
+
+/**
+ * BUG-10 R5 (i): a refusal as the truth evaluation leaves it. `painOnly`: a refused finish whose
+ * finish is true now (the session is finished on the server) but whose pain report is not saved.
+ */
+export type JudgedRefusal = RefusalAudit & { painOnly?: true };
 
 /**
  * BUG-10: the acknowledgement — said once, never again. 5b: written only while every row is still

@@ -200,7 +200,8 @@ export class SyncCoordinator {
           // BUG-10 P1: 거부만 담긴 응답도 알린다. 화면이 날짜 창 거부를 침묵 삭제로 두지 않게 한다.
           response.conflicts.length ||
           // BUG-10 F1: 거부를 거짓으로 만든 응답도 알린다. 이미 말한 알림을 화면이 다시 쓰거나 거둔다.
-          committed.refusalsSuperseded > 0) &&
+          // R5 (i): 거부의 진술을 바꾼 응답도 — 통증 없는 나중 종료가 적용되면 앞의 통증만 남는다.
+          committed.refusalsChanged > 0) &&
         typeof window !== "undefined"
       )
         window.dispatchEvent(
@@ -221,7 +222,7 @@ export class SyncCoordinator {
 
   private async commitResponse(response: SyncResponse) {
     let draftsChanged = false;
-    let refusalsSuperseded = 0;
+    let refusalsChanged = 0;
     const touched = new Set<string>();
     const completed = new Set<string>();
     await sessionDb.transaction(
@@ -304,7 +305,7 @@ export class SyncCoordinator {
           await sessionDb.outbox.delete(clientId);
         }
         if (appliedFacts.length)
-          refusalsSuperseded = await supersedeRefusalsInTransaction(this.userId, appliedFacts);
+          refusalsChanged = await supersedeRefusalsInTransaction(this.userId, appliedFacts);
         await reconcileBlockedAppendsInTransaction(this.userId);
         await this.cleanupCompletedRemediation(completedSessions);
 
@@ -323,7 +324,7 @@ export class SyncCoordinator {
     );
     return {
       draftsChanged,
-      refusalsSuperseded,
+      refusalsChanged,
       local_session_ids: [...touched],
       completed_session_ids: [...completed],
     };

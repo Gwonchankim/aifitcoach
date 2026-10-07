@@ -39,7 +39,12 @@ export type RefusedRow = { exerciseId: string; exerciseName: string; setNo: numb
  * and refused rows the screen cannot show fold into one count. The caller puts it after the date
  * notice: the reason first, so the user does not resend what will be refused again.
  */
-export function unsavedCopy(rows: readonly RefusedRow[], unknown: number, finish: boolean): string {
+export function unsavedCopy(
+  rows: readonly RefusedRow[],
+  unknown: number,
+  finish: boolean,
+  pain = false,
+): string {
   const byExercise = new Map<string, { name: string; sets: number[] }>();
   for (const row of rows) {
     const entry = byExercise.get(row.exerciseId) ?? { name: row.exerciseName, sets: [] };
@@ -53,9 +58,19 @@ export function unsavedCopy(rows: readonly RefusedRow[], unknown: number, finish
   const rest = exercises.slice(2).reduce((count, { sets }) => count + sets.length, unknown);
   if (rest > 0) named.push(named.length > 0 ? `다른 세트 ${rest}개` : `세트 ${rest}개`);
   const sets = named.length > 0 ? `${named.join(", ")} 기록은 저장되지 않았어요.` : "";
-  if (!finish) return sets;
-  return sets ? `${sets} 운동 종료도 저장되지 않았어요.` : "운동 종료는 저장되지 않았어요.";
+  if (finish)
+    return sets ? `${sets} 운동 종료도 저장되지 않았어요.` : "운동 종료는 저장되지 않았어요.";
+  // BUG-10 R5 (i, 총괄 승인): a refused finish's pain report, the session finished on the server.
+  if (pain)
+    return sets ? `${sets} 통증 기록도 저장되지 않았어요.` : "통증 기록은 저장되지 않았어요.";
+  return sets;
 }
+
+/**
+ * BUG-10 R5 (i): not an entity the server knows — the judge's record for a refused finish whose
+ * finish is true now (the session is finished on the server) but whose pain report is not saved.
+ */
+export const PAIN_UNSAVED = "session_pain";
 
 /** One refused mutation, as WE sent it (the coordinator's record — never a guess at the server). */
 export type RefusalRecord = { entity: string; entityId: string; reason: string };
@@ -98,14 +113,24 @@ export function describeRefusals(
     ),
   ];
   const finishRefused = finishes.length > 0;
+  // R5 (i): a pain report not saved is said whatever the reason, like the finish — a lost safety
+  // input is lost whatever the server's reason. It is not a refused finish: the summary stays.
+  // A refused finish says the whole finish was not saved, its pain with it.
+  const pains = records.filter((record) => record.entity === PAIN_UNSAVED);
+  const painUnsaved = pains.length > 0 && !finishRefused;
   const dateRefusal =
-    dateSets.length > 0 || finishes.some((record) => record.reason === FACT_WINDOW_REFUSAL);
-  if (!dateRefusal) return { text: finishRefused ? unsavedCopy([], 0, true) : null, finishRefused };
+    dateSets.length > 0 ||
+    [...finishes, ...pains].some((record) => record.reason === FACT_WINDOW_REFUSAL);
+  if (!dateRefusal)
+    return {
+      text: finishRefused || painUnsaved ? unsavedCopy([], 0, finishRefused, painUnsaved) : null,
+      finishRefused,
+    };
   const rows = dateSets.flatMap((id) => {
     const row = context.cardRows.get(id);
     return row ? [row] : [];
   });
-  const clause = unsavedCopy(rows, dateSets.length - rows.length, finishRefused);
+  const clause = unsavedCopy(rows, dateSets.length - rows.length, finishRefused, painUnsaved);
   const reason = dateReason(context, context.recorded || dateSets.length > 0);
   return { text: reason ? `${reason} ${clause}` : clause, finishRefused };
 }
