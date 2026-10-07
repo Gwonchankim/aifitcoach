@@ -219,17 +219,23 @@ function holdAuditReads() {
 
 /**
  * Holds the acknowledgement write (`markRefusalsShown`, the only read-write transaction on the
- * audit table alone) until released: the text is on screen, its "shown" not yet written.
+ * audit table alone) until released: the text is on screen, its "shown" not yet written. `waiting`:
+ * the acknowledgement HAS reached the hold — the test's premise, awaited, so a hold that no longer
+ * catches it fails instead of passing without the race it is there for (총괄 R6).
  */
 function holdAcknowledgements() {
   let release!: () => void;
+  let caught!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
+  const waiting = new Promise<void>((resolve) => (caught = resolve));
   const transaction = sessionDb.transaction.bind(sessionDb) as (...args: unknown[]) => unknown;
-  vi.spyOn(sessionDb, "transaction").mockImplementation(((...args: unknown[]) =>
-    args.length === 3 && args[0] === "rw" && args[1] === sessionDb.conflicts
-      ? gate.then(() => transaction(...args))
-      : transaction(...args)) as unknown as typeof sessionDb.transaction);
-  return { release };
+  vi.spyOn(sessionDb, "transaction").mockImplementation(((...args: unknown[]) => {
+    if (!(args.length === 3 && args[0] === "rw" && args[1] === sessionDb.conflicts))
+      return transaction(...args);
+    caught();
+    return gate.then(() => transaction(...args));
+  }) as unknown as typeof sessionDb.transaction);
+  return { waiting, release };
 }
 
 /**
@@ -839,6 +845,7 @@ it("invariant 1 — said in the sheet, closed before the acknowledgement is writ
   await waitFor(() =>
     expect(within(sheet).getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1} ${FINISH_TOO}`),
   );
+  await acknowledgements.waiting; // its "shown" is on its way, and held
   expect(await notices()).toEqual(["pending", "pending"]); // said; "shown" is still on its way
   await closeSheet(sheet);
   await settle();
@@ -1026,6 +1033,7 @@ it("invariant 5b — a refusal that turns false while its notice is being acknow
   const acknowledgements = holdAcknowledgements();
   mount();
   await waitFor(() => expect(alertTexts()).toEqual([SET1])); // on screen; its "shown" is held
+  await acknowledgements.waiting;
   vi.setSystemTime(new Date(NOW.getTime() + 1000));
   await act(async () => {
     await logSet("A", "set-1");
@@ -1050,6 +1058,7 @@ it("invariant 5b — part of a notice turns false while it is being acknowledged
   await waitFor(() =>
     expect(alertTexts()).toEqual(["벤치프레스 1·2세트 기록은 저장되지 않았어요."]),
   ); // on screen; its "shown" is held
+  await acknowledgements.waiting;
   vi.setSystemTime(new Date(NOW.getTime() + 1000));
   await act(async () => {
     await logSet("A", "set-2");
