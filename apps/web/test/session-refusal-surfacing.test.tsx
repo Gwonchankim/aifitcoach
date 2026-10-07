@@ -419,6 +419,10 @@ it("an offline finish refused later while the session cannot be read: the claim 
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1} ${FINISH_TOO}`),
   );
+  // 5c: the re-read failed — it changes nothing; the refusal is said from the refusal itself, and
+  // stays said once the re-read has come back (the re-read is not a gate).
+  await settle();
+  expect(screen.getByRole("alert").textContent).toBe(`${EXPIRED} ${SET1} ${FINISH_TOO}`);
   expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
   // A reload (even offline) must not bring the finish back: the local mirror is undone too.
   const mirror = await sessionDb.sessions.get([DEV_USER_SCOPE, "A"]);
@@ -444,6 +448,10 @@ it.each(["stale_update", "zz_reason_no_list_knows"])(
       }));
     });
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(FINISH_ONLY));
+    // 5c: the re-read says the session is not finished — the refusal stays true, and stays said
+    // once the re-read has come back.
+    await settle();
+    expect(screen.getByRole("alert").textContent).toBe(FINISH_ONLY);
     expect(screen.queryByRole("heading", { name: "수고했어요" })).toBeNull();
   },
 );
