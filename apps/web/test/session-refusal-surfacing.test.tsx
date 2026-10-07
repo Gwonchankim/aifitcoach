@@ -1834,11 +1834,18 @@ it.each([
  * re-read failing (GET 503) the finish refusal was said beside a finished session. Whether to take a
  * status back is decided by where it came from, not by its value (총괄 R6). The order is the
  * evaluator's. The status the finish replaced is both the unit order's (in progress) and the
- * browser's (scheduled: the mirror was not read again after the set was saved).
+ * browser's (scheduled: the mirror was not read again after the set was saved). The refused sync is
+ * sent after the read (the browser's order) or already on its way while the read lands (the unit
+ * order): the refusal is committed from the finish's row as it is then, not as it was sent.
  */
-it.each([["in_progress"], ["scheduled"]] as const)(
-  "invariant 11 — a finish refused after an ordinary read showed the session finished takes nothing back: that 'completed' is the server's (status before the finish: %s)",
-  async (prior) => {
+it.each([
+  ["in_progress", "sent after it"],
+  ["scheduled", "sent after it"],
+  ["in_progress", "on its way while it lands"],
+  ["scheduled", "on its way while it lands"],
+] as const)(
+  "invariant 11 — a finish refused after an ordinary read showed the session finished takes nothing back: that 'completed' is the server's (status before the finish: %s; the refused sync %s)",
+  async (prior, order) => {
     await logSet("A", "set-1");
     await sync(applyAsServer); // set 1 is saved
     mocks.session.mockResolvedValue(todayThreeSets(prior));
@@ -1850,6 +1857,26 @@ it.each([["in_progress"], ["scheduled"]] as const)(
       const row = await sessionDb.sessions.get([DEV_USER_SCOPE, "A"]);
       return { status: (row?.session as Session | undefined)?.status, writtenAt: row?.updated_at };
     };
+    let answer = () => sync(refuseAsServer);
+    if (order === "on its way while it lands") {
+      let release!: () => void;
+      let sent!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const onItsWay = new Promise<void>((resolve) => (sent = resolve));
+      let refused: ReturnType<typeof sync> = Promise.resolve(null);
+      await act(async () => {
+        refused = sync(async (body) => {
+          sent();
+          await gate;
+          return refuseAsServer(body);
+        });
+        await onItsWay;
+      });
+      answer = () => {
+        release();
+        return refused;
+      };
+    }
     // An ordinary read, a moment later, shows the session finished: the read writes the mirror …
     const readAt = new Date(NOW.getTime() + 1000);
     vi.setSystemTime(readAt);
@@ -1861,7 +1888,7 @@ it.each([["in_progress"], ["scheduled"]] as const)(
     expect(await finishes()).toHaveLength(1); // … while the finish still waits
     mocks.session.mockRejectedValue(new Error("GET 503")); // every read from here on fails
     await act(async () => {
-      await sync(refuseAsServer); // the finish's refusal arrives
+      await answer(); // the finish's refusal arrives
     });
     await settle();
     expect((await mirror()).status).toBe("completed"); // the server's: not taken back
