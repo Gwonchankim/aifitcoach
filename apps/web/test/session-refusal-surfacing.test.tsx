@@ -1899,6 +1899,41 @@ it.each([
 );
 
 /*
+ * The read overtakes the claims of the session it read — no other's. r8 probe (W-R83): marking every
+ * waiting finish of the user survived every test. Here B's finish waits while an ordinary read of A
+ * lands; B's refusal must still take B's own optimistic "completed" back — left there, B would look
+ * finished on the server and its refusal would be taken back unsaid (the silent direction).
+ */
+it("invariant 11 — a read of one session overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen", async () => {
+  await logSet("B", "b-1");
+  await sync(applyAsServer); // B's set is saved
+  let readable = true;
+  mocks.session.mockImplementation(async (id: string) => {
+    if (!readable) throw new Error("GET 503");
+    return session(id, "2026-08-14", "in_progress");
+  });
+  const onB = mount("B");
+  await finishOffline(); // B's finish waits in the outbox
+  onB.unmount();
+  mount("A"); // an ordinary read of ANOTHER session lands meanwhile
+  await screen.findByLabelText(weight(1));
+  expect(await sessionDb.outbox.filter((row) => row.entity === "session").count()).toBe(1);
+  await act(async () => {
+    await sync(refuseAsServer); // B's finish is refused
+  });
+  const statusOf = async (id: string) =>
+    ((await sessionDb.sessions.get([DEV_USER_SCOPE, id]))?.session as Session | undefined)?.status;
+  expect(await statusOf("B")).toBe("in_progress"); // B's own claim, taken back
+  expect(await notices()).toEqual(["pending"]); // for B's screen to say
+  cleanup();
+  readable = false; // B is opened again and cannot be read: the device's copy is what it knows
+  mount("B");
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+  await settle();
+  expect(await notices()).toEqual(["shown"]);
+});
+
+/*
  * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
  * finish too. That run is ASSERTED to do nothing — no alert, no audit write — not judged harmless (a
  * "harmless no-op" in this ticket was once not). That a judge ran on the finished session is asserted
