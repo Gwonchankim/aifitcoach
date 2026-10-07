@@ -1869,6 +1869,108 @@ it("invariant 10 — a read of one session overtakes no other session's waiting 
 });
 
 /*
+ * 총괄 R6 (R2): the judge's "no finish of ours waiting" counts only a finish that still OWNS the
+ * mirror's status — a claim with a prior status that no read overtook. Two faces of that clause:
+ * a) the waiting row is a re-finish that claims nothing — made after a read showed the session
+ *    finished, it re-asserted "completed" over "completed";
+ * b) the waiting row is a claim a read overtook — a finish refusal said earlier is false once the
+ *    server's "completed" is known, though that claim still waits.
+ * The rest of the mirror-status provenance (an append completion's receipt, claims stacked across
+ * responses, the screen's own withdrawal) is the follow-up session-status-provenance-single-source,
+ * outside this ticket (총괄): what it leaves is a stale status a successful read repairs, not a
+ * sentence.
+ */
+it("invariant 10 — a re-finish waiting on a session a read showed finished claims nothing: the first finish's late refusal is not said", async () => {
+  await logSet("A", "set-1");
+  await sync(applyAsServer);
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+  mount();
+  await finishOffline(); // the first finish: a claim (in progress before it)
+  let release!: () => void;
+  let sent!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const onItsWay = new Promise<void>((resolve) => (sent = resolve));
+  let refused: ReturnType<typeof sync> = Promise.resolve(null);
+  await act(async () => {
+    refused = sync(async (body) => {
+      sent();
+      await gate;
+      return refuseAsServer(body);
+    });
+    await onItsWay;
+  });
+  // An ordinary read shows the session finished (another request finished it): the claim is overtaken.
+  vi.setSystemTime(new Date(NOW.getTime() + 1000));
+  mocks.session.mockResolvedValue(todayThreeSets("completed"));
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  // The user reopens the finished session and finishes again: it claims nothing new.
+  fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
+  fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
+  const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
+  fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  const waiting = (await sessionDb.outbox.filter((row) => row.entity === "session").toArray()).sort(
+    (a, b) => a.updated_at.localeCompare(b.updated_at),
+  );
+  expect(waiting.map((row) => [row.prior_status ?? null, row.claim_overtaken ?? null])).toEqual([
+    ["in_progress", true], // the first finish, overtaken by the read
+    [null, null], // the re-finish: completed over completed
+  ]);
+  mocks.session.mockRejectedValue(new Error("GET 503"));
+  const drawn = alertsDrawn();
+  await act(async () => {
+    release();
+    await refused; // the first finish's refusal lands while the re-finish waits
+  });
+  await settle();
+  drawn.stop();
+  expect(drawn.texts).toEqual([]); // never said, not even for a moment
+  expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+  expect(clients[0].getQueryData<Session>(["session", "A"])?.status).toBe("completed");
+  expect(
+    ((await sessionDb.sessions.get([DEV_USER_SCOPE, "A"]))?.session as Session | undefined)?.status,
+  ).toBe("completed");
+  expect(await notices()).toEqual(["superseded"]);
+});
+
+it("invariant 10 — a finish refusal already said is taken back once a read shows the session finished, though a re-finish of ours that the read overtook still waits", async () => {
+  await logSet("A", "set-1");
+  await sync(applyAsServer);
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+  mount();
+  await finishOffline(); // the first finish
+  mocks.session.mockRejectedValue(new Error("GET 503"));
+  await act(async () => {
+    await sync(refuseAsServer); // refused, and the re-read fails: said
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+  // The user finishes again: a claim (in progress before it). It waits; the notice is still true.
+  vi.setSystemTime(new Date(NOW.getTime() + 1000));
+  await finishOffline();
+  await settle();
+  expect(alertTexts()).toEqual([FINISH_ONLY]);
+  // An ordinary read shows the session finished (another device): the waiting claim is overtaken.
+  mocks.session.mockResolvedValue(todayThreeSets("completed"));
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  const waiting = await sessionDb.outbox.filter((row) => row.entity === "session").toArray();
+  expect(waiting.map((row) => [row.prior_status ?? null, row.claim_overtaken ?? null])).toEqual([
+    ["in_progress", true],
+  ]);
+  // The judge runs (the page comes back to the front — no sync, no read in between).
+  act(() => setVisibility("hidden"));
+  act(() => setVisibility("visible"));
+  await waitFor(() => expect(alertTexts()).toEqual([])); // the server holds it finished: taken back
+  await settle();
+  expect(alertTexts()).toEqual([]);
+  expect(await notices()).toEqual(["superseded"]);
+});
+
+/*
  * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
  * finish too. That run is ASSERTED to do nothing — no alert, no audit write — not judged harmless (a
  * "harmless no-op" in this ticket was once not). That a judge ran on the finished session is asserted
