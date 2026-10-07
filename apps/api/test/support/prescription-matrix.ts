@@ -233,13 +233,18 @@ export async function runMatrixCase(
     expect([...wire.applied].sort()).toEqual(mutations.map((m) => m.client_id).sort());
     return wire;
   }
-  /** 그 mutation 자신의 change 행(change 행은 client_id 가 아니라 server_seq 를 싣는다). */
+  /**
+   * 그 mutation 자신의 change 행(change 행은 client_id 가 아니라 server_seq 를 싣는다).
+   * 행의 **존재를 먼저** 단언한다 — "행이 없음"과 "행은 있고 처방 필드가 없음"은 다른 사실이고,
+   * 합치면 change 행을 통째로 지우는 mutant 가 "absent" 로 통과한다(평가자 R2 N1).
+   */
   async function responseOf(wire: Wire, mutation: Mutation): Promise<Response> {
     const receipt = await prisma.syncMutation.findUniqueOrThrow({
       where: { id: mutation.client_id },
     });
     const own = wire.changes.find((row) => row.server_seq === receipt.serverSeq.toString());
-    const items = own?.data?.next_recommendations;
+    expect(own).toBeDefined();
+    const items = own!.data?.next_recommendations;
     return items === undefined
       ? "absent"
       : (items.find((item) => item.exercise_id === exercise.id) ?? null);

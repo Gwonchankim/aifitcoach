@@ -1,7 +1,7 @@
 {
   "capture_commit": "a74aa815a8a96486b989cfbc49bf3bca96f30b01",
-  "captured_at": "2026-10-06T20:33:25.060Z",
-  "source_sha256": "d9276a5b8937fa5bd2b39fe50df8e9a35d52425c36a14812de8bfc2a94ab94a2",
+  "captured_at": "2026-10-07T00:17:57.589Z",
+  "source_sha256": "a881968839445a9930045f59951f3818af812ee82493346864c0f88ad9acb801",
   "command": "pnpm exec jest test/capture-prescription-matrix.spec.ts --runInBand (full a74aa81 worktree; capture spec is evidence-only, r2/matrix)",
   "intent": "동일성 기준이지 정답 기준이 아니다. full a74aa81(BUG-10 직전 master)이 test/support/prescription-matrix.ts 의 행위(오늘: 최초 기록 → 완료(sync | REST) → 완료 뒤 수정, 직전 날: 수정 → 체크 해제)에 낸 다음 처방을 그대로 기록했다. 이 값이 옳다는 주장은 하지 않는다 — BUG-10 이 정상 경로의 처방을 바꾸지 않았다는 것만 말한다. 처방이 틀렸다고 판단되면 엔진·스펙을 고치고, 그 변경의 일부로 base 에서 다시 캡처한다.",
   "cases": {
