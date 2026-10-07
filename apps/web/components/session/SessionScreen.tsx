@@ -72,6 +72,7 @@ import {
   refusalRecorded,
   safeMappings,
   sessionDb,
+  stillPendingRefusals,
   type OutboxMutation,
   type RoutineCorrelation,
 } from "./session-db";
@@ -1171,8 +1172,8 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   });
 
   /** The judge runs later, from a queue: let it read this render's values. */
-  const factWindowRef = useRef({ recorded: false, finishOpen: false });
-  factWindowRef.current = { recorded: completedCount > 0, finishOpen };
+  const factWindowRef = useRef({ recorded: false, finishOpen: false, modalOpen: false });
+  factWindowRef.current = { recorded: completedCount > 0, finishOpen, modalOpen };
 
   /**
    * BUG-10 — the one judge. Every refusal the server sent back for this session is said here, once:
@@ -1210,22 +1211,40 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * that write is in flight may say the same true sentence once more (accepted, BUG-10 ticket).
    */
   const said = useRef(new Set<number>());
+  /** The latest judge: a notice that turned false while going on screen is judged again (5b). */
+  const rejudge = useRef<() => void>(() => undefined);
   /** Rows turn "shown" only from RefusalText — once on screen, here, for this session. */
   const acknowledge = useCallback((shown: Refusal) => {
     if (!mounted.current || shownSession.current !== shown.sessionId) return;
     for (const id of shown.ids) said.current.add(id);
-    void markRefusalsShown(shown.ids).catch(() => undefined);
+    void markRefusalsShown(shown.ids)
+      .then((stale) => {
+        if (stale.length === 0) return;
+        // 5b: part of it turned false between the last check and the screen (a later write was
+        // applied). Nothing was marked: take the notice back and say only what is still true.
+        for (const id of shown.ids) said.current.delete(id);
+        setRefusal((current) => (current === shown ? null : current));
+        rejudge.current();
+      })
+      .catch(() => undefined);
   }, []);
   const judgeQueue = useRef<Promise<void>>(Promise.resolve());
   const announceRefusals = useCallback(() => {
     const judged = sessionId;
     judgeQueue.current = judgeQueue.current
       .then(async () => {
-        const rows = (await pendingRefusals(DEV_USER_SCOPE, judged)).filter(
+        const read = (await pendingRefusals(DEV_USER_SCOPE, judged)).filter(
           (row) => !said.current.has(row.id),
         );
+        // 5b: still true NOW, when it is about to be said — a later write may have superseded a
+        // row after that read. Never speak from the earlier read.
+        const rows = await stillPendingRefusals(read);
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
         if (!mounted.current || shownSession.current !== judged || rows.length === 0) return;
+        // 2: behind a modal the screen is inert — not perceivable, and an alert put there is never
+        // announced, not even when `inert` lifts. Wait: the modal closing judges again (below).
+        // The finish sheet is not behind anything: it says it there.
+        if (factWindowRef.current.modalOpen && !factWindowRef.current.finishOpen) return;
         const sent = rows.map((row) => row.payload as Partial<OutboxMutation> | undefined);
         const outcome = describeRefusals(
           rows.map((row, index) => ({
@@ -1272,19 +1291,21 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     window.addEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
     return () => window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
   }, [judgeReady, announceRefusals]);
+  rejudge.current = announceRefusals;
   /**
-   * The finish sheet closed — by the user, by a finish that succeeded, by an acknowledged append
-   * completion. What it said closes with it; what it could not say (another error was up) is said
-   * on the screen now, not at the next sync or entry.
+   * A modal closed — the finish sheet (by the user, by a finish that succeeded, by an acknowledged
+   * append completion) or any sheet over the screen (rest, picker, pain, remove). What the finish
+   * sheet said closes with it; what could not be said meanwhile — another error in the sheet, or the
+   * screen inert behind a modal (2) — is said on the screen now, not at the next sync or entry.
    */
-  const sheetWasOpen = useRef(false);
+  const modalWasOpen = useRef(false);
   useEffect(() => {
-    if (sheetWasOpen.current && !finishOpen) {
+    if (modalWasOpen.current && !modalOpen) {
       setRefusal((current) => (current?.inSheet ? null : current));
       announceRefusals();
     }
-    sheetWasOpen.current = finishOpen;
-  }, [finishOpen, announceRefusals]);
+    modalWasOpen.current = modalOpen;
+  }, [modalOpen, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;

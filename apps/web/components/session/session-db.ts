@@ -1000,6 +1000,7 @@ export async function pendingRefusals(userId: string, sessionId: string): Promis
  */
 export function supersedeRefusalsInTransaction(userId: string, applied: readonly OutboxMutation[]) {
   const ids = (row: Partial<OutboxMutation>) => [row.entity_id, row.canonical_entity_id];
+  const at = (row: Partial<OutboxMutation>) => Date.parse(row.updated_at ?? "");
   return sessionDb.conflicts
     .where("user_id")
     .equals(userId)
@@ -1009,16 +1010,43 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
       return applied.some(
         (write) =>
           write.entity === refused.entity &&
-          ids(refused).some((id) => id !== undefined && ids(write).includes(id)),
+          ids(refused).some((id) => id !== undefined && ids(write).includes(id)) &&
+          // 5a (evaluator R3): only a STRICTLY later write makes "not saved" false. An older write
+          // whose ACK was lost is no evidence that a newer edit was saved; the same instant or an
+          // unknown order (NaN never compares greater) is said, never silenced. Both are this
+          // device's outbox rows — one clock compared with itself, never with the server's.
+          at(write) > at(refused),
       );
     })
     .modify({ notice: "superseded" });
 }
 
-/** BUG-10: the acknowledgement — said once, never again. */
-export async function markRefusalsShown(ids: readonly number[]): Promise<void> {
-  await sessionDb.transaction("rw", sessionDb.conflicts, async () => {
-    for (const id of ids) await sessionDb.conflicts.update(id, { notice: "shown" });
+/**
+ * BUG-10 5b: the rows among these that are still unsaid right now — read again when they are about
+ * to be said. A later write may have superseded one since the judge's read; never speak from it.
+ */
+export async function stillPendingRefusals(rows: readonly RefusalAudit[]): Promise<RefusalAudit[]> {
+  if (rows.length === 0) return [];
+  const current = await sessionDb.conflicts.bulkGet(rows.map((row) => row.id));
+  return current.filter((row): row is RefusalAudit => row?.notice === "pending");
+}
+
+/**
+ * BUG-10: the acknowledgement — said once, never again. 5b: written only while every row is still
+ * unsaid (or already said). If one turned "superseded" while its notice was going on screen, nothing
+ * is written — that notice is false now — and those ids come back for the screen to take it back.
+ */
+export async function markRefusalsShown(ids: readonly number[]): Promise<number[]> {
+  return sessionDb.transaction("rw", sessionDb.conflicts, async () => {
+    const rows = await sessionDb.conflicts.bulkGet([...ids]);
+    const stale = ids.filter(
+      (_, index) => rows[index]?.notice !== "pending" && rows[index]?.notice !== "shown",
+    );
+    if (stale.length) return stale;
+    for (const [index, id] of ids.entries())
+      if (rows[index]?.notice === "pending")
+        await sessionDb.conflicts.update(id, { notice: "shown" });
+    return [];
   });
 }
 
