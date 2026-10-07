@@ -809,12 +809,21 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const routineLocked = rights !== null && !rights.routine;
   /** 종료한 세션을 기록 수정으로 다시 연 상태(오늘·직전 하루). CTA 는 [수정 마치기]. */
   const finishedEditable = session?.status === "completed" && !factsLocked;
-  const modalOpen =
-    rest != null ||
-    picker != null ||
-    removeExerciseId != null ||
-    painExerciseId != null ||
-    finishOpen;
+  /**
+   * BUG-10 (2): each modal as it is DRAWN — its own render condition, target included — computed
+   * once and used both to draw it (below) and to decide whether the screen is inert. An id is a
+   * proxy: the pain sheet draws nothing once a re-read removed its exercise, and holding the screen
+   * inert on the id froze the whole routine behind no dialog (evaluator R4). The rest sheet is drawn
+   * only for this session's position; the remove sheet and the picker are drawn for their id even
+   * after their target is gone (the name falls back), so the screen behind them is rightly inert.
+   */
+  const painIndex = groups.findIndex((group) => group.exerciseId === painExerciseId);
+  const painGroup = painIndex >= 0 ? groups[painIndex] : null;
+  const restDrawn = rest !== null && positionScope.current?.sessionId === sessionId;
+  const pickerDrawn = picker !== null;
+  const removeDrawn = removeExerciseId !== null;
+  const painDrawn = painGroup !== null;
+  const modalOpen = restDrawn || pickerDrawn || removeDrawn || painDrawn || finishOpen;
   /**
    * BUG-10 (2): what is actually drawn — each computed ONCE and used both to draw it and to decide
    * where a refusal can be perceived. Two expressions that happen to agree drift apart at the next
@@ -1610,9 +1619,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const removeIndex = groups.findIndex((group) => group.exerciseId === removeExerciseId);
   const inRoutine = new Set(groups.map((group) => group.exerciseId));
 
-  // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다.
-  const painIndex = groups.findIndex((group) => group.exerciseId === painExerciseId);
-  const painGroup = painIndex >= 0 ? groups[painIndex] : null;
+  // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다(painGroup 은 위에서 한 번 계산).
   const painSetIds = painGroup?.sets.map((set) => set.id) ?? [];
   /** [무게 줄이고 계속]이 향할 곳: 아직 남은 세트 중 무게 입력이 있는 첫 세트. */
   const painWeightTarget = painGroup?.sets.find(
@@ -1928,7 +1935,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           {/* 타이머 시트는 열려 있을 때만 마운트해서 틱을 멈춘다. */}
         </>
       )}
-      {rest && positionScope.current?.sessionId === sessionId ? (
+      {restDrawn && rest ? (
         <RestTimerSheet
           open
           title={rest.title}
@@ -1945,7 +1952,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ) : null}
 
       <RemoveExerciseSheet
-        open={removeExerciseId != null}
+        open={removeDrawn}
         exerciseName={
           removeIndex >= 0 ? nameOf(groups[removeIndex].exerciseId, removeIndex) : "운동"
         }
@@ -1955,7 +1962,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         onClose={() => setRemoveExerciseId(null)}
       />
 
-      {picker ? (
+      {pickerDrawn && picker ? (
         <ExercisePickerSheet
           open
           mode={picker}
@@ -1975,7 +1982,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         />
       ) : null}
 
-      {painGroup ? (
+      {painDrawn && painGroup ? (
         <PainSheet
           open
           exerciseName={nameOf(painGroup.exerciseId, painIndex)}
