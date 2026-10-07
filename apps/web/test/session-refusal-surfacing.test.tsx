@@ -61,6 +61,8 @@ const sessionDbModule = await import("../components/session/session-db");
 const { SyncCoordinator } = await import("../components/session/sync-coordinator");
 const { useSessionLog } = await import("../components/session/session-store");
 const { EDIT_WINDOW_COPY } = await import("../components/session/session-edit-rights");
+/** The module itself, to act between the judge's check and its notice (round 3, axis re-scan). */
+const editRightsModule = await import("../components/session/session-edit-rights");
 const { restTimerStore } = await import("../components/session/rest-timer-store");
 
 const NOW = new Date("2026-08-14T10:00:00.000Z");
@@ -299,8 +301,35 @@ afterEach(async () => {
   clients.splice(0).forEach((client) => client.clear());
   vi.useRealTimers();
   vi.restoreAllMocks();
+  delete (document as { visibilityState?: unknown }).visibilityState;
+  delete (document as { hidden?: unknown }).hidden;
   await sessionDb.delete();
 });
+
+/** The page goes to the background (another app in front, the screen off) or comes back. */
+function setVisibility(state: "hidden" | "visible") {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => state === "hidden" });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+/**
+ * Every alert put into the screen (outside any dialog) from now on — one taken back at once
+ * included: "never drawn there" is not the same as "not there any more".
+ */
+function alertsDrawn() {
+  const texts: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node instanceof Element)
+          for (const alert of [node, ...node.querySelectorAll('[role="alert"]')])
+            if (alert.getAttribute("role") === "alert" && !alert.closest('[role="dialog"]'))
+              texts.push(alert.textContent ?? "");
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return { texts, stop: () => observer.disconnect() };
+}
 
 it("live finishing: a set and the finish refused together are both named in the sheet, once", async () => {
   await logSet("A", "set-1");
@@ -892,14 +921,17 @@ it("invariant 2 — a refusal that arrives while the rest sheet makes the screen
   await screen.findByLabelText(weight(1));
   fireEvent.click(screen.getByRole("button", { name: "벤치프레스 1세트 완료 처리" }));
   const rest = await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
+  const drawn = alertsDrawn();
   await act(async () => {
     await sync(refuseAsServer);
   });
   await settle();
+  drawn.stop();
   const inert = [...document.querySelectorAll('[role="alert"]')].filter((el) =>
     el.closest("[inert]"),
   );
   expect(inert.map((el) => el.textContent)).toEqual([]); // nothing is put behind the sheet
+  expect(drawn.texts).toEqual([]); // not even for a moment (drawn, then taken back)
   expect(await notices()).toEqual(["pending"]); // and nothing is consumed
   fireEvent.click(within(rest).getByRole("button", { name: "휴식 종료" }));
   await waitFor(() => expect(alertTexts()).toEqual([SET1]));
@@ -994,4 +1026,166 @@ it("invariant 15 — one notice holds every pending refusal of the session, and 
   await expect
     .poll(noticeBySet)
     .toEqual({ "set-1": "shown", "set-2": "superseded", "set-3": "shown" });
+});
+
+/*
+ * Round 3, the axis re-scan (총괄 결정 2026-10-07): "said" (`shown`) is not "done". Two axes, kept
+ * apart — SAID: the notice was put on a perceivable screen; STILL TRUE: no strictly later write of
+ * the same fact was applied since. A notice holds every refusal of the session that is still true,
+ * said before or not (15); a notice is raised only for a new event (7); a strictly later applied
+ * write makes a refusal false whether or not it was said — the notice on screen is rewritten from
+ * what is still true, or taken back when nothing is (5a·5b). A hidden page is the third place a
+ * render is not perceivable (2).
+ */
+const perSet = async () =>
+  Object.fromEntries(
+    (await sessionDb.conflicts.toArray()).map((row) => [
+      (row.payload as { entity_id: string }).entity_id,
+      row.notice,
+    ]),
+  );
+
+it("invariant 5a — a refusal already SAID that a strictly later write made false is taken back: the retried finish was applied", async () => {
+  await logSet("A", "set-1");
+  mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+  mount();
+  await finishOffline();
+  await act(async () => {
+    await sync(async (body) => ({
+      applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+      conflicts: body.mutations
+        .filter((m) => m.entity === "session")
+        .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
+      changes: [],
+      planned_set_mappings: [],
+      next_cursor: "v1.test",
+    }));
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+  await expect.poll(notices).toEqual(["shown"]); // said
+  // The user finishes again — strictly later, online now — and the server applies it.
+  vi.setSystemTime(new Date(NOW.getTime() + 1000));
+  mocks.sync.mockImplementation(() => sync(applyAsServer));
+  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+  await screen.findByRole("heading", { name: "수고했어요" });
+  await settle();
+  expect(alertTexts()).toEqual([]); // the summary is true; "not saved" beside it would be false
+  expect(await notices()).toEqual(["superseded"]);
+});
+
+it("invariant 5b — a notice already said holds only what is still true: rewritten when part of it is saved later", async () => {
+  // A session a day ahead: the server refuses its records until its day comes.
+  for (const id of ["set-1", "set-2"]) await logSet("A", id);
+  await sync(refuseAsServer); // nobody is looking
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-15", "scheduled"),
+    planned_sets: plannedSets("set", 3), // set 3 is still ahead: the routine, not the summary
+  });
+  mount();
+  await screen.findByRole("heading", { name: "오늘 운동" });
+  await waitFor(() =>
+    expect(alertTexts()).toEqual([
+      `${EDIT_WINDOW_COPY.upcoming} 벤치프레스 1·2세트 기록은 저장되지 않았어요.`,
+    ]),
+  );
+  await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "shown" }); // said
+  // Its day comes; set 2 is entered again and this time it is saved. Set 1 still is not.
+  vi.setSystemTime(new Date("2026-08-15T00:00:01.000Z"));
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(applyAsServer);
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  expect(await perSet()).toEqual({ "set-1": "shown", "set-2": "superseded" });
+});
+
+it("invariant 15 — a new refusal's notice still holds the earlier ones that are still true, said before or not", async () => {
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // previous here
+  mount();
+  await screen.findByLabelText(weight(2));
+  // The server is a day ahead; the browser still has the day open.
+  await act(async () => {
+    await logSet("A", "set-1");
+    await sync(refuseAsServer);
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  await expect.poll(notices).toEqual(["shown"]);
+  // A new event: set 2 is refused as well. Set 1 was not entered again — still not saved.
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(refuseAsServer);
+  });
+  await waitFor(() =>
+    expect(alertTexts()).toEqual(["벤치프레스 1·2세트 기록은 저장되지 않았어요."]),
+  );
+  await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "shown" });
+});
+
+it("invariant 2 — a refusal that arrives while the page is hidden is neither drawn nor consumed; it is said once the page is visible", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  await screen.findAllByText(EXPIRED); // the screen is up (header notice of the older session)
+  await settle();
+  // The app goes to the background; a sync still runs there (the `online` trigger, a retry).
+  act(() => setVisibility("hidden"));
+  const drawn = alertsDrawn();
+  await act(async () => {
+    await sync(refuseAsServer);
+  });
+  await settle();
+  drawn.stop();
+  expect(drawn.texts).toEqual([]); // nothing is drawn on a page nobody can see
+  expect(await notices()).toEqual(["pending"]); // and nothing is consumed
+  act(() => setVisibility("visible"));
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]));
+  await expect.poll(notices).toEqual(["shown"]);
+});
+
+it("invariant 2 — the page is hidden after the judge decided, before the notice is marked said: not consumed; said once visible", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  await sync(refuseAsServer); // nobody is looking
+  const describe = editRightsModule.describeRefusals;
+  let hidden = false;
+  vi.spyOn(editRightsModule, "describeRefusals").mockImplementationOnce((...args) => {
+    setVisibility("hidden"); // past the judge's check, before its notice is drawn
+    hidden = true;
+    return describe(...args);
+  });
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  await screen.findAllByText(EXPIRED);
+  await settle();
+  expect(hidden).toBe(true);
+  expect(await notices()).toEqual(["pending"]); // drawn on a hidden page: not consumed …
+  expect(alertTexts()).toEqual([]); // … and taken back
+  act(() => setVisibility("visible"));
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]));
+  await expect.poll(notices).toEqual(["shown"]);
+});
+
+it("invariant 2 — a sheet comes up after the judge decided, before the notice is marked said: not consumed; said when it closes", async () => {
+  await logSet("A", "set-1");
+  await sync(refuseAsServer); // nobody is looking
+  const describe = editRightsModule.describeRefusals;
+  let opened = false;
+  vi.spyOn(editRightsModule, "describeRefusals").mockImplementationOnce((...args) => {
+    // Past the judge's check, before its notice is drawn: the user opens the exercise picker.
+    fireEvent.click(screen.getByRole("button", { name: "운동 추가" }));
+    opened = true;
+    return describe(...args);
+  });
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // the routine is open
+  mount();
+  const picker = await screen.findByRole("dialog", { name: "운동 추가" });
+  await settle();
+  expect(opened).toBe(true);
+  expect(await notices()).toEqual(["pending"]); // drawn behind the picker: not consumed
+  fireEvent.click(within(picker).getByRole("button", { name: "닫기" }));
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  await expect.poll(notices).toEqual(["shown"]);
 });
