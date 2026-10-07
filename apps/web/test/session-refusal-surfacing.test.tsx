@@ -1779,7 +1779,7 @@ it.each([
   ["in_progress", "on its way while it lands"],
   ["scheduled", "on its way while it lands"],
 ] as const)(
-  "invariant 11 — a finish refused after an ordinary read showed the session finished takes nothing back: that 'completed' is the server's (status before the finish: %s; the refused sync %s)",
+  "invariant 10 — a finish refused after an ordinary read showed the session finished takes nothing back: that 'completed' is the server's (status before the finish: %s; the refused sync %s)",
   async (prior, order) => {
     await logSet("A", "set-1");
     await sync(applyAsServer); // set 1 is saved
@@ -1839,7 +1839,7 @@ it.each([
  * lands; B's refusal must still take B's own optimistic "completed" back — left there, B would look
  * finished on the server and its refusal would be taken back unsaid (the silent direction).
  */
-it("invariant 11 — a read of one session overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen", async () => {
+it("invariant 10 — a read of one session overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen", async () => {
   await logSet("B", "b-1");
   await sync(applyAsServer); // B's set is saved
   let readable = true;
