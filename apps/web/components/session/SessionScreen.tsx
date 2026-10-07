@@ -1292,11 +1292,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     const judged = sessionId;
     judgeQueue.current = judgeQueue.current
       .then(async () => {
-        // Every refusal of this session that is still true, said before or not (15) …
+        // The judge's read: does this session have any refusal still true, said before or not?
         const read = await standingRefusals(DEV_USER_SCOPE, judged);
-        // 5b: … as it is NOW, when it is about to be said — a later write may have superseded a
-        // row after that read. Never speak from the earlier read.
-        const rows = await stillStandingRefusals(read);
+        // 5b·15: if so, read again right before the notice is composed — by session, not by the
+        // ids above: one superseded since is left out, one that arrived since is in. Never speak
+        // from the earlier read. Nothing standing: nothing to compose, and a notice left on
+        // screen is taken back by the rewrite below.
+        const rows = read.length > 0 ? await stillStandingRefusals(DEV_USER_SCOPE, judged) : read;
         // Gone, or moved on to another session, while reading: say nothing, consume nothing.
         if (!mounted.current || shownSession.current !== judged) return;
         const sentBy = (row: RefusalAudit) => row.payload as Partial<OutboxMutation> | undefined;

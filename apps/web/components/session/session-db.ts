@@ -1051,16 +1051,14 @@ export function supersedeFinishRefusals(userId: string, sessionId: string) {
 }
 
 /**
- * BUG-10 5b: the rows among these that are still true right now, as they are now (said or not) —
- * read again when they are about to be said. A later write may have superseded one since the
- * judge's read; never speak from it.
+ * BUG-10 5b·15: this session's still-true refusals read AGAIN right before a notice is composed —
+ * by session, not by the ids an earlier read returned (총괄 R4: "구성 직전"). A refusal superseded
+ * since that read is left out; one that arrived since is in, so the list the user acts on is
+ * complete. One that arrives after THIS read is not chased — the window is narrowed as far as the
+ * mechanism allows, not to zero: its arrival wakes the judge, and the rewrite (F3) puts it in.
  */
-export async function stillStandingRefusals(
-  rows: readonly RefusalAudit[],
-): Promise<RefusalAudit[]> {
-  if (rows.length === 0) return [];
-  const current = await sessionDb.conflicts.bulkGet(rows.map((row) => row.id));
-  return current.filter((row): row is RefusalAudit => standing(row));
+export function stillStandingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
+  return standingRefusals(userId, sessionId);
 }
 
 /**
