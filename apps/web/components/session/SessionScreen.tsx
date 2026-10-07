@@ -1409,6 +1409,22 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     }
     screenWasInert.current = screenInert;
   }, [screenInert, announceRefusals]);
+  /**
+   * 11·R5 (총괄): the screen came to show this session finished — a read landed (this screen's own
+   * refetch, the re-read after a refused finish) or our own finish did. A finish refusal said before
+   * may be false now, and nothing new would wake the judge: judge again. It is the same truth
+   * evaluation as every judge's; on an ordinary finish it has nothing to change (asserted: no alert,
+   * no audit write). The first read of a session is not a change — the entry judge covers it.
+   */
+  const sessionFinished = session?.status === "completed";
+  const finishedBefore = useRef<{ sessionId: string; finished: boolean } | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    const before = finishedBefore.current;
+    finishedBefore.current = { sessionId, finished: sessionFinished };
+    if (judgeReady && before?.sessionId === sessionId && !before.finished && sessionFinished)
+      announceRefusals();
+  }, [session, sessionId, sessionFinished, judgeReady, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
