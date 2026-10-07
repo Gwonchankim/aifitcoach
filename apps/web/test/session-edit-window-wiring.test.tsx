@@ -442,10 +442,14 @@ it.each([
 
 /**
  * A finished previous-day session HAS an approved notice while logging is open. A date refusal
- * there means the clocks disagree: neither path may borrow that notice, and the screen cannot know
- * which side the server is on — so only what was not saved is said.
+ * there means the clocks disagree: neither path may borrow that notice, nor fall back to the
+ * generic 409. And the session IS finished — this device read it so (BUG-10 R5, 총괄 승인): the
+ * refused re-finish is not "운동 종료는 저장되지 않았어요", which would be false. Before R5 it was
+ * said and taken back once the re-read came in — a false sentence for a moment, and this test held
+ * exactly that moment. Every text the sheet's alert shows is recorded: on the code before R5 this
+ * recorder saw the finish sentence (its positive control, BUG-10 r2/rework/probe-c1-steady).
  */
-it("C1: a re-finish refused while the browser still sees the previous day open says only that the finish was not saved", async () => {
+it("C1: a re-finish refused on a session this device knows is finished says nothing false — no finish sentence, no generic 409, no borrowed notice", async () => {
   await logFirstSet();
   mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
   mocks.sync.mockImplementation(async () => {
@@ -463,11 +467,26 @@ it("C1: a re-finish refused while the browser still sees the previous day open s
   fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
   fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
   const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
+  const shown: string[] = [];
+  const recorder = new MutationObserver(() => {
+    for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
+      if (alert.textContent && !shown.includes(alert.textContent)) shown.push(alert.textContent);
+  });
+  recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
   fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
-  await waitFor(() =>
-    expect(within(sheet).getByRole("alert").textContent).toBe("운동 종료는 저장되지 않았어요."),
-  );
+  const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
+  await waitFor(async () => expect(await notices()).toEqual(["superseded"]));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+  recorder.disconnect();
+  for (const copy of [
+    "운동 종료는 저장되지 않았어요.",
+    GENERIC_409,
+    EDIT_WINDOW_COPY.previousCompleted,
+  ])
+    expect(shown.filter((text) => text.includes(copy))).toEqual([]);
+  expect(within(sheet).queryByRole("alert")).toBeNull(); // the end state, too
   expect(screen.queryByText(GENERIC_409)).toBeNull();
+  expect(await notices()).toEqual(["superseded"]);
 });
 
 it("P1: a `conflict` on a finished previous-day session the browser still sees open is said, without a date reason", async () => {
