@@ -45,6 +45,7 @@ vi.mock("../components/session/exercise-catalog", async () => {
     ...actual,
     fetchAllExercises: async () => [
       { id: "bench", name_ko: "벤치프레스", metric: "reps", step_kg: 2.5, primary_muscles: [] },
+      { id: "squat", name_ko: "스쿼트", metric: "reps", step_kg: 2.5, primary_muscles: [] },
     ],
   };
 });
@@ -1438,3 +1439,92 @@ it("invariant 5c — the session finished elsewhere takes back only the finish: 
     )
     .toEqual(["performed_set:shown", "session:superseded"]);
 });
+
+/*
+ * Evaluator R4 EVAL_PHANTOM (총괄: 기능 정지 — 최우선): a modal held by an id whose target a re-read
+ * removed. What is DRAWN decides whether the screen is inert, target included. The pain sheet
+ * draws nothing without its exercise — with `main` left inert behind no dialog, the routine froze
+ * (nothing to press, nothing said). The other sheets are still drawn after their target is gone, so
+ * the screen behind them is rightly inert until they close. Two separate facts are asserted: the
+ * screen is usable again (no `inert`), and the refusal held behind the sheet is said.
+ */
+/** Previous day, two exercises: bench (set-1, set-2) and squat (sq-1, sq-2). */
+const benchAndSquat = () => ({
+  ...session("A", "2026-08-13", "in_progress"),
+  planned_sets: [
+    ...plannedSets("set", 2),
+    ...plannedSets("sq", 2).map((set) => ({ ...set, exercise_id: "squat" })),
+  ],
+});
+/** The same session read again after squat was removed elsewhere. */
+const benchOnly = () => ({
+  ...session("A", "2026-08-13", "in_progress"),
+  planned_sets: plannedSets("set", 2),
+});
+const inertCount = () => document.querySelectorAll("[inert]").length;
+const allNotices = async (notice: string) => (await notices()).every((value) => value === notice);
+/** A bench refusal said (by name) on the screen. */
+const benchSaid = () => alertTexts().some((text) => text?.includes("벤치프레스 1세트"));
+
+/** A modal whose target is squat is up; a bench refusal is held behind it; a re-read removes squat. */
+async function holdBehindAModalWhoseTargetGoes(open: () => Promise<void>) {
+  mocks.session.mockResolvedValue(benchAndSquat());
+  mount();
+  await screen.findByLabelText(weight(1));
+  await open();
+  await act(async () => {
+    await logSet("A", "set-1");
+    await sync(refuseAsServer);
+  });
+  await settle();
+  expect(inertCount()).toBeGreaterThan(0); // the sheet is up: the screen behind it is inert …
+  expect(await allNotices("pending")).toBe(true); // … and the refusal waits
+  mocks.session.mockResolvedValue(benchOnly());
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  await settle();
+}
+const fromSquatMenu = (item: string, dialog: string) => async () => {
+  fireEvent.click(screen.getByRole("button", { name: "스쿼트 메뉴" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: item }));
+  await screen.findByRole("dialog", { name: dialog });
+};
+const restAfterSquatSet1 = async () => {
+  fireEvent.click(screen.getByRole("button", { name: "스쿼트 1세트 완료 처리" }));
+  await screen.findByRole("dialog", { name: "스쿼트 1세트 후 휴식" });
+};
+
+it("invariant 2 — the pain sheet's exercise is removed by a re-read: nothing is drawn, so nothing keeps the screen inert — and the held refusal is said", async () => {
+  await holdBehindAModalWhoseTargetGoes(fromSquatMenu("스쿼트 통증 기록", "스쿼트 통증 기록"));
+  expect(screen.queryAllByRole("dialog")).toHaveLength(0); // nothing is drawn over the screen …
+  await waitFor(() => expect(inertCount()).toBe(0)); // … so the routine is usable again
+  await waitFor(() => expect(benchSaid()).toBe(true)); // and, separately: the refusal is said
+  await expect.poll(() => allNotices("shown")).toBe(true);
+});
+
+it("invariant 2 — the rest sheet's set is removed by a re-read: the rest is dropped, nothing is drawn, the screen is usable — and the held refusal is said", async () => {
+  await holdBehindAModalWhoseTargetGoes(restAfterSquatSet1);
+  // A rest whose set is gone is dropped (its stored timer cleared): the sheet closes itself.
+  await waitFor(() => expect(screen.queryAllByRole("dialog")).toHaveLength(0));
+  await waitFor(() => expect(inertCount()).toBe(0));
+  await waitFor(() => expect(benchSaid()).toBe(true));
+  await expect.poll(() => allNotices("shown")).toBe(true);
+});
+
+it.each([
+  ["remove", fromSquatMenu("스쿼트 삭제", "스쿼트 빼기"), "운동 빼기", "취소"],
+  ["swap picker", fromSquatMenu("스쿼트 교체", "스쿼트 교체"), "스쿼트 교체", "닫기"],
+] as const)(
+  "invariant 2 — the %s sheet's target is removed by a re-read: still drawn, so the screen stays inert behind it; closing it frees the screen and says the held refusal",
+  async (_, open, drawn, close) => {
+    await holdBehindAModalWhoseTargetGoes(open);
+    const sheet = screen.getByRole("dialog", { name: drawn }); // what is drawn decides …
+    expect(inertCount()).toBeGreaterThan(0); // … the screen behind it is inert
+    expect(await allNotices("pending")).toBe(true);
+    fireEvent.click(within(sheet).getByRole("button", { name: close }));
+    await waitFor(() => expect(inertCount()).toBe(0));
+    await waitFor(() => expect(benchSaid()).toBe(true));
+    await expect.poll(() => allNotices("shown")).toBe(true);
+  },
+);
