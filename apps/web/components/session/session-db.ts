@@ -1106,19 +1106,21 @@ function supersedeFinishRefusals(userId: string, sessionId: string) {
  * mirror is where what the device knows meets, whichever read brought it. Our own optimistic
  * "completed" lives there only while its finish waits in the outbox: a refusal deletes that row and
  * takes the optimistic status back in one transaction — its own only (R6): a status a read wrote
- * since is the server's and stays. So "completed, and no finish of ours waiting" is the server's.
- * Not seen: a read whose mirror write itself failed (a storage error).
+ * since is the server's and stays. So "completed, and no claim of ours owning it" is the server's.
+ * R6 (R2): only a finish that still owns the status counts — one that claimed it (a prior status)
+ * and that no read overtook. A re-finish over "completed" claimed nothing; an overtaken claim owns
+ * nothing any more. Not seen: a read whose mirror write itself failed (a storage error).
  */
 async function finishedOnServer(userId: string, sessionId: string): Promise<boolean> {
   const mirror = await sessionDb.sessions.get([userId, sessionId]);
   if ((mirror?.session as { status?: unknown } | null | undefined)?.status !== "completed")
     return false;
-  const waiting = await sessionDb.outbox
+  const owning = await sessionDb.outbox
     .where("[user_id+entity_id]")
     .equals([userId, sessionId])
-    .filter((row) => row.entity === "session")
+    .filter((row) => row.entity === "session" && !!row.prior_status && !row.claim_overtaken)
     .count();
-  return waiting === 0;
+  return owning === 0;
 }
 
 /**
