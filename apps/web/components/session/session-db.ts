@@ -43,8 +43,9 @@ export type OutboxMutation = {
   /**
    * Local only, never on the wire: after this finish claimed "completed", a read showed the server
    * holds the session finished — judged from the read as it came, not from what an append overlay
-   * left in the mirror for display (BUG-10 R7). The "completed" there is the server's since, not
-   * this claim's: a refusal of this finish takes nothing back (R6: by provenance, not by value).
+   * left in the mirror for display (BUG-10 R7) — or our own finish of the session was applied in the
+   * same answer (R7-2). The "completed" there is the server's since, not this claim's: a refusal of
+   * this finish takes nothing back (R6: by provenance, not by value).
    */
   claim_overtaken?: true;
   /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
@@ -989,9 +990,31 @@ export async function refusedSessionOf(
 }
 
 /**
+ * BUG-10 R7-2 (α — the follow-up's W1): our finish the server applied makes the session's
+ * "completed" the server's. A claim of ours on the same session that this answer refuses — still in
+ * the outbox, as applied rows are handled first — owns nothing any more: its refusal takes nothing
+ * back (the mark a read leaves, R6/R7). Only this session's claims; never the applied row itself.
+ * Returns Dexie's own promise inside the coordinator's commit (see supersedeRefusalsInTransaction).
+ */
+export function overtakeClaimsByAppliedFinishInTransaction(
+  userId: string,
+  applied: OutboxMutation,
+) {
+  return sessionDb.outbox
+    .where("[user_id+entity_id]")
+    .equals([userId, applied.entity_id])
+    .filter(
+      (row) =>
+        row.entity === "session" && !!row.prior_status && row.client_id !== applied.client_id,
+    )
+    .modify({ claim_overtaken: true });
+}
+
+/**
  * BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too — our own
  * only (R6): once a read showed the server holds the session finished after this claim (R7: the
- * read as it came), the "completed" there is the server's.
+ * read as it came), or our own finish of the session was applied in the same answer (R7-2), the
+ * "completed" there is the server's.
  */
 export async function undoOptimisticCompletionInTransaction(
   userId: string,
@@ -1114,8 +1137,9 @@ function supersedeFinishRefusals(userId: string, sessionId: string) {
  * what an append overlay left on display). So "completed, and no claim of ours owning it" is the
  * server's.
  * R6 (R2): only a finish that still owns the status counts — one that claimed it (a prior status)
- * and that no read overtook. A re-finish over "completed" claimed nothing; an overtaken claim owns
- * nothing any more. Not seen: a read whose mirror write itself failed (a storage error).
+ * and that nothing overtook (a read, R6/R7; our own applied finish, R7-2). A re-finish over
+ * "completed" claimed nothing; an overtaken claim owns nothing any more. Not seen: a read whose
+ * mirror write itself failed (a storage error).
  */
 async function finishedOnServer(userId: string, sessionId: string): Promise<boolean> {
   const mirror = await sessionDb.sessions.get([userId, sessionId]);

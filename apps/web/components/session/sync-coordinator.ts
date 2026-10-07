@@ -8,6 +8,7 @@ import {
   MARKER_PREFIX,
   markerKeyFor,
   markRemediationPending,
+  overtakeClaimsByAppliedFinishInTransaction,
   processRemediationMarkers,
   refusedSessionOf,
   remediationStateOf,
@@ -286,6 +287,9 @@ export class SyncCoordinator {
             await undoOptimisticCompletionInTransaction(this.userId, row);
           } else if (row.entity === "session") {
             await completeAppendSessionInTransaction(row);
+            // BUG-10 R7-2 (α): applied, our finish makes "completed" the server's — a claim of ours
+            // this answer refuses (handled after the applied rows) takes nothing back.
+            await overtakeClaimsByAppliedFinishInTransaction(this.userId, row);
             if (row.append_dependencies) completed.add(row.entity_id);
             completedSessions.add(row.entity_id);
           }
