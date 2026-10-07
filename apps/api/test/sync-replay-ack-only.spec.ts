@@ -588,6 +588,32 @@ describe("BUG-10 I — an exact sync replay is an ACK with no side effects", () 
       });
       expect(Number(fact.actualWeight)).toBe(75);
     });
+
+    /*
+     * BUG-10 R3 (evaluator): the answer the web judge must read right. A write is applied but its
+     * ACK is lost; the device edits the same set and comes back after the window closed. The real
+     * server answers `applied[old] + conflicts[newer]` — the old value stays and the newer one is
+     * refused. The client must not take that old ACK for "the newer value was saved" (5a).
+     */
+    it("an applied write replayed beside a newer edit of the same set after the window: applied [old] + conflict [newer], the old value stays", async () => {
+      const p = await program();
+      const d0 = dayAt(0);
+      const day0 = await session(p.id, d0, "scheduled");
+      const older = perf(day0.planned[0].id, at(d0, "10:00"), 50, 10);
+      expect((await sync([older])).applied).toEqual([older.client_id]); // its ACK never arrives
+      const newer = perf(day0.planned[0].id, at(d0, "10:05"), 55, 10);
+      moveServerToday(isoDate(new Date(d0.getTime() + 2 * DAY_MS)));
+
+      const result = await sync([older, newer]);
+      expect(result.applied).toEqual([older.client_id]);
+      expect(result.conflicts).toEqual([
+        expect.objectContaining({ client_id: newer.client_id, reason: "conflict" }),
+      ]);
+      const fact = await prisma.performedSet.findUniqueOrThrow({
+        where: { plannedSetId: day0.planned[0].id },
+      });
+      expect(Number(fact.actualWeight)).toBe(50);
+    });
   });
 
   describe("I3 the same input recomputes to the same result; a replay does not recompute", () => {
