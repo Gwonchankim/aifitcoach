@@ -449,45 +449,69 @@ it.each([
  * exactly that moment. Every text the sheet's alert shows is recorded: on the code before R5 this
  * recorder saw the finish sentence (its positive control, BUG-10 r2/rework/probe-c1-steady).
  */
-it("C1: a re-finish refused on a session this device knows is finished says nothing false — no finish sentence, no generic 409, no borrowed notice", async () => {
-  await logFirstSet();
-  mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
-  mocks.sync.mockImplementation(async () => {
-    const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
-    if (!finish) return null;
-    return new SyncCoordinator({
-      userId: DEV_USER_SCOPE,
-      transport: async (body) => ({
-        ...refusal([finish], "conflict"),
-        applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
-      }),
-    }).request();
-  });
-  mount();
-  fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
-  fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
-  const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
-  const shown: string[] = [];
-  const recorder = new MutationObserver(() => {
-    for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
-      if (alert.textContent && !shown.includes(alert.textContent)) shown.push(alert.textContent);
-  });
-  recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
-  fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
-  const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
-  await waitFor(async () => expect(await notices()).toEqual(["superseded"]));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
-  recorder.disconnect();
-  for (const copy of [
-    "운동 종료는 저장되지 않았어요.",
-    GENERIC_409,
-    EDIT_WINDOW_COPY.previousCompleted,
-  ])
-    expect(shown.filter((text) => text.includes(copy))).toEqual([]);
-  expect(within(sheet).queryByRole("alert")).toBeNull(); // the end state, too
-  expect(screen.queryByText(GENERIC_409)).toBeNull();
-  expect(await notices()).toEqual(["superseded"]);
-});
+/*
+ * With a pain report (총괄 R5 (i)): reopening a finished previous-day session to add the pain report
+ * and finishing again — one device, no other — is the nearest path to losing it silently. The
+ * finish clause is still false; the pain it carried is not saved, and that alone is said, with no
+ * date reason (the browser sees the window open, as above).
+ */
+it.each([
+  ["", undefined, [], "superseded"],
+  [
+    " — with a pain report: only that the pain was not saved",
+    3,
+    ["통증 기록은 저장되지 않았어요."],
+    "shown",
+  ],
+] as const)(
+  "C1: a re-finish refused on a session this device knows is finished says nothing false — no finish sentence, no generic 409, no borrowed notice%s",
+  async (_, pain, said, audit) => {
+    await logFirstSet();
+    mocks.session.mockResolvedValue(session("2026-08-13", "completed"));
+    mocks.sync.mockImplementation(async () => {
+      const finish = (await sessionDb.outbox.toArray()).find((row) => row.entity === "session");
+      if (!finish) return null;
+      return new SyncCoordinator({
+        userId: DEV_USER_SCOPE,
+        transport: async (body) => ({
+          ...refusal([finish], "conflict"),
+          applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+        }),
+      }).request();
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
+    const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
+    const shown: string[] = [];
+    const recorder = new MutationObserver(() => {
+      for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
+        if (alert.textContent && !shown.includes(alert.textContent)) shown.push(alert.textContent);
+    });
+    recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
+    if (pain !== undefined)
+      fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${pain}점` }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
+    const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
+    await waitFor(async () => expect(await notices()).toEqual([audit]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    recorder.disconnect();
+    for (const copy of [
+      "운동 종료는 저장되지 않았어요.",
+      GENERIC_409,
+      EDIT_WINDOW_COPY.previousCompleted,
+    ])
+      expect(shown.filter((text) => text.includes(copy))).toEqual([]);
+    expect(shown).toEqual(said); // everything the sheet said
+    expect(
+      within(sheet)
+        .queryAllByRole("alert")
+        .map((alert) => alert.textContent),
+    ).toEqual(said);
+    expect(screen.queryByText(GENERIC_409)).toBeNull();
+    expect(await notices()).toEqual([audit]);
+  },
+);
 
 it("P1: a `conflict` on a finished previous-day session the browser still sees open is said, without a date reason", async () => {
   await logFirstSet();

@@ -59,7 +59,8 @@ const { SessionScreen } = await import("../components/session/SessionScreen");
 const { sessionDb, DEV_USER_SCOPE } = await import("../components/session/session-db");
 /** The module itself, to hold the judge's audit read (round 3, as the evaluator reproduced it). */
 const sessionDbModule = await import("../components/session/session-db");
-const { SyncCoordinator } = await import("../components/session/sync-coordinator");
+const { SyncCoordinator, SYNC_RESPONSE_EVENT } =
+  await import("../components/session/sync-coordinator");
 const { useSessionLog } = await import("../components/session/session-store");
 const { EDIT_WINDOW_COPY } = await import("../components/session/session-edit-rights");
 /** The module itself, to act between the judge's check and its notice (round 3, axis re-scan). */
@@ -149,12 +150,18 @@ async function logSet(sessionId: string, plannedSetId: string) {
     .completeSet(plannedSetId, { weight: 60, reps: 9, rir: 2, timeSec: null });
 }
 /** Offline finish: the sheet commits locally and the summary claims the finish. */
-async function finishOffline() {
+/** Finishes from the sheet — with the sheet's pain report when a score is given (sync → null). */
+async function finishOffline(pain?: number) {
   fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
   const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
-  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ })); // sync → null
+  if (pain !== undefined)
+    fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${pain}점` }));
+  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
   await screen.findByRole("heading", { name: "수고했어요" });
 }
+/** BUG-10 R5 (총괄 승인): a refused finish's pain report, on a session the server holds finished. */
+const PAIN_ONLY = "통증 기록은 저장되지 않았어요.";
+const PAIN_TOO = "통증 기록도 저장되지 않았어요.";
 const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
 const alertTexts = () => screen.queryAllByRole("alert").map((alert) => alert.textContent);
 /** The nameless clause: no session to name the card from, and no date to give a reason for. */
@@ -1271,34 +1278,117 @@ const perSet = async () =>
     ]),
   );
 
-it("invariant 5a — a refusal already SAID that a strictly later write made false is taken back: the retried finish was applied", async () => {
+/** The server refuses this device's finish (`stale_update`) and applies everything else. */
+const finishRefusedOnly = async (body: SyncRequest): Promise<SyncResponse> => ({
+  applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
+  conflicts: body.mutations
+    .filter((m) => m.entity === "session")
+    .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
+  changes: [],
+  planned_set_mappings: [],
+  next_cursor: "v1.test",
+});
+
+/*
+ * With a pain report (총괄 R5 (i), the same rule for this source): a later finish makes the earlier
+ * refused one false only for what the later one saved. Without pain it sends no pain at all (`{}`):
+ * the server's pain is neither set nor cleared — the first pain report was never saved, nor
+ * replaced, so "not saved" is still true of it. With pain, the latest report is saved.
+ */
+it.each([
+  ["", undefined, undefined, [], "superseded"],
+  [
+    " — both carried a pain report: the latest one is saved, nothing is left",
+    3,
+    4,
+    [],
+    "superseded",
+  ],
+  [
+    " — only the first carried a pain report: that pain is still not saved",
+    3,
+    undefined,
+    [PAIN_ONLY],
+    "shown",
+  ],
+] as const)(
+  "invariant 5a — a refusal already SAID that a strictly later write made false is taken back: the retried finish was applied%s",
+  async (_, firstPain, retryPain, left, audit) => {
+    await logSet("A", "set-1");
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+    mount();
+    await finishOffline(firstPain);
+    await act(async () => {
+      await sync(finishRefusedOnly);
+    });
+    await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+    await expect.poll(notices).toEqual(["shown"]); // said
+    // The user finishes again — strictly later, online now — and the server applies it.
+    vi.setSystemTime(new Date(NOW.getTime() + 1000));
+    mocks.sync.mockImplementation(() => sync(applyAsServer));
+    fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
+    const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
+    if (retryPain !== undefined)
+      fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${retryPain}점` }));
+    fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
+    await screen.findByRole("heading", { name: "수고했어요" });
+    await settle();
+    expect(alertTexts()).toEqual(left); // "운동 종료는 저장되지 않았어요" beside a true summary: never
+    expect(await notices()).toEqual([audit]);
+  },
+);
+
+/*
+ * The same, when the retried finish is applied by a later sync in the background — no sheet closes
+ * to judge again: the response that changed what a refusal says is announced (like one that made a
+ * refusal false, F1). It reaches the response's two other listeners too; that they do nothing here
+ * is ASSERTED (총괄: not judged harmless) — and the two probes are first shown to see a run.
+ */
+it("invariant 5a — a retried finish without pain, applied in the background: the notice turns to the pain report, and the response's other listeners do nothing", async () => {
   await logSet("A", "set-1");
   mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
   mount();
-  await finishOffline();
+  await finishOffline(3);
   await act(async () => {
-    await sync(async (body) => ({
-      applied: body.mutations.filter((m) => m.entity !== "session").map((m) => m.client_id),
-      conflicts: body.mutations
-        .filter((m) => m.entity === "session")
-        .map((m) => ({ client_id: m.client_id, entity_id: m.entity_id, reason: "stale_update" })),
-      changes: [],
-      planned_set_mappings: [],
-      next_cursor: "v1.test",
-    }));
+    await sync(finishRefusedOnly);
   });
   await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
-  await expect.poll(notices).toEqual(["shown"]); // said
-  // The user finishes again — strictly later, online now — and the server applies it.
+  await expect.poll(notices).toEqual(["shown"]);
   vi.setSystemTime(new Date(NOW.getTime() + 1000));
-  mocks.sync.mockImplementation(() => sync(applyAsServer));
-  fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
-  const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
-  fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
-  await screen.findByRole("heading", { name: "수고했어요" });
+  await finishOffline(); // the retry, without pain: committed here, sent later
   await settle();
-  expect(alertTexts()).toEqual([]); // the summary is true; "not saved" beside it would be false
-  expect(await notices()).toEqual(["superseded"]);
+  expect(alertTexts()).toEqual([FINISH_ONLY]); // not applied yet: still true
+  const client = clients[0];
+  const appendUpdates = () => client.getQueryState(["session-append", "A"])?.dataUpdateCount;
+  const drafts = () => useSessionLog.getState().drafts;
+  const before = { append: appendUpdates(), drafts: drafts() };
+  await act(async () => {
+    await sync(applyAsServer); // a background sync applies the retry
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([PAIN_ONLY]));
+  await settle();
+  expect(await notices()).toEqual(["shown"]);
+  expect(appendUpdates()).toBe(before.append); // onCommit did not reconcile
+  expect(drafts()).toBe(before.drafts); // onSyncResponse did not reload drafts
+  // The probes' positive control: an event that does concern both moves each of them.
+  await act(async () => {
+    window.dispatchEvent(
+      new CustomEvent(SYNC_RESPONSE_EVENT, {
+        detail: {
+          applied: [],
+          conflicts: [],
+          changes: [{ entity: "session", entity_id: "A", op: "upsert", data: null }],
+          planned_set_mappings: [],
+          next_cursor: "v1.test",
+          local_session_ids: ["A"],
+          completed_session_ids: [],
+        },
+      }),
+    );
+  });
+  await settle();
+  expect(appendUpdates()).not.toBe(before.append);
+  expect(drafts()).not.toBe(before.drafts);
 });
 
 it("invariant 5b — a notice already said holds only what is still true: rewritten when part of it is saved later", async () => {
@@ -1535,53 +1625,81 @@ it("invariant 15 — a refusal that arrives after the judge's read but before it
   await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "shown" });
 });
 
-it("invariant 5c — a finish refused because another device finished the session first: the re-read says completed, so 'not saved' is not said beside the summary", async () => {
-  await logSet("A", "set-1");
-  mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
-  const first = mount();
-  await finishOffline();
-  // Another device finished this session first: the server holds it completed.
-  mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed"));
-  await act(async () => {
-    await sync(finishedElsewhere);
-  });
-  await screen.findByRole("heading", { name: "수고했어요" }); // the session IS finished
-  await waitFor(() => expect(screen.queryByText(FINISH_ONLY)).toBeNull());
-  await settle();
-  expect(alertTexts()).toEqual([]);
-  expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
-  expect(await notices()).toEqual(["superseded"]);
-  // Nor on the next screen for this session.
-  first.unmount();
-  mount();
-  await screen.findByRole("heading", { name: "수고했어요" });
-  await settle();
-  expect(alertTexts()).toEqual([]);
-});
+/*
+ * With a pain report (총괄 R5 (i)): the finish IS saved — the session is finished — but the pain
+ * this finish carried is not. The finish clause is false; "통증 기록은 저장되지 않았어요" is true and
+ * stays: the refusal is not superseded, it is described for what is left of it. These 5c tests used
+ * finishes without pain only — which is how the silent loss of a pain report went unseen.
+ */
+it.each([
+  ["without a pain report: nothing is left to say", undefined, [], "superseded"],
+  [
+    "with a pain report: the pain is still not saved, and only that is said",
+    3,
+    [PAIN_ONLY],
+    "shown",
+  ],
+] as const)(
+  "invariant 5c — a finish refused because another device finished the session first: the re-read says completed, so 'not saved' is not said beside the summary — %s",
+  async (_, pain, left, audit) => {
+    await logSet("A", "set-1");
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
+    const first = mount();
+    await finishOffline(pain);
+    // Another device finished this session first: the server holds it completed.
+    mocks.session.mockResolvedValue(session("A", "2026-08-14", "completed"));
+    await act(async () => {
+      await sync(finishedElsewhere);
+    });
+    await screen.findByRole("heading", { name: "수고했어요" }); // the session IS finished
+    await waitFor(() => expect(screen.queryByText(FINISH_ONLY)).toBeNull());
+    await settle();
+    expect(alertTexts()).toEqual(left);
+    expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+    expect(await notices()).toEqual([audit]);
+    // Nor again on the next screen for this session: said once.
+    first.unmount();
+    mount();
+    await screen.findByRole("heading", { name: "수고했어요" });
+    await settle();
+    expect(alertTexts()).toEqual([]);
+  },
+);
 
-it("invariant 5c — the session finished elsewhere takes back only the finish: a refused set is still said", async () => {
-  await logSet("A", "set-1");
-  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
-  mount();
-  await finishOffline();
-  vi.setSystemTime(CLOSED);
-  // Another device finished it while its window was open; this device's set and finish arrive late.
-  mocks.session.mockResolvedValue(session("A", "2026-08-13", "completed"));
-  await act(async () => {
-    await sync(refuseAsServer);
-  });
-  // The set was not saved — that is still true; the session being finished does not change it.
-  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]));
-  await settle();
-  expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]);
-  await expect
-    .poll(async () =>
-      (await sessionDb.conflicts.toArray())
-        .map((row) => `${(row.payload as { entity: string }).entity}:${row.notice}`)
-        .sort(),
-    )
-    .toEqual(["performed_set:shown", "session:superseded"]);
-});
+it.each([
+  ["without a pain report", undefined, `${EXPIRED} ${SET1}`, "session:superseded"],
+  [
+    "with a pain report: the pain is not saved either",
+    3,
+    `${EXPIRED} ${SET1} ${PAIN_TOO}`,
+    "session:shown",
+  ],
+] as const)(
+  "invariant 5c — the session finished elsewhere takes back only the finish: a refused set is still said — %s",
+  async (_, pain, said, finishAudit) => {
+    await logSet("A", "set-1");
+    mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+    mount();
+    await finishOffline(pain);
+    vi.setSystemTime(CLOSED);
+    // Another device finished it while its window was open; this device's set and finish arrive late.
+    mocks.session.mockResolvedValue(session("A", "2026-08-13", "completed"));
+    await act(async () => {
+      await sync(refuseAsServer);
+    });
+    // The set was not saved — that is still true; the session being finished does not change it.
+    await waitFor(() => expect(alertTexts()).toEqual([said]));
+    await settle();
+    expect(alertTexts()).toEqual([said]);
+    await expect
+      .poll(async () =>
+        (await sessionDb.conflicts.toArray())
+          .map((row) => `${(row.payload as { entity: string }).entity}:${row.notice}`)
+          .sort(),
+      )
+      .toEqual(["performed_set:shown", finishAudit]);
+  },
+);
 
 /*
  * Evaluator R5 (총괄: one truth evaluation right before a notice is composed, not a trigger per
@@ -1599,12 +1717,12 @@ const todayThreeSets = (status: Session["status"]) => ({
   planned_sets: plannedSets("set", 3),
 });
 /** The finish is refused while the session cannot be read again: said from the refusal, marked. */
-async function finishRefusalSaidWithoutReread() {
+async function finishRefusalSaidWithoutReread(pain?: number) {
   await logSet("A", "set-1");
   await sync(applyAsServer); // set 1 is saved
   mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
   const view = mount();
-  await finishOffline();
+  await finishOffline(pain);
   mocks.session.mockRejectedValue(new Error("GET 503")); // the re-read after the refusal fails
   await act(async () => {
     await sync(refuseAsServer);
@@ -1622,50 +1740,73 @@ async function refuseSet2() {
   });
 }
 
-it("invariant 5c — a finish refusal already said is false once a later read shows the session finished: the next notice holds the set alone", async () => {
-  const first = await finishRefusalSaidWithoutReread();
-  first.unmount();
-  mocks.session.mockResolvedValue(todayThreeSets("completed")); // an ordinary read succeeds
-  mount();
-  await screen.findByRole("heading", { name: "수고했어요" });
-  await settle();
-  expect(alertTexts()).toEqual([]); // said once already: not raised again
-  await refuseSet2();
-  const SET2_ALONE = "벤치프레스 2세트 기록은 저장되지 않았어요.";
-  await waitFor(() => expect(alertTexts()).toEqual([SET2_ALONE]));
-  await settle();
-  expect(alertTexts()).toEqual([SET2_ALONE]);
-  await expect.poll(perSet).toEqual({ A: "superseded", "set-2": "shown" });
-});
+const SET2_SAID = "벤치프레스 2세트 기록은 저장되지 않았어요.";
+it.each([
+  ["", undefined, SET2_SAID, "superseded"],
+  [" — with a pain report: the pain is still not saved", 3, `${SET2_SAID} ${PAIN_TOO}`, "shown"],
+] as const)(
+  "invariant 5c — a finish refusal already said is false once a later read shows the session finished: the next notice holds the set alone%s",
+  async (_, pain, next, finishAudit) => {
+    const first = await finishRefusalSaidWithoutReread(pain);
+    first.unmount();
+    mocks.session.mockResolvedValue(todayThreeSets("completed")); // an ordinary read succeeds
+    mount();
+    await screen.findByRole("heading", { name: "수고했어요" });
+    await settle();
+    expect(alertTexts()).toEqual([]); // said once already: not raised again
+    await refuseSet2();
+    await waitFor(() => expect(alertTexts()).toEqual([next]));
+    await settle();
+    expect(alertTexts()).toEqual([next]);
+    await expect.poll(perSet).toEqual({ A: finishAudit, "set-2": "shown" });
+  },
+);
 
-it("invariant 5c — the contrast: a later read shows the session still in progress, so the finish refusal is still true and stays in the next notice", async () => {
-  const first = await finishRefusalSaidWithoutReread();
-  first.unmount();
-  mocks.session.mockResolvedValue(todayThreeSets("in_progress")); // the server: NOT finished
-  mount();
-  await screen.findByLabelText(weight(2)); // the routine, not the summary
-  await settle();
-  expect(alertTexts()).toEqual([]);
-  await refuseSet2();
-  const SET2_AND_FINISH = `벤치프레스 2세트 기록은 저장되지 않았어요. ${FINISH_TOO}`;
-  await waitFor(() => expect(alertTexts()).toEqual([SET2_AND_FINISH]));
-  await settle();
-  expect(alertTexts()).toEqual([SET2_AND_FINISH]);
-  await expect.poll(perSet).toEqual({ A: "shown", "set-2": "shown" });
-});
+it.each([
+  ["", undefined],
+  [" — with a pain report: the finish clause still covers it", 3],
+] as const)(
+  "invariant 5c — the contrast: a later read shows the session still in progress, so the finish refusal is still true and stays in the next notice%s",
+  async (_, pain) => {
+    const first = await finishRefusalSaidWithoutReread(pain);
+    first.unmount();
+    mocks.session.mockResolvedValue(todayThreeSets("in_progress")); // the server: NOT finished
+    mount();
+    await screen.findByLabelText(weight(2)); // the routine, not the summary
+    await settle();
+    expect(alertTexts()).toEqual([]);
+    await refuseSet2();
+    const SET2_AND_FINISH = `${SET2_SAID} ${FINISH_TOO}`;
+    await waitFor(() => expect(alertTexts()).toEqual([SET2_AND_FINISH]));
+    await settle();
+    expect(alertTexts()).toEqual([SET2_AND_FINISH]);
+    await expect.poll(perSet).toEqual({ A: "shown", "set-2": "shown" });
+  },
+);
 
-it("invariant 5c — a finish refusal on screen is taken back when this screen's own later read shows the session finished", async () => {
-  await finishRefusalSaidWithoutReread(); // still on screen, beside the routine
-  mocks.session.mockResolvedValue(todayThreeSets("completed"));
-  await act(async () => {
-    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
-  });
-  await screen.findByRole("heading", { name: "수고했어요" });
-  await waitFor(() => expect(alertTexts()).toEqual([]));
-  await settle();
-  expect(alertTexts()).toEqual([]);
-  expect(await notices()).toEqual(["superseded"]);
-});
+it.each([
+  ["taken back", undefined, [], "superseded"],
+  [
+    "rewritten to the pain report it carried (re-announced: the correction is heard)",
+    3,
+    [PAIN_ONLY],
+    "shown",
+  ],
+] as const)(
+  "invariant 5c — a finish refusal on screen is %s when this screen's own later read shows the session finished",
+  async (_, pain, left, audit) => {
+    await finishRefusalSaidWithoutReread(pain); // still on screen, beside the routine
+    mocks.session.mockResolvedValue(todayThreeSets("completed"));
+    await act(async () => {
+      await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+    });
+    await screen.findByRole("heading", { name: "수고했어요" });
+    await waitFor(() => expect(alertTexts()).toEqual(left));
+    await settle();
+    expect(alertTexts()).toEqual(left);
+    expect(await notices()).toEqual([audit]);
+  },
+);
 
 /*
  * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
