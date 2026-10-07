@@ -1886,26 +1886,48 @@ it("invariant 5c — on an ordinary finish, the judge that runs on the finished 
     notice: "pending",
   });
   const before = await sessionDb.conflicts.toArray();
-  await logSet("A", "set-1");
-  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
-  mount();
-  await screen.findByLabelText(weight(2));
-  const read = sessionDbModule.standingRefusals;
-  const finishedWhenJudged: boolean[] = [];
-  vi.spyOn(sessionDbModule, "standingRefusals").mockImplementation(async (...args) => {
-    const shown = clients[0].getQueryData<Session>(["session", "A"])?.status;
-    finishedWhenJudged.push(shown === "completed");
-    return read(...args);
-  });
-  await finishOffline(); // the user finishes …
-  mocks.session.mockResolvedValue(todayThreeSets("completed"));
-  await act(async () => {
-    await sync(applyAsServer); // … and the server applies it
-  });
-  await settle();
-  expect(finishedWhenJudged).toContain(true); // a judge ran on the finished session
-  expect(alertTexts()).toEqual([]);
-  expect(await sessionDb.conflicts.toArray()).toEqual(before); // no audit row written or changed
+  // Every write the audit table takes from here on — one that leaves the row as it was included,
+  // which comparing rows cannot see (evaluator R6). The hooks' positive control ends this test.
+  const writes = { creating: 0, updating: 0, deleting: 0 };
+  const created = () => void writes.creating++;
+  const updated = () => void writes.updating++;
+  const deleted = () => void writes.deleting++;
+  sessionDb.conflicts.hook("creating", created);
+  sessionDb.conflicts.hook("updating", updated);
+  sessionDb.conflicts.hook("deleting", deleted);
+  try {
+    await logSet("A", "set-1");
+    mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+    mount();
+    await screen.findByLabelText(weight(2));
+    const read = sessionDbModule.standingRefusals;
+    const finishedWhenJudged: boolean[] = [];
+    vi.spyOn(sessionDbModule, "standingRefusals").mockImplementation(async (...args) => {
+      const shown = clients[0].getQueryData<Session>(["session", "A"])?.status;
+      finishedWhenJudged.push(shown === "completed");
+      return read(...args);
+    });
+    await finishOffline(); // the user finishes …
+    mocks.session.mockResolvedValue(todayThreeSets("completed"));
+    await act(async () => {
+      await sync(applyAsServer); // … and the server applies it
+    });
+    await settle();
+    expect(finishedWhenJudged).toContain(true); // a judge ran on the finished session
+    expect(alertTexts()).toEqual([]);
+    expect(await sessionDb.conflicts.toArray()).toEqual(before); // no audit row changed …
+    expect(writes).toEqual({ creating: 0, updating: 0, deleting: 0 }); // … nor written at all
+    // The hooks' positive control (총괄 R6 N2): a write that leaves the row exactly as it was IS
+    // counted — a put of the same row. Not an update of a field to its own value: Dexie leaves such a
+    // row unwritten, so it would count 0 and prove nothing. Without this, 0 could mean "not counted".
+    await sessionDb.conflicts.put(before[0]);
+    expect(await sessionDb.conflicts.toArray()).toEqual(before);
+    expect(writes).toEqual({ creating: 0, updating: 1, deleting: 0 });
+  } finally {
+    sessionDb.conflicts.hook("creating").unsubscribe(created);
+    sessionDb.conflicts.hook("updating").unsubscribe(updated);
+    sessionDb.conflicts.hook("deleting").unsubscribe(deleted);
+  }
 });
 
 /*
