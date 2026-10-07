@@ -11,6 +11,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Session as ApiSession } from "../lib/api";
 import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
+import { alertsDrawn } from "./support/alerts-drawn";
 type Session = Omit<ApiSession, "planned_sets"> & { planned_sets: PlannedSet[] };
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), sync: vi.fn() }));
@@ -441,15 +442,7 @@ it.each([
 );
 
 /** Every text an alert in a sheet (a dialog) showed from now on — C1's recorder. */
-function sheetAlertsShown() {
-  const texts: string[] = [];
-  const recorder = new MutationObserver(() => {
-    for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
-      if (alert.textContent && !texts.includes(alert.textContent)) texts.push(alert.textContent);
-  });
-  recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
-  return { texts, stop: () => recorder.disconnect() };
-}
+const sheetAlertsShown = () => alertsDrawn("dialog");
 
 /**
  * A finished previous-day session HAS an approved notice while logging is open. A date refusal

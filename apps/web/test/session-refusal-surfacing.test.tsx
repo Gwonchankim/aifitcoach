@@ -30,6 +30,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Session as ApiSession, SyncRequest, SyncResponse } from "../lib/api";
 import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
+import { alertsDrawn } from "./support/alerts-drawn";
 type Session = Omit<ApiSession, "planned_sets"> & { planned_sets: PlannedSet[] };
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), sync: vi.fn() }));
@@ -367,81 +368,6 @@ function setVisibility(state: "hidden" | "visible") {
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
   Object.defineProperty(document, "hidden", { configurable: true, get: () => state === "hidden" });
   document.dispatchEvent(new Event("visibilitychange"));
-}
-
-/**
- * Every text an alert on the screen (outside any dialog) showed from now on: an alert put in, and
- * a new text in one already there — React rewrites a text it rendered in place — one taken back
- * at once included: "never drawn there" is not the same as "not there any more". The observer
- * hands its changes over in batches (two renders in one `act` flush land in one), so a batch is
- * replayed backwards from the tree as it is now: the old values and the nodes each change carries
- * give back what every alert showed right after each change. Not seen: an element made an alert
- * through its role attribute (no alert here is). Its positive control is the next test.
- */
-function alertsDrawn() {
-  const texts: string[] = [];
-  const observer = new MutationObserver((records) => {
-    // The tree right after the record being replayed — the later ones undone, back from now.
-    const values = new Map<Node, string | null>();
-    const kids = new Map<Node, Node[]>();
-    const parents = new Map<Node, Node | null>();
-    const childrenOf = (node: Node) => {
-      if (!kids.has(node)) kids.set(node, [...node.childNodes]);
-      return kids.get(node)!;
-    };
-    const textOf = (node: Node): string =>
-      node.nodeType === Node.TEXT_NODE
-        ? ((values.has(node) ? values.get(node) : node.nodeValue) ?? "")
-        : node.nodeType === Node.ELEMENT_NODE
-          ? childrenOf(node).map(textOf).join("")
-          : "";
-    const role = (node: Node) => (node instanceof Element ? node.getAttribute("role") : null);
-    /** The alert `node` is (or is in), if that is on the screen and not inside a dialog. */
-    const screenAlert = (node: Node) => {
-      let alert: Node | null = null;
-      let at: Node | null = node;
-      for (; at && at !== document; at = parents.has(at) ? parents.get(at)! : at.parentNode) {
-        if (role(at) === "dialog") return null;
-        if (!alert && role(at) === "alert") alert = at;
-      }
-      return at === document ? alert : null;
-    };
-    const alertsIn = (node: Node): Node[] => [
-      ...(role(node) === "alert" ? [node] : []),
-      ...childrenOf(node).flatMap(alertsIn),
-    ];
-    const replayed: string[][] = [];
-    for (let i = records.length - 1; i >= 0; i--) {
-      const record = records[i];
-      const shown = [...record.addedNodes]
-        .flatMap(alertsIn)
-        .filter((alert) => screenAlert(alert) === alert)
-        .map(textOf); // alerts this change put in
-      const around = screenAlert(record.target); // an alert this change rewrote from inside
-      const after = around ? textOf(around) : null;
-      if (record.type === "characterData") values.set(record.target, record.oldValue);
-      else {
-        const list = childrenOf(record.target);
-        for (const node of record.addedNodes) {
-          list.splice(list.indexOf(node), 1);
-          parents.set(node, null);
-        }
-        const at = record.previousSibling ? list.indexOf(record.previousSibling) + 1 : 0;
-        list.splice(at, 0, ...record.removedNodes);
-        for (const node of record.removedNodes) parents.set(node, record.target);
-      }
-      if (around && after !== textOf(around)) shown.push(after!);
-      replayed[i] = shown;
-    }
-    texts.push(...replayed.flat());
-  });
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    characterDataOldValue: true,
-  });
-  return { texts, stop: () => observer.disconnect() };
 }
 
 /*
