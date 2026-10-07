@@ -1392,6 +1392,45 @@ const finishedElsewhere = async (body: SyncRequest): Promise<SyncResponse> => ({
   next_cursor: "v1.test",
 });
 
+/*
+ * 15's boundary (총괄 R4): what a notice holds is the session's still-true refusals as read right
+ * before it is composed — not the snapshot the judge read first. A refusal that arrived after that
+ * read is in the first notice, complete; its own arrival then wakes a judge that has nothing new
+ * (it was said: 1). One arriving after the composition read is not chased — that arrival wakes the
+ * judge and the rewrite (F3) puts it in the notice: the window is narrowed as far as the mechanism
+ * allows, not to zero.
+ */
+it("invariant 15 — a refusal that arrives after the judge's read but before its notice is composed is in that notice: said once, complete", async () => {
+  await logSet("A", "set-1");
+  await sync(refuseAsServer); // set 1 refused while nobody was looking
+  const judge = holdJudgeReads();
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-13", "in_progress"),
+    planned_sets: plannedSets("set", 3), // set 3 is still ahead: the routine, not the summary
+  });
+  mount();
+  let read: unknown[] = [];
+  await act(async () => {
+    read = await judge.entered;
+  });
+  expect(read).toHaveLength(1); // the judge HAS read set 1 …
+  // … and before it composes, set 2 is refused too (its arrival wakes the next judge, held here).
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(refuseAsServer);
+  });
+  const BOTH = "벤치프레스 1·2세트 기록은 저장되지 않았어요.";
+  const drawn = alertsDrawn();
+  judge.releaseFirst();
+  await settle();
+  expect(drawn.texts).toEqual([BOTH]); // composed from what is still true right before it
+  judge.releaseNext();
+  await settle();
+  drawn.stop();
+  expect(drawn.texts).toEqual([BOTH]); // set 2's own judge has nothing new: said once
+  await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "shown" });
+});
+
 it("invariant 5c — a finish refused because another device finished the session first: the re-read says completed, so 'not saved' is not said beside the summary", async () => {
   await logSet("A", "set-1");
   mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress")); // today
