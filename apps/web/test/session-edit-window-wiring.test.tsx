@@ -440,6 +440,17 @@ it.each([
   },
 );
 
+/** Every text an alert in a sheet (a dialog) showed from now on — C1's recorder. */
+function sheetAlertsShown() {
+  const texts: string[] = [];
+  const recorder = new MutationObserver(() => {
+    for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
+      if (alert.textContent && !texts.includes(alert.textContent)) texts.push(alert.textContent);
+  });
+  recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
+  return { texts, stop: () => recorder.disconnect() };
+}
+
 /**
  * A finished previous-day session HAS an approved notice while logging is open. A date refusal
  * there means the clocks disagree: neither path may borrow that notice, nor fall back to the
@@ -483,19 +494,15 @@ it.each([
     fireEvent.click(await screen.findByRole("button", { name: "기록 더하거나 고치기" }));
     fireEvent.click(await screen.findByRole("button", { name: "수정 마치기" }));
     const sheet = await screen.findByRole("dialog", { name: "수정 마치기" });
-    const shown: string[] = [];
-    const recorder = new MutationObserver(() => {
-      for (const alert of document.querySelectorAll('[role="dialog"] [role="alert"]'))
-        if (alert.textContent && !shown.includes(alert.textContent)) shown.push(alert.textContent);
-    });
-    recorder.observe(document.body, { childList: true, subtree: true, characterData: true });
+    const recorder = sheetAlertsShown();
+    const shown = recorder.texts;
     if (pain !== undefined)
       fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${pain}점` }));
     fireEvent.click(within(sheet).getByRole("button", { name: "기록 반영" }));
     const notices = async () => (await sessionDb.conflicts.toArray()).map((row) => row.notice);
     await waitFor(async () => expect(await notices()).toEqual([audit]));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
-    recorder.disconnect();
+    recorder.stop();
     for (const copy of [
       "운동 종료는 저장되지 않았어요.",
       GENERIC_409,
@@ -510,6 +517,55 @@ it.each([
     ).toEqual(said);
     expect(screen.queryByText(GENERIC_409)).toBeNull();
     expect(await notices()).toEqual([audit]);
+  },
+);
+
+/*
+ * C1's recorder, its positive control (총괄 R6 N1 — evaluator R6: a text put into a sheet's alert and
+ * taken back within one observer batch was never recorded). "The recorder saw no finish sentence" is
+ * evidence only for what the recorder can see: a sentence shown for a moment, inside one batch or
+ * said again after it was taken back, is shown — and must be reported, as often as it was shown.
+ */
+const SAID_ONCE = "운동 종료는 저장되지 않았어요.";
+const nextBatch = () => act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+it.each([
+  [
+    "put in and taken back within one observer batch",
+    async (alert: Element) => {
+      const node = document.createTextNode("");
+      alert.append(node);
+      node.data = SAID_ONCE;
+      expect(alert.textContent).toBe(SAID_ONCE); // it IS shown
+      node.data = "";
+    },
+    [SAID_ONCE],
+  ],
+  [
+    "said again after it was taken back",
+    async (alert: Element) => {
+      const node = document.createTextNode(SAID_ONCE);
+      alert.append(node);
+      await nextBatch();
+      node.data = "";
+      await nextBatch();
+      node.data = SAID_ONCE;
+      expect(alert.textContent).toBe(SAID_ONCE); // shown a second time
+    },
+    [SAID_ONCE, SAID_ONCE],
+  ],
+] as const)(
+  "C1's recorder (positive control) — a sheet alert's sentence %s is reported, each time it was shown",
+  async (_, show, expected) => {
+    render(
+      <div role="dialog" aria-label="수정 마치기">
+        <p role="alert" />
+      </div>,
+    );
+    const recorder = sheetAlertsShown();
+    await show(screen.getByRole("alert"));
+    await nextBatch();
+    recorder.stop();
+    expect(recorder.texts).toEqual(expected);
   },
 );
 
