@@ -1827,6 +1827,51 @@ it.each([
 );
 
 /*
+ * Evaluator R6 (총괄: 차단 — real Chrome and the compiled API confirmed it). A finish waits in the
+ * outbox; an ordinary read meanwhile shows the session finished (another request finished it), so
+ * from then on the mirror's "completed" is the server's, not this finish's claim. The finish's
+ * refusal arrives after that read: taking "its" completed back took the server's, and with the
+ * re-read failing (GET 503) the finish refusal was said beside a finished session. Whether to take a
+ * status back is decided by where it came from, not by its value (총괄 R6). The order is the
+ * evaluator's. The status the finish replaced is both the unit order's (in progress) and the
+ * browser's (scheduled: the mirror was not read again after the set was saved).
+ */
+it.each([["in_progress"], ["scheduled"]] as const)(
+  "invariant 11 — a finish refused after an ordinary read showed the session finished takes nothing back: that 'completed' is the server's (status before the finish: %s)",
+  async (prior) => {
+    await logSet("A", "set-1");
+    await sync(applyAsServer); // set 1 is saved
+    mocks.session.mockResolvedValue(todayThreeSets(prior));
+    mount();
+    await finishOffline(); // committed here, not sent
+    const finishes = () => sessionDb.outbox.filter((row) => row.entity === "session").toArray();
+    expect((await finishes()).map((row) => row.prior_status)).toEqual([prior]);
+    const mirror = async () => {
+      const row = await sessionDb.sessions.get([DEV_USER_SCOPE, "A"]);
+      return { status: (row?.session as Session | undefined)?.status, writtenAt: row?.updated_at };
+    };
+    // An ordinary read, a moment later, shows the session finished: the read writes the mirror …
+    const readAt = new Date(NOW.getTime() + 1000);
+    vi.setSystemTime(readAt);
+    mocks.session.mockResolvedValue(todayThreeSets("completed"));
+    await act(async () => {
+      await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+    });
+    expect(await mirror()).toEqual({ status: "completed", writtenAt: readAt.toISOString() });
+    expect(await finishes()).toHaveLength(1); // … while the finish still waits
+    mocks.session.mockRejectedValue(new Error("GET 503")); // every read from here on fails
+    await act(async () => {
+      await sync(refuseAsServer); // the finish's refusal arrives
+    });
+    await settle();
+    expect((await mirror()).status).toBe("completed"); // the server's: not taken back
+    expect(alertTexts()).toEqual([]);
+    expect(screen.getByRole("heading", { name: "수고했어요" })).toBeTruthy();
+    expect(await notices()).toEqual(["superseded"]);
+  },
+);
+
+/*
  * 총괄 R5 condition: the judge the screen showing the session finished wakes runs on an ordinary
  * finish too. That run is ASSERTED to do nothing — no alert, no audit write — not judged harmless (a
  * "harmless no-op" in this ticket was once not). That a judge ran on the finished session is asserted
