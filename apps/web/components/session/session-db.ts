@@ -1030,6 +1030,27 @@ export function supersedeRefusalsInTransaction(userId: string, applied: readonly
 }
 
 /**
+ * BUG-10 (11, 총괄 2026-10-07): "my write was refused" is not "it did not happen". The authoritative
+ * session says this session IS finished — another device finished it first, and its write has no
+ * row in this outbox to compare with (5a cannot see it). A refusal of OUR finish is a fact about
+ * our attempt, not about whether the session was finished: "not saved" is false now, so its finish
+ * refusals are superseded, like those a later write of ours made false. Sets are left as they are:
+ * the session being finished does not mean a refused set was saved.
+ */
+export function supersedeFinishRefusals(userId: string, sessionId: string) {
+  return sessionDb.conflicts
+    .where("user_id")
+    .equals(userId)
+    .filter(
+      (audit) =>
+        standing(audit) &&
+        audit.session_id === sessionId &&
+        (audit.payload as Partial<OutboxMutation> | undefined)?.entity === "session",
+    )
+    .modify({ notice: "superseded" });
+}
+
+/**
  * BUG-10 5b: the rows among these that are still true right now, as they are now (said or not) —
  * read again when they are about to be said. A later write may have superseded one since the
  * judge's read; never speak from it.
