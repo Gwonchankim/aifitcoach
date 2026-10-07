@@ -1998,6 +1998,51 @@ it.each([
 );
 
 /*
+ * 총괄 R7 (C): "overtaken" means the server's status overtook our claim. A read that comes back in
+ * progress holds the very status our finish claimed over — the server has not taken that finish
+ * yet; it has not overtaken it. Written to the mirror as it came, it marks nothing. Marking there
+ * too — whenever the read is what the mirror shows ((M), rejected by 총괄) — changes nothing on
+ * screen in this order: the mirror already says in progress, so the undo has nothing to take back
+ * and the judge finds no "completed". So the mark itself is pinned, after what is said. Where (M)
+ * does show — a second finish after this read, the first refused while the second waits — its
+ * wrong mark only happens to keep the second claim on display, hiding the stacked-claims defect the
+ * follow-up session-status-provenance-single-source holds.
+ */
+it("invariant 10 — a read that comes back in progress overtakes nothing: written as it came, it leaves our waiting finish its claim, and that finish's refusal is said", async () => {
+  await logSet("A", "set-1");
+  await sync(applyAsServer); // set 1 is saved
+  mocks.session.mockResolvedValue(todayThreeSets("in_progress"));
+  mount();
+  await finishOffline(); // a claim (in progress before it), not sent
+  // An ordinary read, a moment later: the server holds the session in progress — written as it came.
+  const readAt = new Date(NOW.getTime() + 1000);
+  vi.setSystemTime(readAt);
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  const mirror = async () => {
+    const row = await sessionDb.sessions.get([DEV_USER_SCOPE, "A"]);
+    return { status: (row?.session as Session | undefined)?.status, writtenAt: row?.updated_at };
+  };
+  expect(await mirror()).toEqual({ status: "in_progress", writtenAt: readAt.toISOString() });
+  const waiting = await sessionDb.outbox.filter((row) => row.entity === "session").toArray();
+  expect(waiting.map((row) => row.prior_status)).toEqual(["in_progress"]);
+  const overtaken = waiting[0].claim_overtaken === true;
+  mocks.session.mockRejectedValue(new Error("GET 503"));
+  const drawn = alertsDrawn();
+  await act(async () => {
+    await sync(refuseAsServer); // the finish is refused
+  });
+  await settle();
+  drawn.stop();
+  expect(drawn.texts).toEqual([FINISH_ONLY]);
+  expect(alertTexts()).toEqual([FINISH_ONLY]);
+  expect((await mirror()).status).toBe("in_progress");
+  expect(await notices()).toEqual(["shown"]);
+  expect(overtaken).toBe(false); // in progress is the base the claim was made over, not the server's overtaking
+});
+
+/*
  * 총괄 R6 (R2): the judge's "no finish of ours waiting" counts only a finish that still OWNS the
  * mirror's status — a claim with a prior status that no read overtook. Two faces of that clause:
  * a) the waiting row is a re-finish that claims nothing — made after a read showed the session
