@@ -1837,36 +1837,165 @@ it.each([
  * The read overtakes the claims of the session it read — no other's. r8 probe (W-R83): marking every
  * waiting finish of the user survived every test. Here B's finish waits while an ordinary read of A
  * lands; B's refusal must still take B's own optimistic "completed" back — left there, B would look
- * finished on the server and its refusal would be taken back unsaid (the silent direction).
+ * finished on the server and its refusal would be taken back unsaid (the silent direction). R7: a
+ * read marks only when the server holds that session finished — so the scope is pinned with A both
+ * in progress and finished on the server.
  */
-it("invariant 10 — a read of one session overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen", async () => {
-  await logSet("B", "b-1");
-  await sync(applyAsServer); // B's set is saved
-  let readable = true;
-  mocks.session.mockImplementation(async (id: string) => {
-    if (!readable) throw new Error("GET 503");
-    return session(id, "2026-08-14", "in_progress");
-  });
-  const onB = mount("B");
-  await finishOffline(); // B's finish waits in the outbox
-  onB.unmount();
-  mount("A"); // an ordinary read of ANOTHER session lands meanwhile
-  await screen.findByLabelText(weight(1));
-  expect(await sessionDb.outbox.filter((row) => row.entity === "session").count()).toBe(1);
-  await act(async () => {
-    await sync(refuseAsServer); // B's finish is refused
-  });
-  const statusOf = async (id: string) =>
-    ((await sessionDb.sessions.get([DEV_USER_SCOPE, id]))?.session as Session | undefined)?.status;
-  expect(await statusOf("B")).toBe("in_progress"); // B's own claim, taken back
-  expect(await notices()).toEqual(["pending"]); // for B's screen to say
-  cleanup();
-  readable = false; // B is opened again and cannot be read: the device's copy is what it knows
-  mount("B");
-  await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
-  await settle();
-  expect(await notices()).toEqual(["shown"]);
+it.each([
+  ["in_progress", () => screen.findByLabelText(weight(1))],
+  ["completed", () => screen.findByRole("heading", { name: "오늘은 기록이 없어요" })],
+] as const)(
+  "invariant 10 — a read of one session overtakes no other session's waiting finish: that refusal still takes its own 'completed' back, and is said on its screen (that session on the server: %s)",
+  async (statusOfA, aShown) => {
+    await logSet("B", "b-1");
+    await sync(applyAsServer); // B's set is saved
+    let readable = true;
+    mocks.session.mockImplementation(async (id: string) => {
+      if (!readable) throw new Error("GET 503");
+      return session(id, "2026-08-14", id === "A" ? statusOfA : "in_progress");
+    });
+    const onB = mount("B");
+    await finishOffline(); // B's finish waits in the outbox
+    onB.unmount();
+    mount("A"); // an ordinary read of ANOTHER session lands meanwhile
+    await aShown();
+    expect(await sessionDb.outbox.filter((row) => row.entity === "session").count()).toBe(1);
+    await act(async () => {
+      await sync(refuseAsServer); // B's finish is refused
+    });
+    const statusOf = async (id: string) =>
+      ((await sessionDb.sessions.get([DEV_USER_SCOPE, id]))?.session as Session | undefined)
+        ?.status;
+    expect(await statusOf("B")).toBe("in_progress"); // B's own claim, taken back
+    expect(await notices()).toEqual(["pending"]); // for B's screen to say
+    cleanup();
+    readable = false; // B is opened again and cannot be read: the device's copy is what it knows
+    mount("B");
+    await waitFor(() => expect(alertTexts()).toEqual([FINISH_ONLY]));
+    await settle();
+    expect(await notices()).toEqual(["shown"]);
+  },
+);
+
+/*
+ * Evaluator R7 (총괄: 차단 — the other direction: a true refusal silenced beside a false
+ * "finished"). Whether our waiting finish is overtaken is decided from the server's own status — the
+ * read as it came — never from what the append overlay leaves in the mirror for display. A set
+ * added here while an ordinary read is on its way makes the overlay keep the local session, our own
+ * claim's "completed", though the server holds the session in progress: that claim still owns the
+ * status, so its refusal takes it back and is said. The contrast: when the server does hold it
+ * finished, the same overlay changes nothing — the claim is overtaken and its refusal says nothing
+ * (narrowing the mark past this would bring B1 back). The order is the evaluator's; nothing injected.
+ */
+const appendSource = () => ({
+  ...plannedSets("set", 1)[0],
+  id: "00000000-0000-4000-8000-000000000011",
+  source_revision: "fixture-append-source",
+  correlation_id: null,
+  append_eligibility: {
+    version: 1 as const,
+    source_revision: "fixture-append-source",
+    cohort_revision: "fixture-cohort",
+    status: "allowed" as const,
+    reason: null,
+  },
+  confidence: 0.3,
+  recommendation_state: "ready" as const,
+  assistance_provenance: null,
+  assistance_safety_status: null,
+  recommended_action: null,
+  recommendation_gate: "ready" as const,
 });
+it.each([
+  [
+    "in_progress",
+    "the claim still owns the status: its refusal takes 'completed' back and is said",
+    [FINISH_ONLY],
+    "in_progress",
+    "shown",
+  ],
+  [
+    "completed",
+    "the server holds it finished: the claim is overtaken and its refusal says nothing",
+    [],
+    "completed",
+    "superseded",
+  ],
+] as const)(
+  "invariant 10 — a read the append overlay replaced (the server: %s): %s",
+  async (serverStatus, _, said, mirrorAfter, finishAudit) => {
+    const sessionId = "00000000-0000-4000-8000-000000000001";
+    const FINISH = "00000000-0000-4000-8000-0000000000a1";
+    const server = {
+      ...session(sessionId, "2026-08-14", "in_progress"),
+      planned_sets: [appendSource()],
+    };
+    await sessionDb.sessions.put({
+      user_id: DEV_USER_SCOPE,
+      session_id: sessionId,
+      session: server,
+      updated_at: NOW.toISOString(),
+    });
+    // Our finish: a claim (in progress before it).
+    await sessionDbModule.commitSessionCompletion(
+      DEV_USER_SCOPE,
+      sessionId,
+      {},
+      FINISH,
+      NOW.toISOString(),
+    );
+    // An ordinary read is on its way …
+    let answer!: (value: Session) => void;
+    mocks.session.mockImplementation(() => new Promise<Session>((resolve) => (answer = resolve)));
+    mount(sessionId);
+    await waitFor(() => expect(mocks.session).toHaveBeenCalledTimes(1));
+    // … while a set is added here (the real append: its generation moves on).
+    const { commitSessionSetAppend } = await import("../components/session/session-set-append-db");
+    await act(async () => {
+      await commitSessionSetAppend(
+        { user_id: DEV_USER_SCOPE, session_id: sessionId },
+        {
+          exercise_id: "bench",
+          today: "2026-08-14",
+          generation: 0,
+          client_id: APPEND,
+          correlation_id: PROVISIONAL,
+          updated_at: new Date(NOW.getTime() + 1000).toISOString(),
+        },
+      );
+    });
+    await act(async () => {
+      answer({ ...server, status: serverStatus }); // what the server holds
+    });
+    await settle();
+    const mirror = async () =>
+      ((await sessionDb.sessions.get([DEV_USER_SCOPE, sessionId]))?.session as Session | undefined)
+        ?.status;
+    // The overlay kept the local session on display — our own claim's "completed" — and the finish
+    // still waits with what it replaced.
+    expect(await mirror()).toBe("completed");
+    const waiting = await sessionDb.outbox.filter((row) => row.entity === "session").toArray();
+    expect(waiting.map((row) => row.prior_status)).toEqual(["in_progress"]);
+    const overtaken = waiting[0].claim_overtaken === true;
+    mocks.session.mockRejectedValue(new Error("GET 503"));
+    const drawn = alertsDrawn();
+    await act(async () => {
+      await sync(refuseAsServer); // the finish is refused (and the added set with it)
+    });
+    await settle();
+    drawn.stop();
+    expect(drawn.texts).toEqual(said);
+    expect(alertTexts()).toEqual(said);
+    expect(await mirror()).toBe(mirrorAfter);
+    expect(screen.queryAllByRole("heading", { name: "오늘은 기록이 없어요" }).length > 0).toBe(
+      serverStatus === "completed",
+    ); // a "finished" summary only where the server holds it
+    expect(
+      (await sessionDb.conflicts.toArray()).find((row) => row.client_id === FINISH)?.notice,
+    ).toBe(finishAudit);
+    expect(overtaken).toBe(serverStatus === "completed"); // decided from the server, not the overlay
+  },
+);
 
 /*
  * 총괄 R6 (R2): the judge's "no finish of ours waiting" counts only a finish that still OWNS the
