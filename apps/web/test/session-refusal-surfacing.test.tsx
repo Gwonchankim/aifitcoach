@@ -150,12 +150,31 @@ async function logSet(sessionId: string, plannedSetId: string) {
     .completeSet(plannedSetId, { weight: 60, reps: 9, rir: 2, timeSec: null });
 }
 /** Offline finish: the sheet commits locally and the summary claims the finish. */
-/** Finishes from the sheet — with the sheet's pain report when a score is given (sync → null). */
+/** The pain score the finish sheet will send: the chip pressed, if any. */
+function pressedPain(sheet: HTMLElement): number | null {
+  const label = within(sheet)
+    .queryAllByRole("button", { pressed: true })
+    .map((chip) => chip.getAttribute("aria-label") ?? "")
+    .find((name) => /^통증 \d+점$/.test(name));
+  return label ? Number(label.replace(/\D/g, "")) : null;
+}
+/**
+ * Sets the finish sheet's pain report to exactly this. The sheet stays mounted between openings and
+ * keeps its selection: a retry with no chip touched still sends the pain chosen before.
+ */
+function choosePain(sheet: HTMLElement, pain: number | null) {
+  const before = pressedPain(sheet);
+  if (before !== null && before !== pain)
+    fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${before}점` }));
+  if (pain !== null && before !== pain)
+    fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${pain}점` }));
+  expect(pressedPain(sheet)).toBe(pain); // what this finish will send
+}
+/** Finishes from the sheet — with exactly this pain report, none by default (sync → null). */
 async function finishOffline(pain?: number) {
   fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
   const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
-  if (pain !== undefined)
-    fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${pain}점` }));
+  choosePain(sheet, pain ?? null);
   fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
   await screen.findByRole("heading", { name: "수고했어요" });
 }
@@ -1328,8 +1347,7 @@ it.each([
     mocks.sync.mockImplementation(() => sync(applyAsServer));
     fireEvent.click(await screen.findByRole("button", { name: "운동 종료" }));
     const sheet = await screen.findByRole("dialog", { name: "운동 종료" });
-    if (retryPain !== undefined)
-      fireEvent.click(within(sheet).getByRole("button", { name: `통증 ${retryPain}점` }));
+    choosePain(sheet, retryPain ?? null); // the sheet still holds the first one's selection
     fireEvent.click(within(sheet).getByRole("button", { name: /종료$/ }));
     await screen.findByRole("heading", { name: "수고했어요" });
     await settle();
