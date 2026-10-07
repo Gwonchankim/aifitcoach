@@ -212,14 +212,16 @@ test.describe("409", () => {
   });
 
   /**
-   * 반대쪽: **다른 날짜**의 종료된 세션은 읽기 전용이다(서버가 409 로 막는 구간).
+   * 반대쪽: **기록 기간이 지난 날짜**(UTC 이틀 전 이전)의 종료된 세션은 읽기 전용이다.
+   * BUG-10(ADR-86): 직전 하루는 기록 값을 고칠 수 있으므로 여기서는 이틀 전을 쓴다 — 직전 하루의
+   * "버튼이 보인다 → 실제로 고친다 → 날짜가 그대로 남는다"는 24-fact-window 가 실제 세션으로 맡는다.
    * 지난 세션 id 를 얻을 계약 경로가 없어(대시보드는 오늘만 준다) 응답을 대역으로 세운다.
    */
   test("다른 날짜의 종료된 세션은 읽기 전용이다(F6-1)", async ({ page, request }) => {
     const sessionId = await todaySession(request);
     const session = await (await request.get(`${API_V1}/sessions/${sessionId}`)).json();
-    const yesterday = new Date(`${TEST_TODAY}T00:00:00.000Z`);
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const twoDaysAgo = new Date(`${TEST_TODAY}T00:00:00.000Z`);
+    twoDaysAgo.setUTCDate(twoDaysAgo.getUTCDate() - 2);
 
     await page.route(`**/v1/sessions/${sessionId}`, (route) =>
       route.fulfill({
@@ -228,13 +230,16 @@ test.describe("409", () => {
         body: JSON.stringify({
           ...session,
           status: "completed",
-          scheduled_date: yesterday.toISOString().slice(0, 10),
+          scheduled_date: twoDaysAgo.toISOString().slice(0, 10),
         }),
       }),
     );
 
     await page.goto(`/session/${sessionId}`);
     await expect(page.getByRole("heading", { name: "오늘은 기록이 없어요" })).toBeVisible();
+    // 왜 읽기 전용인지는 그 날짜 분류의 승인 문구로 말한다(BUG-10 D8). 고칠 수 있다는 말은 없다.
+    await expect(page.getByText("이 기록은 편집할 수 있는 기간이 지났어요.")).toBeVisible();
+    await expect(page.getByText("기록 값은 고칠 수 있어요", { exact: false })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "기록 더하거나 고치기", exact: true }),
     ).toHaveCount(0);

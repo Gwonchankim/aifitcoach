@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post } from "@nestjs/common";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RequestToday } from "../common/date/request-today";
 import { SyncRequestDto } from "./dto/sync-request.dto";
 import { SyncService } from "./sync.service";
 
@@ -9,7 +10,7 @@ export class SyncController {
 
   @Post()
   @HttpCode(200)
-  sync(@CurrentUser() userId: string, @Body() body: SyncRequestDto) {
-    return this.syncService.sync(userId, body);
+  sync(@CurrentUser() userId: string, @Body() body: SyncRequestDto, @RequestToday() today: Date) {
+    return this.syncService.sync(userId, body, today);
   }
 }

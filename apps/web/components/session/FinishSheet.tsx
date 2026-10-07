@@ -5,7 +5,7 @@
  */
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Chip, Sheet } from "../ui";
 import { MEDICAL_DISCLAIMER, PAIN_ALERT_THRESHOLD } from "./set-rules";
 import { useModal } from "./useModal";
@@ -18,10 +18,16 @@ export type FinishSheetProps = {
   open: boolean;
   /** F6-1 재개/편집 모드 — 이미 종료한 오늘 운동을 고치는 중이다(첫 종료가 아니다). */
   resumed?: boolean;
+  /**
+   * BUG-10: 직전 하루의 종료 세션을 고칠 때 고친 값이 반영되는 날("이 기록은 M월 D일 운동에 반영돼요.").
+   * 주어지면 재개 모드의 "오늘 기록에 반영" 문장을 대신한다 — 그 기록은 오늘이 아니다.
+   */
+  reflectsOn?: string | null;
   completedCount: number;
   remainingCount: number;
   pending: boolean;
-  errorText: string | null;
+  /** A node, not only a string (BUG-10): a refusal said here is acknowledged once it is on screen. */
+  errorText: ReactNode;
   onConfirm: (pain: number | null) => void;
   onClose: () => void;
 };
@@ -29,6 +35,7 @@ export type FinishSheetProps = {
 export function FinishSheet({
   open,
   resumed = false,
+  reflectsOn = null,
   completedCount,
   remainingCount,
   pending,
@@ -41,7 +48,7 @@ export function FinishSheet({
   useModal(open, SHEET_ID, onClose, CANCEL_ID);
 
   const question = resumed
-    ? "고친 내용을 오늘 기록에 반영할게요."
+    ? (reflectsOn ?? "고친 내용을 오늘 기록에 반영할게요.")
     : completedCount === 0
       ? "완료한 세트가 없어요. 종료하면 오늘은 기록이 남지 않아요."
       : remainingCount > 0

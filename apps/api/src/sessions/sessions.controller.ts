@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post } from "@nestjs/common";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RequestToday } from "../common/date/request-today";
 import { AddExerciseDto } from "./dto/add-exercise.dto";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { CreateAdHocSessionDto } from "./dto/create-ad-hoc-session.dto";
@@ -16,8 +17,9 @@ export class SessionsController {
     @CurrentUser() userId: string,
     @Param("id") sessionId: string,
     @Body() body: AppendSetDto,
+    @RequestToday() today: Date,
   ) {
-    return this.sessions.appendSet(userId, sessionId, body);
+    return this.sessions.appendSet(userId, sessionId, body, today);
   }
 
   /**
@@ -48,8 +50,9 @@ export class SessionsController {
     @CurrentUser() userId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: CompleteSessionDto,
+    @RequestToday() today: Date,
   ): Promise<CompleteSessionResponse> {
-    return this.sessions.complete(userId, sessionId, body);
+    return this.sessions.complete(userId, sessionId, body, today);
   }
 
   /** POST /sessions/{sessionId}/exercises — 오늘 루틴에 운동 추가(부위별 선택) */
@@ -59,8 +62,9 @@ export class SessionsController {
     @CurrentUser() userId: string,
     @Param("sessionId") sessionId: string,
     @Body() body: AddExerciseDto,
+    @RequestToday() today: Date,
   ): Promise<SessionResponse> {
-    return this.sessions.addExercise(userId, sessionId, body);
+    return this.sessions.addExercise(userId, sessionId, body, today);
   }
 
   /**
@@ -72,8 +76,9 @@ export class SessionsController {
     @CurrentUser() userId: string,
     @Param("sessionId") sessionId: string,
     @Param("plannedExerciseId") plannedExerciseId: string,
+    @RequestToday() today: Date,
   ): Promise<SessionResponse> {
-    return this.sessions.removeExercise(userId, sessionId, plannedExerciseId);
+    return this.sessions.removeExercise(userId, sessionId, plannedExerciseId, today);
   }
 
   /** POST /sessions/{sessionId}/exercises/{plannedExerciseId}/swap — 오늘 루틴의 운동 교체 */
@@ -84,7 +89,8 @@ export class SessionsController {
     @Param("sessionId") sessionId: string,
     @Param("plannedExerciseId") plannedExerciseId: string,
     @Body() body: SwapExerciseDto,
+    @RequestToday() today: Date,
   ): Promise<SessionResponse> {
-    return this.sessions.swapExercise(userId, sessionId, plannedExerciseId, body);
+    return this.sessions.swapExercise(userId, sessionId, plannedExerciseId, body, today);
   }
 }

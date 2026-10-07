@@ -35,6 +35,19 @@ export type OutboxMutation = {
   sync_reason?: string;
   cause_client_id?: string;
   cause_reason?: string;
+  /**
+   * Local only, never on the wire: the mirror's status before a finish claimed "completed". If the
+   * server refuses that finish, the claim is withdrawn back to this (BUG-10).
+   */
+  prior_status?: string;
+  /**
+   * Local only, never on the wire: after this finish claimed "completed", a read showed the server
+   * holds the session finished — judged from the read as it came, not from what an append overlay
+   * left in the mirror for display (BUG-10 R7) — or our own finish of the session was applied in the
+   * same answer (R7-2). The "completed" there is the server's since, not this claim's: a refusal of
+   * this finish takes nothing back (R6: by provenance, not by value).
+   */
+  claim_overtaken?: true;
   /** Original local request scope; promoted to confirmed deletion only after its successful ACK. */
   removed_planned_sets?: {
     planned_set_id: string;
@@ -77,7 +90,20 @@ type ConflictAudit = {
   client_id: string;
   kind: string;
   payload: unknown;
+  /** The session the refused mutation belongs to (resolved when it is recorded). */
+  session_id?: string;
+  /**
+   * BUG-10: two axes, kept apart (총괄 2026-10-07 — "said" is not "done").
+   * - Still true: "pending" or "shown". "superseded": a strictly later write of the same fact was
+   *   APPLIED — "not saved" is false now, whether it had been said or not.
+   * - Said: "shown" — its notice was put on a perceivable screen; "pending" — not yet.
+   * A notice holds every still-true refusal of its session; only a "pending" one raises a notice.
+   * Rows recorded before this field existed carry none and are never surfaced (intended: there is
+   * no way to say them truthfully any more).
+   */
+  notice?: "pending" | "shown" | "superseded";
 };
+export type RefusalAudit = ConflictAudit & { id: number };
 type Lease = { user_id: string; name: string; owner: string; expires_at: string };
 export type ReadModelKind =
   "program" | "current-week" | "dashboard" | "e1rm" | "volume" | "completion" | "history-session";
@@ -464,6 +490,17 @@ export async function commitAuthoritativeSession(
         ...(merged.local_ids !== undefined ? { local_ids: merged.local_ids } : {}),
         updated_at: new Date().toISOString(),
       });
+      // BUG-10 R6/R7: once the server holds this session finished, a finish of ours still waiting does
+      // not own the status any more — its refusal must not take it back. Decided from the read as it
+      // came (`session`), never from what the overlay left in the mirror for display: an append made
+      // while this read was on its way keeps our own claim's "completed" on screen, and while the
+      // server holds the session in progress that claim still owns the status (R7).
+      if ((session as { status?: unknown }).status === "completed")
+        await sessionDb.outbox
+          .where("[user_id+entity_id]")
+          .equals([userId, sessionId])
+          .filter((row) => row.entity === "session" && !!row.prior_status)
+          .modify({ claim_overtaken: true });
       await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
     },
   );
@@ -911,20 +948,269 @@ export async function commitSessionCompletion(
         },
       );
       const current = await sessionDb.sessions.get([userId, sessionId]);
+      let prior: string | undefined;
       if (
         !mutation.append_dependencies &&
         current &&
         typeof current.session === "object" &&
         current.session != null
       ) {
+        const status = (current.session as { status?: unknown }).status;
+        if (typeof status === "string" && status !== "completed") prior = status;
         await sessionDb.sessions.put({
           ...current,
           session: { ...(current.session as Record<string, unknown>), status: "completed" },
           updated_at: updatedAt,
         });
       }
-      await sessionDb.outbox.put(mutation);
+      // BUG-10: remember what this optimistic "completed" replaced, so a refusal can withdraw it.
+      await sessionDb.outbox.put(prior ? { ...mutation, prior_status: prior } : mutation);
     },
+  );
+}
+
+/**
+ * BUG-10: the session a refused mutation belongs to. A set's entity id is its planned set id
+ * (`mutationFor`), so it is resolved through the draft that produced it; everything else names its
+ * session directly. Runs inside the coordinator's commit transaction (drafts are in its scope).
+ */
+export async function refusedSessionOf(
+  userId: string,
+  row: OutboxMutation,
+): Promise<string | undefined> {
+  if (row.append_dependencies) return row.append_dependencies.session_id;
+  if (row.entity !== "performed_set") return row.entity_id;
+  const plannedSetId = row.canonical_entity_id ?? row.entity_id;
+  const draft = await sessionDb.drafts
+    .where("planned_set_id")
+    .equals(plannedSetId)
+    .filter((candidate) => candidate.user_id === userId)
+    .first();
+  return draft?.session_id;
+}
+
+/**
+ * BUG-10 R7-2 (α — the follow-up's W1): our finish the server applied makes the session's
+ * "completed" the server's. A claim of ours on the same session that this answer refuses — still in
+ * the outbox, as applied rows are handled first — owns nothing any more: its refusal takes nothing
+ * back (the mark a read leaves, R6/R7). Only this session's claims; never the applied row itself.
+ * Returns Dexie's own promise inside the coordinator's commit (see supersedeRefusalsInTransaction).
+ */
+export function overtakeClaimsByAppliedFinishInTransaction(
+  userId: string,
+  applied: OutboxMutation,
+) {
+  return sessionDb.outbox
+    .where("[user_id+entity_id]")
+    .equals([userId, applied.entity_id])
+    .filter(
+      (row) =>
+        row.entity === "session" && !!row.prior_status && row.client_id !== applied.client_id,
+    )
+    .modify({ claim_overtaken: true });
+}
+
+/**
+ * BUG-10: a refused finish withdraws our own optimistic "completed" from the mirror too — our own
+ * only (R6): once a read showed the server holds the session finished after this claim (R7: the
+ * read as it came), or our own finish of the session was applied in the same answer (R7-2), the
+ * "completed" there is the server's.
+ */
+export async function undoOptimisticCompletionInTransaction(
+  userId: string,
+  row: OutboxMutation,
+): Promise<void> {
+  if (row.entity !== "session" || !row.prior_status) return;
+  if (row.claim_overtaken) return;
+  const current = await sessionDb.sessions.get([userId, row.entity_id]);
+  const session = current?.session as Record<string, unknown> | null | undefined;
+  if (!current || !session || session.status !== "completed") return;
+  await sessionDb.sessions.put({ ...current, session: { ...session, status: row.prior_status } });
+}
+
+/** BUG-10: a refusal that still says something true — said or not yet (5a·5b·15). */
+const standing = (row: ConflictAudit | undefined) =>
+  row?.notice === "pending" || row?.notice === "shown";
+
+/** BUG-10: what a refused write sent — the outbox row the coordinator recorded. */
+const sentRow = (audit: ConflictAudit | undefined) =>
+  audit?.payload as Partial<OutboxMutation> | undefined;
+
+/**
+ * BUG-10 R5 (i): a finish that sent the session's pain report. Without one it sends no `pain` field
+ * at all (`{}`): it neither sets nor clears the server's pain.
+ */
+const carriesPain = (row: Partial<OutboxMutation> | undefined) =>
+  row?.entity === "session" && (row.payload as { pain?: unknown } | undefined)?.pain != null;
+
+/** BUG-10: the refusals of this session that are still true — said or not (15). */
+export async function standingRefusals(userId: string, sessionId: string): Promise<RefusalAudit[]> {
+  return (await sessionDb.conflicts.where("user_id").equals(userId).toArray()).filter(
+    (row): row is RefusalAudit =>
+      row.id !== undefined && row.session_id === sessionId && standing(row),
+  );
+}
+
+/**
+ * BUG-10: a refusal is a statement about an earlier attempt. Once the server APPLIED a strictly
+ * later write of the same fact (the same set, or the finish of the same session), "not saved" is
+ * false: its refusals are superseded — the unsaid ones are never said, and a notice that already
+ * said one is rewritten from what is still true (SessionScreen). Whether it is true does not
+ * depend on whether it was said. Runs inside the coordinator's commit transaction, after that
+ * response's refusals were recorded (a refusal and a write of the same fact can share a batch).
+ * Called only with fact writes (sets, finishes), and returns Dexie's own promise: an await inside
+ * the commit that does no IndexedDB work spends its zone echoes (Dexie 4). An early-returning async
+ * version of this, awaited on every response, made the commit lose its zone in
+ * rest-timer-sync-remap's mapping-hold case (PrematureCommitError, 10 of 10 runs).
+ * R5 (i, 총괄): a later finish that sent no pain report saved none — the pain a refused finish
+ * carried is still not saved, so that refusal is not superseded: it now says only the pain (its
+ * finish is saved). Resolves to the number of refusals the response changed either way, so the
+ * coordinator announces it (the screen rewrites what is on it).
+ */
+export function supersedeRefusalsInTransaction(userId: string, applied: readonly OutboxMutation[]) {
+  const ids = (row: Partial<OutboxMutation>) => [row.entity_id, row.canonical_entity_id];
+  const at = (row: Partial<OutboxMutation>) => Date.parse(row.updated_at ?? "");
+  const laterWrites = (audit: ConflictAudit) => {
+    const refused = audit.payload as Partial<OutboxMutation>;
+    return applied.filter(
+      (write) =>
+        write.entity === refused.entity &&
+        ids(refused).some((id) => id !== undefined && ids(write).includes(id)) &&
+        // 5a (evaluator R3): only a STRICTLY later write makes "not saved" false. An older write
+        // whose ACK was lost is no evidence that a newer edit was saved; the same instant or an
+        // unknown order (NaN never compares greater) is said, never silenced. Both are this
+        // device's outbox rows — one clock compared with itself, never with the server's.
+        at(write) > at(refused),
+    );
+  };
+  const changedBy = (painLeft: boolean) => (audit: ConflictAudit) => {
+    if (!standing(audit)) return false;
+    const writes = laterWrites(audit);
+    if (writes.length === 0) return false;
+    return (carriesPain(sentRow(audit)) && !writes.some(carriesPain)) === painLeft;
+  };
+  return sessionDb.conflicts
+    .where("user_id")
+    .equals(userId)
+    .filter(changedBy(false))
+    .modify({ notice: "superseded" })
+    .then((superseded) =>
+      sessionDb.conflicts
+        .where("user_id")
+        .equals(userId)
+        .filter(changedBy(true))
+        .count()
+        .then((reworded) => superseded + reworded),
+    );
+}
+
+/**
+ * BUG-10 (11, 총괄 2026-10-07): "my write was refused" is not "it did not happen". The authoritative
+ * session says this session IS finished — another device finished it first, and its write has no
+ * row in this outbox to compare with (5a cannot see it). A refusal of OUR finish is a fact about
+ * our attempt, not about whether the session was finished: "not saved" is false now, so its finish
+ * refusals are superseded, like those a later write of ours made false — said or not. Sets are left
+ * as they are: the session being finished does not mean a refused set was saved. Nor a pain report
+ * (R5 (i), 총괄): a finish that carried one stays — its finish is true, its pain is not saved.
+ */
+function supersedeFinishRefusals(userId: string, sessionId: string) {
+  return sessionDb.conflicts
+    .where("user_id")
+    .equals(userId)
+    .filter(
+      (audit) =>
+        standing(audit) &&
+        audit.session_id === sessionId &&
+        sentRow(audit)?.entity === "session" &&
+        !carriesPain(sentRow(audit)),
+    )
+    .modify({ notice: "superseded" });
+}
+
+/**
+ * BUG-10 (총괄 R5): the server holds this session finished, as far as this device knows. Every read
+ * of the session lands in the mirror (`readThroughSession` → `commitAuthoritativeSession`), so the
+ * mirror is where what the device knows meets, whichever read brought it. Our own optimistic
+ * "completed" lives there only while its finish waits in the outbox: a refusal deletes that row and
+ * takes the optimistic status back in one transaction — its own only (R6): a "completed" a read
+ * showed the server holds is the server's and stays (R7: judged from the read as it came, not from
+ * what an append overlay left on display). So "completed, and no claim of ours owning it" is the
+ * server's.
+ * R6 (R2): only a finish that still owns the status counts — one that claimed it (a prior status)
+ * and that nothing overtook (a read, R6/R7; our own applied finish, R7-2). A re-finish over
+ * "completed" claimed nothing; an overtaken claim owns nothing any more. Not seen: a read whose
+ * mirror write itself failed (a storage error).
+ */
+async function finishedOnServer(userId: string, sessionId: string): Promise<boolean> {
+  const mirror = await sessionDb.sessions.get([userId, sessionId]);
+  if ((mirror?.session as { status?: unknown } | null | undefined)?.status !== "completed")
+    return false;
+  const owning = await sessionDb.outbox
+    .where("[user_id+entity_id]")
+    .equals([userId, sessionId])
+    .filter((row) => row.entity === "session" && !!row.prior_status && !row.claim_overtaken)
+    .count();
+  return owning === 0;
+}
+
+/**
+ * BUG-10 5b·15·R5: the truth evaluation right before a notice is composed — this session's refusals
+ * that are still true, every source that makes "not saved" false applied to every row, said or not,
+ * in one transaction with the read (총괄 R5: one evaluation, not a trigger per source):
+ * - a strictly later write applied (5a) — recorded as `superseded` when that response was committed;
+ * - the session finished on the server (11) — evaluated here, whatever woke the judge.
+ * What a notice holds is exactly what this returns. Read by session, not by the ids an earlier read
+ * returned (R4 "구성 직전"): one superseded since is out, one that arrived since is in. One arriving
+ * after THIS read is not chased — the window is narrowed as far as the mechanism allows, not to
+ * zero: its arrival wakes the judge, and the rewrite (F3) puts it in.
+ * R5 (i): on a finished session a finish refusal that is still standing carried a pain report —
+ * returned as `painOnly`: only its pain is not saved, and only that is said.
+ */
+export function stillStandingRefusals(userId: string, sessionId: string): Promise<JudgedRefusal[]> {
+  return sessionDb.transaction(
+    "rw",
+    [sessionDb.conflicts, sessionDb.sessions, sessionDb.outbox],
+    async () => {
+      const finished = await finishedOnServer(userId, sessionId);
+      if (finished) await supersedeFinishRefusals(userId, sessionId);
+      const rows = await standingRefusals(userId, sessionId);
+      if (!finished) return rows;
+      return rows.map((row) =>
+        sentRow(row)?.entity === "session" ? { ...row, painOnly: true as const } : row,
+      );
+    },
+  );
+}
+
+/**
+ * BUG-10 R5 (i): a refusal as the truth evaluation leaves it. `painOnly`: a refused finish whose
+ * finish is true now (the session is finished on the server) but whose pain report is not saved.
+ */
+export type JudgedRefusal = RefusalAudit & { painOnly?: true };
+
+/**
+ * BUG-10: the acknowledgement — said once, never again. 5b: written only while every row is still
+ * unsaid (or already said). If one turned "superseded" while its notice was going on screen, nothing
+ * is written — that notice is false now — and those ids come back for the screen to take it back.
+ */
+export async function markRefusalsShown(ids: readonly number[]): Promise<number[]> {
+  return sessionDb.transaction("rw", sessionDb.conflicts, async () => {
+    const rows = await sessionDb.conflicts.bulkGet([...ids]);
+    const stale = ids.filter(
+      (_, index) => rows[index]?.notice !== "pending" && rows[index]?.notice !== "shown",
+    );
+    if (stale.length) return stale;
+    for (const [index, id] of ids.entries())
+      if (rows[index]?.notice === "pending")
+        await sessionDb.conflicts.update(id, { notice: "shown" });
+    return [];
+  });
+}
+
+/** BUG-10: whether this refused mutation was recorded for the one judge to say. */
+export async function refusalRecorded(userId: string, clientId: string): Promise<boolean> {
+  return (await sessionDb.conflicts.where("client_id").equals(clientId).toArray()).some(
+    (row) => row.user_id === userId && row.notice !== undefined,
   );
 }
 

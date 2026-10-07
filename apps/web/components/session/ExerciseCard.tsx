@@ -28,7 +28,15 @@ export type ExerciseCardProps = {
   catalogById?: ReadonlyMap<string, Exercise>;
   sets: PlannedSet[];
   drafts: Record<string, SetDraft>;
+  /** 세트 값·체크(기록)를 쓸 수 없다. */
   readOnly: boolean;
+  /**
+   * 루틴 편집(교체·삭제 메뉴, 세트 추가)을 쓸 수 없다. BUG-10 D 에서 기록과 갈라졌다 — 직전 하루의 종료
+   * 세션은 기록만 열리고, 지난·미래 예정 세션은 루틴만 열린다. 생략하면 `readOnly` 와 같다(예전의 한 플래그).
+   */
+  routineLocked?: boolean;
+  /** 종료한 세션인가. 잠긴 행에 기록이 없으면 종료 문구를, 아니면 계획 목표를 보여 준다. */
+  ended?: boolean;
   /** 완료 체크된 세트가 있으면 삭제·교체를 막는다(AC-S4-4, 409 예방). */
   lockedReason: string | null;
   /** 이 운동에 기록된 통증 점수(없으면 null). */
@@ -61,6 +69,8 @@ export function ExerciseCard({
   sets,
   drafts,
   readOnly,
+  routineLocked = readOnly,
+  ended = true,
   lockedReason,
   painScore,
   expandedSetId,
@@ -112,7 +122,7 @@ export function ExerciseCard({
       <div className="flex items-start gap-2">
         {/* 이름은 남는 폭에서 두 줄까지 자연스럽게 감고, 우측에는 48px 메뉴 트리거 하나만 둔다. */}
         <h2 className="min-w-0 flex-1 text-lg font-bold text-fg">{name}</h2>
-        {readOnly ? null : (
+        {routineLocked ? null : (
           <ExerciseMenu
             name={name}
             menuId={menuId}
@@ -198,6 +208,7 @@ export function ExerciseCard({
               fallbackWeight={fallbackWeight}
               previous={previous}
               readOnly={readOnly}
+              ended={ended}
               expanded={expandedSetId === set.id}
               active={activeSetId === set.id}
               focusOnExpand={focusExpandedSetId === undefined || focusExpandedSetId === set.id}
@@ -218,7 +229,7 @@ export function ExerciseCard({
             fullWidth
             aria-label={`${name} 세트 추가`}
             aria-describedby={appendReason ? `${menuId}-append-reason` : undefined}
-            disabled={readOnly || appendDisabled}
+            disabled={readOnly || routineLocked || appendDisabled}
             onClick={onAppend}
           >
             세트 추가

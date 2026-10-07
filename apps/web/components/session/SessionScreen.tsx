@@ -26,7 +26,7 @@ import {
   restoreRestTimer,
   type RestoreCoordinator,
 } from "./rest-timer-store";
-import { isUtcToday, utcDateString } from "../../lib/utc-day";
+import { utcDateString } from "../../lib/utc-day";
 import { Button, Card } from "../ui";
 import { ExerciseCard } from "./ExerciseCard";
 import { CardioPrescriptionCard } from "./CardioPrescriptionCard";
@@ -51,7 +51,14 @@ import {
   type PositionRecord,
   type SessionPosition,
 } from "./session-position";
-import { SESSION_COMPLETED, errorMessage, isConflict, shouldRefetch } from "./errors";
+import { errorMessage, isConflict, shouldRefetch } from "./errors";
+import {
+  describeRefusals,
+  PAIN_UNSAVED,
+  reflectsOnCopy,
+  sessionEditRights,
+  type RefusedRow,
+} from "./session-edit-rights";
 import { fetchAllExercises, requireResistanceCatalogExercise } from "./exercise-catalog";
 import { hasWeightInput, setKind, type SetValues } from "./set-rules";
 import { newClientId, painOf, summarize, useSessionLog, type SetDraft } from "./session-store";
@@ -59,10 +66,17 @@ import {
   commitRoutineSnapshot,
   commitSessionCompletion,
   DEV_USER_SCOPE,
+  markRefusalsShown,
   readThroughSession,
   readMirroredSession,
+  refusalRecorded,
   safeMappings,
   sessionDb,
+  standingRefusals,
+  stillStandingRefusals,
+  type JudgedRefusal,
+  type OutboxMutation,
+  type RefusalAudit,
   type RoutineCorrelation,
 } from "./session-db";
 import {
@@ -92,6 +106,55 @@ type CompleteResponse = {
 };
 
 type RestState = { plannedSetId: string; title: string; timer: RestTimer };
+
+/**
+ * BUG-10: a notice the one judge put up — for the session it judged, in the finish sheet or on the
+ * screen. `ids`: every still-true refusal it holds, said before or not (15). `fresh`: the ones it
+ * says for the first time (the new event that raised it, 7) — empty when it is a notice rewritten
+ * from what is still true (5a·5b), which says nothing new.
+ */
+type Refusal = {
+  sessionId: string;
+  text: string;
+  inSheet: boolean;
+  ids: number[];
+  fresh: number[];
+  /** R5 (i): the ids said as a pain report alone — their finish was true when this was composed. */
+  painOnly: number[];
+};
+
+/** BUG-10 (2): the page is in front of the user — the document's own state, never a copy of it. */
+const pageVisible = () => document.visibilityState === "visible";
+
+/**
+ * BUG-10 (2): whether a notice drawn now can be perceived. Not on a page in the background
+ * (another app in front, the screen off) — read from the document itself; and not behind a modal —
+ * the finish sheet when it is drawn, else the screen when it is not inert (what is drawn, computed
+ * once in the render). The judge asks it before it draws; the acknowledgement asks it again before
+ * it marks anything said — the page can go to the background, or a sheet come up, in between.
+ */
+function perceivable(drawn: { sheetShown: boolean; screenInert: boolean }, inSheet: boolean) {
+  if (!pageVisible()) return false;
+  return inSheet ? drawn.sheetShown : !drawn.screenInert;
+}
+
+/**
+ * BUG-10 round 2: "said" means on screen, not "the data arrived". This renders the refusal's text
+ * and reports it as shown only from an effect — which runs after React committed this text to the
+ * DOM, and never for a screen that unmounted or moved to another session before that.
+ */
+function RefusalText({
+  refusal,
+  onShown,
+}: {
+  refusal: Refusal;
+  onShown: (shown: Refusal) => void;
+}) {
+  useEffect(() => {
+    onShown(refusal);
+  }, [refusal, onShown]);
+  return <>{refusal.text}</>;
+}
 
 /**
  * 저장분을 지우지 못했을 때의 안내. **조용히 넘어가면 안 된다** — 새로고침에서 닫은 타이머가
@@ -201,6 +264,12 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const [summary, setSummary] = useState<CompleteResponse | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  /**
+   * BUG-10: what the one judge said about a session's refusals, and where — in the finish sheet if
+   * that was open, else on the screen. It carries the session it was judged for and the audit rows
+   * it came from: those rows turn "shown" only once this text is on screen (RefusalText).
+   */
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [notice, setNotice] = useState("");
   const [appendFocus, setAppendFocus] = useState<{
     sessionId: string;
@@ -710,21 +779,63 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   ]);
   const nameOf = (exerciseId: string, index: number) =>
     catalogById.get(exerciseId)?.name_ko ?? `운동 ${index + 1}`;
+  /**
+   * 카드가 그리는 그대로의 운동 이름·세트 번호(planned set id 기준, 카드 순서). 거부 알림이 카드와
+   * **같은 출처**를 읽게 한다 — 알림이 "2세트"라는데 화면의 그 행이 3세트면 사용자를 틀린 행으로 보낸다.
+   */
+  const cardRowsRef = useRef(new Map<string, RefusedRow>());
+  cardRowsRef.current = new Map(
+    groups.flatMap((group, index) =>
+      group.sets.map(
+        (set) =>
+          [
+            set.id,
+            {
+              exerciseId: group.exerciseId,
+              exerciseName: nameOf(group.exerciseId, index),
+              setNo: set.set_no,
+            },
+          ] as const,
+      ),
+    ),
+  );
 
   const { completedCount } = summarize(drafts);
   /*
-    F6-1. 종료했다고 잠그지 않는다 — **오늘 세션이면** 세트를 더하거나 고칠 수 있다(재개/편집 모드).
-    잠그는 건 **다른 날짜**의 종료된 세션뿐이다(서버도 같은 조건으로 409 를 낸다).
-    판정 기준은 서버와 같은 UTC 다(lib/utc-day.ts) — 로컬 시간대로 보면 자정 근처가 어긋난다.
+    F6-1 + BUG-10 D. 무엇을 쓸 수 있는지는 session-edit-rights 한 곳이 정한다 — 서버 가드와 **같은**
+    shared 판정이다(UTC 오늘·직전 하루, 기준은 서버와 같은 UTC: lib/utc-day.ts).
+    - 기록(값·체크·종료/재종료)은 그 창에서만 열린다. 종료한 세션도 창 안이면 다시 열어 고친다.
+    - 루틴 편집(추가·교체·삭제·세트 추가)은 기존 규칙 그대로다: 종료한 세션은 그날만.
   */
-  const finishedToday = session?.status === "completed" && isUtcToday(session.scheduled_date);
-  const readOnly = session?.status === "completed" && !finishedToday;
-  const modalOpen =
-    rest != null ||
-    picker != null ||
-    removeExerciseId != null ||
-    painExerciseId != null ||
-    finishOpen;
+  const rights = session ? sessionEditRights(session, completedCount > 0) : null;
+  const factsLocked = rights !== null && !rights.facts;
+  const routineLocked = rights !== null && !rights.routine;
+  /** 종료한 세션을 기록 수정으로 다시 연 상태(오늘·직전 하루). CTA 는 [수정 마치기]. */
+  const finishedEditable = session?.status === "completed" && !factsLocked;
+  /**
+   * BUG-10 (2): each modal as it is DRAWN — its own render condition, target included — computed
+   * once and used both to draw it (below) and to decide whether the screen is inert. An id is a
+   * proxy: the pain sheet draws nothing once a re-read removed its exercise, and holding the screen
+   * inert on the id froze the whole routine behind no dialog (evaluator R4). The rest sheet is drawn
+   * only for this session's position; the remove sheet and the picker are drawn for their id even
+   * after their target is gone (the name falls back), so the screen behind them is rightly inert.
+   */
+  const painIndex = groups.findIndex((group) => group.exerciseId === painExerciseId);
+  const painGroup = painIndex >= 0 ? groups[painIndex] : null;
+  const restDrawn = rest !== null && positionScope.current?.sessionId === sessionId;
+  const pickerDrawn = picker !== null;
+  const removeDrawn = removeExerciseId !== null;
+  const painDrawn = painGroup !== null;
+  const modalOpen = restDrawn || pickerDrawn || removeDrawn || painDrawn || finishOpen;
+  /**
+   * BUG-10 (2): what is actually drawn — each computed ONCE and used both to draw it and to decide
+   * where a refusal can be perceived. Two expressions that happen to agree drift apart at the next
+   * change (a `modalOpen` that held refusals back on an error view with no sheet and no `inert`).
+   * The error view draws neither the finish sheet nor `inert`.
+   */
+  const errorView = sessionQuery.isError || !session;
+  const screenInert = modalOpen && !errorView;
+  const sheetShown = finishOpen && !errorView;
 
   /**
    * 루틴이 바뀌면 서버가 추천을 다시 계산한다(F6-1) → 대시보드의 오늘 요약도 낡는다.
@@ -739,19 +850,19 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   /**
    * 409 는 세 원인(다른 날짜의 종료된 세션·중복 종목·수행 기록)이 모두 같은 코드로 온다(§3.2).
    * 서버 한국어 메시지를 매칭하면 문구가 바뀔 때 깨지므로, **세션 상태를 다시 받아** 판정한다.
-   * 종료된 세션이어도 **오늘이면 편집이 열려 있다**(F6-1) → 날짜까지 봐야 원인을 맞게 고른다.
+   * 다시 받은 세션의 루틴 편집이 닫혀 있으면 그 날짜 분류의 승인 문구를 고른다(BUG-10 D):
+   * 직전 하루 = 루틴만 닫힘, 그보다 오래됨 = 기간 경과. 문구가 없는 비정상 상태(미래 종료)는
+   * **일반 409 문구**다 — 동작별 409 문구("이미 루틴에 있어요"·"기록이 남은 운동")는 다른 원인을
+   * 단정하므로 여기로 떨어지지 않게 한다.
    */
   const handleEditError = async (error: unknown, action: "add" | "remove" | "swap") => {
     if (shouldRefetch(error)) {
       const latest = await refetchAuthoritativeSession(queryClient, sessionId, () =>
         api.session(sessionId),
       );
-      if (
-        isConflict(error) &&
-        latest?.status === "completed" &&
-        !isUtcToday(latest.scheduled_date)
-      ) {
-        setEditError(SESSION_COMPLETED);
+      const latestRights = latest ? sessionEditRights(latest, completedCount > 0) : null;
+      if (isConflict(error) && latestRights && !latestRights.routine) {
+        setEditError(latestRights.notice ?? errorMessage(error, "session"));
         return;
       }
     }
@@ -1048,7 +1159,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
        * 종료 자체는 이미 로컬 커밋이 끝났으므로 **되돌리지 않는다**. 실패는 알리기만 한다.
        */
       if (synced?.conflicts.some((conflict) => conflict.client_id === clientId))
-        throw new ApiError(409, "SYNC_CONFLICT", "completion sync conflict");
+        throw Object.assign(new ApiError(409, "SYNC_CONFLICT", "completion sync conflict"), {
+          refusedClientId: clientId,
+        });
       if ((await sessionDb.outbox.get(clientId))?.append_dependencies)
         throw new Error("append completion is awaiting acknowledgement");
       const timerCleared = await restTimerStore.clear(sessionId);
@@ -1090,8 +1203,246 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       queryClient.setQueryData(["session", sessionId], data.session);
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
-    onError: (error) => setFinishError(errorMessage(error, "complete")),
+    onError: async (error) => {
+      // BUG-10 C1: a finish the server refused is said by the one judge (below), from what the
+      // coordinator recorded — this path adds no sentence of its own. Other failures keep theirs.
+      // An unreadable record counts as not recorded: the existing message, never silence (and a
+      // throw here would surface as an unhandled rejection — TanStack re-raises onError failures).
+      const refused = (error as { refusedClientId?: string }).refusedClientId;
+      if (refused && (await refusalRecorded(DEV_USER_SCOPE, refused).catch(() => false))) {
+        setFinishError(null);
+        return;
+      }
+      setFinishError(errorMessage(error, "complete"));
+    },
   });
+
+  /** The judge runs later, from a queue: let it read this render's values. */
+  const factWindowRef = useRef({ recorded: false, sheetShown: false, screenInert: false });
+  factWindowRef.current = { recorded: completedCount > 0, sheetShown, screenInert };
+
+  /**
+   * BUG-10 — the one judge. Every refusal the server sent back for this session is said here, once:
+   * live (sync events), on re-entry (mount) and while finishing — no path decides on its own. It
+   * reads what the coordinator recorded (this session's audit rows that are still true — a record of
+   * what WE sent, not a guess at the server's taxonomy), asks describeRefusals whether a finish is
+   * withdrawn and what to say, says it — in the finish sheet if that is open, else on the screen —
+   * and the rows turn "shown" once that text is on screen (RefusalText), not when the judge has
+   * decided. Mount and events share one serial queue, so both at once still say it once.
+   * Two axes, kept apart (총괄 2026-10-07): SAID raises nothing again — only a refusal not said yet
+   * raises a notice (7); STILL TRUE decides what a notice holds — every still-true refusal of the
+   * session, said or not (15), and nothing a strictly later applied write made false (5a·5b).
+   * The session is re-read only to refresh the screen after a withdrawn finish, never to decide.
+   */
+  /**
+   * BUG-10 round 2: a judge answers for the session it started with, and only while this screen is
+   * still up and still shows that session. The route reuses one SessionScreen across sessions, and a
+   * judge still reading the audit when the screen moves on or unmounts must neither speak nor
+   * consume: its rows stay pending for that session's own screen.
+   */
+  const shownSession = useRef(sessionId);
+  shownSession.current = sessionId;
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // What was said belongs to the session it was judged for; another session starts with nothing.
+  useEffect(() => {
+    setRefusal(null);
+  }, [sessionId]);
+  /**
+   * Audit rows this screen has put on screen. The "shown" write is asynchronous, so a judge running
+   * before it lands (the sheet just closed, the screen came back to this session) would say them
+   * again — keyed by row id, so a NEW refusal with the same sentence is still said. A reload while
+   * that write is in flight may say the same true sentence once more (accepted, BUG-10 ticket).
+   */
+  const said = useRef(new Set<number>());
+  /** The latest judge: a notice that turned false while going on screen is judged again (5b). */
+  const rejudge = useRef<() => void>(() => undefined);
+  /**
+   * Rows turn "shown" only from RefusalText — once on screen, here, for this session, and only
+   * while it can be perceived (2): the page may have gone to the background, or a sheet come up,
+   * after the judge decided. Then nothing is marked: the notice is taken back, and said when the
+   * screen is perceivable again (the page visible, the sheet closed — both judge again, below).
+   * Only what this screen has not put on screen yet is new. A notice rewritten from what is still
+   * true carries nothing new; one drawn again (its view changed, RefusalText mounted anew) was
+   * marked when it was first drawn — neither marks anything, nor is taken back.
+   */
+  const acknowledge = useCallback((shown: Refusal) => {
+    if (!mounted.current || shownSession.current !== shown.sessionId) return;
+    if (shown.fresh.every((id) => said.current.has(id))) return;
+    if (!perceivable(factWindowRef.current, shown.inSheet)) {
+      setRefusal((current) => (current === shown ? null : current));
+      return;
+    }
+    for (const id of shown.ids) said.current.add(id);
+    void markRefusalsShown(shown.ids)
+      .then((stale) => {
+        if (stale.length === 0) return;
+        // 5b: part of it turned false between the last check and the screen (a later write was
+        // applied). Nothing was marked: take the notice back and say only what is still true.
+        for (const id of shown.ids) said.current.delete(id);
+        setRefusal((current) => (current === shown ? null : current));
+        rejudge.current();
+      })
+      .catch(() => undefined);
+  }, []);
+  const judgeQueue = useRef<Promise<void>>(Promise.resolve());
+  const announceRefusals = useCallback(() => {
+    const judged = sessionId;
+    judgeQueue.current = judgeQueue.current
+      .then(async () => {
+        // The judge's read: does this session have any refusal still true, said before or not?
+        const read = await standingRefusals(DEV_USER_SCOPE, judged);
+        // 5b·15: if so, read again right before the notice is composed — by session, not by the
+        // ids above: one superseded since is left out, one that arrived since is in. Never speak
+        // from the earlier read. Nothing standing: nothing to compose, and a notice left on
+        // screen is taken back by the rewrite below.
+        const rows: readonly JudgedRefusal[] =
+          read.length > 0 ? await stillStandingRefusals(DEV_USER_SCOPE, judged) : read;
+        // Gone, or moved on to another session, while reading: say nothing, consume nothing.
+        if (!mounted.current || shownSession.current !== judged) return;
+        const sentBy = (row: RefusalAudit) => row.payload as Partial<OutboxMutation> | undefined;
+        // R5 (i): a refused finish whose finish is true now says only the pain it carried.
+        const describe = (some: readonly JudgedRefusal[]) =>
+          describeRefusals(
+            some.map((row) => ({
+              entity: row.painOnly ? PAIN_UNSAVED : (sentBy(row)?.entity ?? ""),
+              entityId: sentBy(row)?.canonical_entity_id ?? sentBy(row)?.entity_id ?? "",
+              reason: row.kind,
+            })),
+            {
+              scheduledDate:
+                queryClient.getQueryData<Session>(["session", judged])?.scheduled_date ?? null,
+              recorded: factWindowRef.current.recorded,
+              cardRows: cardRowsRef.current,
+            },
+          );
+        // 5a·5b, said ones too: a notice holds only what is still true. One a strictly later
+        // applied write made false is rewritten from what is left of it, or taken back when
+        // nothing is. A rewrite says nothing new, so it waits for nothing: even behind a modal, a
+        // false sentence is not left standing. R5 (i): nor one whose finish became true while its
+        // pain did not — it is rewritten to the pain report (re-announced: the correction is heard).
+        const still = new Map(rows.map((row) => [row.id, row]));
+        const painOnlyOf = (some: readonly JudgedRefusal[]) =>
+          some.filter((row) => row.painOnly).map((row) => row.id);
+        setRefusal((current) => {
+          if (current?.sessionId !== judged) return current;
+          const kept = current.ids.flatMap((id) => still.get(id) ?? []);
+          const painOnly = painOnlyOf(kept);
+          if (
+            kept.length === current.ids.length &&
+            painOnly.length === current.painOnly.length &&
+            painOnly.every((id) => current.painOnly.includes(id))
+          )
+            return current;
+          const text = kept.length > 0 ? describe(kept).text : null;
+          return text
+            ? { ...current, text, ids: kept.map((row) => row.id), fresh: [], painOnly }
+            : null;
+        });
+        // 7: a notice is raised only by a new event — a refusal not said yet …
+        const fresh = rows.filter((row) => row.notice === "pending" && !said.current.has(row.id));
+        if (fresh.length === 0) return;
+        // 2: … and only where it can be perceived. Behind a modal the screen is inert, and an alert
+        // put there is never announced, not even when `inert` lifts; a page in the background is
+        // seen by nobody. Wait: the screen ceasing to be inert (the modal closing, or a view with
+        // nothing over it) or the page becoming visible judges again (below). The finish sheet,
+        // when it is drawn, is not behind anything: it says it there.
+        const inSheet = factWindowRef.current.sheetShown;
+        if (!perceivable(factWindowRef.current, inSheet)) return;
+        const news = describe(fresh);
+        if (!news.text) return; // the new event itself has nothing to say (BUG-03's silent kinds)
+        if (news.finishRefused) {
+          // "Was my finish applied?" — no: whatever the reason, the screen stops claiming it, and
+          // our own optimistic "completed" goes back (the coordinator did the same for the mirror).
+          setSummary(null);
+          const prior = fresh
+            .map(sentBy)
+            .find((row) => row?.entity === "session" && row.prior_status)?.prior_status as
+            Session["status"] | undefined;
+          if (prior)
+            queryClient.setQueryData<Session>(["session", judged], (current) =>
+              current?.status === "completed" ? { ...current, status: prior } : current,
+            );
+          // 11 (총괄 2026-10-07): "my write was refused" is not "it did not happen". Re-read the
+          // session — finished by another device, whose write has no row here to compare with
+          // (5a)? This only refreshes what the device knows (the mirror). Whether the finish
+          // refusal is still true is decided where every notice is composed, for every row
+          // (`stillStandingRefusals`, 총괄 R5) — so judge again once it says finished. A failed
+          // re-read changes nothing: the refusal is said from the refusal itself (not a gate).
+          void refetchAuthoritativeSession(queryClient, judged, () => api.session(judged))
+            .then((authoritative) => {
+              if (authoritative?.status === "completed") rejudge.current();
+            })
+            .catch(() => undefined);
+        }
+        // 15: … and it holds every refusal of the session that is still true, said before or not
+        // — the sets the user has not entered again do not drop out because they were said once.
+        setRefusal({
+          sessionId: judged,
+          text: describe(rows).text ?? news.text,
+          inSheet,
+          ids: rows.map((row) => row.id),
+          fresh: fresh.map((row) => row.id),
+          painOnly: painOnlyOf(rows),
+        });
+      })
+      .catch(() => undefined);
+  }, [queryClient, sessionId]);
+  // Judge once the card can name what it shows (session and catalog read, or failed to read).
+  const judgeReady =
+    (sessionQuery.isSuccess || sessionQuery.isError) &&
+    (catalogQuery.isSuccess || catalogQuery.isError);
+  useEffect(() => {
+    if (!judgeReady) return;
+    announceRefusals(); // re-entry: refused while this screen was not open
+    // 2: what waited while the page was in the background is said once it is visible again.
+    const visible = () => {
+      if (pageVisible()) announceRefusals();
+    };
+    window.addEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      window.removeEventListener(SYNC_RESPONSE_EVENT, announceRefusals);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [judgeReady, announceRefusals]);
+  rejudge.current = announceRefusals;
+  /**
+   * The screen stopped being inert — a modal closed (the finish sheet: by the user, by a finish that
+   * succeeded, by an acknowledged append completion; or any sheet over the screen: rest, picker,
+   * pain, remove), or the view changed to one with nothing over it (the error view). What the finish
+   * sheet said closes with it; what could not be said meanwhile — another error in the sheet, or the
+   * screen inert behind a modal (2) — is said now, not at the next sync or entry.
+   */
+  const screenWasInert = useRef(false);
+  useEffect(() => {
+    if (screenWasInert.current && !screenInert) {
+      setRefusal((current) => (current?.inSheet ? null : current));
+      announceRefusals();
+    }
+    screenWasInert.current = screenInert;
+  }, [screenInert, announceRefusals]);
+  /**
+   * 11·R5 (총괄): the screen came to show this session finished — a read landed (this screen's own
+   * refetch, the re-read after a refused finish) or our own finish did. A finish refusal said before
+   * may be false now, and nothing new would wake the judge: judge again. It is the same truth
+   * evaluation as every judge's; on an ordinary finish it has nothing to change (asserted: no alert,
+   * no audit write). The first read of a session is not a change — the entry judge covers it.
+   */
+  const sessionFinished = session?.status === "completed";
+  const finishedBefore = useRef<{ sessionId: string; finished: boolean } | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    const before = finishedBefore.current;
+    finishedBefore.current = { sessionId, finished: sessionFinished };
+    if (judgeReady && before?.sessionId === sessionId && !before.finished && sessionFinished)
+      announceRefusals();
+  }, [session, sessionId, sessionFinished, judgeReady, announceRefusals]);
 
   const handleComplete = async (exerciseName: string, set: PlannedSet, values: SetValues) => {
     if (!isResistancePlannedSet(set)) return;
@@ -1212,12 +1563,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     );
   }
 
-  if (sessionQuery.isError || !session) {
+  // A refusal is shown only on the screen of the session it was judged for.
+  const shownRefusal = refusal?.sessionId === sessionId ? refusal : null;
+
+  // `|| !session` only narrows the type for what follows: `errorView` already includes it.
+  if (errorView || !session) {
     return (
       <div className="mx-auto flex max-w-md flex-col gap-3 p-4">
         <p role="alert" className="text-base text-fg">
           {errorMessage(sessionQuery.error, "session")}
         </p>
+        {/* BUG-10 round 2: the refusal is a local fact. A session that cannot be read does not
+            swallow it, and the connection notice does not stand in for it. */}
+        {shownRefusal && !shownRefusal.inSheet ? (
+          <p
+            role="alert"
+            className="sticky top-[env(safe-area-inset-top)] z-10 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+          >
+            <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+          </p>
+        ) : null}
         <Button size="md" onClick={() => void sessionQuery.refetch()}>
           다시 불러오기
         </Button>
@@ -1230,11 +1595,11 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ? null
       : ((summary?.session.id === sessionId ? summary : null) ??
         (session.status === "completed" &&
-        (readOnly || positionScope.current?.sessionId !== sessionId || !editingCompleted)
+        (factsLocked || positionScope.current?.sessionId !== sessionId || !editingCompleted)
           ? { session, next_recommendations: [] }
           : null));
   const summaryContent = shownSummary ? (
-    <div inert={modalOpen} className="mx-auto max-w-md p-4">
+    <div inert={screenInert} className="mx-auto max-w-md p-4">
       {/*
        * 종료 화면은 루틴 화면을 통째로 대체하므로 아래의 안내 영역이 렌더되지 않는다.
        * 정리 실패는 여기서도 보여야 사용자가 "재진입하면 휴식이 다시 뜰 수 있다"를 안다.
@@ -1244,14 +1609,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           {notice}
         </p>
       ) : null}
+      {/* BUG-10 D8: 기록이 닫힌 종료 세션(직전 하루보다 오래된 날)은 요약에서도 그 날짜의 승인 문구를 말한다. */}
+      {factsLocked && rights?.notice ? (
+        <p className="mb-3 text-sm text-fg-muted">{rights.notice}</p>
+      ) : null}
+      {shownRefusal && !shownRefusal.inSheet ? (
+        <p
+          role="alert"
+          className="sticky top-[env(safe-area-inset-top)] z-10 mb-3 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+        >
+          <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+        </p>
+      ) : null}
       <SessionSummary
         {...summaryMetricsFor(session.planned_sets, drafts)}
         nextRecommendations={shownSummary.next_recommendations}
         catalogById={catalogById}
-        /* F6-1: 오늘이면 종료 후에도 돌아가서 더 하거나 고칠 수 있다. */
+        /* F6-1 + BUG-10 D: 기록을 쓸 수 있는 날(오늘·직전 하루)이면 종료 후에도 돌아가서 고칠 수 있다. */
         onResume={
           shownSummary.session.status !== "completed" ||
-          isUtcToday(shownSummary.session.scheduled_date)
+          sessionEditRights(shownSummary.session, completedCount > 0).facts
             ? () => {
                 setSummary(null);
                 setEditingCompleted(true);
@@ -1277,9 +1654,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
   const removeIndex = groups.findIndex((group) => group.exerciseId === removeExerciseId);
   const inRoutine = new Set(groups.map((group) => group.exerciseId));
 
-  // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다.
-  const painIndex = groups.findIndex((group) => group.exerciseId === painExerciseId);
-  const painGroup = painIndex >= 0 ? groups[painIndex] : null;
+  // 통증 보고(안전 절): 운동 단위로 받아 그 운동의 세트 드래프트에 담는다(painGroup 은 위에서 한 번 계산).
   const painSetIds = painGroup?.sets.map((set) => set.id) ?? [];
   /** [무게 줄이고 계속]이 향할 곳: 아직 남은 세트 중 무게 입력이 있는 첫 세트. */
   const painWeightTarget = painGroup?.sets.find(
@@ -1301,7 +1676,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         <>
           {/* 랜드마크 <main> 과 스킵 링크는 app/layout.tsx 에 하나씩만 둔다(중복 금지). */}
           {/* pb-28 = 하단 고정 바(버튼 72 + 패딩 24)를 가릴 만큼만 비운다. */}
-          <div inert={modalOpen} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
+          <div inert={screenInert} className="mx-auto flex max-w-md flex-col gap-3 p-4 pb-28">
             <header className="flex flex-col gap-1">
               <h1 className="text-xl font-bold text-fg">오늘 운동</h1>
               {completionWaiting ? (
@@ -1317,20 +1692,38 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               <p className="text-sm text-fg-muted">
                 {completedCount}세트 완료 · 계획 {orderedSets.length}세트
               </p>
-              {readOnly ? <p className="text-sm text-fg-muted">이미 종료한 운동이에요.</p> : null}
+              {/* 기록이 닫힌 세션(BUG-10 D): 그 날짜 분류의 승인 문구. 문구가 없는 미래 종료는 기존 문구. */}
+              {factsLocked ? (
+                <p className="text-sm text-fg-muted">
+                  {rights?.notice ?? "이미 종료한 운동이에요."}
+                </p>
+              ) : null}
               {/* 이미 종료한 운동을 고치는 중이라는 맥락을 계속 보여준다(F6-1 재개/편집 모드). */}
-              {finishedToday ? (
+              {finishedEditable ? (
                 /* "지금 편집 모드"를 알리는 면이라 primary 소프트로 둔다(§2.3 파랑 = 지금·계획과 다름).
                `bg-raised` 단독은 페이지 `bg` 와 1.05:1 이라 상자가 사실상 안 보였다 —
                면을 만드는 건 1px 테두리다(Badge.tsx). 대비: fg 15:1 / fg-muted 5.03:1. */
                 <div className="flex flex-col gap-1 rounded-control border border-primary-border bg-primary-bg px-3 py-2">
-                  <p className="text-sm text-fg">
-                    이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
-                  </p>
-                  {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
-                  <p className="text-sm text-fg-muted">
-                    고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
-                  </p>
+                  {rights?.notice ? (
+                    /* 직전 하루: 기록 값만 고칠 수 있고 루틴은 닫혀 있다(BUG-10 D 승인 문구).
+                       고친 값이 **어느 날** 기록인지는 그 세션 자신의 날짜로 말한다("어제" 금지). */
+                    <>
+                      <p className="text-sm text-fg">{rights.notice}</p>
+                      <p className="text-sm text-fg-muted">
+                        {reflectsOnCopy(session.scheduled_date)}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-fg">
+                        이미 종료한 운동이에요. 오늘 안에는 기록을 더하거나 고칠 수 있어요.
+                      </p>
+                      {/* 고친 값이 언제 추천에 반영되는지 알려 준다(재계산은 종료 경로에서 돈다). */}
+                      <p className="text-sm text-fg-muted">
+                        고친 내용은 [수정 마치기]를 눌러야 오늘 기록에 반영돼요.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : null}
             </header>
@@ -1355,14 +1748,26 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 {editError}
               </p>
             ) : null}
+            {/* Sticky (round 2): re-entry scrolls the remembered set to the centre; drawn only up
+                here, the notice would be said — and acknowledged — out of sight. No close button
+                on purpose: it names the sets to enter again (two exercises by name, the rest as a
+                count, so its height is bounded), and reading it while re-entering them helps. */}
+            {shownRefusal && !shownRefusal.inSheet ? (
+              <p
+                role="alert"
+                className="sticky top-[env(safe-area-inset-top)] z-10 rounded-control border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger"
+              >
+                <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+              </p>
+            ) : null}
 
             <div
               className="flex flex-col gap-3"
               // Only explicit routine interaction keeps an ongoing edit open across a remote completion.
               // Hydration and programmatic focus do not opt in; route changes and local completion reset it.
-              onClickCapture={() => !readOnly && setEditingCompleted(true)}
-              onChangeCapture={() => !readOnly && setEditingCompleted(true)}
-              onKeyDownCapture={() => !readOnly && setEditingCompleted(true)}
+              onClickCapture={() => !factsLocked && setEditingCompleted(true)}
+              onChangeCapture={() => !factsLocked && setEditingCompleted(true)}
+              onKeyDownCapture={() => !factsLocked && setEditingCompleted(true)}
             >
               {groups.length === 0 && cardioRows.length === 0 ? (
                 <Card className="flex flex-col gap-3">
@@ -1385,6 +1790,18 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
               ) : (
                 groups.map((group, index) => {
                   const locked = group.sets.some((set) => drafts[set.id]?.completed);
+                  /*
+                    기록이 있는 운동은 빼거나 바꿀 수 없다(잠금은 그대로). 다만 그 이유의 "완료 체크를 해제해
+                    주세요"는 체크·루틴이 다 열린 날(오늘)에만 참이다(BUG-10 D8 — 권한보다 넓게 말하지 않는다).
+                    기록이 닫힌 날은 그 날짜 문구가 이유이고, 루틴이 날짜로 닫힌 날은 메뉴가 없어 둘 다 없다.
+                  */
+                  const recordLock = !locked
+                    ? null
+                    : routineLocked
+                      ? null
+                      : factsLocked
+                        ? (rights?.notice ?? LOCKED_REASON)
+                        : LOCKED_REASON;
                   const appendContext: AppendContext | null = appendStateQuery.data
                     ? {
                         user_id: DEV_USER_SCOPE,
@@ -1430,7 +1847,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                       catalogById={catalogById}
                       sets={group.sets}
                       drafts={drafts}
-                      readOnly={readOnly}
+                      readOnly={factsLocked}
+                      routineLocked={routineLocked}
+                      ended={session.status === "completed"}
                       onAppend={() => {
                         if (!appendContext) return;
                         const result = captureAppendSource(appendContext);
@@ -1447,9 +1866,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                             }
                           : undefined
                       }
-                      lockedReason={
-                        cardioRows.length > 0 ? MIXED_READ_ONLY : locked ? LOCKED_REASON : null
-                      }
+                      lockedReason={cardioRows.length > 0 ? MIXED_READ_ONLY : recordLock}
                       painScore={painOf(
                         drafts,
                         group.sets.map((set) => set.id),
@@ -1476,9 +1893,16 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                         setRemoveExerciseId(group.exerciseId);
                       }}
                       onRemoveBlocked={() =>
-                        setNotice(cardioRows.length > 0 ? MIXED_READ_ONLY : LOCKED_REASON)
+                        setNotice(
+                          cardioRows.length > 0 ? MIXED_READ_ONLY : (recordLock ?? LOCKED_REASON),
+                        )
                       }
-                      onReportPain={() => setPainExerciseId(group.exerciseId)}
+                      onReportPain={() =>
+                        // 통증은 세트 기록에 실리는 사실이다 — 기록이 닫힌 날에는 쓰지 않고 이유만 알린다.
+                        factsLocked
+                          ? setNotice(rights?.notice ?? "")
+                          : setPainExerciseId(group.exerciseId)
+                      }
                       onComplete={(set, values) =>
                         void handleComplete(nameOf(group.exerciseId, index), set, values)
                       }
@@ -1496,7 +1920,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                 />
               ))}
 
-              {readOnly || !catalogResolved || cardioRows.length > 0 ? null : (
+              {routineLocked || !catalogResolved || cardioRows.length > 0 ? null : (
                 <Button
                   variant="secondary"
                   size="md"
@@ -1517,9 +1941,9 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
             </p>
           </div>
 
-          {readOnly ? null : (
+          {factsLocked ? null : (
             <div
-              inert={modalOpen}
+              inert={screenInert}
               className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface px-4 py-3"
             >
               <div className="mx-auto max-w-md pb-safe-bottom">
@@ -1532,7 +1956,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
                     setFinishOpen(true);
                   }}
                 >
-                  {finishedToday ? "수정 마치기" : "운동 종료"}
+                  {finishedEditable ? "수정 마치기" : "운동 종료"}
                 </Button>
                 {cardioRows.length > 0 ? (
                   <p className="mt-2 text-xs text-fg-muted">
@@ -1546,7 +1970,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
           {/* 타이머 시트는 열려 있을 때만 마운트해서 틱을 멈춘다. */}
         </>
       )}
-      {rest && positionScope.current?.sessionId === sessionId ? (
+      {restDrawn && rest ? (
         <RestTimerSheet
           open
           title={rest.title}
@@ -1563,7 +1987,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ) : null}
 
       <RemoveExerciseSheet
-        open={removeExerciseId != null}
+        open={removeDrawn}
         exerciseName={
           removeIndex >= 0 ? nameOf(groups[removeIndex].exerciseId, removeIndex) : "운동"
         }
@@ -1573,7 +1997,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         onClose={() => setRemoveExerciseId(null)}
       />
 
-      {picker ? (
+      {pickerDrawn && picker ? (
         <ExercisePickerSheet
           open
           mode={picker}
@@ -1593,7 +2017,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         />
       ) : null}
 
-      {painGroup ? (
+      {painDrawn && painGroup ? (
         <PainSheet
           open
           exerciseName={nameOf(painGroup.exerciseId, painIndex)}
@@ -1632,12 +2056,22 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
       ) : null}
 
       <FinishSheet
-        open={finishOpen}
-        resumed={finishedToday === true}
+        open={sheetShown}
+        resumed={finishedEditable === true}
+        // 직전 하루의 종료 세션(그 승인 문구가 뜨는 바로 그 경우)만 "오늘" 대신 그 세션의 날짜로 말한다.
+        reflectsOn={
+          finishedEditable && rights?.notice ? reflectsOnCopy(session.scheduled_date) : null
+        }
         completedCount={completedCount}
         remainingCount={orderedSets.length - completedCount}
         pending={completeMutation.isPending}
-        errorText={finishError}
+        // A refusal said while the sheet was open belongs to the sheet; closing it closes the notice.
+        errorText={
+          finishError ??
+          (shownRefusal?.inSheet ? (
+            <RefusalText refusal={shownRefusal} onShown={acknowledge} />
+          ) : null)
+        }
         onConfirm={(pain) => completeMutation.mutate(pain)}
         onClose={() => setFinishOpen(false)}
       />

@@ -530,7 +530,9 @@ describe("session append raw UPDATE and postcommit recompute / strong two-order 
     const originalRecompute = sessions.recomputeAfterSync.bind(sessions);
     const syncEntry = jest
       .spyOn(syncService, "sync")
-      .mockImplementation((owner, dto) => scope.run("b", () => originalSync(owner, dto)));
+      .mockImplementation((owner, dto, today) =>
+        scope.run("b", () => originalSync(owner, dto, today)),
+      );
     const factReady = deferred<number>();
     const releaseFact = deferred<void>();
     const postReady = deferred<void>();

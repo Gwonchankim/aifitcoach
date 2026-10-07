@@ -94,7 +94,9 @@ const SESSION_PAYLOAD = {
   id: SESSION_A,
   program_id: "p-1",
   goal: "hypertrophy",
-  scheduled_date: "2026-08-14",
+  // BUG-10 W1: today's UTC date, so the screen's fact window is open — this suite is about rest
+  // completion, not dates (Date.now is mocked below only for the timer clock).
+  scheduled_date: new Date().toISOString().slice(0, 10),
   status: "scheduled",
   planned_sets: [plannedSet(SET_1, 1), plannedSet(SET_2, 2)],
 } as unknown as Session;

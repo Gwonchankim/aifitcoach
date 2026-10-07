@@ -5,6 +5,7 @@ export * from "./assistance";
 export * from "./assistance-safety";
 export * from "./safety";
 export * from "./display-gate";
+export * from "./session-fact-write-policy";
 export * from "./recommendation-state";
 export * from "./rules-version";
 export * from "./session-plan";

@@ -18,8 +18,10 @@ import {
   rawAssistanceSafetyStatus,
   toRawTargetRow as rawTargetRow,
 } from "../src/programs/assistance-migration";
+import { SessionsService } from "../src/sessions/sessions.service";
 import { plannedSetResponse } from "../src/sync/sync.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { onSessionDay, withUtcToday } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = ["e_assisted_pullup", "e_assisted_dips"] as const;
@@ -37,10 +39,16 @@ describe("assisted dips actual API metadata, history and analytics", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let recommendations: RecommendationService;
+  let recompute: jest.SpyInstance;
   beforeAll(async () => {
     app = await createTestApp();
     prisma = app.get(PrismaService);
     recommendations = app.get(RecommendationService);
+    // Delegating spy (calls through): proves POST complete runs the real recompute.
+    recompute = jest.spyOn(
+      app.get(SessionsService) as unknown as { recompute: () => unknown },
+      "recompute",
+    );
   }, 60_000);
   afterAll(async () => {
     try {
@@ -180,6 +188,15 @@ describe("assisted dips actual API metadata, history and analytics", () => {
     "%s sample %i: shared raw → service → persisted → GET/sync/analytics preserves numbers and action gate",
     async (id, count) => {
       const p = await program();
+      // The next target as planned before any of these sessions. Pre-built from `history` it
+      // already equalled the oracle, so a recompute that skipped its write still passed
+      // (BUG-10 M5, the same on base a74aa81). With no session yet this is `history` (sample 0).
+      const planned = requireHistory(
+        await recommendations.prefetchHistories(USER_ID, [
+          { exerciseId: id, loadSemantics: "assistance" },
+        ]),
+        id,
+      );
       let sourceId: string | undefined;
       for (let n = 0; n < count; n++) {
         const s = await session(p.id, n - count);
@@ -231,17 +248,27 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         exercise,
         orderIndex: 0,
         sets: 1,
-        history,
+        history: planned,
         calibration,
       });
       await prisma.plannedSet.createMany({
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
       if (sourceId) {
-        const completed = await request(app.getHttpServer())
-          .post(`/v1/sessions/${sourceId}/complete`)
-          .send({})
-          .expect(200);
+        // Only a recompute that writes can turn the planned target into the oracle.
+        const seeded = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
+        expect(recommendations.plannedToApi(id, 1, seeded)).not.toEqual(
+          recommendations.toApi(id, 1, oracle),
+        );
+        recompute.mockClear();
+        const completed = await onSessionDay(prisma, sourceId, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${sourceId}/complete`)
+            .send({})
+            .expect(200),
+        );
+        // Not the past-date no-op projection: this act recomputed (its subject).
+        expect(recompute).toHaveBeenCalledTimes(1);
         const item = completed.body.next_recommendations.find(
           (row: { exercise_id: string }) => row.exercise_id === id,
         );
@@ -336,6 +363,15 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         where: { sessionId: old.id },
         include: { performedSets: true },
       });
+      // The next target as planned before the latest session. Pre-built from `history` it
+      // already equalled the fail-closed result, so a recompute that skipped its write still
+      // passed (BUG-10 M5, the same on base a74aa81).
+      const planned = requireHistory(
+        await recommendations.prefetchHistories(USER_ID, [
+          { exerciseId: id, loadSemantics: "assistance" },
+        ]),
+        id,
+      );
       const latest = await session(p.id, -1);
       await fact(latest.id, id, 2.5, mode === "pain" ? { pain: 5 } : { invalid: true });
       const histories = await recommendations.prefetchHistories(
@@ -367,20 +403,32 @@ describe("assisted dips actual API metadata, history and analytics", () => {
         exercise,
         orderIndex: 0,
         sets: 1,
-        history,
+        history: planned,
         calibration: undefined,
       });
       await prisma.plannedSet.createMany({
         data: rows.map((row) => ({ ...row, sessionId: next.id })),
       });
-      await request(app.getHttpServer())
-        .post(`/v1/sessions/${latest.id}/complete`)
-        .send({})
-        .expect(200);
+      // Only a recompute that writes can turn the planned target into the fail-closed result.
+      const seeded = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
+      expect(seeded.reasonCode).not.toBe(result.reason_code);
+      recompute.mockClear();
+      await withUtcToday(latest.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${latest.id}/complete`)
+          .send({})
+          .expect(200),
+      );
+      // Not the past-date no-op projection: this act recomputed (its subject).
+      expect(recompute).toHaveBeenCalledTimes(1);
       const row = await prisma.plannedSet.findFirstOrThrow({ where: { sessionId: next.id } });
       expect(row.reasonCode).toBe(result.reason_code);
       expect(row.recommendedWeight).toBeNull();
       expect(recommendations.plannedToApi(id, 1, row).recommended_action).toBeNull();
+      // The whole stored prescription is the engine's, not only the three fail-closed fields.
+      expect(recommendations.plannedToApi(id, 1, row)).toEqual(
+        recommendations.toApi(id, 1, result),
+      );
       expect(
         await prisma.plannedSet.findMany({
           where: { sessionId: old.id },

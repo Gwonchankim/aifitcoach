@@ -22,6 +22,7 @@ import {
 } from "../src/recommendation/recommendation.service";
 import { plannedSetResponse } from "../src/sync/sync.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { withUtcToday } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = "e_assisted_pullup";
@@ -697,14 +698,18 @@ describe("production call-site batch · action gate", () => {
       }
 
       const [, calls] = await countPerformedQueries(async () => {
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${first.id}/complete`)
-          .send({})
-          .expect(200);
+        await withUtcToday(first.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${first.id}/complete`)
+            .send({})
+            .expect(200),
+        );
       });
 
       // 종목마다 lifetime 질의를 하면 calls 가 종목 수만큼 늘어난다.
       expect(calls).toBeLessThan(exerciseIds.length);
+      // 상한만 보면 재계산을 건너뛰어도(0회) 통과한다(BUG-10 M5, base a74aa81 동일).
+      expect(calls).toBeGreaterThan(0);
     });
   });
 

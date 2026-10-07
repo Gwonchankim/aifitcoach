@@ -13,11 +13,13 @@ import type { INestApplication } from "@nestjs/common";
 import { Prisma, PrismaClient } from "@prisma/client";
 import request from "supertest";
 import { devUserId } from "../src/auth/dev-user";
+import { utcToday } from "../src/common/date/utc-day";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { RecommendationService } from "../src/recommendation/recommendation.service";
 import { SyncService } from "../src/sync/sync.service";
 import type { SyncRequestDto } from "../src/sync/dto/sync-request.dto";
 import { createTestApp, resetUserData } from "./support/app";
+import { onSessionDay } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = "e_assisted_pullup";
@@ -382,7 +384,11 @@ describe("sync 재시도 상태 머신 · tx 내부 질의", () => {
         { failures: Array.from({ length: 12 }, () => code), meta },
         async () => {
           try {
-            await sync.sync(USER_ID, { mutations: [mutation] } as unknown as SyncRequestDto);
+            await sync.sync(
+              USER_ID,
+              { mutations: [mutation] } as unknown as SyncRequestDto,
+              utcToday(),
+            );
             return null;
           } catch (error) {
             return error;
@@ -457,10 +463,15 @@ describe("sync 재시도 상태 머신 · tx 내부 질의", () => {
       const recommendation = app.get(RecommendationService);
       const spy = jest.spyOn(recommendation, "prefetchHistories").mockResolvedValue(new Map());
       try {
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${sessionId}/complete`)
-          .send({})
-          .expect(500);
+        await onSessionDay(prisma, sessionId, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${sessionId}/complete`)
+            .send({})
+            .expect(500),
+        );
+        // The 500 is the injected prefetch gap itself: recompute reached the seam (a 500 raised
+        // anywhere before it — or a guard answering first — fails here).
+        expect(spy).toHaveBeenCalled();
       } finally {
         spy.mockRestore();
       }

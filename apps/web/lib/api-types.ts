@@ -746,7 +746,7 @@ export interface paths {
         };
       };
       responses: {
-        /** @description 완료 처리 및 다음 추천 반영 */
+        /** @description 완료 처리 및 다음 추천 반영. 기록 가능 날짜(UTC 오늘·직전 하루, BUG-10) 판정은 sync 와 같은 shared 분류를 쓴다. 오늘이 아닌 이미 완료된 세션(직전 하루·그 이전·미래)에 대한 재요청은 무쓰기 no-op 이다 — 상태·피드백·재계산을 바꾸지 않고, `next_recommendations` 에는 저장된 다음 target 이 있는 종목만 담는다. 이 응답의 `next_recommendations` 는 비어 있을 수 있으며 그것이 "처방이 없다"는 뜻은 아니다(최종 주·대체된 프로그램·미생성 주에서는 저장 근거가 없다). 정상 완료·당일 재완료 응답의 의미는 그대로다. */
         200: {
           headers: {
             [name: string]: unknown;
@@ -769,6 +769,15 @@ export interface paths {
         };
         /** @description 세션이 없다(내 세션이 아닌 경우 포함). */
         404: {
+          headers: {
+            [name: string]: unknown;
+          };
+          content: {
+            "application/json": components["schemas"]["Error"];
+          };
+        };
+        /** @description 기록 가능 날짜(UTC 오늘·직전 하루) 밖의 미완료 세션(2일 이상 지난 날짜 또는 미래)을 새로 완료하려 했다(BUG-10, D-43 사용자 backfill 미지원). 아무것도 기록하지 않는다. */
+        409: {
           headers: {
             [name: string]: unknown;
           };

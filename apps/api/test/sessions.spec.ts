@@ -10,6 +10,7 @@ import { decryptNumber, encryptNumber } from "../src/common/crypto/field-encrypt
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectErrorMatchesContract, expectMatchesContract } from "./support/openapi-response";
+import { withUtcToday } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const PROGRAM = {
@@ -126,10 +127,9 @@ describe("sessions", () => {
         { w: 60, reps: 12, rir: 2 },
         { w: 60, reps: 12, rir: 2 },
       ]);
-      const completed = await request(app.getHttpServer())
-        .post(`/v1/sessions/${first.id}/complete`)
-        .send({})
-        .expect(200);
+      const completed = await withUtcToday(first.scheduledDate, () =>
+        request(app.getHttpServer()).post(`/v1/sessions/${first.id}/complete`).send({}).expect(200),
+      );
       const detail = await request(app.getHttpServer()).get(`/v1/sessions/${next.id}`).expect(200);
       const rows = detail.body.planned_sets.filter(
         (set: { exercise_id: string }) => set.exercise_id === exerciseId,
@@ -172,10 +172,12 @@ describe("sessions", () => {
         { w: 60, reps: 12, rir: 2 },
       ]);
 
-      const response = await request(app.getHttpServer())
-        .post(`/v1/sessions/${first.id}/complete`)
-        .send({ difficulty: "moderate", pump: "high", pain: 1 })
-        .expect(200);
+      const response = await withUtcToday(first.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${first.id}/complete`)
+          .send({ difficulty: "moderate", pump: "high", pain: 1 })
+          .expect(200),
+      );
 
       expectMatchesContract("post", "/sessions/{sessionId}/complete", 200, response.body);
       expect(response.body.session.status).toBe("completed");
@@ -204,10 +206,12 @@ describe("sessions", () => {
         { w: 60, reps: 12, rir: 2 },
       ]);
 
-      const response = await request(app.getHttpServer())
-        .post(`/v1/sessions/${monday.id}/complete`)
-        .send({})
-        .expect(200);
+      const response = await withUtcToday(monday.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${monday.id}/complete`)
+          .send({})
+          .expect(200),
+      );
 
       const recommendation = response.body.next_recommendations[0];
       expect(recommendation).toMatchObject({
@@ -252,10 +256,12 @@ describe("sessions", () => {
       expect(new Set(regions.map((exercise) => exercise.region)).size).toBe(1);
       await recordSets(monday.id, performedExercise, [{ w: 40, reps: 6, rir: 2 }]);
 
-      const response = await request(app.getHttpServer())
-        .post(`/v1/sessions/${monday.id}/complete`)
-        .send({})
-        .expect(200);
+      const response = await withUtcToday(monday.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${monday.id}/complete`)
+          .send({})
+          .expect(200),
+      );
 
       expect(
         response.body.next_recommendations.map((r: { exercise_id: string }) => r.exercise_id),
@@ -278,10 +284,12 @@ describe("sessions", () => {
         { w: 60, reps: 12, rir: 2, pain: 5 },
       ]);
 
-      const response = await request(app.getHttpServer())
-        .post(`/v1/sessions/${monday.id}/complete`)
-        .send({})
-        .expect(200);
+      const response = await withUtcToday(monday.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${monday.id}/complete`)
+          .send({})
+          .expect(200),
+      );
 
       expect(response.body.next_recommendations[0]).toMatchObject({
         exercise_id: exerciseId,
@@ -302,10 +310,12 @@ describe("sessions", () => {
     it("세션 피드백의 pain 은 암호화되어 저장된다(SECURITY_PIPA)", async () => {
       const [monday] = await sessions();
 
-      await request(app.getHttpServer())
-        .post(`/v1/sessions/${monday.id}/complete`)
-        .send({ difficulty: "hard", pain: 3 })
-        .expect(200);
+      await withUtcToday(monday.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${monday.id}/complete`)
+          .send({ difficulty: "hard", pain: 3 })
+          .expect(200),
+      );
 
       const stored = await prisma.workoutSession.findUniqueOrThrow({ where: { id: monday.id } });
       const feedback = stored.sessionFeedback as { difficulty: string; pain: string };
@@ -322,15 +332,19 @@ describe("sessions", () => {
     describe("재완료 멱등성 (아웃박스 재시도)", () => {
       it("빈 바디로 재완료해도 기존 pain/pump/difficulty 가 보존된다", async () => {
         const [monday] = await sessions();
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({ difficulty: "moderate", pump: "high", pain: 3 })
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({ difficulty: "moderate", pump: "high", pain: 3 })
+            .expect(200),
+        );
 
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({})
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({})
+            .expect(200),
+        );
 
         const stored = await prisma.workoutSession.findUniqueOrThrow({ where: { id: monday.id } });
         const feedback = stored.sessionFeedback as {
@@ -345,15 +359,19 @@ describe("sessions", () => {
 
       it("재완료 바디에 있는 키만 덮어쓴다", async () => {
         const [monday] = await sessions();
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({ difficulty: "moderate", pain: 3 })
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({ difficulty: "moderate", pain: 3 })
+            .expect(200),
+        );
 
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({ difficulty: "hard" })
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({ difficulty: "hard" })
+            .expect(200),
+        );
 
         const stored = await prisma.workoutSession.findUniqueOrThrow({ where: { id: monday.id } });
         const feedback = stored.sessionFeedback as { difficulty: string; pain: string };
@@ -363,16 +381,20 @@ describe("sessions", () => {
 
       it("최초 완료 시각(completed_at)은 재완료로 바뀌지 않는다", async () => {
         const [monday] = await sessions();
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({ pain: 2 })
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({ pain: 2 })
+            .expect(200),
+        );
         const first = await prisma.workoutSession.findUniqueOrThrow({ where: { id: monday.id } });
 
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({})
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({})
+            .expect(200),
+        );
 
         const second = await prisma.workoutSession.findUniqueOrThrow({ where: { id: monday.id } });
         expect(second.completedAt).toEqual(first.completedAt);
@@ -390,14 +412,18 @@ describe("sessions", () => {
           { w: 60, reps: 12, rir: 2 },
         ]);
 
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({})
-          .expect(200);
-        await request(app.getHttpServer())
-          .post(`/v1/sessions/${monday.id}/complete`)
-          .send({})
-          .expect(200);
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({})
+            .expect(200),
+        );
+        await withUtcToday(monday.scheduledDate, () =>
+          request(app.getHttpServer())
+            .post(`/v1/sessions/${monday.id}/complete`)
+            .send({})
+            .expect(200),
+        );
 
         const updated = await prisma.plannedSet.findMany({
           where: { sessionId: thursday.id, exerciseId },
@@ -444,10 +470,12 @@ describe("sessions", () => {
       const [monday, , thursday] = await sessions();
       const exerciseId = monday.plannedSets[0].exerciseId;
       await recordSets(monday.id, exerciseId, easySets);
-      await request(app.getHttpServer())
-        .post(`/v1/sessions/${monday.id}/complete`)
-        .send({})
-        .expect(200);
+      await withUtcToday(monday.scheduledDate, () =>
+        request(app.getHttpServer())
+          .post(`/v1/sessions/${monday.id}/complete`)
+          .send({})
+          .expect(200),
+      );
       const stored = await prisma.plannedSet.findFirstOrThrow({
         where: { sessionId: thursday.id, exerciseId },
       });

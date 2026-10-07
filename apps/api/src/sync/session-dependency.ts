@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma, type SyncMutation } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { identityObject } from "../sessions/session-set-receipt";
@@ -25,6 +30,11 @@ export type MutationResult = {
   applied: boolean;
   sessionId?: string;
   conflict?: DependencyConflict;
+  /**
+   * BUG-10 I: an exact replay of an already-applied receipt was only acknowledged again — no fact
+   * changed, so the caller must not recompute for it. Internal only; never on the wire.
+   */
+  replayed?: boolean;
 };
 type Writer = (
   tx: Prisma.TransactionClient,
@@ -113,7 +123,7 @@ export class SessionDependencyService {
                 existing.requestHash !== requestHash)
             )
               return { applied: false, conflict: conflict("client_id_mismatch") };
-            if (existing?.status === "applied") return { applied: true, sessionId };
+            if (existing?.status === "applied") return { applied: true, sessionId, replayed: true };
             if (existing?.status === "conflict")
               return {
                 applied: false,
@@ -256,6 +266,7 @@ export class SessionDependencyService {
               // These writer guards run before their first mutation. Other errors roll back the tx.
               if (error instanceof BadRequestException) return terminal("validation_failed");
               if (error instanceof NotFoundException) return terminal("append_target_removed");
+              if (error instanceof ConflictException) return terminal("conflict");
               throw error;
             }
             await persist("applied", null, target!);

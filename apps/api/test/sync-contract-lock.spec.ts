@@ -12,6 +12,7 @@ import { devUserId } from "../src/auth/dev-user";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
+import { onSessionDay } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const PROGRAM = {
@@ -70,10 +71,12 @@ describe("STEP 6 sync 계약 잠금", () => {
   it("유실·중복 0: push와 동일 재시도 뒤 무게·횟수·RIR이 planned_set 한 행에 정확히 남는다", async () => {
     const planned = await firstPlannedSet();
     const mutation = performedMutation(planned.id, 50);
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [mutation] })
-      .expect(200);
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [mutation] })
+        .expect(200),
+    );
 
     const stored = await prisma.performedSet.findUniqueOrThrow({
       where: { plannedSetId: planned.id },
@@ -92,10 +95,12 @@ describe("STEP 6 sync 계약 잠금", () => {
     });
 
     // 네트워크 재전송은 같은 client_id를 재사용한다. 두 번째 행을 만들거나 값을 바꾸면 안 된다.
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [mutation] })
-      .expect(200);
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [mutation] })
+        .expect(200),
+    );
     await expect(prisma.performedSet.count({ where: { plannedSetId: planned.id } })).resolves.toBe(
       1,
     );
@@ -147,12 +152,14 @@ describe("STEP 6 sync 계약 잠금", () => {
 
   it("LWW: 역순 push에도 더 최신 updated_at의 값이 남는다", async () => {
     const planned = await firstPlannedSet();
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({
-        mutations: [performedMutation(planned.id, 60, T2), performedMutation(planned.id, 50, T1)],
-      })
-      .expect(200);
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({
+          mutations: [performedMutation(planned.id, 60, T2), performedMutation(planned.id, 50, T1)],
+        })
+        .expect(200),
+    );
 
     const stored = await prisma.performedSet.findUniqueOrThrow({
       where: { plannedSetId: planned.id },
@@ -164,10 +171,12 @@ describe("STEP 6 sync 계약 잠금", () => {
   it("cursor: push change를 pull하고 다음 opaque cursor를 재사용해 replay 없이 돌려준다", async () => {
     const planned = await firstPlannedSet();
     const mutationId = randomUUID();
-    const pushed = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [{ ...performedMutation(planned.id, 50), client_id: mutationId }] })
-      .expect(200);
+    const pushed = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [{ ...performedMutation(planned.id, 50), client_id: mutationId }] })
+        .expect(200),
+    );
     const logged = await prisma.syncMutation.findUniqueOrThrow({ where: { id: mutationId } });
 
     if (!Array.isArray(pushed.body.changes)) {
@@ -194,10 +203,19 @@ describe("STEP 6 sync 계약 잠금", () => {
 
   it("opaque cursor는 손상되면 400이고 페이지 replay 없이 재사용된다", async () => {
     const planned = await firstPlannedSet();
-    const first = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [performedMutation(planned.id, 50)] })
-      .expect(200);
+    const first = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [performedMutation(planned.id, 50)] })
+        .expect(200),
+    );
+    // The cursor passes a real applied row, so the empty page below is a real comparison.
+    expect(first.body.applied).toHaveLength(1);
+    expect(first.body.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entity: "performed_set", entity_id: planned.id }),
+      ]),
+    );
     await request(app.getHttpServer())
       .post("/v1/sync")
       .send({ since: "1", mutations: [] })
@@ -213,11 +231,13 @@ describe("STEP 6 sync 계약 잠금", () => {
     const planned = await firstPlannedSet();
     const older = performedMutation(planned.id, 50, T1);
     const newer = performedMutation(planned.id, 70, T2);
-    const responses = await Promise.all(
-      [older, newer, older, newer].map((mutation) =>
-        request(app.getHttpServer())
-          .post("/v1/sync")
-          .send({ mutations: [mutation] }),
+    const responses = await onSessionDay(prisma, planned.sessionId, () =>
+      Promise.all(
+        [older, newer, older, newer].map((mutation) =>
+          request(app.getHttpServer())
+            .post("/v1/sync")
+            .send({ mutations: [mutation] }),
+        ),
       ),
     );
     expect(responses.map((response) => response.status)).not.toContain(500);
@@ -233,16 +253,18 @@ describe("STEP 6 sync 계약 잠금", () => {
   it("동일 client_id의 불일치 재시도는 conflict이고 batch applied에는 한 번만 나온다", async () => {
     const planned = await firstPlannedSet();
     const mutation = performedMutation(planned.id, 50);
-    const result = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({
-        mutations: [
-          mutation,
-          mutation,
-          { ...mutation, payload: { ...mutation.payload, actual_weight: 80 } },
-        ],
-      })
-      .expect(200);
+    const result = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({
+          mutations: [
+            mutation,
+            mutation,
+            { ...mutation, payload: { ...mutation.payload, actual_weight: 80 } },
+          ],
+        })
+        .expect(200),
+    );
     expect(result.body.applied).toEqual([mutation.client_id]);
     expect(result.body.conflicts).toEqual(
       expect.arrayContaining([
@@ -259,38 +281,62 @@ describe("STEP 6 sync 계약 잠금", () => {
   });
 
   it("서로 다른 entity가 동일 client_id로 동시에 오면 한 mutation만 적용되고 500이 아니다", async () => {
+    // BUG-10 Q1 C4: two different entities from one session (one date aligns both), both reps
+    // exercises so the reps payload below is valid for either: the outcome is decided by the
+    // client_id race / the intended validation, never by a random time-metric pick.
     const planned = await prisma.plannedSet.findMany({
-      where: { session: { program: { userId: USER_ID } } },
+      where: { sessionId: (await firstPlannedSet()).sessionId, exercise: { metric: "reps" } },
       orderBy: { id: "asc" },
       take: 2,
     });
     expect(planned).toHaveLength(2);
 
+    let applied = 0;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const clientId = randomUUID();
-      const responses = await Promise.all(
-        planned.map((set, index) =>
-          request(app.getHttpServer())
-            .post("/v1/sync")
-            .send({
-              mutations: [
-                {
-                  ...performedMutation(set.id, 50 + index),
-                  client_id: clientId,
-                },
-              ],
-            }),
+      const responses = await onSessionDay(prisma, planned[0].sessionId, () =>
+        Promise.all(
+          planned.map((set, index) =>
+            request(app.getHttpServer())
+              .post("/v1/sync")
+              .send({
+                mutations: [
+                  {
+                    ...performedMutation(set.id, 50 + index),
+                    client_id: clientId,
+                  },
+                ],
+              }),
+          ),
         ),
       );
 
       expect(responses.map((response) => response.status)).not.toContain(500);
       await expect(prisma.syncMutation.count({ where: { id: clientId } })).resolves.toBe(1);
+      // A real race on the shared client_id, never the date window: the loser is always a
+      // client_id_mismatch (the winner may still lose an LWW tie on the same updated_at later).
+      const reasons = responses.flatMap((response) =>
+        response.body.conflicts.map((conflict: { reason: string }) => conflict.reason),
+      );
+      expect(reasons).toContain("client_id_mismatch");
+      expect(reasons).not.toContain("conflict");
+      const appliedNow = responses.flatMap((response) => response.body.applied).length;
+      if (attempt === 0) expect(appliedNow).toBe(1); // structural on the first attempt (see below)
+      applied += appliedNow;
     }
+    // ...and the race really applies facts. Structural, not observed: on attempt 0 neither set has
+    // an applied receipt (a fresh program per test), the date is aligned and the reps payload is
+    // valid, so whichever request wins the client_id lock is applied. Later attempts may lose an
+    // LWW tie on the same updated_at (stale_update), which is why this is counted over all eight.
+    expect(applied).toBeGreaterThan(0);
   });
 
   it("한 mutation의 도메인 검증 실패는 별도 conflict로 남고 무관한 mutation은 적용된다", async () => {
+    // BUG-10 Q1 C4: two different entities from one session (one date aligns both), both reps
+    // exercises so the reps payload below is valid for either: the outcome is decided by the
+    // client_id race / the intended validation, never by a random time-metric pick.
     const planned = await prisma.plannedSet.findMany({
-      where: { session: { program: { userId: USER_ID } } },
+      where: { sessionId: (await firstPlannedSet()).sessionId, exercise: { metric: "reps" } },
       orderBy: { id: "asc" },
       take: 2,
     });
@@ -299,9 +345,11 @@ describe("STEP 6 sync 계약 잠금", () => {
     delete (invalid.payload as { actual_reps?: number }).actual_reps;
     const valid = performedMutation(planned[1].id, 60);
 
-    const response = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [invalid, valid] });
+    const response = await onSessionDay(prisma, planned[0].sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [invalid, valid] }),
+    );
 
     expect(response.status).toBe(200);
     expect(response.body.conflicts).toEqual(
@@ -337,10 +385,12 @@ describe("STEP 6 sync 계약 잠금", () => {
       payload: { status: "completed", difficulty: "moderate" },
     };
 
-    const response = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [completion, setMutation] })
-      .expect(200);
+    const response = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [completion, setMutation] })
+        .expect(200),
+    );
 
     expect(response.body.applied).toEqual(
       expect.arrayContaining([setMutation.client_id, completion.client_id]),
@@ -423,11 +473,13 @@ describe("STEP 6 sync 계약 잠금", () => {
 
   it("D-31 batch 순서: routine mapping 뒤에만 임시 performed_set을 authoritative ID로 적용한다", async () => {
     const { added, correlations, routine, performed } = await provisionalRoutineFixture();
-    const response = await request(app.getHttpServer())
-      .post("/v1/sync")
-      // 일부러 performed_set을 먼저 보내도 서버의 고정 적용 순서가 routine을 선행해야 한다.
-      .send({ mutations: [performed, routine] })
-      .expect(200);
+    const response = await onSessionDay(prisma, routine.entity_id, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        // 일부러 performed_set을 먼저 보내도 서버의 고정 적용 순서가 routine을 선행해야 한다.
+        .send({ mutations: [performed, routine] })
+        .expect(200),
+    );
 
     expectMatchesContract("post", "/sync", 200, response.body);
     expect(response.body.applied).toEqual(
@@ -455,8 +507,12 @@ describe("STEP 6 sync 계약 잠금", () => {
   it("D-31 correlation 멱등: 응답 유실 재전송에도 같은 mapping과 planned set 1개만 반환한다", async () => {
     const { added, correlations, routine, performed } = await provisionalRoutineFixture();
     const body = { mutations: [routine, performed] };
-    const first = await request(app.getHttpServer()).post("/v1/sync").send(body).expect(200);
-    const retry = await request(app.getHttpServer()).post("/v1/sync").send(body).expect(200);
+    const first = await onSessionDay(prisma, routine.entity_id, () =>
+      request(app.getHttpServer()).post("/v1/sync").send(body).expect(200),
+    );
+    const retry = await onSessionDay(prisma, routine.entity_id, () =>
+      request(app.getHttpServer()).post("/v1/sync").send(body).expect(200),
+    );
     const ids = (response: typeof first) =>
       response.body.planned_set_mappings
         .filter((item: { correlation_id: string }) =>
@@ -484,18 +540,24 @@ describe("STEP 6 sync 계약 잠금", () => {
       ...performedMutation(planned.id, 60),
       client_id: "00000000-0000-4000-8000-000000000101",
     };
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [winner] })
-      .expect(200);
-    const retry = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [winner] })
-      .expect(200);
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [loser] })
-      .expect(200);
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [winner] })
+        .expect(200),
+    );
+    const retry = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [winner] })
+        .expect(200),
+    );
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [loser] })
+        .expect(200),
+    );
     expect(retry.body.applied).toEqual([winner.client_id]);
     await expect(prisma.syncMutation.count({ where: { id: winner.client_id } })).resolves.toBe(1);
     await expect(
@@ -509,25 +571,29 @@ describe("STEP 6 sync 계약 잠금", () => {
 
   it("delete는 수행 기록을 지우고 pull에 tombstone을 남긴다", async () => {
     const planned = await firstPlannedSet();
-    await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({ mutations: [performedMutation(planned.id, 50)] })
-      .expect(200);
-    const deleted = await request(app.getHttpServer())
-      .post("/v1/sync")
-      .send({
-        mutations: [
-          {
-            client_id: randomUUID(),
-            entity: "performed_set",
-            entity_id: planned.id,
-            op: "delete",
-            updated_at: T2,
-            payload: {},
-          },
-        ],
-      })
-      .expect(200);
+    await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({ mutations: [performedMutation(planned.id, 50)] })
+        .expect(200),
+    );
+    const deleted = await onSessionDay(prisma, planned.sessionId, () =>
+      request(app.getHttpServer())
+        .post("/v1/sync")
+        .send({
+          mutations: [
+            {
+              client_id: randomUUID(),
+              entity: "performed_set",
+              entity_id: planned.id,
+              op: "delete",
+              updated_at: T2,
+              payload: {},
+            },
+          ],
+        })
+        .expect(200),
+    );
     await expect(
       prisma.performedSet.findUnique({ where: { plannedSetId: planned.id } }),
     ).resolves.toBeNull();

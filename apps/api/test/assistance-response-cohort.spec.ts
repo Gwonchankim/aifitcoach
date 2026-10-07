@@ -17,6 +17,7 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { classifyTargetCohort } from "../src/programs/assistance-migration";
 import { createTestApp, resetUserData } from "./support/app";
 import { expectMatchesContract } from "./support/openapi-response";
+import { onSessionDay } from "./support/utc-today";
 
 const USER_ID = devUserId();
 const ASSISTED = "e_assisted_pullup";
@@ -301,10 +302,9 @@ describe("② 종료 응답 — 실제 데이터 상태", () => {
   }
 
   async function complete(sessionId: string): Promise<NextRecommendation[]> {
-    const response = await request(app.getHttpServer())
-      .post(`/v1/sessions/${sessionId}/complete`)
-      .send({})
-      .expect(200);
+    const response = await onSessionDay(prisma, sessionId, () =>
+      request(app.getHttpServer()).post(`/v1/sessions/${sessionId}/complete`).send({}).expect(200),
+    );
     expectMatchesContract("post", COMPLETE_PATH, 200, response.body);
     return response.body.next_recommendations as NextRecommendation[];
   }

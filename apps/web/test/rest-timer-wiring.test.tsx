@@ -61,7 +61,9 @@ function sessionPayload(id: string, sets: PlannedSet[]): Session {
     id,
     program_id: "p-1",
     goal: "hypertrophy",
-    scheduled_date: "2026-08-14",
+    // BUG-10 W1: today's UTC date, so the screen's fact window is open — this suite is about
+    // rest timers, not dates.
+    scheduled_date: new Date().toISOString().slice(0, 10),
     status: "scheduled",
     planned_sets: sets,
   } as unknown as Session;

@@ -1,0 +1,2833 @@
+{
+  "capture_commit": "a74aa815a8a96486b989cfbc49bf3bca96f30b01",
+  "captured_at": "2026-10-07T00:17:57.589Z",
+  "source_sha256": "a881968839445a9930045f59951f3818af812ee82493346864c0f88ad9acb801",
+  "command": "pnpm exec jest test/capture-prescription-matrix.spec.ts --runInBand (full a74aa81 worktree; capture spec is evidence-only, r2/matrix)",
+  "intent": "동일성 기준이지 정답 기준이 아니다. full a74aa81(BUG-10 직전 master)이 test/support/prescription-matrix.ts 의 행위(오늘: 최초 기록 → 완료(sync | REST) → 완료 뒤 수정, 직전 날: 수정 → 체크 해제)에 낸 다음 처방을 그대로 기록했다. 이 값이 옳다는 주장은 하지 않는다 — BUG-10 이 정상 경로의 처방을 바꾸지 않았다는 것만 말한다. 처방이 틀렸다고 판단되면 엔진·스펙을 고치고, 그 변경의 일부로 base 에서 다시 캡처한다.",
+  "cases": {
+    "external-hypertrophy/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-hypertrophy/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-hypertrophy/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "external-diet/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-diet/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-diet/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 90,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "external-strength/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 3,
+            "reps_high": 5,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 3,
+            "reps_high": 5,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-strength/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 3,
+            "reps_high": 5,
+            "sets": 3,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 반복 상단에 도달해 한 스텝 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 3,
+            "reps_high": 5,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-strength/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 60,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 60,
+            "reps_low": 3,
+            "reps_high": 5,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 3,
+            "target_reps_low": 3,
+            "target_reps_high": 5,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 3,
+            "rest_sec": 180,
+            "reason_code": "WEIGHT_UP_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "external-calibrated/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": null,
+            "explanation": "RIR 이 목표보다 높아(여유가 많아) 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": null,
+            "explanation": "RIR 이 목표보다 낮아(과부하) 무게를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-calibrated/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 62.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": null,
+            "explanation": "RIR 이 목표보다 높아(여유가 많아) 증량한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": null,
+            "explanation": "RIR 이 목표보다 낮아(과부하) 무게를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "external-calibrated/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 57.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_bench_press",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_bench_press",
+            "weight": 57.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "RIR_TOO_HARD_REDUCE",
+            "confidence": null,
+            "explanation": "RIR 이 목표보다 낮아(과부하) 무게를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "external",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 62.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "RIR_TOO_EASY_INCREASE",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "assisted/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_assisted_dips",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_assisted_dips",
+            "weight": 17.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "목표 반복을 채워 도움을 한 스텝 줄인다.",
+            "rules_version": "2026.08.2",
+            "load_kind": "assistance",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_assisted_dips",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_assisted_dips",
+            "weight": 22.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 도움을 늘린다.",
+            "rules_version": "2026.08.2",
+            "load_kind": "assistance",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "assisted/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_assisted_dips",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_assisted_dips",
+            "weight": 17.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": null,
+            "explanation": "목표 반복을 채워 도움을 한 스텝 줄인다.",
+            "rules_version": "2026.08.2",
+            "load_kind": "assistance",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_assisted_dips",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_assisted_dips",
+            "weight": 22.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 도움을 늘린다.",
+            "rules_version": "2026.08.2",
+            "load_kind": "assistance",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "assisted/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 22.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_assisted_dips",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_assisted_dips",
+            "weight": 22.5,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "ASSISTANCE_UP_TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 도움을 늘린다.",
+            "rules_version": "2026.08.2",
+            "load_kind": "assistance",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": 17.5,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "ASSISTANCE_DOWN_REP_TARGET_MET",
+            "confidence": 0.85,
+            "rules_version": "2026.08.2",
+            "load_semantics": "assistance"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "bodyweight/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_pushup",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_pushup",
+            "weight": null,
+            "reps_low": 6,
+            "reps_high": 13,
+            "sets": 3,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": null,
+            "explanation": "자체중량 종목이라 무게 대신 목표 반복 상단을 1회 올린다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "bodyweight",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_pushup",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_pushup",
+            "weight": null,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "bodyweight",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "bodyweight/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_pushup",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_pushup",
+            "weight": null,
+            "reps_low": 6,
+            "reps_high": 13,
+            "sets": 3,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": null,
+            "explanation": "자체중량 종목이라 무게 대신 목표 반복 상단을 1회 올린다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "bodyweight",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_pushup",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_pushup",
+            "weight": null,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "bodyweight",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "bodyweight/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 12,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "TOO_HARD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_pushup",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_pushup",
+            "weight": null,
+            "reps_low": 6,
+            "reps_high": 12,
+            "sets": 3,
+            "reason_code": "TOO_HARD",
+            "confidence": null,
+            "explanation": "목표 반복에 미달해 부하를 낮춘다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "bodyweight",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": 6,
+            "target_reps_low": 6,
+            "target_reps_high": 13,
+            "target_time_low_sec": null,
+            "target_time_high_sec": null,
+            "target_rir": 2,
+            "rest_sec": 120,
+            "reason_code": "REPS_UP_BODYWEIGHT",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    },
+    "time/today-sync": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_plank",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_plank",
+            "weight": null,
+            "reps_low": null,
+            "reps_high": null,
+            "sets": 3,
+            "time_low_sec": 20,
+            "time_high_sec": 70,
+            "reason_code": "TIME_UP",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 유지 시간 상단에 도달해 목표 시간을 늘린다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "not_applicable",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_plank",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_plank",
+            "weight": null,
+            "reps_low": null,
+            "reps_high": null,
+            "sets": 3,
+            "time_low_sec": 20,
+            "time_high_sec": 60,
+            "reason_code": "TIME_HOLD",
+            "confidence": null,
+            "explanation": "목표 유지 시간 범위 안이라 현재 목표를 유지한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "not_applicable",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "time/today-rest": {
+      "today.complete": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_plank",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_plank",
+            "weight": null,
+            "reps_low": null,
+            "reps_high": null,
+            "sets": 3,
+            "time_low_sec": 20,
+            "time_high_sec": 70,
+            "reason_code": "TIME_UP",
+            "confidence": null,
+            "explanation": "모든 세트가 목표 유지 시간 상단에 도달해 목표 시간을 늘린다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "not_applicable",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "today.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_plank",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_plank",
+            "weight": null,
+            "reps_low": null,
+            "reps_high": null,
+            "sets": 3,
+            "time_low_sec": 20,
+            "time_high_sec": 60,
+            "reason_code": "TIME_HOLD",
+            "confidence": null,
+            "explanation": "목표 유지 시간 범위 안이라 현재 목표를 유지한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "not_applicable",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      }
+    },
+    "time/previous": {
+      "previous.edit": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 60,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_HOLD",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": {
+          "exercise_id": "e_plank",
+          "sample_session_count": 1,
+          "gate_state": "early",
+          "recommendation": {
+            "exercise_id": "e_plank",
+            "weight": null,
+            "reps_low": null,
+            "reps_high": null,
+            "sets": 3,
+            "time_low_sec": 20,
+            "time_high_sec": 60,
+            "reason_code": "TIME_HOLD",
+            "confidence": null,
+            "explanation": "목표 유지 시간 범위 안이라 현재 목표를 유지한다.",
+            "rules_version": "2026.08.1",
+            "load_kind": "not_applicable",
+            "recommendation_state": "ready",
+            "recommended_action": null
+          }
+        }
+      },
+      "previous.uncheck": {
+        "sets": 3,
+        "rows": [
+          {
+            "set_no": 1,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 2,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          },
+          {
+            "set_no": 3,
+            "recommended_weight": null,
+            "recommended_reps": null,
+            "target_reps_low": null,
+            "target_reps_high": null,
+            "target_time_low_sec": 20,
+            "target_time_high_sec": 70,
+            "target_rir": null,
+            "rest_sec": 120,
+            "reason_code": "TIME_UP",
+            "confidence": 0.85,
+            "rules_version": "2026.08.1",
+            "load_semantics": "external_load"
+          }
+        ],
+        "response": "absent"
+      }
+    }
+  }
+}

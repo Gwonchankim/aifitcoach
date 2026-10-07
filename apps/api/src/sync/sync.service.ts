@@ -11,7 +11,7 @@ import {
   type SyncEntityType,
   type SyncOp,
 } from "@prisma/client";
-import { applyDisplayGate, displayGateState } from "shared";
+import { applyDisplayGate, displayGateState, isSessionFactWriteAllowed } from "shared";
 import { storedRecommendationPresentation } from "../recommendation/recommendation-presentation";
 import {
   rawAssistanceSafetyStatus,
@@ -19,7 +19,7 @@ import {
   toRawTargetRow,
 } from "../programs/assistance-migration";
 import { encryptNumber } from "../common/crypto/field-encryption";
-import { isUtcToday } from "../common/date/utc-day";
+import { isoDate, isUtcToday } from "../common/date/utc-day";
 import { PlannedSetFactory } from "../programs/planned-set.factory";
 import { PrismaService } from "../prisma/prisma.service";
 import { isResistanceExercise } from "../exercises/exercise-domain";
@@ -82,9 +82,16 @@ export class SyncService {
     private readonly dependencies: SessionDependencyService,
   ) {}
 
-  async sync(userId: string, dto: SyncRequestDto) {
+  /**
+   * ADR-86 "서버 수신 시점": `today` 는 이 요청이 도착했을 때 첫 미들웨어가 잡은 날이다(인증 대기보다
+   * 먼저, common/date/request-today). 아래의 모든 날짜 판정(기록 창·루틴·세트 추가)이 이 값을 쓴다 —
+   * 인증·잠금을 기다리는 동안 자정이 지나도 판정은 도착한 날의 것이다. 여기서 시계를 다시 읽지 않는다.
+   */
+  async sync(userId: string, dto: SyncRequestDto, today: Date) {
     const applied = new Set<string>();
     const conflicts: Conflict[] = [];
+    // Sessions whose facts changed in this request. An exact replay (`replayed`) is acknowledged
+    // but never added: recomputing from it rewrites targets from an old source (BUG-10 I).
     const changedSessions = new Set<string>();
     const mutationSessions = new Map<string, string>();
     const recommendations = new Map<string, unknown>();
@@ -97,11 +104,11 @@ export class SyncService {
 
     // D-24/D-31: routine correlations must exist before any provisional performed_set is resolved.
     for (const mutation of routineMutations) {
-      const result = await this.apply(userId, mutation);
+      const result = await this.apply(userId, mutation, today);
       if (result.applied) {
         applied.add(mutation.client_id);
         if (result.sessionId) {
-          changedSessions.add(result.sessionId);
+          if (!result.replayed) changedSessions.add(result.sessionId);
           mutationSessions.set(mutation.client_id, result.sessionId);
         }
       } else if (result.conflict) {
@@ -131,15 +138,16 @@ export class SyncService {
       for (const original of pending) {
         let result: MutationResult;
         if (original.entity === "session_set") {
-          const append = await this.appendSets.apply(
+          const { result: append, replayed } = await this.appendSets.applyWithReplay(
             userId,
             original.entity_id,
             { ...original.payload, client_id: original.client_id } as AppendSetDto,
             original.updated_at,
+            today,
           );
           result =
             append.status === "applied"
-              ? { applied: true, sessionId: append.sessionId }
+              ? { applied: true, sessionId: append.sessionId, replayed }
               : {
                   applied: false,
                   conflict: {
@@ -155,8 +163,8 @@ export class SyncService {
             original,
             (tx, owner, mutation) =>
               mutation.entity === "performed_set"
-                ? this.applyPerformed(tx, owner, mutation)
-                : this.applySession(tx, owner, mutation),
+                ? this.applyPerformed(tx, owner, mutation, today)
+                : this.applySession(tx, owner, mutation, today),
             compare,
           );
         } else {
@@ -167,13 +175,14 @@ export class SyncService {
           result = await this.apply(
             userId,
             authoritativeId ? { ...original, entity_id: authoritativeId } : original,
+            today,
           );
         }
         if (result.applied) {
           applied.add(original.client_id);
           pendingConflicts.delete(original.client_id);
           if (result.sessionId) {
-            changedSessions.add(result.sessionId);
+            if (!result.replayed) changedSessions.add(result.sessionId);
             mutationSessions.set(original.client_id, result.sessionId);
           }
         } else if (result.conflict) {
@@ -199,10 +208,10 @@ export class SyncService {
         (await this.hasConflictingSetForSession(userId, mutation.entity_id, conflicts));
       const result = blocked
         ? await this.recordConflict(userId, mutation, "dependent_conflict")
-        : await this.apply(userId, mutation);
+        : await this.apply(userId, mutation, today);
       if (result.applied) {
         applied.add(mutation.client_id);
-        changedSessions.add(mutation.entity_id);
+        if (!result.replayed) changedSessions.add(mutation.entity_id);
         mutationSessions.set(mutation.client_id, mutation.entity_id);
       } else if (result.conflict) {
         conflicts.push(result.conflict);
@@ -296,13 +305,10 @@ export class SyncService {
    * 직렬화/유니크 충돌과 변경된 routing hint는 전체 tx를 처음부터 유한 재시도한다.
    * 같은 mutation 은 멱등(client_id 로 판정)이라 재시도해도 두 번 적용되지 않는다.
    */
-  private async apply(
-    userId: string,
-    mutation: MutationDto,
-  ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
+  private async apply(userId: string, mutation: MutationDto, today: Date): Promise<MutationResult> {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.applyOnce(userId, mutation);
+        return await this.applyOnce(userId, mutation, today);
       } catch (error) {
         // P2034 = 직렬화 실패, P2002 = 유니크 충돌. 기존 총 5회 예산 안에서 routing hint와
         // 잠금 뒤 권위 행을 다시 읽어 멱등 경로(적용됨/conflict)를 재평가한다.
@@ -320,7 +326,8 @@ export class SyncService {
   private async applyOnce(
     userId: string,
     mutation: MutationDto,
-  ): Promise<{ applied: boolean; sessionId?: string; conflict?: Conflict }> {
+    today: Date,
+  ): Promise<MutationResult> {
     validateMutation(mutation);
     try {
       const sessionHint = await this.sessionFor(userId, mutation);
@@ -352,7 +359,7 @@ export class SyncService {
             if (!sameMutation(existing, mutation))
               return { applied: false, conflict: conflictOf(mutation, "client_id_mismatch") };
             return existing.status === "applied"
-              ? { applied: true, sessionId: lockedSession.id }
+              ? { applied: true, sessionId: lockedSession.id, replayed: true }
               : { applied: false, conflict: conflictOf(mutation, "stale_update") };
           }
           const latest = await tx.syncMutation.findFirst({
@@ -370,12 +377,13 @@ export class SyncService {
             return { applied: false, conflict: conflictOf(mutation, "stale_update") };
           }
           const sessionId = lockedSession.id;
-          if (mutation.entity === "performed_set") await this.applyPerformed(tx, userId, mutation);
+          if (mutation.entity === "performed_set")
+            await this.applyPerformed(tx, userId, mutation, today);
           const routineIdentity =
             mutation.entity === "session_routine"
-              ? await this.applyRoutine(tx, userId, mutation)
+              ? await this.applyRoutine(tx, userId, mutation, today)
               : {};
-          if (mutation.entity === "session") await this.applySession(tx, userId, mutation);
+          if (mutation.entity === "session") await this.applySession(tx, userId, mutation, today);
           await tx.syncMutation.create({
             data: { ...mutationRow(userId, mutation, "applied"), ...routineIdentity },
           });
@@ -402,7 +410,11 @@ export class SyncService {
     }
   }
 
-  private async recordConflict(userId: string, mutation: MutationDto, reason: string) {
+  private async recordConflict(
+    userId: string,
+    mutation: MutationDto,
+    reason: string,
+  ): Promise<MutationResult> {
     validateMutation(mutation);
     return this.prisma.$transaction(async (tx) => {
       await this.lockMutation(tx, userId, mutation);
@@ -419,6 +431,7 @@ export class SyncService {
         return {
           applied: true,
           sessionId: await this.sessionFor(userId, mutation),
+          replayed: true,
         };
       if (!existing)
         await tx.syncMutation.create({ data: mutationRow(userId, mutation, "conflict") });
@@ -443,14 +456,16 @@ export class SyncService {
     tx: Prisma.TransactionClient,
     userId: string,
     mutation: MutationDto,
+    today: Date,
   ): Promise<void> {
     const planned = await tx.plannedSet.findFirst({
       where: { id: mutation.entity_id, session: { program: { userId } } },
-      include: { exercise: true },
+      include: { exercise: true, session: { select: { scheduledDate: true } } },
     });
     if (!planned) throw new NotFoundException("계획 세트를 찾을 수 없다.");
     if (!resistanceSnapshotMatchesCatalog(planned, planned.exercise))
       throw new BadRequestException("읽기 전용 처방은 수행 기록을 쓸 수 없다.");
+    assertFactWriteWindow(planned.session.scheduledDate, today);
     if (mutation.op === "delete") {
       await tx.performedSet.deleteMany({ where: { plannedSetId: planned.id } });
       return;
@@ -471,6 +486,7 @@ export class SyncService {
         painScore: encryptNumber(payload.pain_score ?? null),
         completed: payload.completed ?? false,
       },
+      // BUG-10 M: performedAt is the first save (create above). A correction moves only updatedAt.
       update: {
         actualWeight: payload.actual_weight ?? null,
         actualReps: payload.actual_reps ?? null,
@@ -478,7 +494,6 @@ export class SyncService {
         actualTimeSec: payload.actual_time_sec ?? null,
         painScore: encryptNumber(payload.pain_score ?? null),
         completed: payload.completed ?? false,
-        performedAt: new Date(mutation.updated_at),
         updatedAt: new Date(mutation.updated_at),
       },
     });
@@ -488,6 +503,7 @@ export class SyncService {
     tx: Prisma.TransactionClient,
     userId: string,
     mutation: MutationDto,
+    today: Date,
   ): Promise<{
     correlationClaims: Prisma.InputJsonValue;
     tombstoneIdentity: Prisma.InputJsonValue;
@@ -500,7 +516,7 @@ export class SyncService {
       },
     });
     if (!session) throw new NotFoundException("세션을 찾을 수 없다.");
-    if (session.status === "completed" && !isUtcToday(session.scheduledDate))
+    if (session.status === "completed" && !isUtcToday(session.scheduledDate, today))
       throw new ConflictException("다른 날짜의 종료된 세션은 바꿀 수 없다.");
     const exerciseIds =
       mutation.op === "delete" ? [] : (mutation.payload as RoutinePayload).exercise_ids;
@@ -653,12 +669,14 @@ export class SyncService {
     tx: Prisma.TransactionClient,
     userId: string,
     mutation: MutationDto,
+    today: Date,
   ): Promise<void> {
     const session = await tx.workoutSession.findFirst({
       where: { id: mutation.entity_id, program: { userId } },
     });
     if (!session) throw new NotFoundException("세션을 찾을 수 없다.");
     if (mutation.op === "delete") throw new ConflictException("종료된 세션은 삭제할 수 없다.");
+    assertFactWriteWindow(session.scheduledDate, today);
     const payload = mutation.payload as SessionPayload;
     await tx.workoutSession.update({
       where: { id: session.id },
@@ -983,6 +1001,17 @@ function validatePerformed(p: PerformedPayload): void {
   if (p.completed !== undefined && typeof p.completed !== "boolean")
     throw new BadRequestException("completed 값이 잘못되었다.");
 }
+/**
+ * BUG-10 D: actual/완료 쓰기는 shared 분류의 today·previous 에서만 열린다(UTC 오늘+직전 하루, 잠정 A).
+ * 판정 날짜는 잠금 뒤 다시 읽은 세션의 scheduledDate 다 — client updated_at 은 보지 않는다.
+ * 비교하는 오늘은 요청 진입에서 한 번 잡은 값이다(ADR-86) — 잠금 대기·처리 시간에 영향받지 않는다.
+ * 거부는 기존 매핑대로 envelope `conflict` 가 된다. routine 권한(applyRoutine)과는 별개다.
+ */
+function assertFactWriteWindow(scheduledDate: Date, today: Date): void {
+  if (!isSessionFactWriteAllowed(isoDate(scheduledDate), isoDate(today)))
+    throw new ConflictException("기록할 수 있는 날짜(UTC 오늘·직전 하루) 밖의 세션이다.");
+}
+
 function validatePerformedForMetric(p: PerformedPayload, metric: string): void {
   if (p.completed !== true)
     throw new BadRequestException("performed_set upsert 는 completed=true 이어야 한다.");

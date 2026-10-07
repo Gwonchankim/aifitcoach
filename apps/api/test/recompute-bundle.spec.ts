@@ -11,6 +11,7 @@ import { ProgramsService } from "../src/programs/programs.service";
 import { targetFor } from "../src/programs/planned-set.factory";
 import { RecommendationService, NO_HISTORY } from "../src/recommendation/recommendation.service";
 import { createTestApp, resetUserData } from "./support/app";
+import { withUtcToday } from "./support/utc-today";
 
 const frozen = JSON.parse(
   readFileSync(resolve(__dirname, "fixtures/recompute-base-0af6905.json"), "utf8"),
@@ -116,10 +117,9 @@ describe("recompute honors the persisted rules bundle", () => {
         performedAt: new Date("2026-08-14T09:00:00Z"),
       },
     });
-    const response = await request(app.getHttpServer())
-      .post(`/v1/sessions/${first.id}/complete`)
-      .send({})
-      .expect(200);
+    const response = await withUtcToday(first.scheduledDate, () =>
+      request(app.getHttpServer()).post(`/v1/sessions/${first.id}/complete`).send({}).expect(200),
+    );
     const next = response.body.next_recommendations.find(
       (item: { exercise_id: string }) => item.exercise_id === row.exerciseId,
     );

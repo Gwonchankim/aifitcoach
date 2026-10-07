@@ -8,10 +8,14 @@ import {
   MARKER_PREFIX,
   markerKeyFor,
   markRemediationPending,
+  overtakeClaimsByAppliedFinishInTransaction,
   processRemediationMarkers,
+  refusedSessionOf,
   remediationStateOf,
   safeMappings,
   sessionDb,
+  supersedeRefusalsInTransaction,
+  undoOptimisticCompletionInTransaction,
   type OutboxMutation,
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
@@ -192,7 +196,13 @@ export class SyncCoordinator {
           }),
         );
       if (
-        (committed.draftsChanged || committed.local_session_ids.length) &&
+        (committed.draftsChanged ||
+          committed.local_session_ids.length ||
+          // BUG-10 P1: 거부만 담긴 응답도 알린다. 화면이 날짜 창 거부를 침묵 삭제로 두지 않게 한다.
+          response.conflicts.length ||
+          // BUG-10 F1: 거부를 거짓으로 만든 응답도 알린다. 이미 말한 알림을 화면이 다시 쓰거나 거둔다.
+          // R5 (i): 거부의 진술을 바꾼 응답도 — 통증 없는 나중 종료가 적용되면 앞의 통증만 남는다.
+          committed.refusalsChanged > 0) &&
         typeof window !== "undefined"
       )
         window.dispatchEvent(
@@ -213,6 +223,7 @@ export class SyncCoordinator {
 
   private async commitResponse(response: SyncResponse) {
     let draftsChanged = false;
+    let refusalsChanged = 0;
     const touched = new Set<string>();
     const completed = new Set<string>();
     await sessionDb.transaction(
@@ -243,21 +254,42 @@ export class SyncCoordinator {
         await acknowledgeAppendsInTransaction(this.userId, response);
         /** server 가 적용한 세션 종료. 여기가 governing §F 의 "server 성공 + outbox drain" 지점이다. */
         const completedSessions = new Set<string>();
+        /** BUG-10: fact writes the server applied — they supersede refusals of the same fact. */
+        const appliedFacts: OutboxMutation[] = [];
         for (const clientId of [...applied, ...conflicts.keys()]) {
           const row = await sessionDb.outbox.get(clientId);
           if (!row || row.user_id !== this.userId) continue;
+          if (
+            !conflicts.has(clientId) &&
+            (row.entity === "performed_set" || row.entity === "session")
+          )
+            appliedFacts.push(row);
           if (row.entity === "session_set") touched.add(row.entity_id);
           if (row.append_dependencies) touched.add(row.append_dependencies.session_id);
           if (conflicts.has(clientId)) {
             if (await preserveAppendConflictInTransaction(row, conflicts.get(clientId)!)) continue;
+            /*
+             * BUG-10: the screen judges a refusal from this record of what WE sent (entity, owning
+             * session) — never by guessing the server's taxonomy from a generic reason. A refused
+             * fact (a set or the finish) waits here, "pending", for its session's screen to say it;
+             * a refused finish also takes back our own optimistic "completed" from the mirror.
+             */
+            const sessionId = await refusedSessionOf(this.userId, row);
+            const fact = row.entity === "performed_set" || row.entity === "session";
             await sessionDb.conflicts.add({
               user_id: this.userId,
               client_id: clientId,
               kind: conflicts.get(clientId)!.reason,
               payload: row,
+              ...(sessionId ? { session_id: sessionId } : {}),
+              ...(sessionId && fact ? { notice: "pending" as const } : {}),
             });
+            await undoOptimisticCompletionInTransaction(this.userId, row);
           } else if (row.entity === "session") {
             await completeAppendSessionInTransaction(row);
+            // BUG-10 R7-2 (α): applied, our finish makes "completed" the server's — a claim of ours
+            // this answer refuses (handled after the applied rows) takes nothing back.
+            await overtakeClaimsByAppliedFinishInTransaction(this.userId, row);
             if (row.append_dependencies) completed.add(row.entity_id);
             completedSessions.add(row.entity_id);
           }
@@ -276,6 +308,8 @@ export class SyncCoordinator {
             await clearAppendAuditInTransaction(this.userId, clientId);
           await sessionDb.outbox.delete(clientId);
         }
+        if (appliedFacts.length)
+          refusalsChanged = await supersedeRefusalsInTransaction(this.userId, appliedFacts);
         await reconcileBlockedAppendsInTransaction(this.userId);
         await this.cleanupCompletedRemediation(completedSessions);
 
@@ -294,6 +328,7 @@ export class SyncCoordinator {
     );
     return {
       draftsChanged,
+      refusalsChanged,
       local_session_ids: [...touched],
       completed_session_ids: [...completed],
     };

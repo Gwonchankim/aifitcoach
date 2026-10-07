@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { phases, phaseArgs } from "./ci-e2e.mjs";
 
 test("both browsers retain separate native and historical fresh-principal phases", () => {
-  assert.equal(phases.length, 14);
-  assert.equal(new Set(phases.map((phase) => phase.name)).size, 14);
+  assert.equal(phases.length, 16);
+  assert.equal(new Set(phases.map((phase) => phase.name)).size, 16);
   for (const project of ["chromium-mobile", "webkit-ios"]) {
     for (const spec of ["18-assistance-append.spec.ts", "19-assistance-historical.spec.ts"]) {
       assert.equal(
@@ -73,6 +73,27 @@ test("reserved split and cardio each run once per browser with independent princ
   }
   for (const phase of phases.filter((phase) => phase.core)) {
     assert.equal(phaseArgs(phase).includes("--config"), false);
+  }
+});
+
+test("fact window runs once per browser with its own config and independent principals", () => {
+  const spec = "24-fact-window.spec.ts";
+  const selected = phases.filter((phase) => phase.args.includes(spec));
+  assert.equal(selected.length, 2);
+  assert.equal(new Set(selected.map((phase) => phase.name)).size, 2);
+  for (const project of ["chromium-mobile", "webkit-ios"]) {
+    const matching = selected.filter((phase) => phase.project === project);
+    assert.equal(matching.length, 1);
+    assert.notEqual(matching[0].core, true);
+    assert.deepEqual(matching[0].args, [spec, "--config", "playwright.fact-window.config.ts"]);
+    assert.deepEqual(phaseArgs(matching[0]).slice(0, 6), [
+      "exec",
+      "playwright",
+      "test",
+      spec,
+      "--config",
+      "playwright.fact-window.config.ts",
+    ]);
   }
 });
 

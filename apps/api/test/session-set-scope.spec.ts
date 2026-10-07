@@ -133,7 +133,9 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
     correlation_id: randomUUID(),
     source: { source_planned_set_id: f.source.id, source_revision: sourceRevision(f.source) },
   });
-  const apply = (f: Fixture, dto: AppendSetDto) => appendService.apply(f.owner, f.session.id, dto);
+  // A direct service call has no HTTP entry: pass the day the request middleware would have captured.
+  const apply = (f: Fixture, dto: AppendSetDto) =>
+    appendService.apply(f.owner, f.session.id, dto, undefined, utcToday());
   const rows = (id: string) =>
     observer.plannedSet.findMany({ where: { sessionId: id }, orderBy: { id: "asc" } });
   const ledger = () =>
@@ -340,13 +342,14 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
     const originalReceipt = await prisma.syncMutation.findUniqueOrThrow({
       where: { id: old.client_id },
     });
-    await sessions.removeExercise(USER, f.session.id, EXERCISE);
+    await sessions.removeExercise(USER, f.session.id, EXERCISE, utcToday());
     expect(await rows(f.session.id)).toEqual([]);
     expect(await prisma.syncMutation.findUnique({ where: { id: old.client_id } })).toEqual(
       originalReceipt,
     );
     const reused = kind === "replay" ? old : { ...old, client_id: randomUUID() };
-    const add = () => sessions.addExercise(USER, f.session.id, { exercise_id: EXERCISE });
+    const add = () =>
+      sessions.addExercise(USER, f.session.id, { exercise_id: EXERCISE }, utcToday());
     const claim = () => apply(f, reused);
     const result =
       order === "add-first"
@@ -391,7 +394,9 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
       expect((await apply(a, da)).status).toBe("applied");
       expect((await apply(b, db)).status).toBe("applied");
       const x = actual(b, db);
-      expect((await sync.sync(OTHER, { mutations: [x] })).applied).toEqual([x.client_id]);
+      expect((await sync.sync(OTHER, { mutations: [x] }, utcToday())).applied).toEqual([
+        x.client_id,
+      ]);
       const mutation: MutationDto =
         kind === "parent"
           ? {
@@ -412,7 +417,7 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
               },
             };
       const before = await state([a.session.id, b.session.id]);
-      const response = await sync.sync(USER, { mutations: [mutation] });
+      const response = await sync.sync(USER, { mutations: [mutation] }, utcToday());
       expect(response.applied).toEqual([]);
       expect(response.conflicts).toEqual([
         {
@@ -436,7 +441,7 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
         ...after,
         ledger: after.ledger.filter((row) => row.id !== mutation.client_id),
       }).toEqual(before);
-      expect((await sync.sync(USER, { mutations: [mutation] })).conflicts).toEqual(
+      expect((await sync.sync(USER, { mutations: [mutation] }, utcToday())).conflicts).toEqual(
         response.conflicts,
       );
       expect(await state([a.session.id, b.session.id])).toEqual(after);
@@ -533,7 +538,7 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
     ] as const)
       expect((await apply(f, dto)).status).toBe("applied");
     const x = actual(health, dh);
-    expect((await sync.sync(OTHER, { mutations: [x] })).applied).toEqual([x.client_id]);
+    expect((await sync.sync(OTHER, { mutations: [x] }, utcToday())).applied).toEqual([x.client_id]);
     const pendingDto = { ...intent(gone), source: { source_correlation_id: randomUUID() } };
     expect(await apply(gone, pendingDto)).toEqual({
       status: "pending",
@@ -547,7 +552,7 @@ describe("session set remaining owner/claim/initial receipt/purge boundaries", (
     const appliedReceipt = await prisma.syncMutation.findUniqueOrThrow({
       where: { id: dg.client_id },
     });
-    await sessions.removeExercise(OTHER, gone.session.id, EXERCISE);
+    await sessions.removeExercise(OTHER, gone.session.id, EXERCISE, utcToday());
     expect(await prisma.syncMutation.findUnique({ where: { id: dg.client_id } })).toEqual(
       appliedReceipt,
     );

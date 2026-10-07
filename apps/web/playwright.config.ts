@@ -37,7 +37,8 @@ console.log(`[e2e] database → ${DB_ENV.label}`);
 
 export default defineConfig({
   testDir: "./e2e",
-  testIgnore: /(?:22-split-preference|23-cardio-prescription-read)\.spec\.ts/,
+  // 22·23 은 v2-split, 24 는 fact-window 하네스(서버 "오늘" 제어 라우트)로만 돈다.
+  testIgnore: /(?:22-split-preference|23-cardio-prescription-read|24-fact-window)\.spec\.ts/,
   outputDir: "./e2e/.artifacts",
   globalSetup: "./e2e/global-setup.ts",
   timeout: 60_000,
