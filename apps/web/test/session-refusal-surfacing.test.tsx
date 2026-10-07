@@ -885,9 +885,14 @@ it("invariant 5b — a refusal superseded after the judge read it is not said, a
     await sync(applyAsServer);
   });
   expect(await notices()).toEqual(["superseded"]);
+  const drawn = alertsDrawn();
   release();
   await settle();
+  drawn.stop();
   expect(alertTexts()).toEqual([]);
+  // "Not said" is never drawn — not drawn and then rewritten away by the response that superseded
+  // it (that event re-judges the screen: the end state alone cannot tell the two apart).
+  expect(drawn.texts).toEqual([]);
   expect(await notices()).toEqual(["superseded"]);
 });
 
@@ -908,6 +913,35 @@ it("invariant 5b — a refusal that turns false while its notice is being acknow
   await waitFor(() => expect(alertTexts()).toEqual([])); // taken back: it is not true any more
   await settle();
   expect(await notices()).toEqual(["superseded"]); // never turned back to shown
+});
+
+it("invariant 5b — part of a notice turns false while it is being acknowledged: nothing is marked, and what is still true is said and marked once", async () => {
+  for (const id of ["set-1", "set-2"]) await logSet("A", id);
+  await sync(refuseAsServer);
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-14", "in_progress"),
+    planned_sets: plannedSets("set", 3), // set 3 is still ahead: the routine, not the summary
+  });
+  const acknowledgements = holdAcknowledgements();
+  mount();
+  await waitFor(() =>
+    expect(alertTexts()).toEqual(["벤치프레스 1·2세트 기록은 저장되지 않았어요."]),
+  ); // on screen; its "shown" is held
+  vi.setSystemTime(new Date(NOW.getTime() + 1000));
+  await act(async () => {
+    await logSet("A", "set-2");
+    await sync(applyAsServer);
+  });
+  acknowledgements.release();
+  await waitFor(() => expect(alertTexts()).toEqual([SET1])); // only what is still true
+  // Set 1 was on screen the whole time, but its "shown" was never written with the false part:
+  // it is said again on its own and marked — once — so a re-entry does not say it a second time.
+  await expect.poll(perSet).toEqual({ "set-1": "shown", "set-2": "superseded" });
+  cleanup();
+  mount();
+  await screen.findByLabelText(weight(3));
+  await settle();
+  expect(alertTexts()).toEqual([]);
 });
 
 /*
@@ -996,6 +1030,27 @@ it("invariant 14 — an audit row from before `notice` existed is never surfaced
   await settle();
   expect(alertTexts()).toEqual([]);
   expect(await notices()).toEqual([undefined]);
+});
+
+it("invariant 14 — an audit row from before `notice` existed is not surfaced inside another refusal's notice either", async () => {
+  await sessionDb.conflicts.add({
+    user_id: DEV_USER_SCOPE,
+    client_id: "22222222-2222-4222-8222-222222222222",
+    kind: "conflict",
+    payload: { entity: "performed_set", entity_id: "set-2" },
+    session_id: "A",
+  });
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress")); // previous here
+  mount();
+  await screen.findByLabelText(weight(2));
+  // A new event in the same session: its notice holds what is still true — and the old row is
+  // not something this screen can say truthfully, whatever it says about set 2.
+  await act(async () => {
+    await logSet("A", "set-1");
+    await sync(refuseAsServer);
+  });
+  await waitFor(() => expect(alertTexts()).toEqual([SET1]));
+  await expect.poll(async () => (await notices()).sort()).toEqual(["shown", undefined]);
 });
 
 it("invariant 15 — one notice holds every pending refusal of the session, and not the one a later write saved", async () => {
@@ -1223,4 +1278,29 @@ it("invariant 2 — a sheet comes up after the judge decided, before the notice 
   fireEvent.click(within(picker).getByRole("button", { name: "닫기" }));
   await waitFor(() => expect(alertTexts()).toEqual([SET1]));
   await expect.poll(notices).toEqual(["shown"]);
+});
+
+it("invariant 2 — a notice already said keeps standing when its view changes while the page is hidden: drawn again, nothing new to mark", async () => {
+  await logSet("A", "set-1");
+  vi.setSystemTime(CLOSED);
+  await sync(refuseAsServer); // nobody is looking
+  mocks.session.mockResolvedValue(session("A", "2026-08-13", "in_progress"));
+  mount();
+  await waitFor(() => expect(alertTexts()).toEqual([`${EXPIRED} ${SET1}`]));
+  await expect.poll(notices).toEqual(["shown"]); // said, while the page was in front
+  // In the background the session cannot be read again and the device has no copy: the error view
+  // replaces the screen and draws the notice anew — the same notice, already said.
+  act(() => setVisibility("hidden"));
+  await sessionDb.sessions.clear();
+  mocks.session.mockRejectedValue(new Error("GET unavailable"));
+  await act(async () => {
+    await clients[0].refetchQueries({ queryKey: ["session", "A"] });
+  });
+  await screen.findByRole("button", { name: "다시 불러오기" });
+  await settle();
+  expect(alertTexts()).toContain(`${EXPIRED} ${SET1}`); // still standing: not taken back
+  act(() => setVisibility("visible"));
+  await settle();
+  expect(alertTexts()).toContain(`${EXPIRED} ${SET1}`);
+  expect(await notices()).toEqual(["shown"]);
 });
