@@ -204,6 +204,35 @@ function holdAcknowledgements() {
   return { release };
 }
 
+/**
+ * Holds the judge's audit read (`standingRefusals`) twice: the first judge AFTER it has read (it
+ * has said nothing yet), and the next one — the judge a superseding response wakes — BEFORE it
+ * reads. Releasing the first alone lets what it decides be drawn on its own: otherwise `act` puts
+ * that render and the next judge's rewrite in one batch, and a false notice drawn for a moment —
+ * which a browser shows and a screen reader announces — would never be seen here.
+ */
+function holdJudgeReads() {
+  const read = sessionDbModule.standingRefusals;
+  let reached!: (rows: Awaited<ReturnType<typeof read>>) => void;
+  let releaseFirst!: () => void;
+  let releaseNext!: () => void;
+  const entered = new Promise<Awaited<ReturnType<typeof read>>>((resolve) => (reached = resolve));
+  const first = new Promise<void>((resolve) => (releaseFirst = resolve));
+  const next = new Promise<void>((resolve) => (releaseNext = resolve));
+  vi.spyOn(sessionDbModule, "standingRefusals")
+    .mockImplementationOnce(async (...args) => {
+      const rows = await read(...args); // the judge HAS read …
+      reached(rows);
+      await first; // … and has not said anything yet
+      return rows;
+    })
+    .mockImplementationOnce(async (...args) => {
+      await next;
+      return read(...args);
+    });
+  return { entered, releaseFirst, releaseNext };
+}
+
 /** The finish commits locally, then fails on its own (the timer store): the sheet stays open. */
 async function finishFailingOnItsOwn() {
   vi.spyOn(restTimerStore, "clear").mockRejectedValueOnce(new Error("timer store unavailable"));
@@ -861,23 +890,14 @@ it("invariant 5b — a refusal superseded after the judge read it is not said, a
   await logSet("A", "set-1");
   await sync(refuseAsServer);
   expect(await notices()).toEqual(["pending"]);
-  const read = sessionDbModule.standingRefusals;
-  let reached!: () => void;
-  let release!: () => void;
-  const entered = new Promise<void>((resolve) => (reached = resolve));
-  const gate = new Promise<void>((resolve) => (release = resolve));
-  vi.spyOn(sessionDbModule, "standingRefusals").mockImplementationOnce(async (...args) => {
-    const rows = await read(...args); // the judge HAS read the row …
-    expect(rows).toHaveLength(1);
-    reached();
-    await gate; // … and has not said it yet
-    return rows;
-  });
+  const judge = holdJudgeReads();
   mocks.session.mockResolvedValue(session("A", "2026-08-14", "in_progress"));
   mount();
+  let read: unknown[] = [];
   await act(async () => {
-    await entered;
+    read = await judge.entered;
   });
+  expect(read).toHaveLength(1); // the judge HAS read the row
   // Meanwhile a strictly later write of the same set is applied.
   vi.setSystemTime(new Date(NOW.getTime() + 1000));
   await act(async () => {
@@ -886,14 +906,52 @@ it("invariant 5b — a refusal superseded after the judge read it is not said, a
   });
   expect(await notices()).toEqual(["superseded"]);
   const drawn = alertsDrawn();
-  release();
+  judge.releaseFirst();
+  await settle();
+  // "Not said" is never drawn — not drawn and then rewritten away by the judge the superseding
+  // response woke (the end state alone cannot tell the two apart).
+  expect(drawn.texts).toEqual([]);
+  judge.releaseNext();
   await settle();
   drawn.stop();
-  expect(alertTexts()).toEqual([]);
-  // "Not said" is never drawn — not drawn and then rewritten away by the response that superseded
-  // it (that event re-judges the screen: the end state alone cannot tell the two apart).
   expect(drawn.texts).toEqual([]);
+  expect(alertTexts()).toEqual([]);
   expect(await notices()).toEqual(["superseded"]);
+});
+
+it("invariant 5b — of two refusals the judge read, one is superseded before it speaks: the notice holds only the one still true", async () => {
+  for (const id of ["set-1", "set-2"]) await logSet("A", id);
+  await sync(refuseAsServer);
+  expect(await notices()).toEqual(["pending", "pending"]);
+  const judge = holdJudgeReads();
+  mocks.session.mockResolvedValue({
+    ...session("A", "2026-08-14", "in_progress"),
+    planned_sets: plannedSets("set", 3), // set 3 is still ahead: the routine, not the summary
+  });
+  mount();
+  let read: unknown[] = [];
+  await act(async () => {
+    read = await judge.entered;
+  });
+  expect(read).toHaveLength(2); // the judge HAS read both
+  // Meanwhile set 1 is saved by a strictly later write.
+  vi.setSystemTime(new Date(NOW.getTime() + 1000));
+  await act(async () => {
+    await logSet("A", "set-1");
+    await sync(applyAsServer);
+  });
+  const drawn = alertsDrawn();
+  judge.releaseFirst();
+  await settle();
+  // It says what is true when it speaks — set 2 — and never set 1, not even for a moment.
+  const SET2 = "벤치프레스 2세트 기록은 저장되지 않았어요.";
+  expect(drawn.texts).toEqual([SET2]);
+  judge.releaseNext();
+  await settle();
+  drawn.stop();
+  expect(drawn.texts).toEqual([SET2]);
+  expect(alertTexts()).toEqual([SET2]);
+  await expect.poll(perSet).toEqual({ "set-1": "superseded", "set-2": "shown" });
 });
 
 it("invariant 5b — a refusal that turns false while its notice is being acknowledged is taken back, and stays superseded", async () => {
