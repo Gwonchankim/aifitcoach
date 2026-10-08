@@ -435,3 +435,54 @@ it("unknown pending intent defers projection visibly to developers and the next 
   expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true);
   expect(await sessionDb.outbox.count()).toBe(0);
 });
+
+it("a cold completed read restores values without starting a new rest timer", async () => {
+  const timers = await import("../components/session/rest-timer-store");
+  const save = vi.spyOn(timers.restTimerStore, "save");
+  mocks.session.mockResolvedValue(makeSession(true));
+  mount();
+  await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+  expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true);
+  expect(await timers.loadRestTimer("dev-user", SID, Date.now())).toBeNull();
+  expect(screen.queryByRole("dialog", { name: /후 휴식/ })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("a cold completed read preserves and restores an existing eligible rest timer", async () => {
+  const timers = await import("../components/session/rest-timer-store");
+  await timers.saveRestTimer("dev-user", SID, SET, "벤치프레스 1세트 후 휴식", {
+    totalSec: 90,
+    endsAt: Date.now() + 60_000,
+  });
+  const before = await timers.loadRestTimer("dev-user", SID, Date.now());
+  expect(before?.plannedSetId).toBe(SET);
+  mocks.session.mockResolvedValue(makeSession(true));
+  mount();
+  await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
+  expect(await timers.loadRestTimer("dev-user", SID, Date.now())).toEqual(before);
+  expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true);
+  expect(await sessionDb.outbox.count()).toBe(0);
+});
+
+it.each([undefined, null])(
+  "unknown completed=%s defers a read draft without overriding existing timer eligibility",
+  async (unknownCompleted) => {
+    const timers = await import("../components/session/rest-timer-store");
+    // Deliberately invalid wire data: absence/null is unknown, never an uncomplete intent.
+    const session = makeSession(true);
+    (session.planned_sets[0].performed_set as unknown as Record<string, unknown>).completed =
+      unknownCompleted;
+    expect(typeof session.planned_sets[0].performed_set?.completed).not.toBe("boolean");
+    await timers.saveRestTimer("dev-user", SID, SET, "벤치프레스 1세트 후 휴식", {
+      totalSec: 90,
+      endsAt: Date.now() + 60_000,
+    });
+    expect((await timers.loadRestTimer("dev-user", SID, Date.now()))?.plannedSetId).toBe(SET);
+    mocks.session.mockResolvedValue(session);
+    mount();
+    await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
+    expect(await sessionDb.drafts.count()).toBe(0);
+    expect(useSessionLog.getState().drafts).toEqual({});
+    expect(await sessionDb.outbox.count()).toBe(0);
+  },
+);
