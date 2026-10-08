@@ -13,7 +13,14 @@ export function hydrateRecordedSets(
   const next = { ...drafts };
   for (const set of session.planned_sets) {
     const performed = set.performed_set;
-    if (!performed || next[set.id] || pending.has(set.id)) continue;
+    // Unknown completion must not become a local uncomplete that masks existing fallbacks.
+    if (
+      !performed ||
+      typeof performed.completed !== "boolean" ||
+      next[set.id] ||
+      pending.has(set.id)
+    )
+      continue;
     next[set.id] = {
       planned_set_id: set.id,
       actual_weight: performed.actual_weight,
