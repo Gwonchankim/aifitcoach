@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Session } from "../lib/api";
+import { RECORDED_BENCH_TEXT, recordedText, recordInput } from "./support/record-controls";
 
 const mocks = vi.hoisted(() => ({ session: vi.fn(), sync: vi.fn(), complete: vi.fn() }));
 vi.mock("../lib/api", async () => {
@@ -124,7 +125,7 @@ it("server-only actual appears as checked with recorded values, not as unperform
   expect(authoritative.planned_sets[0].performed_set?.completed).toBe(true);
   const check = document.querySelector(`[data-set-check="${SET}"]`);
   expect(check?.getAttribute("aria-pressed")).toBe("true");
-  expect(screen.getByText("72.5kg × 8회 · RIR 1")).toBeTruthy();
+  expect(recordedText(SET)).toBe(RECORDED_BENCH_TEXT);
   expect(await sessionDb.outbox.count()).toBe(0);
 });
 
@@ -345,6 +346,40 @@ it("API seam complete probe observes a call to the existing completeSession func
   expect(mocks.complete).toHaveBeenCalledExactlyOnceWith(SID);
 });
 
+it("the same recorded values have identical row markup after UI completion and GET hydration", async () => {
+  mocks.session.mockResolvedValue(makeSession(false));
+  mount();
+  await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+  fireEvent.change(recordInput(SET, "weight"), {
+    target: { value: "72.5" },
+  });
+  fireEvent.change(recordInput(SET, "reps"), { target: { value: "8" } });
+  fireEvent.change(recordInput(SET, "rir"), {
+    target: { value: "1" },
+  });
+  fireEvent.click(document.querySelector(`[data-set-check="${SET}"]`)!);
+  await waitFor(() =>
+    expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
+      "true",
+    ),
+  );
+  const local = document.querySelector(`[data-planned-set-id="${SET}"]`)!.innerHTML;
+  cleanup();
+  clients.splice(0).forEach((client) => client.clear());
+  await sessionDb.delete();
+  await sessionDb.open();
+  useSessionLog.setState({ sessionId: null, drafts: {} });
+  mocks.session.mockResolvedValue(makeSession(true));
+  mount();
+  await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+  await waitFor(() =>
+    expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
+      "true",
+    ),
+  );
+  expect(document.querySelector(`[data-planned-set-id="${SET}"]`)!.innerHTML).toBe(local);
+});
+
 it("mirror publication preserves a local write completed after its draft read began", async () => {
   await useSessionLog.getState().begin(SID);
   await useSessionLog.getState().completeSet(SET, { weight: 65, reps: 10, rir: 2, timeSec: null });
@@ -364,4 +399,39 @@ it("mirror publication preserves a local write completed after its draft read be
   await refresh;
   expect(useSessionLog.getState().drafts[SET]).toEqual(intent);
   expect(useSessionLog.getState().drafts[SET].completed).toBe(false);
+});
+
+it("an orphan pending delete protects against read resurrection in both durable and memory projection", async () => {
+  await useSessionLog.getState().begin(SID);
+  await sessionDb.outbox.put({
+    user_id: "dev-user",
+    client_id: "40000000-0000-4000-8000-000000000001",
+    entity: "performed_set",
+    entity_id: SET,
+    op: "delete",
+    payload: {},
+    attempts: 0,
+    updated_at: "2026-08-14T10:00:00.000Z",
+  });
+  expect(await sessionDb.drafts.count()).toBe(0);
+  await database.readThroughSession("dev-user", SID, async () => makeSession(true));
+  await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
+  expect(await sessionDb.drafts.count()).toBe(0);
+  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(await sessionDb.outbox.count()).toBe(1);
+});
+
+it("unknown pending intent defers projection visibly to developers and the next successful GET retries", async () => {
+  await useSessionLog.getState().begin(SID);
+  vi.spyOn(database, "pendingPerformedIds").mockRejectedValueOnce(new Error("read unavailable"));
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
+  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(warning).toHaveBeenCalledExactlyOnceWith(
+    "Session record hydration deferred: local intent unavailable",
+  );
+  const read = await database.readThroughSession("dev-user", SID, async () => makeSession(true));
+  await useSessionLog.getState().publishSessionRead(SID, read);
+  expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true);
+  expect(await sessionDb.outbox.count()).toBe(0);
 });
