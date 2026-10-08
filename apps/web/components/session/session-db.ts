@@ -14,6 +14,7 @@ import { overlayAppends, type AppendDependencies } from "./session-set-append";
 import { normalizeSessionRecommendations } from "./recommendation-mirror";
 import { parseCardioSnapshot } from "shared";
 import { hasCardioPrescription } from "./cardio-read";
+import { hydrateRecordedSets } from "./record-hydration";
 
 export const DEV_USER_SCOPE = "dev-user";
 
@@ -482,6 +483,16 @@ export async function commitAuthoritativeSession(
         session as Session,
         appendReadGeneration,
       );
+      const drafts = await loadDrafts(userId, sessionId);
+      const hydrated = hydrateRecordedSets(
+        merged.session,
+        drafts,
+        await pendingPerformedIds(userId),
+      );
+      for (const [id, draft] of Object.entries(hydrated)) {
+        if (!drafts[id])
+          await sessionDb.drafts.put({ ...draft, user_id: userId, session_id: sessionId });
+      }
       await sessionDb.sessions.put({
         user_id: userId,
         session_id: sessionId,
@@ -620,6 +631,19 @@ export async function loadDrafts(
       draft.planned_set_id,
       draft,
     ]),
+  );
+}
+
+/** Pending deletes can survive without their draft. A read must not resurrect them. */
+export async function pendingPerformedIds(userId: string): Promise<Set<string>> {
+  const pending = await sessionDb.outbox.where("user_id").equals(userId).toArray();
+  return new Set(
+    pending
+      .filter((row) => row.entity === "performed_set")
+      .flatMap((row) => [
+        row.entity_id,
+        ...(row.canonical_entity_id ? [row.canonical_entity_id] : []),
+      ]),
   );
 }
 

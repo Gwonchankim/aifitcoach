@@ -15,17 +15,19 @@
 
 import { create } from "zustand";
 import type { SetValues } from "./set-rules";
-import type { SyncResponse } from "../../lib/api";
+import type { Session, SyncResponse } from "../../lib/api";
 import {
   commitDraft,
   commitDraftBatch,
   DEV_USER_SCOPE,
   loadDrafts,
+  pendingPerformedIds,
   requestPersistentStorage,
   sessionDb,
 } from "./session-db";
 import { resolvePositionAlias } from "./session-position";
 import { requestForegroundSync } from "./sync-coordinator";
+import { hydrateRecordedSets } from "./record-hydration";
 
 /** openapi PerformedSet 과 같은 모양(= /sync payload). */
 export type SetDraft = {
@@ -56,6 +58,8 @@ type SessionLogState = {
   remapPlannedSets: (mappings: SyncResponse["planned_set_mappings"]) => void;
   /** Pull transaction이 반영한 현재 세션 draft를 메모리에 다시 싣는다. */
   refreshFromMirror: (sessionId: string) => Promise<void>;
+  /** Successful safe read publishes its projection even if the durable cache write failed. */
+  publishSessionRead: (sessionId: string, session: Session) => Promise<void>;
 };
 
 /**
@@ -192,8 +196,34 @@ export const useSessionLog = create<SessionLogState>((set, get) => {
     },
 
     refreshFromMirror: async (sessionId) => {
+      const before = get();
       const drafts = await loadDrafts(DEV_USER_SCOPE, sessionId);
-      if (get().sessionId === sessionId) set({ drafts });
+      if (get().sessionId !== sessionId || before.sessionId !== sessionId) return;
+      set((current) => {
+        for (const id of new Set([...Object.keys(before.drafts), ...Object.keys(current.drafts)])) {
+          if (current.drafts[id] === before.drafts[id]) continue;
+          if (current.drafts[id]) drafts[id] = current.drafts[id];
+          else delete drafts[id];
+        }
+        return { drafts };
+      });
+    },
+
+    publishSessionRead: async (sessionId, session) => {
+      const [stored, pending] = await Promise.all([
+        loadDrafts(DEV_USER_SCOPE, sessionId).catch(() => null),
+        pendingPerformedIds(DEV_USER_SCOPE).catch(() => null),
+      ]);
+      if (get().sessionId !== sessionId) return;
+      if (stored === null || pending === null) {
+        // Unknown intent is not an empty outbox. Defer only this read and retry
+        // on the next successful read; never log identities or health values.
+        console.warn("Session record hydration deferred: local intent unavailable");
+        return;
+      }
+      set((current) => ({
+        drafts: hydrateRecordedSets(session, { ...stored, ...current.drafts }, pending),
+      }));
     },
   };
 });

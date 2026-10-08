@@ -398,8 +398,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     queryKey: ["session", sessionId],
     // The query owns its durable fallback; an offline pause would prevent reading it.
     networkMode: "always",
-    queryFn: ({ signal }) =>
-      readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId, signal)),
+    queryFn: async ({ signal }) => {
+      const read = await readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () =>
+        api.session(sessionId, signal),
+      );
+      await useSessionLog.getState().publishSessionRead(sessionId, read);
+      return read;
+    },
   });
 
   const catalogQuery = useQuery({
