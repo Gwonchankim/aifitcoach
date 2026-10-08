@@ -64,6 +64,7 @@ type Change = {
   op: string;
   data: Record<string, unknown> | null;
   server_seq: string;
+  session_id?: string | null;
 };
 type PlannedSetCorrelation = {
   correlation_id: string;
@@ -247,7 +248,25 @@ export class SyncService {
       orderBy: { serverSeq: "asc" },
       take: 100,
     });
-    const changes = rows.map((row) => toChange(row, recommendations.get(row.id)));
+    const performedIds = [
+      ...new Set(
+        rows.filter((row) => row.entityType === "performed_set").map((row) => row.entityId),
+      ),
+    ];
+    const parents = performedIds.length
+      ? await this.prisma.plannedSet.findMany({
+          where: { id: { in: performedIds }, session: { program: { userId } } },
+          select: { id: true, sessionId: true },
+        })
+      : [];
+    const sessionsBySet = new Map(parents.map((row) => [row.id, row.sessionId]));
+    // Response-only metadata. Never feed it back into the stored receipt or request identity.
+    const changes = rows.map((row) => ({
+      ...toChange(row, recommendations.get(row.id)),
+      ...(row.entityType === "performed_set"
+        ? { session_id: sessionsBySet.get(row.entityId) ?? null }
+        : {}),
+    }));
     const next_cursor = encodeCursor(rows.at(-1)?.serverSeq ?? since ?? 0n);
     return { applied: [...applied], conflicts, changes, planned_set_mappings, next_cursor };
   }

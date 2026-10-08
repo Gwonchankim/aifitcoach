@@ -2684,6 +2684,11 @@ export interface components {
         entity_id: string;
         /** @enum {string} */
         op: "upsert" | "delete";
+        /**
+         * Format: uuid
+         * @description performed_set 변경의 소유 세션 ID. 다른 엔티티에는 생략한다. 과거 삭제된 planned set의 부모를 확인할 수 없으면 null이다. 읽기 복구용 projection이며 mutation receipt·hash·멱등 identity에는 포함하지 않는다.
+         */
+        session_id?: string | null;
         data:
           | ({
               /** @description 기존 session_routine 변경의 실제 삭제 identity. upsert/delete 모두 전달할 수 있으며 과거 metadata 없는 delete는 data:null을 유지한다. GET 누락이나 번호 추정은 삭제 증거가 아니다. 직접 remove/swap에 실제 삭제가 있으면 같은 편집 트랜잭션에서 기록한 session_routine/upsert 서버 편집 이벤트의 data.tombstones로 삭제 identity만 발행한다. 서버 이벤트는 기존 server_seq cursor로 changes에 전달되며 클라이언트 mutation receipt·applied·dependency 성공·LWW 후보로 사용하지 않는다. */
