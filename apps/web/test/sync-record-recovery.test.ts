@@ -136,7 +136,9 @@ it("B2: mixed unknown UUID, normal change and exact ACK retain durable recovery 
   await mirrorSession(USER, SID, session());
   await commitDraft(USER, SID, localDraft(), "upsert");
   const lost = "30000000-0000-4000-8000-000000000099";
-  const answer = response([change(SET), change(lost, null)]);
+  const unknown = change(lost);
+  delete unknown.session_id;
+  const answer = response([change(SET), unknown]);
   answer.applied = [localDraft().client_id];
   const fetch = vi.fn();
   const sync = new SyncCoordinator({ transport: async () => answer, fetchSession: fetch });
@@ -308,4 +310,60 @@ it("failed durable hydrate does not erase the recovery marker; next successful G
   await readThroughSession(USER, SID, async () => session());
   expect((await markers()).length).toBe(0);
   expect((await loadDrafts(USER, SID))[SET]?.completed).toBe(true);
+});
+
+it.each(["upsert", "delete"] as const)(
+  "explicit null parent %s is terminal server absence, so it creates no recovery work",
+  async (op) => {
+    const fetch = vi.fn();
+    await new SyncCoordinator({
+      transport: async () =>
+        response([{ ...change(SET, null), op, data: op === "delete" ? null : actual }]),
+      fetchSession: fetch,
+    }).request();
+    expect((await markers()).length).toBe(0);
+    expect(await sessionDb.drafts.count()).toBe(0);
+    expect(await sessionDb.outbox.count()).toBe(0);
+    expect((await sessionDb.syncMeta.get([USER, "cursor"]))?.value).toBe("cursor-after-record");
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+it("explicit null parent releases previous known recovery work without manufacturing a projection", async () => {
+  const fetch = vi.fn(async () => {
+    throw new TypeError("offline");
+  });
+  await new SyncCoordinator({ transport: async () => response(), fetchSession: fetch }).request();
+  expect((await markers()).length).toBe(1);
+  fetch.mockClear();
+  await new SyncCoordinator({
+    transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
+    fetchSession: fetch,
+  }).request();
+  expect((await markers()).length).toBe(0);
+  expect(await sessionDb.drafts.count()).toBe(0);
+  expect(await sessionDb.outbox.count()).toBe(0);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("explicit null cleanup preserves pending uncheck draft and delete outbox bytes, and replay is idempotent", async () => {
+  await new SyncCoordinator({
+    transport: async () => response(),
+    fetchSession: async () => {
+      throw new TypeError("offline");
+    },
+  }).request();
+  await commitDraft(USER, SID, localDraft(SET, false), "delete");
+  const drafts = await sessionDb.drafts.toArray();
+  const outbox = await sessionDb.outbox.toArray();
+  const answer = response([{ ...change(SET, null), op: "delete", data: null }]);
+  const sync = new SyncCoordinator({ transport: async () => answer, fetchSession: vi.fn() });
+  await sync.request();
+  expect((await markers()).length).toBe(0);
+  expectPrivateEqual(await sessionDb.drafts.toArray(), drafts);
+  expectPrivateEqual(await sessionDb.outbox.toArray(), outbox);
+  await sync.request();
+  expect((await markers()).length).toBe(0);
+  expectPrivateEqual(await sessionDb.drafts.toArray(), drafts);
+  expectPrivateEqual(await sessionDb.outbox.toArray(), outbox);
 });

@@ -163,6 +163,34 @@ it("local-only completion still checks and protects the exercise", async () => {
   expect(await sessionDb.outbox.count()).toBe(before);
 });
 
+it.each([false, true])(
+  "B5: prefill, unchecked inputs and pain-only=%s do not become completed records",
+  async (painOnly) => {
+    await useSessionLog.getState().begin(SID);
+    if (painOnly) await useSessionLog.getState().reportPain([SET], 2);
+    mocks.session.mockResolvedValue(makeSession(false));
+    mount();
+    await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+    const check = document.querySelector(`[data-set-check="${SET}"]`)!;
+    expect(check.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.change(recordInput(SET, "weight"), { target: { value: "80" } });
+    fireEvent.change(recordInput(SET, "reps"), { target: { value: "9" } });
+    expect(check.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "벤치프레스 메뉴" }));
+    for (const action of ["삭제", "교체"])
+      expect(
+        screen
+          .getByRole("menuitem", { name: `벤치프레스 ${action}` })
+          .getAttribute("aria-disabled"),
+      ).toBeNull();
+    expect(await sessionDb.outbox.count()).toBe(0);
+    expect(
+      Object.values(useSessionLog.getState().drafts).filter((draft) => draft.completed).length,
+    ).toBe(0);
+    expect(mocks.sync).not.toHaveBeenCalled();
+  },
+);
+
 it("cold partial server completion stays in the routine without a local draft", async () => {
   expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   mocks.session.mockResolvedValue(makeSession(true));
