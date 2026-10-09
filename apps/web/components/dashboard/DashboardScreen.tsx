@@ -6,7 +6,8 @@
  * 계획이 없으면(`GET /programs/current` 404) 온보딩 카드만 보여준다(§2.3 빈①).
  * 요약이 실패해도 화면 전체를 에러로 덮지 않는다(AC-S3-2) — 오늘 카드 자리에만 배너를 둔다.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { liveQuery } from "dexie";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,8 @@ import {
   volumeReadModel,
 } from "../../lib/read-model-data";
 import { summarize, useSessionLog } from "../session/session-store";
+import { DEV_USER_SCOPE } from "../session/session-db";
+import { pendingCompletedCount } from "./pending-records";
 import { BodyPartSheet } from "./BodyPartSheet";
 import { WeekSwapEntry } from "../program/WeekSwapSheet";
 import { E1RM_EMPTY_NOTE, type MetricCard, buildDashboardView } from "./dashboard-view";
@@ -165,17 +168,23 @@ export function DashboardScreen() {
     retry: false,
   });
 
-  /*
-    오늘 세션의 완료 세트는 아직 서버로 가지 않는다(세트 저장 경로는 STEP 6 `/sync`).
-    그래서 요약 화면이 "오늘 2세트"를 보여주는 순간에도 `done_summary.sets_completed` 는 0 이다
-    → 그 0 을 "기록이 없다"로 **단정하지 않도록** 이 기기의 기록 수를 함께 넘긴다.
-    STEP 6 이 붙으면 서버 요약이 채워져 이 분기는 자연히 사라진다.
-  */
+  // Value copy still reads the projection. Device-only copy must instead prove an unsent write.
   const localSetsCompleted = useSessionLog((state) =>
     state.sessionId != null && state.sessionId === todaySessionId
       ? summarize(state.drafts).completedCount
       : 0,
   );
+  const [pendingRecords, setPendingRecords] = useState({
+    sessionId: null as string | null,
+    count: 0,
+  });
+  useEffect(() => {
+    if (!todaySessionId) return;
+    const subscription = liveQuery(() =>
+      pendingCompletedCount(DEV_USER_SCOPE, todaySessionId).catch(() => 0),
+    ).subscribe((count) => setPendingRecords({ sessionId: todaySessionId, count }));
+    return () => subscription.unsubscribe();
+  }, [todaySessionId]);
 
   /**
    * F8-1. 세 갈래로 갈린다.
@@ -254,7 +263,16 @@ export function DashboardScreen() {
    */
   const loading = (program.isPending || dashboard.isPending) && !dashboard.data;
   const summary = dashboard.data?.data ?? null;
-  const view = !loading && summary ? buildDashboardView(summary, localSetsCompleted) : null;
+  const deviceOnlyCount = pendingRecords.sessionId === todaySessionId ? pendingRecords.count : 0;
+  const view =
+    !loading && summary
+      ? buildDashboardView(
+          summary,
+          summary.today.status === "done" || summary.today.status === "partial"
+            ? deviceOnlyCount
+            : localSetsCompleted,
+        )
+      : null;
 
   return (
     <Screen
