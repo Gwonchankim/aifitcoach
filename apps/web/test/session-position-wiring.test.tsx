@@ -1720,7 +1720,9 @@ const performed = (weight: number | null, reps: number | null, completed = true)
   completed,
   performed_at: "2026-08-14T08:00:00.000Z",
 });
-it("server-only completed summary reads current membership actuals without creating local drafts or outbox", async () => {
+it("server-only completed summary hydrates current membership actuals without submitting local writes", async () => {
+  expect(await sessionDb.drafts.count()).toBe(0);
+  const commit = vi.spyOn(sessionPersistence, "commitDraft");
   mocks.session.mockResolvedValue({
     ...session("A", "completed"),
     planned_sets: [
@@ -1730,8 +1732,19 @@ it("server-only completed summary reads current membership actuals without creat
   });
   mount();
   await screen.findByText("오늘 1세트, 480kg 들었어요.");
-  expect(await sessionDb.drafts.count()).toBe(0);
+  expect(
+    (await sessionDb.drafts.toArray()).map((draft) => [
+      draft.planned_set_id,
+      draft.completed,
+      draft.actual_weight,
+      draft.actual_reps,
+    ]),
+  ).toEqual([
+    ["set-1", true, 60, 8],
+    ["set-2", false, 99, 10],
+  ]);
   expect(await sessionDb.outbox.count()).toBe(0);
+  expect(commit).not.toHaveBeenCalled();
 });
 it("summary local edits and explicit uncomplete beat server actuals; removed local membership contributes nothing", async () => {
   await useSessionLog.getState().begin("A");
@@ -1745,21 +1758,29 @@ it("summary local edits and explicit uncomplete beat server actuals; removed loc
   await useSessionLog
     .getState()
     .completeSet("removed", { weight: 999, reps: 99, rir: 1, timeSec: null });
-  const before = JSON.stringify([
-    await sessionDb.drafts.toArray(),
-    await sessionDb.outbox.toArray(),
-  ]);
+  const beforeDrafts = await sessionDb.drafts.toArray();
+  const beforeOutbox = JSON.stringify(await sessionDb.outbox.toArray());
+  const commit = vi.spyOn(sessionPersistence, "commitDraft");
   mocks.session.mockResolvedValue({
     ...session("A", "completed"),
     planned_sets: sets.map((set) => ({ ...set, performed_set: performed(60, 8) })),
   });
   mount();
   await screen.findByText("오늘 2세트, 730kg 들었어요.");
-  expect(JSON.stringify([await sessionDb.drafts.toArray(), await sessionDb.outbox.toArray()])).toBe(
-    before,
-  );
+  const afterDrafts = await sessionDb.drafts.toArray();
+  expect(afterDrafts.filter((draft) => draft.planned_set_id !== "set-3")).toEqual(beforeDrafts);
+  expect(afterDrafts.find((draft) => draft.planned_set_id === "set-3")).toMatchObject({
+    completed: true,
+    actual_weight: 60,
+    actual_reps: 8,
+  });
+  expect(afterDrafts).toHaveLength(beforeDrafts.length + 1);
+  expect(JSON.stringify(await sessionDb.outbox.toArray())).toBe(beforeOutbox);
+  expect(commit).not.toHaveBeenCalled();
 });
 it("summary uses snapshot load_kind, counting assistance/bodyweight/time while excluding their kg volume", async () => {
+  expect(await sessionDb.drafts.count()).toBe(0);
+  const commit = vi.spyOn(sessionPersistence, "commitDraft");
   mocks.session.mockResolvedValue({
     ...session("A", "completed"),
     planned_sets: [
@@ -1787,8 +1808,28 @@ it("summary uses snapshot load_kind, counting assistance/bodyweight/time while e
   });
   mount();
   await screen.findByText("오늘 5세트, 660kg 들었어요.");
-  expect(await sessionDb.drafts.count()).toBe(0);
+  expect((await sessionDb.drafts.toArray()).map((draft) => draft.planned_set_id)).toEqual([
+    "body",
+    "set-1",
+    "set-2",
+    "set-3",
+    "time",
+  ]);
   expect(await sessionDb.outbox.count()).toBe(0);
+  expect(commit).not.toHaveBeenCalled();
+});
+
+it("summary read write probe detects a real user completion and its performed outbox entry", async () => {
+  const commit = vi.spyOn(sessionPersistence, "commitDraft");
+  mount();
+  await waitFor(() => expect(document.querySelector('[data-set-check="set-1"]')).toBeTruthy());
+  expect(await sessionDb.outbox.count()).toBe(0);
+  fireEvent.click(document.querySelector('[data-set-check="set-1"]')!);
+  await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
+  await waitFor(async () => expect(await sessionDb.outbox.count()).toBe(1));
+  expect(await sessionDb.outbox.toArray()).toEqual([
+    expect.objectContaining({ entity: "performed_set", entity_id: "set-1", op: "upsert" }),
+  ]);
 });
 
 it("a pending A completion clears A only and cannot replace B's active screen when it settles", async () => {
