@@ -427,6 +427,7 @@ it("unknown pending intent defers projection visibly to developers and the next 
   const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
   expect(useSessionLog.getState().drafts).toEqual({});
+  expect(await sessionDb.drafts.count()).toBe(0);
   expect(warning).toHaveBeenCalledExactlyOnceWith(
     "Session record hydration deferred: local intent unavailable",
   );
@@ -486,3 +487,58 @@ it.each([undefined, null])(
     expect(await sessionDb.outbox.count()).toBe(0);
   },
 );
+
+it("characterization: a completed=false server actual still qualifies an existing timer before read projection", async () => {
+  const timers = await import("../components/session/rest-timer-store");
+  const session = makeSession(true);
+  session.planned_sets[0].performed_set!.completed = false;
+  expect(session.planned_sets[0].performed_set?.completed).toBe(false);
+  expect(await sessionDb.drafts.count()).toBe(0);
+  await timers.saveRestTimer("dev-user", SID, SET, "벤치프레스 1세트 후 휴식", {
+    totalSec: 90,
+    endsAt: Date.now() + 60_000,
+  });
+  const outcome = await timers.readRestoreSnapshot("dev-user", SID, session, Date.now());
+  expect(outcome.kind).toBe("restored");
+  expect((await timers.loadRestTimer("dev-user", SID, Date.now()))?.plannedSetId).toBe(SET);
+});
+
+it("characterization: GET of a completed=false actual makes current timer restoration none", async () => {
+  const timers = await import("../components/session/rest-timer-store");
+  const session = makeSession(true);
+  session.planned_sets[0].performed_set!.completed = false;
+  expect(session.planned_sets[0].performed_set?.completed).toBe(false);
+  expect(await sessionDb.drafts.count()).toBe(0);
+  await timers.saveRestTimer("dev-user", SID, SET, "벤치프레스 1세트 후 휴식", {
+    totalSec: 90,
+    endsAt: Date.now() + 60_000,
+  });
+  await database.readThroughSession("dev-user", SID, async () => session);
+  const outcome = await timers.readRestoreSnapshot("dev-user", SID, session, Date.now());
+  // Observed HEAD behavior, not a verdict about the timer contract.
+  expect(outcome.kind).toBe("none");
+  expect(await timers.loadRestTimer("dev-user", SID, Date.now())).toBeNull();
+  expect(await sessionDb.outbox.count()).toBe(0);
+});
+it("characterization: a completed=false actual stays unchecked, unlocked, and outside the summary count", async () => {
+  const session = makeSession(true);
+  session.planned_sets[0].performed_set!.completed = false;
+  expect(session.planned_sets[0].performed_set?.completed).toBe(false);
+  mocks.session.mockResolvedValue(session);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "벤치프레스 메뉴" }));
+  expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+  expect(
+    screen.getByRole("menuitem", { name: "벤치프레스 삭제" }).getAttribute("aria-disabled"),
+  ).toBeNull();
+  expect(screen.getByText("0세트 완료 · 계획 2세트")).toBeTruthy();
+  expect(await sessionDb.outbox.count()).toBe(0);
+  cleanup();
+  clients.splice(0).forEach((client) => client.clear());
+  mocks.session.mockResolvedValue({ ...session, status: "completed" });
+  mount();
+  await screen.findByRole("heading", { name: "오늘은 기록이 없어요" });
+  expect(await sessionDb.outbox.count()).toBe(0);
+});
