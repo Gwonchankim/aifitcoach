@@ -568,6 +568,11 @@ export class SyncCoordinator {
   }
 
   private async applyChange(change: SyncResponse["changes"][number]): Promise<boolean> {
+    // Explicit null means the authoritative server has no owning planned set. Unlike
+    // old-server field absence, discard only the queue pointer; keep normal pull application.
+    if (change.entity === "performed_set" && change.session_id === null) {
+      await deferPerformedChange(this.userId, change.entity_id, null);
+    }
     // Exact deletion proof is not suppressed by an unacknowledged local routine/C intent.
     if (change.entity === "session_routine" && change.data && "tombstones" in change.data)
       await confirmAppendDeletionInTransaction(

@@ -101,6 +101,10 @@ export async function deferPerformedChange(
   sessionId?: string | null,
 ) {
   const key = PERFORMED_RECOVERY_PREFIX + entityId;
+  if (sessionId === null) {
+    await sessionDb.syncMeta.delete([userId, key]);
+    return;
+  }
   const previous = await sessionDb.syncMeta.get([userId, key]);
   // Replay must not reset a terminal unresolved item or discard known parent identity.
   if (previous && ((JSON.parse(previous.value) as PerformedRecovery).session_id || !sessionId))
