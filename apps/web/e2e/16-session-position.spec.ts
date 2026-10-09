@@ -14,7 +14,7 @@ import {
 } from "@playwright/test";
 import { clearTimeout, setTimeout } from "node:timers";
 import { setTimeout as realDelay } from "node:timers/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect, test } from "./fixtures";
 import { API_V1, WEB_ORIGIN, openSession, seedExternalLoadProgram, todaySession } from "./helpers";
 import { TEST_NOW } from "./test-today";
@@ -134,6 +134,54 @@ async function observeSummaryWrites(context: BrowserContext) {
 async function summaryWrites(page: Page) {
   return page.evaluate(
     () => (window as unknown as { __afcSummaryWrites: string[] }).__afcSummaryWrites,
+  );
+}
+
+function observeSummaryTraffic(context: BrowserContext) {
+  const counts = { performed: 0, upsert: 0, delete: 0, complete: 0 };
+  context.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    if (request.url() === `${API_V1}/sync`) {
+      const body = request.postDataJSON() as { mutations: { entity: string; op: string }[] };
+      for (const mutation of body.mutations) {
+        if (mutation.entity !== "performed_set") continue;
+        counts.performed += 1;
+        if (mutation.op === "upsert") counts.upsert += 1;
+        if (mutation.op === "delete") counts.delete += 1;
+      }
+    }
+    if (request.url().startsWith(`${API_V1}/sessions/`) && request.url().endsWith("/complete"))
+      counts.complete += 1;
+  });
+  return counts;
+}
+
+function actualFingerprint(value: Session) {
+  return createHash("sha256")
+    .update(JSON.stringify(value.planned_sets.map((set) => [set.id, set.performed_set ?? null])))
+    .digest("hex");
+}
+
+/** ADR-87 allows server-identity read placeholders; a read cannot manufacture performed intent. */
+async function assertServerOnlySummaryRead(
+  page: Page,
+  request: APIRequestContext,
+  committed: Session,
+  traffic: ReturnType<typeof observeSummaryTraffic>,
+) {
+  const observed = await positionObservation(page, committed.id);
+  const serverIds = new Set(committed.planned_sets.map((set) => set.id));
+  expect(observed.drafts.length).toBeGreaterThan(0);
+  for (const draft of observed.drafts) {
+    expect(serverIds.has(String(draft.planned_set_id))).toBe(true);
+    expect(draft.client_id).toBe(draft.planned_set_id);
+  }
+  expect(observed.outbox.length).toBe(0); // This phase asserts an empty baseline before loading.
+  expect((await summaryWrites(page)).filter((call) => call !== "drafts.put")).toEqual([]);
+  expect(traffic.performed).toBe(0);
+  expect(traffic.complete).toBe(0);
+  expect(actualFingerprint(await session(request, committed.id))).toBe(
+    actualFingerprint(committed),
   );
 }
 
@@ -836,6 +884,57 @@ test("deleted active exercise uses current membership fallback, not old position
 test.describe("summary-only read projection (sync transport held; not an offline/SW claim)", () => {
   test.use({ serviceWorkers: "block" });
 
+  test("read observers see user upsert/delete and normal server actual changes", async ({
+    page,
+    request,
+    context,
+  }) => {
+    const a = await setup(request);
+    await observeSummaryWrites(context);
+    const traffic = observeSummaryTraffic(context);
+    const before = actualFingerprint(await session(request, a.id));
+    await openSession(page, a.id);
+    await complete(page, a.target);
+    await closeRest(page);
+    await expect.poll(() => traffic.upsert).toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () =>
+          (await session(request, a.id)).planned_sets.find((set) => set.id === a.target.id)
+            ?.performed_set?.completed,
+      )
+      .toBe(true);
+    const completed = actualFingerprint(await session(request, a.id));
+    expect(completed).not.toBe(before);
+    expect(await summaryWrites(page)).toContain("drafts.put");
+    expect(await summaryWrites(page)).toContain("outbox.put");
+    await page.locator(`[data-set-check="${a.target.id}"]`).click();
+    await expect.poll(() => traffic.delete).toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () =>
+          (await session(request, a.id)).planned_sets.find((set) => set.id === a.target.id)
+            ?.performed_set ?? null,
+      )
+      .toBeNull();
+    expect(actualFingerprint(await session(request, a.id))).not.toBe(completed);
+    // The endpoint observer has its own browser request control; this is not UI finish routing proof.
+    const status = await page.evaluate(
+      async (url) =>
+        (
+          await fetch(url, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev" },
+            body: "{}",
+          })
+        ).status,
+      `${API_V1}/sessions/${a.id}/complete`,
+    );
+    expect(status).toBe(200);
+    expect(traffic.complete).toBe(1);
+  });
+
   test("successful completion clears position; explicit same-day edit persists new expanded row", async ({
     page,
     request,
@@ -860,6 +959,7 @@ test.describe("summary-only read projection (sync transport held; not an offline
     await assertSummary(page, 1, 427.5);
     const beforeReload = await positionObservation(page, a.id);
     await observeSummaryWrites(context);
+    const traffic = observeSummaryTraffic(context);
     const syncHold = await holdSummarySync(context);
     try {
       await page.reload();
@@ -869,6 +969,9 @@ test.describe("summary-only read projection (sync transport held; not an offline
       expect(afterReload.drafts).toEqual(beforeReload.drafts);
       expect(afterReload.outbox).toEqual(beforeReload.outbox);
       expect(await summaryWrites(page)).toEqual([]);
+      expect(traffic.performed).toBe(0);
+      expect(traffic.complete).toBe(0);
+      expect(actualFingerprint(await session(request, a.id))).toBe(actualFingerprint(committed));
 
       // Server-only completed summary in a genuinely empty context, without storageState/IDB import.
       const fresh = await browser.newContext({
@@ -877,6 +980,7 @@ test.describe("summary-only read projection (sync transport held; not an offline
         serviceWorkers: "block",
       });
       ownPositionContext(fresh);
+      const freshTraffic = observeSummaryTraffic(fresh);
       const freshHold = await holdSummarySync(fresh);
       try {
         await fresh.clock.install({ time: new Date(TEST_NOW) });
@@ -899,15 +1003,11 @@ test.describe("summary-only read projection (sync transport held; not an offline
         await freshPage.goto(`/session/${a.id}`);
         await assertSummary(freshPage, 1, 427.5);
         const after = await positionObservation(freshPage, a.id);
-        expect(after.drafts).toEqual(before.drafts);
-        expect(after.outbox).toEqual(before.outbox);
-        expect(await summaryWrites(freshPage)).toEqual([]);
+        await assertServerOnlySummaryRead(freshPage, request, committed, freshTraffic);
         await freshPage.reload();
         await assertSummary(freshPage, 1, 427.5);
         const reloaded = await positionObservation(freshPage, a.id);
-        expect(reloaded.drafts).toEqual([]);
-        expect(reloaded.outbox).toEqual([]);
-        expect(await summaryWrites(freshPage)).toEqual([]);
+        await assertServerOnlySummaryRead(freshPage, request, committed, freshTraffic);
         await evidence(info, "completed-server-only-summary", {
           committed,
           before,
@@ -988,6 +1088,7 @@ test.describe("summary-only read projection (sync transport held; not an offline
     expect(authoritativeSummary(committed)).toEqual(expected);
     expect(expected.volume).toBeGreaterThan(0);
     await observeSummaryWrites(context);
+    const traffic = observeSummaryTraffic(context);
     const syncHold = await holdSummarySync(context);
     try {
       await page.goto("/");
@@ -1007,15 +1108,11 @@ test.describe("summary-only read projection (sync transport held; not an offline
       await assertSummary(page, expected.count, expected.volume);
       await expect(page.locator("[data-session-current=true]")).toHaveCount(0);
       const after = await positionObservation(page, a.id);
-      expect(after.drafts).toEqual(before.drafts);
-      expect(after.outbox).toEqual(before.outbox);
-      expect(await summaryWrites(page)).toEqual([]);
+      await assertServerOnlySummaryRead(page, request, committed, traffic);
       await page.reload();
       await assertSummary(page, expected.count, expected.volume);
       const reloaded = await positionObservation(page, a.id);
-      expect(reloaded.drafts).toEqual([]);
-      expect(reloaded.outbox).toEqual([]);
-      expect(await summaryWrites(page)).toEqual([]);
+      await assertServerOnlySummaryRead(page, request, committed, traffic);
       await evidence(info, "all-completed-fallback", {
         source: committed,
         expected,

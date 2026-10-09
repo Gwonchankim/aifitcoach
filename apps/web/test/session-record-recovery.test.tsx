@@ -443,11 +443,44 @@ it("an orphan pending delete protects against read resurrection in both durable 
     updated_at: "2026-08-14T10:00:00.000Z",
   });
   expect(await sessionDb.drafts.count()).toBe(0);
+  const put = vi.spyOn(sessionDb.drafts, "put");
   await database.readThroughSession("dev-user", SID, async () => makeSession(true));
   await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
   expect(await sessionDb.drafts.count()).toBe(0);
   expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   expect(await sessionDb.outbox.count()).toBe(1);
+  expect(put).not.toHaveBeenCalled();
+});
+
+it("a pending uncheck allows no read placeholder put over the local intent", async () => {
+  await useSessionLog.getState().begin(SID);
+  await useSessionLog.getState().completeSet(SET, { weight: 65, reps: 10, rir: 2, timeSec: null });
+  await useSessionLog.getState().uncompleteSet(SET);
+  const before = await database.loadDrafts("dev-user", SID);
+  const put = vi.spyOn(sessionDb.drafts, "put");
+  await database.readThroughSession("dev-user", SID, async () => makeSession(true));
+  await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
+  expect(put).not.toHaveBeenCalled();
+  expectPrivateEqual(await database.loadDrafts("dev-user", SID), before);
+  expect(useSessionLog.getState().drafts[SET].completed).toBe(false);
+});
+
+it("an outbox read failure in the authority cache writer defers every placeholder put", async () => {
+  await useSessionLog.getState().begin(SID);
+  const put = vi.spyOn(sessionDb.drafts, "put");
+  const pendingRead = vi.spyOn(sessionDb.outbox, "where").mockImplementationOnce(() => {
+    throw new Error("pending intent read unavailable");
+  });
+  const fetch = vi.fn(async () => makeSession(true));
+  await database.readThroughSession("dev-user", SID, fetch);
+  expect(fetch).toHaveBeenCalledExactlyOnceWith();
+  expect(pendingRead).toHaveBeenCalledExactlyOnceWith("user_id");
+  expect(put).not.toHaveBeenCalled();
+  expect(await sessionDb.drafts.count()).toBe(0);
+  // Only this read failed. The next authority read can write through normally.
+  await database.readThroughSession("dev-user", SID, fetch);
+  expect(put).toHaveBeenCalledTimes(1);
+  expect(await sessionDb.outbox.count()).toBe(0);
 });
 
 it("unknown pending intent defers projection visibly to developers and the next successful GET retries", async () => {
@@ -508,12 +541,14 @@ it.each([undefined, null])(
       endsAt: Date.now() + 60_000,
     });
     expect((await timers.loadRestTimer("dev-user", SID, Date.now()))?.plannedSetId).toBe(SET);
+    const put = vi.spyOn(sessionDb.drafts, "put");
     mocks.session.mockResolvedValue(session);
     mount();
     await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
     expect(await sessionDb.drafts.count()).toBe(0);
     expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
     expect(await sessionDb.outbox.count()).toBe(0);
+    expect(put).not.toHaveBeenCalled();
   },
 );
 
