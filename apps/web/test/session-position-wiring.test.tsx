@@ -4,6 +4,7 @@ import { onlineManager, QueryClient, QueryClientProvider } from "@tanstack/react
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildCardioBaseline, toCardioSnapshot } from "shared";
+import { expectPrivateEqual, expectPrivateMatch } from "./support/private-record-assertions";
 import type { Session as ApiSession } from "../lib/api";
 import type { ResistancePlannedSet as PlannedSet } from "../components/session/cardio-read";
 type Session = Omit<ApiSession, "planned_sets"> & { planned_sets: PlannedSet[] };
@@ -1768,14 +1769,20 @@ it("summary local edits and explicit uncomplete beat server actuals; removed loc
   mount();
   await screen.findByText("오늘 2세트, 730kg 들었어요.");
   const afterDrafts = await sessionDb.drafts.toArray();
-  expect(afterDrafts.filter((draft) => draft.planned_set_id !== "set-3")).toEqual(beforeDrafts);
-  expect(afterDrafts.find((draft) => draft.planned_set_id === "set-3")).toMatchObject({
-    completed: true,
-    actual_weight: 60,
-    actual_reps: 8,
-  });
-  expect(afterDrafts).toHaveLength(beforeDrafts.length + 1);
-  expect(JSON.stringify(await sessionDb.outbox.toArray())).toBe(beforeOutbox);
+  expectPrivateEqual(
+    afterDrafts.filter((draft) => draft.planned_set_id !== "set-3"),
+    beforeDrafts,
+  );
+  expectPrivateMatch(
+    afterDrafts.find((draft) => draft.planned_set_id === "set-3"),
+    {
+      completed: true,
+      actual_weight: 60,
+      actual_reps: 8,
+    },
+  );
+  expect(afterDrafts.length).toBe(beforeDrafts.length + 1);
+  expectPrivateEqual(JSON.stringify(await sessionDb.outbox.toArray()), beforeOutbox);
   expect(commit).not.toHaveBeenCalled();
 });
 it("summary uses snapshot load_kind, counting assistance/bodyweight/time while excluding their kg volume", async () => {
@@ -1827,9 +1834,13 @@ it("summary read write probe detects a real user completion and its performed ou
   fireEvent.click(document.querySelector('[data-set-check="set-1"]')!);
   await waitFor(() => expect(commit).toHaveBeenCalledTimes(1));
   await waitFor(async () => expect(await sessionDb.outbox.count()).toBe(1));
-  expect(await sessionDb.outbox.toArray()).toEqual([
-    expect.objectContaining({ entity: "performed_set", entity_id: "set-1", op: "upsert" }),
-  ]);
+  expect(
+    (await sessionDb.outbox.toArray()).map(({ entity, entity_id, op }) => ({
+      entity,
+      entity_id,
+      op,
+    })),
+  ).toEqual([{ entity: "performed_set", entity_id: "set-1", op: "upsert" }]);
 });
 
 it("a pending A completion clears A only and cannot replace B's active screen when it settles", async () => {

@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { expectPrivateEqual, expectPrivateMatch } from "./support/private-record-assertions";
 import type { Session } from "../lib/api";
 import { RECORDED_BENCH_TEXT, recordedText, recordInput } from "./support/record-controls";
 
@@ -163,7 +164,7 @@ it("local-only completion still checks and protects the exercise", async () => {
 });
 
 it("cold partial server completion stays in the routine without a local draft", async () => {
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   mocks.session.mockResolvedValue(makeSession(true));
   mount();
   await screen.findByRole("button", { name: "벤치프레스 메뉴" });
@@ -178,7 +179,7 @@ it("cold partial server completion stays in the routine without a local draft", 
 it("the existing position gate already summarizes a cold session with every server set completed", async () => {
   const session = makeSession(true);
   session.planned_sets[1].performed_set = { ...session.planned_sets[0].performed_set! };
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   mocks.session.mockResolvedValue(session);
   mount();
   await screen.findByRole("heading", { name: "수고했어요" });
@@ -225,12 +226,12 @@ it("diagnostic control: a pulled draft alone feeds the unchanged consumers and u
 
 it("GET after begin has finished publishes a read draft without sending a mutation or completion", async () => {
   await useSessionLog.getState().begin(SID);
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   mocks.session.mockResolvedValue(makeSession(true));
   mount();
   await screen.findByRole("button", { name: "벤치프레스 메뉴" });
   await waitFor(() => expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true));
-  expect((await sessionDb.drafts.toArray())[0]).toMatchObject({
+  expectPrivateMatch((await sessionDb.drafts.toArray())[0], {
     session_id: SID,
     planned_set_id: SET,
     completed: true,
@@ -240,7 +241,7 @@ it("GET after begin has finished publishes a read draft without sending a mutati
   expect(mocks.complete).not.toHaveBeenCalled();
   fireEvent.click(document.querySelector(`[data-set-check="${SET}"]`)!);
   await waitFor(async () => expect(await sessionDb.outbox.count()).toBe(1));
-  expect((await sessionDb.outbox.toArray())[0]).toMatchObject({
+  expectPrivateMatch((await sessionDb.outbox.toArray())[0], {
     entity: "performed_set",
     entity_id: SET,
     op: "delete",
@@ -285,11 +286,11 @@ it("a local uncheck made while GET is pending remains unchecked and retains the 
   );
   resolve(makeSession(true));
   await screen.findByRole("button", { name: "벤치프레스 메뉴" });
-  expect(useSessionLog.getState().drafts[SET]).toEqual(intent);
+  expectPrivateEqual(useSessionLog.getState().drafts[SET], intent);
   expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
     "false",
   );
-  expect(await sessionDb.outbox.toArray()).toEqual(writes);
+  expectPrivateEqual(await sessionDb.outbox.toArray(), writes);
 });
 
 it("late GET of A does not publish its read draft into the current B session", async () => {
@@ -307,7 +308,7 @@ it("late GET of A does not publish its read draft into the current B session", a
   resolve(makeSession(true));
   await screen.findByRole("button", { name: "벤치프레스 메뉴" });
   expect(useSessionLog.getState().sessionId).toBe(otherSession);
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   expect(await sessionDb.outbox.count()).toBe(0);
 });
 
@@ -397,7 +398,7 @@ it("mirror publication preserves a local write completed after its draft read be
   const intent = useSessionLog.getState().drafts[SET];
   finishRead(old);
   await refresh;
-  expect(useSessionLog.getState().drafts[SET]).toEqual(intent);
+  expectPrivateEqual(useSessionLog.getState().drafts[SET], intent);
   expect(useSessionLog.getState().drafts[SET].completed).toBe(false);
 });
 
@@ -417,7 +418,7 @@ it("an orphan pending delete protects against read resurrection in both durable 
   await database.readThroughSession("dev-user", SID, async () => makeSession(true));
   await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
   expect(await sessionDb.drafts.count()).toBe(0);
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   expect(await sessionDb.outbox.count()).toBe(1);
 });
 
@@ -426,7 +427,7 @@ it("unknown pending intent defers projection visibly to developers and the next 
   vi.spyOn(database, "pendingPerformedIds").mockRejectedValueOnce(new Error("read unavailable"));
   const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
-  expect(useSessionLog.getState().drafts).toEqual({});
+  expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   expect(await sessionDb.drafts.count()).toBe(0);
   expect(warning).toHaveBeenCalledExactlyOnceWith(
     "Session record hydration deferred: local intent unavailable",
@@ -483,7 +484,7 @@ it.each([undefined, null])(
     mount();
     await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
     expect(await sessionDb.drafts.count()).toBe(0);
-    expect(useSessionLog.getState().drafts).toEqual({});
+    expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
     expect(await sessionDb.outbox.count()).toBe(0);
   },
 );

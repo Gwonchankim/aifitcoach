@@ -5,6 +5,7 @@ import { SessionsService } from "../src/sessions/sessions.service";
 import { RecommendationService } from "../src/recommendation/recommendation.service";
 import { SessionSetAppendService } from "../src/sessions/session-set-append.service";
 import { SessionDependencyService } from "../src/sync/session-dependency";
+import { expectPrivateEqual } from "./support/private-record-assertions";
 
 const USER = "00000000-0000-4000-8000-000000000001";
 const SET = "00000000-0000-4000-8000-000000000002";
@@ -50,32 +51,42 @@ describe("cold performed change parent projection", () => {
     );
     const { service, prisma } = subject(rows, [{ id: SET, sessionId: SESSION }]);
     const response = await service.sync(USER, { mutations: [] }, new Date("2026-08-14"));
-    expect(response.changes[0]).toMatchObject({
+    expect({
+      entity: response.changes[0].entity,
+      entity_id: response.changes[0].entity_id,
+      session_id: response.changes[0].session_id,
+    }).toEqual({
       entity: "performed_set",
       entity_id: SET,
       session_id: SESSION,
     });
-    expect(response.changes[1]).toMatchObject({
+    expect({
+      entity: response.changes[1].entity,
+      session_id: response.changes[1].session_id,
+      op: response.changes[1].op,
+      data: response.changes[1].data === null,
+    }).toEqual({
       entity: "performed_set",
       session_id: SESSION,
       op: "delete",
-      data: null,
+      data: true,
     });
-    expect(response.changes[2]).not.toHaveProperty("session_id");
-    expect(response.changes[0].data).not.toHaveProperty("session_id");
+    expect(Object.keys(response.changes[2])).not.toContain("session_id");
+    expect(Object.keys(response.changes[0].data!)).not.toContain("session_id");
     expect(prisma.plannedSet.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.plannedSet.findMany).toHaveBeenCalledWith({
       where: { id: { in: [SET] }, session: { program: { userId: USER } } },
       select: { id: true, sessionId: true },
     });
     expect(
-      JSON.stringify(rows, (_, value) => (typeof value === "bigint" ? value.toString() : value)),
-    ).toBe(before);
+      JSON.stringify(rows, (_, value) => (typeof value === "bigint" ? value.toString() : value)) ===
+        before,
+    ).toBe(true);
     // Parent metadata may differ across deployment or after the old planned row disappears.
     // The same stored receipt, hash, idempotency identity, ACK and cursor must not differ.
     prisma.plannedSet.findMany.mockResolvedValue([]);
     const absent = await service.sync(USER, { mutations: [] }, new Date("2026-08-14"));
-    expect(absent.changes[0]).toHaveProperty("session_id", null);
+    expect(absent.changes[0].session_id).toBeNull();
     expect(absent.next_cursor).toBe(response.next_cursor);
     expect(absent.applied).toEqual(response.applied);
     expect(absent.conflicts).toEqual(response.conflicts);
@@ -86,15 +97,16 @@ describe("cold performed change parent projection", () => {
         };
         return change;
       });
-    expect(withoutParent(absent.changes)).toEqual(withoutParent(response.changes));
+    expectPrivateEqual(withoutParent(absent.changes), withoutParent(response.changes));
     expect(
-      JSON.stringify(rows, (_, value) => (typeof value === "bigint" ? value.toString() : value)),
-    ).toBe(before);
+      JSON.stringify(rows, (_, value) => (typeof value === "bigint" ? value.toString() : value)) ===
+        before,
+    ).toBe(true);
   });
   it("does not issue a parent query for other entity kinds", async () => {
     const { service, prisma } = subject([receipt("session")], []);
     const response = await service.sync(USER, { mutations: [] }, new Date("2026-08-14"));
-    expect(response.changes[0]).not.toHaveProperty("session_id");
+    expect(Object.keys(response.changes[0])).not.toContain("session_id");
     expect(prisma.plannedSet.findMany).not.toHaveBeenCalled();
   });
 });

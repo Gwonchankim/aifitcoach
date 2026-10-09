@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { expectPrivateMatch } from "./support/private-record-assertions";
 import type { DashboardSummary, Session } from "../lib/api";
 
 const mocks = vi.hoisted(() => ({
@@ -223,7 +224,7 @@ it("a canonical remap preserves the latest pending completion join before ACK", 
     }),
   }).request();
   expect(await sessionDb.drafts.get(["dev-user", SID, SET])).toBeUndefined();
-  expect(await sessionDb.drafts.get(["dev-user", SID, canonicalId])).toMatchObject({
+  expectPrivateMatch(await sessionDb.drafts.get(["dev-user", SID, canonicalId]), {
     client_id: original,
     completed: true,
   });
