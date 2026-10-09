@@ -367,3 +367,14 @@ it("explicit null cleanup preserves pending uncheck draft and delete outbox byte
   expectPrivateEqual(await sessionDb.drafts.toArray(), drafts);
   expectPrivateEqual(await sessionDb.outbox.toArray(), outbox);
 });
+
+it("a null-parent delete still marks an existing non-pending draft incomplete, as the original pull did", async () => {
+  await commitDraft(USER, SID, localDraft(SET), null);
+  await new SyncCoordinator({
+    transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
+    fetchSession: vi.fn(),
+  }).request();
+  expect((await loadDrafts(USER, SID))[SET].completed).toBe(false);
+  expect((await markers()).length).toBe(0);
+  expect(await sessionDb.outbox.count()).toBe(0);
+});
