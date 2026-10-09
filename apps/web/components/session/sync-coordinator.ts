@@ -10,6 +10,8 @@ import {
   markRemediationPending,
   overtakeClaimsByAppliedFinishInTransaction,
   processRemediationMarkers,
+  deferPerformedChange,
+  processPerformedRecovery,
   refusedSessionOf,
   remediationStateOf,
   safeMappings,
@@ -214,6 +216,15 @@ export class SyncCoordinator {
        * 실패해도 sync 자체를 실패시키지 않는다(marker 는 남아 다음 기회에 다시 시도한다).
        */
       await processRemediationMarkers(this.userId, this.fetchSession).catch(() => undefined);
+      const recovered = await processPerformedRecovery(this.userId, this.fetchSession).catch(
+        () => [],
+      );
+      if (recovered.length && typeof window !== "undefined")
+        window.dispatchEvent(
+          new CustomEvent(SYNC_RESPONSE_EVENT, {
+            detail: { ...response, local_session_ids: recovered },
+          }),
+        );
       return response;
     } finally {
       stopHeartbeat();
@@ -586,6 +597,7 @@ export class SyncCoordinator {
             completed: false,
             updated_at: new Date(this.clock.now()).toISOString(),
           });
+        if (!draft) await deferPerformedChange(this.userId, change.entity_id, change.session_id);
         return draft != null;
       }
       if (!change.data) return false;
@@ -605,7 +617,10 @@ export class SyncCoordinator {
           Array.isArray(mirror.session.planned_sets) &&
           mirror.session.planned_sets.some((set) => isObject(set) && set.id === change.entity_id),
       );
-      if (!owning) return false;
+      if (!owning) {
+        await deferPerformedChange(this.userId, change.entity_id, change.session_id);
+        return false;
+      }
       const data = change.data as Record<string, unknown>;
       await sessionDb.drafts.put({
         user_id: this.userId,

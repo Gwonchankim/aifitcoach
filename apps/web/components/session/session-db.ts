@@ -85,6 +85,95 @@ export type RoutineCorrelation = {
   planned_set_id?: string;
 };
 type SyncMeta = { user_id: string; key: string; value: string };
+export const PERFORMED_RECOVERY_PREFIX = "performed-recovery:";
+type PerformedRecovery = {
+  entity_id: string;
+  session_id: string | null;
+  status: "pending" | "unresolved";
+};
+
+/** Identity-only work queue, never evidence of completion, existence or user intent.
+ * The caller's cursor transaction owns this write; a failed put must abort that commit.
+ */
+export async function deferPerformedChange(
+  userId: string,
+  entityId: string,
+  sessionId?: string | null,
+) {
+  const key = PERFORMED_RECOVERY_PREFIX + entityId;
+  const previous = await sessionDb.syncMeta.get([userId, key]);
+  // Replay must not reset a terminal unresolved item or discard known parent identity.
+  if (previous && ((JSON.parse(previous.value) as PerformedRecovery).session_id || !sessionId))
+    return;
+  const marker: PerformedRecovery = {
+    entity_id: entityId,
+    session_id: sessionId ?? null,
+    status: sessionId ? "pending" : "unresolved",
+  };
+  await sessionDb.syncMeta.put({ user_id: userId, key, value: JSON.stringify(marker) });
+}
+
+/** No health payload and no TTL eviction: unresolved work is not silently acknowledged. */
+async function performedRecoveryRows(userId: string) {
+  return sessionDb.syncMeta
+    .where("user_id")
+    .equals(userId)
+    .filter((row) => row.key.startsWith(PERFORMED_RECOVERY_PREFIX))
+    .toArray();
+}
+
+export async function processPerformedRecovery(
+  userId: string,
+  fetchSession: (sessionId: string) => Promise<unknown>,
+): Promise<string[]> {
+  const rows = await performedRecoveryRows(userId);
+  const pending = rows
+    .map((row) => JSON.parse(row.value) as PerformedRecovery)
+    .filter((marker) => marker.status === "pending" && marker.session_id);
+  const recovered: string[] = [];
+  for (const sessionId of new Set(pending.map((marker) => marker.session_id!))) {
+    try {
+      // Network outside the cursor tx; readThroughSession preserves append/swap generations.
+      await readThroughSession(
+        userId,
+        sessionId,
+        async () => {
+          const fetched = await fetchSession(sessionId);
+          if (
+            !fetched ||
+            typeof fetched !== "object" ||
+            (fetched as { id?: unknown }).id !== sessionId
+          )
+            throw new Error("recovery session identity mismatch");
+          return fetched;
+        },
+        { offlineFallback: false },
+      );
+      // A safe GET with a failed cache write has not made this recovery durable.
+      if (
+        !(await performedRecoveryRows(userId)).some(
+          (row) => (JSON.parse(row.value) as PerformedRecovery).session_id === sessionId,
+        )
+      )
+        recovered.push(sessionId);
+    } catch (error) {
+      if (isTerminalStatus(error)) {
+        await sessionDb.transaction("rw", sessionDb.syncMeta, async () => {
+          for (const row of await performedRecoveryRows(userId)) {
+            const marker = JSON.parse(row.value) as PerformedRecovery;
+            if (marker.session_id === sessionId)
+              await sessionDb.syncMeta.put({
+                ...row,
+                value: JSON.stringify({ ...marker, status: "unresolved" }),
+              });
+          }
+        });
+      }
+      // Transient GET failures retain the work for the next foreground sync.
+    }
+  }
+  return recovered;
+}
 type ConflictAudit = {
   id?: number;
   user_id: string;
@@ -513,6 +602,20 @@ export async function commitAuthoritativeSession(
           .filter((row) => row.entity === "session" && !!row.prior_status)
           .modify({ claim_overtaken: true });
       await sessionDb.syncMeta.delete([userId, markerKeyFor(sessionId)]);
+      const records = new Map(
+        (session as Session).planned_sets.map((set) => [set.id, set.performed_set]),
+      );
+      for (const row of await performedRecoveryRows(userId)) {
+        const marker = JSON.parse(row.value) as PerformedRecovery;
+        const record = records.get(marker.entity_id);
+        const resolved = !record || typeof record.completed === "boolean";
+        if (
+          resolved &&
+          (marker.session_id === sessionId ||
+            (marker.session_id === null && records.has(marker.entity_id)))
+        )
+          await sessionDb.syncMeta.delete([userId, row.key]);
+      }
     },
   );
   return true;
