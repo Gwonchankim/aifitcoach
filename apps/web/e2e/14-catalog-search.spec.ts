@@ -4,6 +4,8 @@ import { type APIRequestContext, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { API_V1, addExercise, openSession, seedProgram, todaySession } from "./helpers";
 import type { Exercise, Session } from "../lib/api";
+import { randomUUID } from "node:crypto";
+import type { SetDraft } from "../components/session/session-store";
 import { warmSessionDocument } from "./support/warm-session-document";
 
 test.describe.configure({ mode: "serial" });
@@ -58,6 +60,47 @@ async function allExercises(request: APIRequestContext) {
   ]);
   return items;
 }
+type ReadDraft = SetDraft & { user_id: string; session_id: string };
+const draftKey = (row: ReadDraft) =>
+  JSON.stringify([row.user_id, row.session_id, row.planned_set_id]);
+function assertCatalogReadDrafts(before: ReadDraft[], after: ReadDraft[], served: Session[]) {
+  const keys = new Set(before.map(draftKey));
+  const users = new Set(before.map((row) => row.user_id));
+  // Existing rows are intent: retain their complete bytes, including client identity.
+  expect(after.filter((row) => keys.has(draftKey(row)))).toEqual(before);
+  const additional = after.filter((row) => !keys.has(draftKey(row)));
+  for (const row of additional) {
+    expect(users.has(row.user_id)).toBe(true);
+    const candidates = served
+      .filter((session) => session.id === row.session_id)
+      .flatMap((session) =>
+        session.planned_sets
+          .filter(
+            (set) =>
+              set.id === row.planned_set_id && typeof set.performed_set?.completed === "boolean",
+          )
+          .map((set) => {
+            const actual = set.performed_set!;
+            return {
+              user_id: row.user_id,
+              session_id: session.id,
+              planned_set_id: set.id,
+              actual_weight: actual.actual_weight,
+              actual_reps: actual.actual_reps,
+              actual_rir: actual.actual_rir,
+              actual_time_sec: actual.actual_time_sec,
+              completed: actual.completed,
+              pain_score: null,
+            };
+          }),
+      );
+    // The response is the allowlist; placeholder construction shape is never the classifier.
+    // Only these two local metadata keys are absent from the authoritative GET contract.
+    const { client_id: _client, updated_at: _time, ...projection } = row;
+    expect(candidates).toContainEqual(projection);
+  }
+  expect(after).toHaveLength(before.length + additional.length);
+}
 async function localSnapshot(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -77,7 +120,7 @@ async function localSnapshot(page: Page) {
     db.close();
     return {
       catalogs: catalogs as { catalog: Exercise[]; updated_at: string }[],
-      drafts,
+      drafts: drafts as ReadDraft[],
       outbox,
       sessions,
       routines,
@@ -283,6 +326,44 @@ test("old106 partial-page failure preserves cache; retry fills111 and warm offli
   context,
   request,
 }, testInfo) => {
+  const served: Session[] = [],
+    reads: Promise<void>[] = [];
+  const wire: unknown[] = [];
+  let nativePerformedPuts = 0;
+  await page.exposeFunction("__catalogPerformedPut", (increment: boolean) => {
+    if (increment) nativePerformedPuts++;
+    return nativePerformedPuts;
+  });
+  page.on("response", (response) => {
+    if (response.request().method() === "GET" && /\/v1\/sessions\/[^/?]+$/.test(response.url()))
+      reads.push(
+        response
+          .json()
+          .then((session: Session) => {
+            served.push(session);
+          })
+          .catch(() => undefined),
+      );
+  });
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    if (request.url().endsWith("/v1/sync")) {
+      const body = request.postDataJSON() as { mutations?: { entity: string }[] };
+      wire.push(...(body.mutations ?? []).filter((row) => row.entity === "performed_set"));
+    } else if (/\/sessions\/[^/]+\/complete$/.test(request.url())) wire.push("complete");
+  });
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, ...args) {
+      if (this.name === "outbox" && value?.entity === "performed_set")
+        void (
+          window as typeof window & {
+            __catalogPerformedPut: (increment: boolean) => Promise<number>;
+          }
+        ).__catalogPerformedPut(true);
+      return put.call(this, value, ...args);
+    };
+  });
   const full = await allExercises(request);
   const old = full.filter((item) => !newIds.includes(item.id) && item.id !== "e_stationary_bike");
   expect(old).toHaveLength(106);
@@ -303,7 +384,56 @@ test("old106 partial-page failure preserves cache; retry fills111 and warm offli
   });
   await openSession(page, sessionId);
   await warmSessionDocument(page);
+  // Positive control: a real user completion reaches the same native and wire observers.
+  const check = page.getByRole("button", { name: /1세트 완료 처리$/ }).first();
+  const name = (await check.getAttribute("aria-label"))!.replace(/ 1세트 완료 처리$/, "");
+  await page.getByLabel(name + " 1세트 횟수, 회", { exact: true }).fill("8");
+  await check.click();
+  await page.getByRole("button", { name: "휴식 종료", exact: true }).click();
+  await expect.poll(async () => (await localSnapshot(page)).outbox.length).toBe(0);
+  expect(wire.length).toBeGreaterThan(0);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as typeof window & { __catalogPerformedPut: (increment: boolean) => Promise<number> }
+      ).__catalogPerformedPut(false),
+    ),
+  ).toBeGreaterThan(0);
   const before = await localSnapshot(page);
+  const userRows = before.drafts.filter((row) => row.session_id === sessionId);
+  expect(userRows).toHaveLength(1);
+  expect(userRows[0]).toMatchObject({ completed: true, actual_reps: 8 });
+  expect(before.outbox).toEqual([]);
+  assertCatalogReadDrafts(before.drafts, before.drafts, served);
+  wire.length = 0;
+  nativePerformedPuts = 0;
+  // Positive authority control: the following real server write has no local draft yet.
+  const serverSession = (await (
+    await request.get(API_V1 + "/sessions/" + sessionId)
+  ).json()) as Session;
+  const serverOnly = serverSession.planned_sets.find(
+    (set) => set.id !== userRows[0].planned_set_id,
+  )!;
+  expect(serverOnly).toBeDefined();
+  expect(before.drafts.some((row) => row.planned_set_id === serverOnly.id)).toBe(false);
+  const serverClient = randomUUID();
+  const externalWrite = await request.post(API_V1 + "/sync", {
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev" },
+    data: {
+      mutations: [
+        {
+          client_id: serverClient,
+          entity: "performed_set",
+          entity_id: serverOnly.id,
+          op: "upsert",
+          updated_at: new Date().toISOString(),
+          payload: { actual_weight: 0, actual_reps: 9, actual_rir: 2, completed: true },
+        },
+      ],
+    },
+  });
+  expect(externalWrite.status()).toBe(200);
+  expect((await externalWrite.json()).applied).toEqual([serverClient]);
   expect(before.catalogs[0].catalog).toEqual(old);
   await page.unroute("**/v1/exercises*");
   await context.setOffline(true);
@@ -331,7 +461,8 @@ test("old106 partial-page failure preserves cache; retry fills111 and warm offli
   await expect(page.getByRole("button", { name: "운동 추가", exact: true })).toBeVisible();
   const failed = await localSnapshot(page);
   expect(failed.catalogs).toEqual(before.catalogs);
-  expect(failed.drafts).toEqual(before.drafts);
+  await Promise.all(reads);
+  assertCatalogReadDrafts(before.drafts, failed.drafts, served);
   expect(failed.outbox).toEqual(before.outbox);
   expect(failed.routines).toEqual(before.routines);
   const picker = await openPicker(page);
@@ -363,7 +494,24 @@ test("old106 partial-page failure preserves cache; retry fills111 and warm offli
   await checkSearches(page, full);
   const offline = await localSnapshot(page);
   expect(offline.catalogs).toEqual(complete.catalogs);
-  expect(offline.drafts).toEqual(complete.drafts);
+  await Promise.all(reads);
+  assertCatalogReadDrafts(complete.drafts, offline.drafts, served);
+  assertCatalogReadDrafts(before.drafts, offline.drafts, served);
+  expect(
+    offline.drafts.filter((row) => userRows.some((user) => draftKey(user) === draftKey(row))),
+  ).toEqual(userRows);
+  expect(offline.drafts.find((row) => row.planned_set_id === serverOnly.id)).toMatchObject({
+    completed: true,
+    actual_reps: 9,
+  });
+  expect(wire).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as typeof window & { __catalogPerformedPut: (increment: boolean) => Promise<number> }
+      ).__catalogPerformedPut(false),
+    ),
+  ).toBe(0);
   expect(offline.outbox).toEqual(complete.outbox);
   expect(offline.routines).toEqual(complete.routines);
   await testInfo.attach("catalog-cache-pages", {
