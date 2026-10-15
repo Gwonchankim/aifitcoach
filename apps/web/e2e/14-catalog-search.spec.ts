@@ -1,11 +1,13 @@
 /** Sprint02: real picker/canonical mutations and fresh-context catalog cache boundaries. */
 import AxeBuilder from "@axe-core/playwright";
-import { type APIRequestContext, type Page } from "@playwright/test";
+import { type APIRequestContext, type Page, type Route } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { API_V1, addExercise, openSession, seedProgram, todaySession } from "./helpers";
 import type { Exercise, Session } from "../lib/api";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { SetDraft } from "../components/session/session-store";
+import { DEV_USER_SCOPE } from "../components/session/session-db";
 import { warmSessionDocument } from "./support/warm-session-document";
 
 test.describe.configure({ mode: "serial" });
@@ -65,12 +67,11 @@ const draftKey = (row: ReadDraft) =>
   JSON.stringify([row.user_id, row.session_id, row.planned_set_id]);
 function assertCatalogReadDrafts(before: ReadDraft[], after: ReadDraft[], served: Session[]) {
   const keys = new Set(before.map(draftKey));
-  const users = new Set(before.map((row) => row.user_id));
-  // Existing rows are intent: retain their complete bytes, including client identity.
+  // Retain every existing row's complete bytes, regardless of its origin.
   expect(after.filter((row) => keys.has(draftKey(row)))).toEqual(before);
   const additional = after.filter((row) => !keys.has(draftKey(row)));
   for (const row of additional) {
-    expect(users.has(row.user_id)).toBe(true);
+    expect(row.user_id).toBe(DEV_USER_SCOPE);
     const candidates = served
       .filter((session) => session.id === row.session_id)
       .flatMap((session) =>
@@ -97,7 +98,41 @@ function assertCatalogReadDrafts(before: ReadDraft[], after: ReadDraft[], served
     // The response is the allowlist; placeholder construction shape is never the classifier.
     // Only these two local metadata keys are absent from the authoritative GET contract.
     const { client_id: _client, updated_at: _time, ...projection } = row;
-    expect(candidates).toContainEqual(projection);
+    expect(Object.keys(projection).sort()).toEqual([
+      "actual_reps",
+      "actual_rir",
+      "actual_time_sec",
+      "actual_weight",
+      "completed",
+      "pain_score",
+      "planned_set_id",
+      "session_id",
+      "user_id",
+    ]);
+    expect(candidates.some((candidate) => isDeepStrictEqual(candidate, projection))).toBe(true);
+  }
+  expect(after).toHaveLength(before.length + additional.length);
+}
+type ReadSession = {
+  user_id: string;
+  session_id: string;
+  session: Session;
+  updated_at: string;
+};
+function assertCatalogReadSessions(before: ReadSession[], after: ReadSession[], served: Session[]) {
+  const key = (row: ReadSession) => JSON.stringify([row.user_id, row.session_id]);
+  const keys = new Set(before.map(key));
+  expect(after.filter((row) => keys.has(key(row)))).toEqual(before);
+  const additional = after.filter((row) => !keys.has(key(row)));
+  for (const row of additional) {
+    expect(row.user_id).toBe(DEV_USER_SCOPE);
+    const { updated_at: _time, ...projection } = row;
+    expect(Object.keys(projection).sort()).toEqual(["session", "session_id", "user_id"]);
+    expect(
+      served.some((session) =>
+        isDeepStrictEqual({ user_id: DEV_USER_SCOPE, session_id: session.id, session }, projection),
+      ),
+    ).toBe(true);
   }
   expect(after).toHaveLength(before.length + additional.length);
 }
@@ -108,24 +143,81 @@ async function localSnapshot(page: Page) {
       open.onsuccess = () => resolve(open.result);
       open.onerror = () => reject(open.error);
     });
+    const stores = ["catalogs", "drafts", "outbox", "sessions", "routines"];
+    const tx = db.transaction(stores, "readonly");
+    const completed = new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error ?? new Error("Catalog observation aborted"));
+      tx.onerror = () => reject(tx.error);
+    });
     const read = (name: string) =>
       new Promise<unknown[]>((resolve, reject) => {
-        const request = db.transaction(name).objectStore(name).getAll();
+        const request = tx.objectStore(name).getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-    const [catalogs, drafts, outbox, sessions, routines] = await Promise.all(
-      ["catalogs", "drafts", "outbox", "sessions", "routines"].map(read),
-    );
-    db.close();
-    return {
-      catalogs: catalogs as { catalog: Exercise[]; updated_at: string }[],
-      drafts: drafts as ReadDraft[],
-      outbox,
-      sessions,
-      routines,
-    };
+    try {
+      const [[catalogs, drafts, outbox, sessions, routines]] = await Promise.all([
+        Promise.all(stores.map(read)),
+        completed,
+      ]);
+      return {
+        catalogs: catalogs as { catalog: Exercise[]; updated_at: string }[],
+        drafts: drafts as ReadDraft[],
+        outbox,
+        sessions: sessions as ReadSession[],
+        routines,
+      };
+    } finally {
+      db.close();
+    }
   });
+}
+/** Deliver real GETs before fixing a snapshot's authority set; hold later deliveries outside it. */
+async function catalogReadWindows(page: Page) {
+  const served: Session[] = [];
+  const deliveries = new Set<Promise<void>>();
+  let barrier: Promise<void> | null = null;
+  let resume = () => {};
+  const pattern = /\/v1\/sessions\/[^/?]+(?:\?.*)?$/;
+  const handler = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    const session = response.status() === 200 ? ((await response.json()) as Session) : null;
+    while (barrier) await barrier;
+    const delivery = (async () => {
+      await route.fulfill({ response });
+      if (session) served.push(session);
+    })();
+    deliveries.add(delivery);
+    try {
+      await delivery;
+    } finally {
+      deliveries.delete(delivery);
+    }
+  };
+  await page.route(pattern, handler);
+  return {
+    async snapshot() {
+      expect(barrier).toBeNull();
+      barrier = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      try {
+        await Promise.all([...deliveries]);
+        const authority = served.slice();
+        const snapshot = await localSnapshot(page);
+        return { snapshot, authority };
+      } finally {
+        barrier = null;
+        resume();
+      }
+    },
+    async close() {
+      await page.unroute(pattern, handler);
+      await Promise.all([...deliveries]);
+    },
+  };
 }
 async function openPicker(page: Page) {
   await page.getByRole("button", { name: "운동 추가", exact: true }).click();
@@ -559,6 +651,76 @@ test("cold catalog offline reload shows connection retry instead of empty search
 test.describe("catalog partial-failure transport", () => {
   test.use({ serviceWorkers: "block" });
 
+  test("catalog-read-helper-calibration accepts native authority rows with synthetic comparison baselines", async ({
+    page,
+    request,
+  }, testInfo) => {
+    await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
+    const sessionId = await todaySession(request);
+    const initialSessionResponse = await request.get(`${API_V1}/sessions/${sessionId}`);
+    expect(initialSessionResponse.status()).toBe(200);
+    const initialSession = (await initialSessionResponse.json()) as Session;
+    const recordedSet = initialSession.planned_sets.find((set) => set.target_reps_low !== null)!;
+    expect(recordedSet).toBeDefined();
+    expect(recordedSet.performed_set).toBeNull();
+    const recordClient = randomUUID();
+    const recorded = await request.post(`${API_V1}/sync`, {
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": "dev" },
+      data: {
+        mutations: [
+          {
+            client_id: recordClient,
+            entity: "performed_set",
+            entity_id: recordedSet.id,
+            op: "upsert",
+            updated_at: new Date().toISOString(),
+            payload: { actual_weight: 0, actual_reps: 8, actual_rir: 2, completed: true },
+          },
+        ],
+      },
+    });
+    expect(recorded.status()).toBe(200);
+    expect((await recorded.json()).applied).toEqual([recordClient]);
+    const sessionReads = await catalogReadWindows(page);
+    try {
+      await openSession(page, sessionId);
+      await expect
+        .poll(async () => {
+          const window = await sessionReads.snapshot();
+          return window.snapshot.drafts.some(
+            (row) =>
+              row.session_id === sessionId &&
+              row.planned_set_id === recordedSet.id &&
+              row.completed,
+          );
+        })
+        .toBe(true);
+      const nativeWindow = await sessionReads.snapshot();
+      const projection = nativeWindow.snapshot.drafts.filter(
+        (row) => row.session_id === sessionId && row.planned_set_id === recordedSet.id,
+      );
+      const mirror = nativeWindow.snapshot.sessions.filter((row) => row.session_id === sessionId);
+      expect(projection).toHaveLength(1);
+      expect(mirror).toHaveLength(1);
+      expect(nativeWindow.snapshot.outbox).toEqual([]);
+      // These empty comparison inputs calibrate the helper's acceptance branch.
+      // They are not this runtime's before state or evidence of a product snapshot delta.
+      assertCatalogReadDrafts([], projection, nativeWindow.authority);
+      assertCatalogReadSessions([], mirror, nativeWindow.authority);
+      await testInfo.attach("catalog-read-helper-calibration-counts", {
+        body: JSON.stringify({
+          nativeDraftRows: projection.length,
+          nativeSessionRows: mirror.length,
+          servedAuthorityCount: nativeWindow.authority.length,
+          syntheticComparisonBaselines: true,
+        }),
+        contentType: "application/json",
+      });
+    } finally {
+      await sessionReads.close();
+    }
+  });
+
   test("cold partial failure has no cache or false empty results; explicit retry preserves query and completes", async ({
     page,
     request,
@@ -571,6 +733,7 @@ test.describe("catalog partial-failure transport", () => {
     expect(page2Cursor.length).toBeGreaterThan(0);
     await seedProgram(request, { equipment: ["bodyweight"], pain_areas: [] });
     const sessionId = await todaySession(request);
+    const sessionReads = await catalogReadWindows(page);
     let phase: "failure" | "retry" = "failure";
     const routeLog: Array<{ phase: string; cursor: string | null; action: string }> = [];
     const requestFailures: Array<{
@@ -642,8 +805,14 @@ test.describe("catalog partial-failure transport", () => {
         picker.getByText("운동 목록을 불러올 수 없어요. 연결 후 다시 시도해 주세요."),
       ).toBeVisible();
       await expect(picker.getByText(/검색 결과가 없어요/)).toHaveCount(0);
-      const failed = await localSnapshot(page);
+      const failedWindow = await sessionReads.snapshot();
+      const failed = failedWindow.snapshot;
       expect(failed.catalogs).toEqual([]);
+      expect(failed.outbox).toEqual([]);
+      expect(failed.drafts.every((row) => row.user_id === DEV_USER_SCOPE)).toBe(true);
+      expect(failed.sessions.every((row) => row.user_id === DEV_USER_SCOPE)).toBe(true);
+      assertCatalogReadDrafts(failed.drafts, failed.drafts, failedWindow.authority);
+      assertCatalogReadSessions(failed.sessions, failed.sessions, failedWindow.authority);
       expect(successfulFailurePages()).toEqual([]);
       phase = "retry";
       await page.unroute("**/v1/exercises*");
@@ -654,12 +823,26 @@ test.describe("catalog partial-failure transport", () => {
       await expect(
         picker.getByRole("button", { name: "로우 로우 머신 머신", exact: true }),
       ).toBeVisible();
-      const complete = await localSnapshot(page);
+      const completeWindow = await sessionReads.snapshot();
+      const complete = completeWindow.snapshot;
       expect(complete.catalogs[0].catalog).toHaveLength(CATALOG_COUNT);
-      expect(complete.drafts).toEqual(failed.drafts);
+      assertCatalogReadDrafts(failed.drafts, complete.drafts, completeWindow.authority);
       expect(complete.outbox).toEqual(failed.outbox);
-      expect(complete.sessions).toEqual(failed.sessions);
+      assertCatalogReadSessions(failed.sessions, complete.sessions, completeWindow.authority);
       expect(complete.routines).toEqual(failed.routines);
+      await testInfo.attach("cold-read-window-v3-counts", {
+        body: JSON.stringify({
+          failedDraftCount: failed.drafts.length,
+          completeDraftCount: complete.drafts.length,
+          failedSessionCount: failed.sessions.length,
+          completeSessionCount: complete.sessions.length,
+          failedAuthorityCount: failedWindow.authority.length,
+          completeAuthorityCount: completeWindow.authority.length,
+          outboxExact: JSON.stringify(failed.outbox) === JSON.stringify(complete.outbox),
+          routinesExact: JSON.stringify(failed.routines) === JSON.stringify(complete.routines),
+        }),
+        contentType: "application/json",
+      });
       await testInfo.attach("cold-failure-retry", {
         body: JSON.stringify({ failed, complete }),
         contentType: "application/json",
@@ -687,6 +870,7 @@ test.describe("catalog partial-failure transport", () => {
         ),
         contentType: "application/json",
       });
+      await sessionReads.close();
     }
   });
 });
