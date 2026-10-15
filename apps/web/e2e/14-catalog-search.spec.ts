@@ -177,24 +177,30 @@ async function localSnapshot(page: Page) {
 async function catalogReadWindows(page: Page) {
   const served: Session[] = [];
   const deliveries = new Set<Promise<void>>();
+  const handlers = new Set<Promise<void>>();
+  let closing = false;
   let barrier: Promise<void> | null = null;
   let resume = () => {};
   const pattern = /\/v1\/sessions\/[^/?]+(?:\?.*)?$/;
-  const handler = async (route: Route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    const response = await route.fetch();
-    const session = response.status() === 200 ? ((await response.json()) as Session) : null;
-    while (barrier) await barrier;
-    const delivery = (async () => {
-      await route.fulfill({ response });
-      if (session) served.push(session);
+  const handler = (route: Route) => {
+    const active = (async () => {
+      if (closing || route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      const session = response.status() === 200 ? ((await response.json()) as Session) : null;
+      while (barrier) await barrier;
+      const delivery = (async () => {
+        await route.fulfill({ response });
+        if (session) served.push(session);
+      })();
+      deliveries.add(delivery);
+      try {
+        await delivery;
+      } finally {
+        deliveries.delete(delivery);
+      }
     })();
-    deliveries.add(delivery);
-    try {
-      await delivery;
-    } finally {
-      deliveries.delete(delivery);
-    }
+    handlers.add(active);
+    return active.finally(() => handlers.delete(active));
   };
   await page.route(pattern, handler);
   return {
@@ -214,8 +220,20 @@ async function catalogReadWindows(page: Page) {
       }
     },
     async close() {
+      closing = true;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Catalog read handler drain timed out; active=${handlers.size}`)),
+          30_000,
+        );
+      });
+      try {
+        while (handlers.size) await Promise.race([Promise.all([...handlers]), timeout]);
+      } finally {
+        clearTimeout(timer);
+      }
       await page.unroute(pattern, handler);
-      await Promise.all([...deliveries]);
     },
   };
 }
