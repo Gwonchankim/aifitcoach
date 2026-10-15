@@ -1558,10 +1558,10 @@ it("an orphan pending delete protects against read resurrection in both durable 
   const put = vi.spyOn(sessionDb.drafts, "put");
   await database.readThroughSession("dev-user", SID, async () => makeSession(true));
   await useSessionLog.getState().publishSessionRead(SID, makeSession(true));
+  expect(put).not.toHaveBeenCalled();
   expect(await sessionDb.drafts.count()).toBe(0);
   expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
   expect(await sessionDb.outbox.count()).toBe(1);
-  expect(put).not.toHaveBeenCalled();
 });
 
 it("a pending uncheck allows no read placeholder put over the local intent", async () => {
@@ -1587,9 +1587,11 @@ it("an outbox read failure in the authority cache writer defers every placeholde
   await database.readThroughSession("dev-user", SID, fetch);
   expect(fetch).toHaveBeenCalledExactlyOnceWith();
   expect(pendingRead).toHaveBeenCalledExactlyOnceWith("user_id");
-  expect(put).not.toHaveBeenCalled();
+  // A failing negative oracle must still let the retry's positive control execute under mutation.
+  expect.soft(put).not.toHaveBeenCalled();
   expect(await sessionDb.drafts.count()).toBe(0);
   // Only this read failed. The next authority read can write through normally.
+  put.mockClear();
   await database.readThroughSession("dev-user", SID, fetch);
   expect(put).toHaveBeenCalledTimes(1);
   expect(await sessionDb.outbox.count()).toBe(0);
@@ -1657,10 +1659,10 @@ it.each([undefined, null])(
     mocks.session.mockResolvedValue(session);
     mount();
     await screen.findByRole("dialog", { name: "벤치프레스 1세트 후 휴식" });
+    expect(put).not.toHaveBeenCalled();
     expect(await sessionDb.drafts.count()).toBe(0);
     expect(Object.keys(useSessionLog.getState().drafts)).toEqual([]);
     expect(await sessionDb.outbox.count()).toBe(0);
-    expect(put).not.toHaveBeenCalled();
   },
 );
 
