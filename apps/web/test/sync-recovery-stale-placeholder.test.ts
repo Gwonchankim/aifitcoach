@@ -90,6 +90,8 @@ it.each([
     let sends = 0,
       fetches = 0,
       finishes = 0;
+    const sent: SyncRequest[] = [];
+    const acknowledgements: string[][] = [];
     let entry: Promise<"resolved" | "rejected"> | undefined;
     const original = database.processPerformedRecovery;
     vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
@@ -103,8 +105,11 @@ it.each([
     const sync = new SyncCoordinator({
       transport: async (body: SyncRequest): Promise<SyncResponse> => {
         const n = ++sends;
+        const applied = body.mutations.map((item) => item.client_id);
+        sent.push(body);
+        acknowledgements.push(applied);
         return {
-          applied: body.mutations.map((item) => item.client_id),
+          applied,
           conflicts: [],
           planned_set_mappings: [],
           next_cursor: String(n),
@@ -172,6 +177,8 @@ it.each([
       expect(await sessionDb.syncMeta.get(markerKey(LATER))).toBeDefined();
       expect(await sessionDb.sessions.count()).toBe(0);
       expect(await sessionDb.drafts.count()).toBe(0);
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeDefined();
+      expect((await sessionDb.syncMeta.get([DEV_USER_SCOPE, "cursor"]))?.value).toBe("2");
       if (!knownParent) expect(await entry).toBe("rejected");
       let beforeDrafts = "",
         beforeOutbox = "";
@@ -181,7 +188,11 @@ it.each([
           SID,
           {
             planned_set_id: LATER,
-            ...actual(90),
+            actual_weight: 90,
+            actual_reps: 8,
+            actual_rir: 2,
+            actual_time_sec: null,
+            completed: true,
             pain_score: null,
             client_id: CLIENT,
             updated_at: "2026-08-14T10:00:00.000Z",
@@ -192,6 +203,9 @@ it.each([
         if (intent === "acked") {
           await sync.request(true);
           if (!knownParent) await vi.waitFor(() => expect(finishes).toBe(3));
+          expect(sends).toBe(3);
+          expect(sent[2].mutations.map((item) => item.client_id)).toEqual([CLIENT]);
+          expect(acknowledgements[2]).toEqual([CLIENT]);
           expect(await sessionDb.outbox.count()).toBe(0);
         }
         beforeDrafts = JSON.stringify(await sessionDb.drafts.toArray());
@@ -220,6 +234,14 @@ it.each([
       expect((await sessionDb.drafts.get([DEV_USER_SCOPE, SID, LATER]))?.actual_weight).toBe(
         intent === "none" ? 55 : 90,
       );
+      expect(await sessionDb.drafts.get([DEV_USER_SCOPE, SID, SET])).toMatchObject({
+        actual_weight: 60,
+        actual_reps: 8,
+        actual_rir: 2,
+        actual_time_sec: null,
+        completed: true,
+        client_id: SET,
+      });
       expect(await sessionDb.outbox.count()).toBe(intent === "pending" ? 1 : 0);
       if (intent !== "none") {
         const laterDraft = await sessionDb.drafts.get([DEV_USER_SCOPE, SID, LATER]);
