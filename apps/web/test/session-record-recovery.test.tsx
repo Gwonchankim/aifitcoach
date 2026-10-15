@@ -55,6 +55,7 @@ const { sessionDb } = await import("../components/session/session-db");
 const database = await import("../components/session/session-db");
 const { api } = await import("../lib/api");
 const { useSessionLog } = await import("../components/session/session-store");
+const originalPublishSessionRead = useSessionLog.getState().publishSessionRead;
 const { resolveSessionPosition } = await import("../components/session/session-position");
 const { isResistancePlannedSet } = await import("../components/session/cardio-read");
 const clients: QueryClient[] = [];
@@ -205,7 +206,11 @@ beforeEach(async () => {
   mocks.sync.mockResolvedValue(null);
   await sessionDb.delete();
   await sessionDb.open();
-  useSessionLog.setState({ sessionId: null, drafts: {} });
+  useSessionLog.setState({
+    sessionId: null,
+    drafts: {},
+    publishSessionRead: originalPublishSessionRead,
+  });
   HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 afterEach(async () => {
@@ -438,77 +443,111 @@ it.each(readScenarios)(
   },
 );
 
-it("R6: a safe recovery GET reaches the screen when its cache transaction fails", async () => {
-  mocks.session.mockResolvedValue(makeSession(false));
-  mount();
-  await screen.findByRole("button", { name: "벤치프레스 메뉴" });
-  await waitFor(async () => expect(await sessionDb.sessions.count()).toBe(1));
-  await sessionDb.sessions.delete(["dev-user", SID]);
-  expect(await sessionDb.sessions.count()).toBe(0);
-  expect(await sessionDb.drafts.count()).toBe(0);
-  const actualProcessor = database.processPerformedRecovery;
-  let finished = false;
-  vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
-    try {
-      return await actualProcessor(...args);
-    } finally {
-      finished = true;
+it.each([false, true])(
+  "R6: cache failure publication and retry, changed membership=%s",
+  async (changedMembership) => {
+    mocks.session.mockResolvedValue(makeSession(false));
+    mount();
+    await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+    await waitFor(async () => expect(await sessionDb.sessions.count()).toBe(1));
+    await sessionDb.sessions.delete(["dev-user", SID]);
+    expect(await sessionDb.sessions.count()).toBe(0);
+    expect(await sessionDb.drafts.count()).toBe(0);
+    const actualProcessor = database.processPerformedRecovery;
+    let finishes = 0;
+    vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
+      try {
+        return await actualProcessor(...args);
+      } finally {
+        finishes += 1;
+      }
+    });
+    let resolve!: (value: Session) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Session>((done) => {
+          resolve = done;
+        }),
+    );
+    const { SyncCoordinator } = await import("../components/session/sync-coordinator");
+    const transport = vi.fn(async () => ({
+      applied: [],
+      conflicts: [],
+      planned_set_mappings: [],
+      next_cursor: "r6-cache-fault",
+      changes: [
+        {
+          entity: "performed_set" as const,
+          entity_id: SET,
+          op: "upsert" as const,
+          server_seq: "1",
+          session_id: SID,
+          data: record,
+        },
+      ],
+    }));
+    const sync = new SyncCoordinator({ userId: "dev-user", transport, fetchSession: fetch });
+    await act(async () => {
+      await sync.request();
+    });
+    await waitFor(() => expect(fetch).toHaveBeenCalledExactlyOnceWith(SID));
+    const markerKey = ["dev-user", database.PERFORMED_RECOVERY_PREFIX + SET];
+    expectPrivateMatch(JSON.parse((await sessionDb.syncMeta.get(markerKey))!.value), {
+      entity_id: SET,
+      session_id: SID,
+      status: "pending",
+      server_seq: "1",
+    });
+    expect((await sessionDb.syncMeta.get(["dev-user", "cursor"]))?.value).toBe("r6-cache-fault");
+    const put = vi
+      .spyOn(sessionDb.sessions, "put")
+      .mockRejectedValueOnce(new Error("quota exceeded"));
+    const publish = vi.spyOn(useSessionLog.getState(), "publishSessionRead");
+    const fresh = makeSession(true);
+    const addedId = "30000000-0000-4000-8000-000000000003";
+    expect(document.querySelector(`[data-planned-set-id="${addedId}"]`)).toBeNull();
+    if (changedMembership) {
+      fresh.planned_sets.push({
+        ...fresh.planned_sets[1],
+        id: addedId,
+        set_no: 3,
+        source_revision: "bug02-new-member",
+      });
     }
-  });
-  let resolve!: (value: Session) => void;
-  const fetch = vi.fn(
-    () =>
-      new Promise<Session>((done) => {
-        resolve = done;
-      }),
-  );
-  const { SyncCoordinator } = await import("../components/session/sync-coordinator");
-  const transport = vi.fn(async () => ({
-    applied: [],
-    conflicts: [],
-    planned_set_mappings: [],
-    next_cursor: "r6-cache-fault",
-    changes: [
-      {
-        entity: "performed_set" as const,
-        entity_id: SET,
-        op: "upsert" as const,
-        server_seq: "1",
-        session_id: SID,
-        data: record,
-      },
-    ],
-  }));
-  await act(async () => {
-    await new SyncCoordinator({ userId: "dev-user", transport, fetchSession: fetch }).request();
-  });
-  await waitFor(() => expect(fetch).toHaveBeenCalledExactlyOnceWith(SID));
-  const markerKey = ["dev-user", database.PERFORMED_RECOVERY_PREFIX + SET];
-  expectPrivateMatch(JSON.parse((await sessionDb.syncMeta.get(markerKey))!.value), {
-    entity_id: SET,
-    session_id: SID,
-    status: "pending",
-    server_seq: "1",
-  });
-  expect((await sessionDb.syncMeta.get(["dev-user", "cursor"]))?.value).toBe("r6-cache-fault");
-  const put = vi
-    .spyOn(sessionDb.sessions, "put")
-    .mockRejectedValueOnce(new Error("quota exceeded"));
-  await act(async () => {
-    resolve(makeSession(true));
-  });
-  await waitFor(() => expect(finished).toBe(true));
-  expect(put).toHaveBeenCalledTimes(1);
-  expect(await sessionDb.syncMeta.get(markerKey)).toBeDefined();
-  expect(await sessionDb.sessions.count()).toBe(0);
-  expect(await sessionDb.drafts.count()).toBe(0);
-  expect(await sessionDb.outbox.count()).toBe(0);
-  await waitFor(() =>
-    expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
-      "true",
-    ),
-  );
-});
+    await act(async () => {
+      resolve(fresh);
+    });
+    await waitFor(() => expect(finishes).toBe(1));
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(await sessionDb.syncMeta.get(markerKey)).toBeDefined();
+    expect(await sessionDb.sessions.count()).toBe(0);
+    expect(await sessionDb.drafts.count()).toBe(0);
+    expect(await sessionDb.outbox.count()).toBe(0);
+    await waitFor(() =>
+      expect(
+        document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(publish).toHaveBeenCalledTimes(1);
+    if (changedMembership)
+      expect.soft(document.querySelector(`[data-planned-set-id="${addedId}"]`)).not.toBeNull();
+    publish.mockClear();
+    fetch.mockResolvedValue(fresh);
+    await act(async () => {
+      await sync.request();
+    });
+    await waitFor(() => expect(finishes).toBe(2));
+    expect(await sessionDb.syncMeta.get(markerKey)).toBeUndefined();
+    expect(await sessionDb.sessions.count()).toBe(1);
+    expect(await sessionDb.drafts.count()).toBe(1);
+    expect(await sessionDb.outbox.count()).toBe(0);
+    if (changedMembership)
+      await waitFor(() =>
+        expect(document.querySelector(`[data-planned-set-id="${addedId}"]`)).not.toBeNull(),
+      );
+    expect(publish).not.toHaveBeenCalled();
+  },
+);
 
 it.each(readScenarios)(
   "R7: remediation's later GET preserves %s intent and session identity",
