@@ -618,11 +618,15 @@ export async function commitAuthoritativeSession(
         for (const row of recoveryRows) {
           const before = recoverySnapshot.get(row.key);
           const marker = JSON.parse(row.value) as PerformedRecovery;
+          const readContainsEntity = (session as Session).planned_sets.some(
+            (set) => set.id === marker.entity_id,
+          );
           if (
-            before !== undefined &&
-            ((JSON.parse(before) as PerformedRecovery).session_id === sessionId ||
-              marker.session_id === sessionId ||
-              (session as Session).planned_sets.some((set) => set.id === marker.entity_id)) &&
+            (before === undefined
+              ? readContainsEntity
+              : (JSON.parse(before) as PerformedRecovery).session_id === sessionId ||
+                marker.session_id === sessionId ||
+                readContainsEntity) &&
             !sameRecoveryVersion(before, marker)
           )
             // Preserve both the newer marker and an empty cache: an old placeholder would prevent
