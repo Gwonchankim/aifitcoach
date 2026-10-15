@@ -258,3 +258,132 @@ it.each([
     }
   },
 );
+
+it.each(["null-terminal", "missing-row", "performed-null"] as const)(
+  "removed-key: %s cannot let an old recovery resurrect completion",
+  async (reason) => {
+    const entered = latch<void>(),
+      oldRead = latch<Session>();
+    let sends = 0,
+      finishes = 0;
+    const original = database.processPerformedRecovery;
+    vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
+      try {
+        return await original(...args);
+      } finally {
+        finishes++;
+      }
+    });
+    const sync = new SyncCoordinator({
+      transport: async (): Promise<SyncResponse> => {
+        const n = ++sends;
+        return {
+          applied: [],
+          conflicts: [],
+          planned_set_mappings: [],
+          next_cursor: String(n),
+          changes: [
+            {
+              entity: "performed_set",
+              entity_id: SET,
+              session_id: n === 1 ? SID : null,
+              op: n === 1 ? "upsert" : "delete",
+              server_seq: String(n),
+              data: n === 1 ? actual(60) : null,
+            },
+          ],
+        };
+      },
+      fetchSession: async (id) => {
+        expect(id).toBe(SID);
+        entered.resolve();
+        return oldRead.promise;
+      },
+    });
+    const emptySession: Session = { ...authority(55), planned_sets: [] };
+    const current: Session =
+      reason === "performed-null"
+        ? { ...authority(55), planned_sets: [{ ...row(SET, 60), performed_set: null }] }
+        : emptySession;
+    await sync.request();
+    await entered.promise;
+    try {
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeDefined();
+      expect(await sessionDb.sessions.count()).toBe(0);
+      expect(await sessionDb.drafts.count()).toBe(0);
+      if (reason === "null-terminal") await sync.request(true);
+      else {
+        await database.readThroughSession(DEV_USER_SCOPE, SID, async () => current);
+        expect((await sessionDb.sessions.get([DEV_USER_SCOPE, SID]))?.session).toEqual(current);
+      }
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeUndefined();
+      expect((await sessionDb.syncMeta.get([DEV_USER_SCOPE, "cursor"]))?.value).toBe(
+        reason === "null-terminal" ? "2" : "1",
+      );
+      expect(await sessionDb.drafts.count()).toBe(0);
+      oldRead.resolve({ ...authority(55), planned_sets: [row(SET, 60)] });
+      await vi.waitFor(() => expect(finishes).toBe(reason === "null-terminal" ? 2 : 1));
+      expect(await sessionDb.outbox.count()).toBe(0);
+      expect(await sessionDb.drafts.count()).toBe(0);
+      expect((await sessionDb.sessions.get([DEV_USER_SCOPE, SID]))?.session).toEqual(
+        reason === "null-terminal" ? undefined : current,
+      );
+      // A legitimate later authority read still commits the absence; rejection is for the old read.
+      expect(await database.readThroughSession(DEV_USER_SCOPE, SID, async () => current)).toEqual(
+        current,
+      );
+      expect((await sessionDb.sessions.get([DEV_USER_SCOPE, SID]))?.session).toEqual(current);
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeUndefined();
+      expect(await sessionDb.drafts.count()).toBe(0);
+      expect(await sessionDb.outbox.count()).toBe(0);
+    } finally {
+      oldRead.resolve({ ...authority(55), planned_sets: [row(SET, 60)] });
+    }
+  },
+);
+
+it.each([false, true])(
+  "removed-key over: unrelated SID legacy parent=%s permits recovery and self-resolution",
+  async (legacy) => {
+    const otherSID = "10000000-0000-4000-8000-000000000002";
+    const entered = latch<void>(),
+      oldRead = latch<Session>();
+    await sessionDb.transaction("rw", sessionDb.syncMeta, async () => {
+      await database.deferPerformedChange(DEV_USER_SCOPE, SET, SID, "1");
+      await database.deferPerformedChange(
+        DEV_USER_SCOPE,
+        LATER,
+        legacy ? undefined : otherSID,
+        legacy ? undefined : "2",
+      );
+    });
+    const first = database.readThroughSession(DEV_USER_SCOPE, SID, async () => {
+      entered.resolve();
+      return oldRead.promise;
+    });
+    // Observe rejection without turning a deliberately broken mutant into an unhandled rejection.
+    const settled = first.then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await entered.promise;
+    try {
+      const other: Session = {
+        ...authority(55),
+        id: otherSID,
+        planned_sets: [{ ...row(LATER, 55), performed_set: null }],
+      };
+      await database.readThroughSession(DEV_USER_SCOPE, otherSID, async () => other);
+      expect(await sessionDb.syncMeta.get(markerKey(LATER))).toBeUndefined();
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeDefined();
+      oldRead.resolve({ ...authority(55), planned_sets: [row(SET, 60)] });
+      expect(await settled).toHaveProperty("value.id", SID);
+      expect((await sessionDb.drafts.get([DEV_USER_SCOPE, SID, SET]))?.actual_weight).toBe(60);
+      expect(await sessionDb.syncMeta.get(markerKey(SET))).toBeUndefined();
+      expect(await sessionDb.outbox.count()).toBe(0);
+    } finally {
+      oldRead.resolve({ ...authority(55), planned_sets: [row(SET, 60)] });
+      await settled;
+    }
+  },
+);
