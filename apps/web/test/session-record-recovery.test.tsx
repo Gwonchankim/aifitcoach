@@ -438,6 +438,78 @@ it.each(readScenarios)(
   },
 );
 
+it("R6: a safe recovery GET reaches the screen when its cache transaction fails", async () => {
+  mocks.session.mockResolvedValue(makeSession(false));
+  mount();
+  await screen.findByRole("button", { name: "벤치프레스 메뉴" });
+  await waitFor(async () => expect(await sessionDb.sessions.count()).toBe(1));
+  await sessionDb.sessions.delete(["dev-user", SID]);
+  expect(await sessionDb.sessions.count()).toBe(0);
+  expect(await sessionDb.drafts.count()).toBe(0);
+  const actualProcessor = database.processPerformedRecovery;
+  let finished = false;
+  vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
+    try {
+      return await actualProcessor(...args);
+    } finally {
+      finished = true;
+    }
+  });
+  let resolve!: (value: Session) => void;
+  const fetch = vi.fn(
+    () =>
+      new Promise<Session>((done) => {
+        resolve = done;
+      }),
+  );
+  const { SyncCoordinator } = await import("../components/session/sync-coordinator");
+  const transport = vi.fn(async () => ({
+    applied: [],
+    conflicts: [],
+    planned_set_mappings: [],
+    next_cursor: "r6-cache-fault",
+    changes: [
+      {
+        entity: "performed_set" as const,
+        entity_id: SET,
+        op: "upsert" as const,
+        server_seq: "1",
+        session_id: SID,
+        data: record,
+      },
+    ],
+  }));
+  await act(async () => {
+    await new SyncCoordinator({ userId: "dev-user", transport, fetchSession: fetch }).request();
+  });
+  await waitFor(() => expect(fetch).toHaveBeenCalledExactlyOnceWith(SID));
+  const markerKey = ["dev-user", database.PERFORMED_RECOVERY_PREFIX + SET];
+  expectPrivateMatch(JSON.parse((await sessionDb.syncMeta.get(markerKey))!.value), {
+    entity_id: SET,
+    session_id: SID,
+    status: "pending",
+    server_seq: "1",
+  });
+  expect((await sessionDb.syncMeta.get(["dev-user", "cursor"]))?.value).toBe("r6-cache-fault");
+  const put = vi
+    .spyOn(sessionDb.sessions, "put")
+    .mockRejectedValueOnce(new Error("quota exceeded"));
+  await act(async () => {
+    resolve(makeSession(true));
+  });
+  await waitFor(() => expect(finished).toBe(true));
+  expect(put).toHaveBeenCalledTimes(1);
+  expect(await sessionDb.syncMeta.get(markerKey)).toBeDefined();
+  expect(await sessionDb.sessions.count()).toBe(0);
+  expect(await sessionDb.drafts.count()).toBe(0);
+  expect(await sessionDb.outbox.count()).toBe(0);
+  await waitFor(() =>
+    expect(document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed")).toBe(
+      "true",
+    ),
+  );
+});
+
 it.each(readScenarios)(
   "R7: remediation's later GET preserves %s intent and session identity",
   async (scenario) => {
@@ -712,7 +784,8 @@ it.each([false, true])(
     const prescription = (row: object) =>
       Object.fromEntries(
         Object.entries(row).filter(
-          ([key]) => !["id", "source_revision", "append_eligibility", "correlation_id"].includes(key),
+          ([key]) =>
+            !["id", "source_revision", "append_eligibility", "correlation_id"].includes(key),
         ),
       );
     expectPrivateEqual(prescription(canonical), prescription(entry.provisional));
@@ -1007,14 +1080,12 @@ it.each(
       });
       expect(overwritten).toBe(true); // The same subscription observes a real user change.
       await act(async () => {
-        await useSessionLog
-          .getState()
-          .completeSet(canonicalIds[0], {
-            weight: null,
-            reps: null,
-            rir: null,
-            timeSec: actualTime,
-          });
+        await useSessionLog.getState().completeSet(canonicalIds[0], {
+          weight: null,
+          reps: null,
+          rir: null,
+          timeSec: actualTime,
+        });
       });
       overwritten = false;
       latestWrites = (await sessionDb.outbox.toArray()).filter(
