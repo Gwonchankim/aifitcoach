@@ -615,6 +615,18 @@ export async function commitAuthoritativeSession(
         throw new SupersededWeekSwapRead();
       const recoveryRows = await performedRecoveryRows(userId);
       if (recoverySnapshot) {
+        const currentKeys = new Set(recoveryRows.map((row) => row.key));
+        for (const [key, value] of recoverySnapshot) {
+          if (currentKeys.has(key)) continue;
+          const before = JSON.parse(value) as PerformedRecovery;
+          if (
+            before.session_id === sessionId ||
+            (session as Session).planned_sets.some((set) => set.id === before.entity_id)
+          )
+            // Another authority read or terminal change resolved this work while the GET was held.
+            // Check before our own cleanup, and do not cancel for unrelated sessions' markers.
+            throw new SupersededPerformedRead();
+        }
         for (const row of recoveryRows) {
           const before = recoverySnapshot.get(row.key);
           const marker = JSON.parse(row.value) as PerformedRecovery;
