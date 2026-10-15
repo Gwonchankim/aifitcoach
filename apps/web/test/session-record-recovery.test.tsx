@@ -702,11 +702,20 @@ it.each([false, true])(
     const child = (await sessionDb.outbox.toArray()).find((row) => row.entity === "performed_set");
     expect(Boolean(child)).toBe(completed);
     const canonical = {
-      ...entry.provisional,
-      rest_sec: original.rest_sec,
+      ...source,
       id: canonicalId,
+      set_no: entry.provisional.set_no,
+      source_revision: "b7-canonical-revision",
+      append_eligibility: null,
       correlation_id: provisionalId,
     };
+    const prescription = (row: object) =>
+      Object.fromEntries(
+        Object.entries(row).filter(
+          ([key]) => !["id", "source_revision", "append_eligibility", "correlation_id"].includes(key),
+        ),
+      );
+    expectPrivateEqual(prescription(canonical), prescription(entry.provisional));
     let server: Session = baseline;
     mocks.session.mockImplementation(async () => server);
     const checkStage = async (id: string) => {
@@ -956,6 +965,7 @@ it.each(
       clients[0].getQueryData<Session>(["session", SID])?.planned_sets.map((row) => row.id),
     ).toEqual(canonicalIds);
     expect(await sessionDb.outbox.get(parent)).toBeDefined();
+    await assertStage(canonicalIds);
     if (completed) {
       expect((await sessionDb.drafts.get(["dev-user", SID, canonicalIds[0]]))?.completed).toBe(
         true,
@@ -967,7 +977,6 @@ it.each(
         ),
       ).toHaveLength(1);
     }
-    await assertStage(canonicalIds);
     expectPrivateEqual(await sessionDb.outbox.get(parent), before);
     let overwritten = false;
     let unsubscribe = () => {};
