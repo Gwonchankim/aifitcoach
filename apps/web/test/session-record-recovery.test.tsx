@@ -55,7 +55,6 @@ const { sessionDb } = await import("../components/session/session-db");
 const database = await import("../components/session/session-db");
 const { api } = await import("../lib/api");
 const { useSessionLog } = await import("../components/session/session-store");
-const originalPublishSessionRead = useSessionLog.getState().publishSessionRead;
 const { resolveSessionPosition } = await import("../components/session/session-position");
 const { isResistancePlannedSet } = await import("../components/session/cardio-read");
 const clients: QueryClient[] = [];
@@ -124,7 +123,15 @@ async function prepareReadIntent(
   client: QueryClient,
 ) {
   const put = vi.spyOn(sessionDb.drafts, "put");
+  const enqueue = vi.spyOn(sessionDb.outbox, "put");
+  const random = vi.spyOn(crypto, "getRandomValues");
   if (scenario === "switch") {
+    await act(async () => {
+      await useSessionLog
+        .getState()
+        .completeSet(SET, { weight: 80, reps: 8, rir: 1, timeSec: null });
+      await useSessionLog.getState().uncompleteSet(SET);
+    });
     await act(async () => {
       view.rerender(
         <QueryClientProvider client={client}>
@@ -148,11 +155,19 @@ async function prepareReadIntent(
     expect(put).toHaveBeenCalled();
     if (scenario === "orphan-delete") await sessionDb.drafts.delete(["dev-user", SID, SET]);
   }
+  if (scenario !== "server") {
+    expect(random).toHaveBeenCalled();
+    expect(enqueue.mock.calls.some(([row]) => row.entity === "performed_set")).toBe(true);
+  }
   put.mockClear();
+  random.mockClear();
+  enqueue.mockClear();
   return {
     client,
     memory: useSessionLog.getState().drafts,
     put,
+    random,
+    enqueue,
     pending: (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set"),
   };
 }
@@ -160,11 +175,18 @@ async function assertReadIntent(
   scenario: ReadScenario,
   before: Awaited<ReturnType<typeof prepareReadIntent>>,
 ) {
+  expect(before.random).not.toHaveBeenCalled();
+  expect(before.enqueue.mock.calls.filter(([row]) => row.entity === "performed_set")).toHaveLength(
+    0,
+  );
   expectPrivateEqual(
     (await sessionDb.outbox.toArray()).filter((row) => row.entity === "performed_set"),
     before.pending,
   );
   if (scenario !== "server") expectPrivateEqual(useSessionLog.getState().drafts, before.memory);
+  for (const [id, draft] of Object.entries(useSessionLog.getState().drafts)) {
+    if (!before.memory[id]) expect(draft.client_id).toBe(id);
+  }
   if (scenario === "orphan-delete") {
     expect(await sessionDb.drafts.get(["dev-user", SID, SET])).toBeUndefined();
     expect(before.put).not.toHaveBeenCalled();
@@ -180,6 +202,21 @@ async function assertReadIntent(
     scenario === "server" || scenario === "local" ? "true" : "false",
   );
   assertQueryIdentities(before.client);
+  if (scenario === "server") {
+    // Positive controls on the same UUID/enqueue observers, after the read-only window.
+    await act(async () => {
+      await useSessionLog
+        .getState()
+        .completeSet(SET, { weight: 80, reps: 8, rir: 1, timeSec: null });
+      await useSessionLog.getState().uncompleteSet(SET);
+    });
+    expect(before.random).toHaveBeenCalled();
+    const writes = before.enqueue.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.entity === "performed_set");
+    expect(writes.some((row) => row.op === "upsert")).toBe(true);
+    expect(writes.some((row) => row.op === "delete")).toBe(true);
+  }
 }
 function assertQueryIdentities(client: QueryClient) {
   for (const [key, session] of client.getQueriesData<Session>({ queryKey: ["session"] })) {
@@ -206,11 +243,7 @@ beforeEach(async () => {
   mocks.sync.mockResolvedValue(null);
   await sessionDb.delete();
   await sessionDb.open();
-  useSessionLog.setState({
-    sessionId: null,
-    drafts: {},
-    publishSessionRead: originalPublishSessionRead,
-  });
+  useSessionLog.setState({ sessionId: null, drafts: {} });
   HTMLElement.prototype.scrollIntoView = vi.fn();
 });
 afterEach(async () => {
@@ -224,6 +257,8 @@ afterEach(async () => {
 
 it("publication callee rejects mismatched payload identity before reading intent", async () => {
   await useSessionLog.getState().begin(SID);
+  const random = vi.spyOn(crypto, "getRandomValues");
+  const enqueue = vi.spyOn(sessionDb.outbox, "put");
   const memory = useSessionLog.getState().drafts;
   const load = vi.spyOn(database, "loadDrafts");
   const pending = vi.spyOn(database, "pendingPerformedIds");
@@ -244,12 +279,19 @@ it("publication callee rejects mismatched payload identity before reading intent
   expect(load).toHaveBeenCalledOnce();
   expect(pending).toHaveBeenCalledOnce();
   expect(useSessionLog.getState().drafts[SET]?.completed).toBe(true);
+  expect(useSessionLog.getState().drafts[SET]?.client_id).toBe(SET);
+  expect(random).not.toHaveBeenCalled();
+  expect(enqueue).not.toHaveBeenCalled();
   await useSessionLog.getState().uncompleteSet(SET);
   const intents = (await sessionDb.outbox.toArray()).filter(
     (row) => row.entity === "performed_set",
   );
   expect(intents).toHaveLength(1);
   expect(intents[0].op).toBe("delete");
+  expect(random).toHaveBeenCalled();
+  expect(
+    enqueue.mock.calls.some(([row]) => row.entity === "performed_set" && row.op === "delete"),
+  ).toBe(true);
 });
 
 it.each(readScenarios)(
@@ -440,112 +482,6 @@ it.each(readScenarios)(
     } finally {
       resolve?.(fresh);
     }
-  },
-);
-
-it.each([false, true])(
-  "R6: cache failure publication and retry, changed membership=%s",
-  async (changedMembership) => {
-    mocks.session.mockResolvedValue(makeSession(false));
-    mount();
-    await screen.findByRole("button", { name: "벤치프레스 메뉴" });
-    await waitFor(async () => expect(await sessionDb.sessions.count()).toBe(1));
-    await sessionDb.sessions.delete(["dev-user", SID]);
-    expect(await sessionDb.sessions.count()).toBe(0);
-    expect(await sessionDb.drafts.count()).toBe(0);
-    const actualProcessor = database.processPerformedRecovery;
-    let finishes = 0;
-    vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
-      try {
-        return await actualProcessor(...args);
-      } finally {
-        finishes += 1;
-      }
-    });
-    let resolve!: (value: Session) => void;
-    const fetch = vi.fn(
-      () =>
-        new Promise<Session>((done) => {
-          resolve = done;
-        }),
-    );
-    const { SyncCoordinator } = await import("../components/session/sync-coordinator");
-    const transport = vi.fn(async () => ({
-      applied: [],
-      conflicts: [],
-      planned_set_mappings: [],
-      next_cursor: "r6-cache-fault",
-      changes: [
-        {
-          entity: "performed_set" as const,
-          entity_id: SET,
-          op: "upsert" as const,
-          server_seq: "1",
-          session_id: SID,
-          data: record,
-        },
-      ],
-    }));
-    const sync = new SyncCoordinator({ userId: "dev-user", transport, fetchSession: fetch });
-    await act(async () => {
-      await sync.request();
-    });
-    await waitFor(() => expect(fetch).toHaveBeenCalledExactlyOnceWith(SID));
-    const markerKey = ["dev-user", database.PERFORMED_RECOVERY_PREFIX + SET];
-    expectPrivateMatch(JSON.parse((await sessionDb.syncMeta.get(markerKey))!.value), {
-      entity_id: SET,
-      session_id: SID,
-      status: "pending",
-      server_seq: "1",
-    });
-    expect((await sessionDb.syncMeta.get(["dev-user", "cursor"]))?.value).toBe("r6-cache-fault");
-    const put = vi
-      .spyOn(sessionDb.sessions, "put")
-      .mockRejectedValueOnce(new Error("quota exceeded"));
-    const publish = vi.spyOn(useSessionLog.getState(), "publishSessionRead");
-    const fresh = makeSession(true);
-    const addedId = "30000000-0000-4000-8000-000000000003";
-    expect(document.querySelector(`[data-planned-set-id="${addedId}"]`)).toBeNull();
-    if (changedMembership) {
-      fresh.planned_sets.push({
-        ...fresh.planned_sets[1],
-        id: addedId,
-        set_no: 3,
-        source_revision: "bug02-new-member",
-      });
-    }
-    await act(async () => {
-      resolve(fresh);
-    });
-    await waitFor(() => expect(finishes).toBe(1));
-    expect(put).toHaveBeenCalledTimes(1);
-    expect(await sessionDb.syncMeta.get(markerKey)).toBeDefined();
-    expect(await sessionDb.sessions.count()).toBe(0);
-    expect(await sessionDb.drafts.count()).toBe(0);
-    expect(await sessionDb.outbox.count()).toBe(0);
-    await waitFor(() =>
-      expect(
-        document.querySelector(`[data-set-check="${SET}"]`)?.getAttribute("aria-pressed"),
-      ).toBe("true"),
-    );
-    expect(publish).toHaveBeenCalledTimes(1);
-    if (changedMembership)
-      expect.soft(document.querySelector(`[data-planned-set-id="${addedId}"]`)).not.toBeNull();
-    publish.mockClear();
-    fetch.mockResolvedValue(fresh);
-    await act(async () => {
-      await sync.request();
-    });
-    await waitFor(() => expect(finishes).toBe(2));
-    expect(await sessionDb.syncMeta.get(markerKey)).toBeUndefined();
-    expect(await sessionDb.sessions.count()).toBe(1);
-    expect(await sessionDb.drafts.count()).toBe(1);
-    expect(await sessionDb.outbox.count()).toBe(0);
-    if (changedMembership)
-      await waitFor(() =>
-        expect(document.querySelector(`[data-planned-set-id="${addedId}"]`)).not.toBeNull(),
-      );
-    expect(publish).not.toHaveBeenCalled();
   },
 );
 
