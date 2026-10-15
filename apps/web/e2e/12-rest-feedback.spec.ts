@@ -203,8 +203,8 @@ test("세트 완료 클릭에서 AudioContext unlock 이 사용자 완료 저장
   expect(unlockAt, "완료 클릭이 AudioContext 를 열어야 한다").toBeDefined();
   expect(click!.seq).toBeLessThan(unlockAt!);
   // Pair the actual mutation's entity/client identity with its draft; read hydration has no such mutation.
-  expect(writes.outbox).toHaveLength(1);
-  expect(writes.drafts).toHaveLength(1);
+  expect(writes.outbox.length).toBeGreaterThan(0);
+  expect(writes.drafts.length).toBeGreaterThan(0);
   for (const event of [...writes.drafts, ...writes.outbox])
     expect(unlockAt!).toBeLessThan(event.seq);
   // A read projection can arrive before or after audio and even concern this same planned set.
@@ -219,6 +219,17 @@ test("세트 완료 클릭에서 AudioContext unlock 이 사용자 완료 저장
     };
     expect(completionWrites([background, ...recorded], clickedSet!)).toEqual(writes);
   }
+  // An ordinary ACK echo can retain this same client identity and write the draft again.
+  // Cardinality is irrelevant: every paired write must follow the gesture's unlock.
+  const echo: ProbeEvent = {
+    ...writes.drafts[0],
+    seq: Math.max(...recorded.map((event) => event.seq)) + 1,
+  };
+  const echoedWrites = completionWrites([...recorded, echo], clickedSet!);
+  expect(echoedWrites.outbox).toEqual(writes.outbox);
+  expect(echoedWrites.drafts).toHaveLength(writes.drafts.length + 1);
+  for (const event of [...echoedWrites.drafts, ...echoedWrites.outbox])
+    expect(unlockAt!).toBeLessThan(event.seq);
   expect(await countOf(page, "beep-start")).toBe(0);
   expect(await countOf(page, "vibrate")).toBe(0);
 });
