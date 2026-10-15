@@ -11,6 +11,7 @@ import {
   sessionDb,
 } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
+import * as database from "../components/session/session-db";
 import { expectPrivateEqual, expectPrivateMatch } from "./support/private-record-assertions";
 
 const USER = DEV_USER_SCOPE;
@@ -90,9 +91,26 @@ const localDraft = (planned_set_id = OTHER, completed = true) => ({
   updated_at: "2026-08-14T10:00:00.000Z",
 });
 
+const performRecovery = database.processPerformedRecovery;
+let recoveryFinishes = 0;
+async function settled(sync: SyncCoordinator) {
+  const before = recoveryFinishes;
+  await sync.request();
+  // request resolves after transport+commit. Observe the real detached processor without replacing it.
+  await vi.waitFor(() => expect(recoveryFinishes).toBeGreaterThan(before));
+}
+
 beforeEach(async () => {
   await sessionDb.delete();
   await sessionDb.open();
+  recoveryFinishes = 0;
+  vi.spyOn(database, "processPerformedRecovery").mockImplementation(async (...args) => {
+    try {
+      return await performRecovery(...args);
+    } finally {
+      recoveryFinishes += 1;
+    }
+  });
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -100,12 +118,14 @@ afterEach(async () => {
 });
 
 it("B1: a cold change survives close/open beyond its cursor and foreground GET recovers it without a write", async () => {
-  await new SyncCoordinator({
-    transport: async () => response(),
-    fetchSession: async () => {
-      throw new TypeError("offline");
-    },
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response(),
+      fetchSession: async () => {
+        throw new TypeError("offline");
+      },
+    }),
+  );
   expect(await sessionDb.sessions.count()).toBe(0);
   expect(await sessionDb.drafts.count()).toBe(0);
   expect((await sessionDb.syncMeta.get([USER, "cursor"]))?.value).toBe("cursor-after-record");
@@ -120,7 +140,7 @@ it("B1: a cold change survives close/open beyond its cursor and foreground GET r
     expect(body.since).toBe("cursor-after-record");
     return response([]);
   });
-  await new SyncCoordinator({ transport: pull, fetchSession: fetch }).request();
+  await settled(new SyncCoordinator({ transport: pull, fetchSession: fetch }));
   expect(fetch).toHaveBeenCalledExactlyOnceWith(SID);
   expectPrivateMatch((await loadDrafts(USER, SID))[SET], {
     completed: true,
@@ -142,7 +162,7 @@ it("B2: mixed unknown UUID, normal change and exact ACK retain durable recovery 
   answer.applied = [localDraft().client_id];
   const fetch = vi.fn();
   const sync = new SyncCoordinator({ transport: async () => answer, fetchSession: fetch });
-  await sync.request();
+  await settled(sync);
   expect((await loadDrafts(USER, SID))[SET]?.completed).toBe(true);
   expect((await loadDrafts(USER, SID))[OTHER]?.client_id).toBe(localDraft().client_id);
   expect(await sessionDb.outbox.count()).toBe(0);
@@ -153,8 +173,9 @@ it("B2: mixed unknown UUID, normal change and exact ACK retain durable recovery 
     entity_id: lost,
     session_id: null,
     status: "unresolved",
+    server_seq: "1",
   });
-  await sync.request();
+  await settled(sync);
   expectPrivateEqual(await markers(), first);
   expect(await sessionDb.drafts.count()).toBe(2);
   expect(fetch).not.toHaveBeenCalled();
@@ -170,14 +191,17 @@ it("B2: mixed unknown UUID, normal change and exact ACK retain durable recovery 
 it("old-server field absence is unresolved until a session-entry authority GET hydrates and atomically clears it", async () => {
   const legacy = change();
   delete legacy.session_id;
-  await new SyncCoordinator({
-    transport: async () => response([legacy]),
-    fetchSession: vi.fn(),
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response([legacy]),
+      fetchSession: vi.fn(),
+    }),
+  );
   expectPrivateEqual(JSON.parse((await markers())[0].value), {
     entity_id: SET,
     session_id: null,
     status: "unresolved",
+    server_seq: "1",
   });
   await readThroughSession(USER, SID, async () => session());
   expect((await loadDrafts(USER, SID))[SET]?.completed).toBe(true);
@@ -196,17 +220,17 @@ it("same-parent changes share one GET, keep health payload out of durable marker
     expectPrivateEqual(
       (await markers()).map((row) => JSON.parse(row.value)),
       [
-        { entity_id: SET, session_id: SID, status: "pending" },
-        { entity_id: OTHER, session_id: SID, status: "pending" },
+        { entity_id: SET, session_id: SID, status: "pending", server_seq: "1" },
+        { entity_id: OTHER, session_id: SID, status: "pending", server_seq: "1" },
       ],
     );
     return fetched;
   });
-  await new SyncCoordinator({ transport: async () => answer, fetchSession: fetch }).request();
+  await settled(new SyncCoordinator({ transport: async () => answer, fetchSession: fetch }));
   expect(fetch).toHaveBeenCalledExactlyOnceWith(SID);
   expect(storedKeys).toEqual([
-    ["entity_id", "session_id", "status"],
-    ["entity_id", "session_id", "status"],
+    ["entity_id", "server_seq", "session_id", "status"],
+    ["entity_id", "server_seq", "session_id", "status"],
   ]);
   expect((await markers()).length).toBe(0);
   expect((await loadDrafts(USER, SID))[SET]?.completed).toBe(true);
@@ -258,7 +282,7 @@ it("failed durable marker write keeps the previous cursor and ACK for replay on 
   expect((await sessionDb.syncMeta.get([USER, "cursor"]))?.value).toBe("previous-cursor");
   expect(await sessionDb.outbox.count()).toBe(1);
   spy.mockImplementation(put);
-  await new SyncCoordinator({ transport: pull, fetchSession: async () => session() }).request();
+  await settled(new SyncCoordinator({ transport: pull, fetchSession: async () => session() }));
   expect(pull).toHaveBeenCalledTimes(2);
   expect(await sessionDb.outbox.count()).toBe(0);
   expect((await sessionDb.syncMeta.get([USER, "cursor"]))?.value).toBe(answer.next_cursor);
@@ -270,25 +294,28 @@ it("terminal parent 404 stays explicitly unresolved and does not stall other for
     throw { status: 404 };
   });
   const sync = new SyncCoordinator({ transport: async () => response(), fetchSession: fetch });
-  await sync.request();
-  await sync.request();
+  await settled(sync);
+  await settled(sync);
   expectPrivateEqual(JSON.parse((await markers())[0].value), {
     entity_id: SET,
     session_id: SID,
     status: "unresolved",
+    server_seq: "1",
   });
   expect(fetch).toHaveBeenCalledTimes(1);
   expect((await sessionDb.syncMeta.get([USER, "cursor"]))?.value).toBe("cursor-after-record");
 });
 
 it("a pending uncheck made during recovery GET is never resurrected", async () => {
-  await new SyncCoordinator({
-    transport: async () => response(),
-    fetchSession: async () => {
-      await commitDraft(USER, SID, localDraft(SET, false), "delete");
-      return session();
-    },
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response(),
+      fetchSession: async () => {
+        await commitDraft(USER, SID, localDraft(SET, false), "delete");
+        return session();
+      },
+    }),
+  );
   expectPrivateMatch((await loadDrafts(USER, SID))[SET], {
     completed: false,
     client_id: localDraft().client_id,
@@ -300,10 +327,12 @@ it("a pending uncheck made during recovery GET is never resurrected", async () =
 it("failed durable hydrate does not erase the recovery marker; next successful GET retries", async () => {
   const put = sessionDb.sessions.put.bind(sessionDb.sessions);
   vi.spyOn(sessionDb.sessions, "put").mockRejectedValueOnce(new Error("quota"));
-  await new SyncCoordinator({
-    transport: async () => response(),
-    fetchSession: async () => session(),
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response(),
+      fetchSession: async () => session(),
+    }),
+  );
   expect((await markers()).length).toBe(1);
   expect(await sessionDb.drafts.count()).toBe(0);
   vi.mocked(sessionDb.sessions.put).mockImplementation(put);
@@ -316,11 +345,13 @@ it.each(["upsert", "delete"] as const)(
   "explicit null parent %s is terminal server absence, so it creates no recovery work",
   async (op) => {
     const fetch = vi.fn();
-    await new SyncCoordinator({
-      transport: async () =>
-        response([{ ...change(SET, null), op, data: op === "delete" ? null : actual }]),
-      fetchSession: fetch,
-    }).request();
+    await settled(
+      new SyncCoordinator({
+        transport: async () =>
+          response([{ ...change(SET, null), op, data: op === "delete" ? null : actual }]),
+        fetchSession: fetch,
+      }),
+    );
     expect((await markers()).length).toBe(0);
     expect(await sessionDb.drafts.count()).toBe(0);
     expect(await sessionDb.outbox.count()).toBe(0);
@@ -333,13 +364,15 @@ it("explicit null parent releases previous known recovery work without manufactu
   const fetch = vi.fn(async () => {
     throw new TypeError("offline");
   });
-  await new SyncCoordinator({ transport: async () => response(), fetchSession: fetch }).request();
+  await settled(new SyncCoordinator({ transport: async () => response(), fetchSession: fetch }));
   expect((await markers()).length).toBe(1);
   fetch.mockClear();
-  await new SyncCoordinator({
-    transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
-    fetchSession: fetch,
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
+      fetchSession: fetch,
+    }),
+  );
   expect((await markers()).length).toBe(0);
   expect(await sessionDb.drafts.count()).toBe(0);
   expect(await sessionDb.outbox.count()).toBe(0);
@@ -347,22 +380,24 @@ it("explicit null parent releases previous known recovery work without manufactu
 });
 
 it("explicit null cleanup preserves pending uncheck draft and delete outbox bytes, and replay is idempotent", async () => {
-  await new SyncCoordinator({
-    transport: async () => response(),
-    fetchSession: async () => {
-      throw new TypeError("offline");
-    },
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response(),
+      fetchSession: async () => {
+        throw new TypeError("offline");
+      },
+    }),
+  );
   await commitDraft(USER, SID, localDraft(SET, false), "delete");
   const drafts = await sessionDb.drafts.toArray();
   const outbox = await sessionDb.outbox.toArray();
   const answer = response([{ ...change(SET, null), op: "delete", data: null }]);
   const sync = new SyncCoordinator({ transport: async () => answer, fetchSession: vi.fn() });
-  await sync.request();
+  await settled(sync);
   expect((await markers()).length).toBe(0);
   expectPrivateEqual(await sessionDb.drafts.toArray(), drafts);
   expectPrivateEqual(await sessionDb.outbox.toArray(), outbox);
-  await sync.request();
+  await settled(sync);
   expect((await markers()).length).toBe(0);
   expectPrivateEqual(await sessionDb.drafts.toArray(), drafts);
   expectPrivateEqual(await sessionDb.outbox.toArray(), outbox);
@@ -370,10 +405,12 @@ it("explicit null cleanup preserves pending uncheck draft and delete outbox byte
 
 it("a null-parent delete still marks an existing non-pending draft incomplete, as the original pull did", async () => {
   await commitDraft(USER, SID, localDraft(SET), null);
-  await new SyncCoordinator({
-    transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
-    fetchSession: vi.fn(),
-  }).request();
+  await settled(
+    new SyncCoordinator({
+      transport: async () => response([{ ...change(SET, null), op: "delete", data: null }]),
+      fetchSession: vi.fn(),
+    }),
+  );
   expect((await loadDrafts(USER, SID))[SET].completed).toBe(false);
   expect((await markers()).length).toBe(0);
   expect(await sessionDb.outbox.count()).toBe(0);

@@ -90,6 +90,8 @@ type PerformedRecovery = {
   entity_id: string;
   session_id: string | null;
   status: "pending" | "unresolved";
+  /** Server-derived ordering metadata, never a record payload or health value. Absent on legacy queues. */
+  server_seq?: string;
 };
 
 /** Identity-only work queue, never evidence of completion, existence or user intent.
@@ -99,6 +101,7 @@ export async function deferPerformedChange(
   userId: string,
   entityId: string,
   sessionId?: string | null,
+  serverSeq?: string,
 ) {
   const key = PERFORMED_RECOVERY_PREFIX + entityId;
   if (sessionId === null) {
@@ -106,13 +109,20 @@ export async function deferPerformedChange(
     return;
   }
   const previous = await sessionDb.syncMeta.get([userId, key]);
-  // Replay must not reset a terminal unresolved item or discard known parent identity.
-  if (previous && ((JSON.parse(previous.value) as PerformedRecovery).session_id || !sessionId))
-    return;
+  const prior = previous ? (JSON.parse(previous.value) as PerformedRecovery) : undefined;
+  const newer =
+    serverSeq !== undefined &&
+    (prior?.server_seq === undefined || BigInt(serverSeq) > BigInt(prior.server_seq));
+  // Replay must not reset an unresolved item. A genuinely later change is new recovery work.
+  if (prior && !newer && (prior.session_id || !sessionId)) return;
+  const parent = sessionId ?? prior?.session_id ?? null;
   const marker: PerformedRecovery = {
     entity_id: entityId,
-    session_id: sessionId ?? null,
-    status: sessionId ? "pending" : "unresolved",
+    session_id: parent,
+    status: parent ? "pending" : "unresolved",
+    ...((newer ? serverSeq : prior?.server_seq) !== undefined
+      ? { server_seq: newer ? serverSeq : prior?.server_seq }
+      : {}),
   };
   await sessionDb.syncMeta.put({ user_id: userId, key, value: JSON.stringify(marker) });
 }
@@ -125,6 +135,23 @@ async function performedRecoveryRows(userId: string) {
     .filter((row) => row.key.startsWith(PERFORMED_RECOVERY_PREFIX))
     .toArray();
 }
+
+async function performedRecoverySnapshot(userId: string): Promise<ReadonlyMap<string, string>> {
+  return new Map((await performedRecoveryRows(userId)).map((row) => [row.key, row.value]));
+}
+
+function sameRecoveryVersion(snapshot: string | undefined, marker: PerformedRecovery): boolean {
+  if (snapshot === undefined) return false;
+  const before = JSON.parse(snapshot) as PerformedRecovery;
+  // Status-only transitions do not invalidate a successful read of this recovery version.
+  return (
+    before.entity_id === marker.entity_id &&
+    before.session_id === marker.session_id &&
+    before.server_seq === marker.server_seq
+  );
+}
+
+class SupersededPerformedRead extends Error {}
 
 export async function processPerformedRecovery(
   userId: string,
@@ -324,8 +351,22 @@ export async function processRemediationMarkers(
   for (const row of pending) {
     const sessionId = row.key.slice(MARKER_PREFIX.length);
     try {
+      const recoverySnapshot = await performedRecoverySnapshot(userId);
+      const fetched = await fetchSession(sessionId);
       // 안전하지 않으면 `commitAuthoritativeSession` 이 false 를 주고 marker 는 그대로 남는다.
-      await commitAuthoritativeSession(userId, sessionId, await fetchSession(sessionId));
+      const committed = await commitAuthoritativeSession(
+        userId,
+        sessionId,
+        fetched,
+        undefined,
+        undefined,
+        recoverySnapshot,
+      );
+      if (committed && userId === DEV_USER_SCOPE) {
+        // Load the existing store after module initialization; it also imports this database.
+        const { useSessionLog } = await import("./session-store");
+        await useSessionLog.getState().publishSessionRead(sessionId, fetched as Session);
+      }
     } catch (error) {
       // 서버에서 사라진 세션이면 **캐시까지 함께** 지운다 — marker 만 지우면 남은 미러가 폴백으로 돌아온다.
       if (isTerminalStatus(error)) await cleanupSessionCache(userId, sessionId);
@@ -559,6 +600,7 @@ export async function commitAuthoritativeSession(
   session: unknown,
   appendReadGeneration?: number | null,
   swapReadEpoch?: string,
+  recoverySnapshot?: ReadonlyMap<string, string>,
 ): Promise<boolean> {
   if (!isSafeSessionPayload(session)) return false;
   // completion 후보·unknown 상태에서는 **safe 200 이어도** 미러를 확정하지 않는다 —
@@ -571,6 +613,23 @@ export async function commitAuthoritativeSession(
     async () => {
       if (swapReadEpoch !== undefined && (await readWeekSwapEpoch(userId)) !== swapReadEpoch)
         throw new SupersededWeekSwapRead();
+      const recoveryRows = await performedRecoveryRows(userId);
+      if (recoverySnapshot) {
+        for (const row of recoveryRows) {
+          const before = recoverySnapshot.get(row.key);
+          const marker = JSON.parse(row.value) as PerformedRecovery;
+          if (
+            before !== undefined &&
+            ((JSON.parse(before) as PerformedRecovery).session_id === sessionId ||
+              marker.session_id === sessionId ||
+              (session as Session).planned_sets.some((set) => set.id === marker.entity_id)) &&
+            !sameRecoveryVersion(before, marker)
+          )
+            // Preserve both the newer marker and an empty cache: an old placeholder would prevent
+            // the next fresh GET from hydrating this record under existing local-draft protection.
+            throw new SupersededPerformedRead();
+        }
+      }
       const merged = await overlayAppendReadInTransaction(
         { user_id: userId, session_id: sessionId },
         session as Session,
@@ -609,8 +668,11 @@ export async function commitAuthoritativeSession(
       const records = new Map(
         (session as Session).planned_sets.map((set) => [set.id, set.performed_set]),
       );
-      for (const row of await performedRecoveryRows(userId)) {
+      for (const row of recoveryRows) {
+        // A later sync can add work while this GET is in flight. Its snapshot cannot acknowledge it.
         const marker = JSON.parse(row.value) as PerformedRecovery;
+        if (recoverySnapshot && !sameRecoveryVersion(recoverySnapshot.get(row.key), marker))
+          continue;
         const record = records.get(marker.entity_id);
         const resolved = !record || typeof record.completed === "boolean";
         if (
@@ -844,6 +906,10 @@ export async function readThroughSession<T>(
       .then((state) => state.generation)
       .catch(() => null);
     const swapEpoch = await readWeekSwapEpoch(userId).catch(() => null);
+    // An unreadable queue grants no permission to clear work; the safe online read still proceeds.
+    const recoverySnapshot = await performedRecoverySnapshot(userId).catch(
+      () => new Map<string, string>(),
+    );
     const fetched = await fetchSession();
     const latestEpoch = await readWeekSwapEpoch(userId).catch(() => null);
     if (swapEpoch !== null && latestEpoch !== null && latestEpoch !== swapEpoch)
@@ -863,12 +929,18 @@ export async function readThroughSession<T>(
     const committed =
       swapEpoch === null || latestEpoch === null
         ? false
-        : await commitAuthoritativeSession(userId, sessionId, fetched, generation, swapEpoch).catch(
-            (error) => {
-              if (error instanceof SupersededWeekSwapRead) throw error;
-              return false;
-            },
-          );
+        : await commitAuthoritativeSession(
+            userId,
+            sessionId,
+            fetched,
+            generation,
+            swapEpoch,
+            recoverySnapshot,
+          ).catch((error) => {
+            if (error instanceof SupersededWeekSwapRead || error instanceof SupersededPerformedRead)
+              throw error;
+            return false;
+          });
     if (committed) return (await readMirroredSession<T>(userId, sessionId)) ?? fetched;
     const existing = await sessionDb.sessions.get([userId, sessionId]).catch(() => undefined);
     if (existing?.append_ids !== undefined) {
@@ -878,7 +950,11 @@ export async function readThroughSession<T>(
     }
     return fetched;
   } catch (error) {
-    if (error instanceof StaleAssistanceSessionError || error instanceof SupersededWeekSwapRead)
+    if (
+      error instanceof StaleAssistanceSessionError ||
+      error instanceof SupersededWeekSwapRead ||
+      error instanceof SupersededPerformedRead
+    )
       throw error;
     // 세션이 사라졌으면(404/410) marker 를 남길 이유가 없다 — 유일한 terminal cleanup 경로다.
     if (isTerminalStatus(error)) {

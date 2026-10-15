@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button, Card } from "../ui";
 import { api } from "../../lib/api";
 import { DEV_USER_SCOPE, readThroughSession } from "../session/session-db";
+import { useSessionLog } from "../session/session-store";
 import { currentWeekReadModel } from "../../lib/week-swap-data";
 import { SWAP_COPY, type ActualWeekSession } from "../../lib/week-swap";
 import { focusLabel } from "../../lib/program-labels";
@@ -21,7 +22,13 @@ function ActualSessionDetail({
 }) {
   const detail = useQuery({
     queryKey: ["session", session.id],
-    queryFn: () => readThroughSession(DEV_USER_SCOPE, session.id, () => api.session(session.id)),
+    queryFn: async () => {
+      const read = await readThroughSession(DEV_USER_SCOPE, session.id, () =>
+        api.session(session.id),
+      );
+      await useSessionLog.getState().publishSessionRead(session.id, read);
+      return read;
+    },
     retry: false,
   });
   if (detail.isPending) return <p role="status">불러오는 중이에요.</p>;

@@ -1,4 +1,5 @@
 import type { Session, SyncResponse } from "../../lib/api";
+import { isNewerDraft } from "./draft-order";
 import { isSafeRow, isRemediationPending, sessionDb, type OutboxMutation } from "./session-db";
 import {
   acknowledgeAppend,
@@ -525,11 +526,7 @@ async function observeIdentity(scope: AppendScope, mappings: SyncResponse["plann
         mapping.planned_set_id,
       ]);
       await sessionDb.drafts.delete([scope.user_id, scope.session_id, mapping.correlation_id]);
-      if (
-        !canonical ||
-        draft.updated_at > canonical.updated_at ||
-        (draft.updated_at === canonical.updated_at && draft.client_id > canonical.client_id)
-      )
+      if (isNewerDraft(draft, canonical))
         await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
     }
     const outbox = await sessionDb.outbox
@@ -537,7 +534,10 @@ async function observeIdentity(scope: AppendScope, mappings: SyncResponse["plann
       .equals([scope.user_id, mapping.correlation_id])
       .toArray();
     for (const row of outbox)
-      if (row.append_dependencies?.session_id === scope.session_id)
+      if (
+        row.entity === "performed_set" &&
+        (!row.append_dependencies || row.append_dependencies.session_id === scope.session_id)
+      )
         await sessionDb.outbox.put({ ...row, canonical_entity_id: mapping.planned_set_id });
   }
 }
@@ -550,6 +550,19 @@ export async function overlayAppendReadInTransaction(
 ): Promise<{ session: Session; append_ids?: string[]; local_ids?: string[] }> {
   const state = await readAppendState(scope);
   const current = await sessionDb.sessions.get([scope.user_id, scope.session_id]);
+  const localIds = new Set(current?.local_ids ?? []);
+  const localRows = (current?.session as Session | undefined)?.planned_sets ?? [];
+  const routineMappings = fetched.planned_sets.flatMap((row) => {
+    const local = localRows.find((item) => item.id === row.correlation_id);
+    return row.correlation_id &&
+      localIds.has(row.correlation_id) &&
+      local &&
+      local.exercise_id === row.exercise_id &&
+      local.set_no === row.set_no
+      ? [{ correlation_id: row.correlation_id, planned_set_id: row.id, planned_set: row }]
+      : [];
+  });
+  await observeIdentity(scope, routineMappings);
   const pendingRoutine =
     state.entries.length > 0 &&
     (

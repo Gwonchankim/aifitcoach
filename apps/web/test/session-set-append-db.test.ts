@@ -23,6 +23,8 @@ import { readPosition, positionKey, savePosition } from "../components/session/s
 import { SyncCoordinator } from "../components/session/sync-coordinator";
 import { captureAppendSource } from "../components/session/session-set-append";
 import { saveRestTimer, loadRestTimer } from "../components/session/rest-timer-store";
+import { useSessionLog } from "../components/session/session-store";
+import { expectPrivateEqual } from "./support/private-record-assertions";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const scope = { user_id: "append-owner", session_id: id(1) };
@@ -408,6 +410,16 @@ it.each([
     await sessionDb.drafts.delete([scope.user_id, scope.session_id, id(101)]);
     for (const value of provisionalFirst ? [old, current] : [current, old])
       await sessionDb.drafts.put(value);
+    useSessionLog.setState({
+      sessionId: scope.session_id,
+      drafts: Object.fromEntries(
+        (provisionalFirst ? [old, current] : [current, old]).map((value) => {
+          const { user_id: _user, session_id: _session, ...draft } = value;
+          return [value.planned_set_id, draft];
+        }),
+      ),
+    });
+    useSessionLog.getState().remapPlannedSets(response([], true).planned_set_mappings);
     await new SyncCoordinator({
       userId: scope.user_id,
       transport: async () => response([id(100)], true),
@@ -416,6 +428,13 @@ it.each([
       winner === "canonical" ? current : { ...old, planned_set_id: id(500) },
     );
     expect(await sessionDb.drafts.get([scope.user_id, scope.session_id, id(101)])).toBeUndefined();
+    const {
+      user_id: _user,
+      session_id: _session,
+      ...durable
+    } = (await sessionDb.drafts.get([scope.user_id, scope.session_id, id(500)]))!;
+    expectPrivateEqual(useSessionLog.getState().drafts[id(500)], durable);
+    expect(useSessionLog.getState().drafts[id(101)]).toBeUndefined();
     expect(transportOf((await sessionDb.outbox.get(id(300)))!)).toEqual(transport);
   },
 );

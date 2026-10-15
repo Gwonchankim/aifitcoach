@@ -121,7 +121,11 @@ describe("BUG-02 server counterpart of a rolled-back local ACK", () => {
         pull.body.changes.find((row: { entity_id: string }) => row.entity_id === factId)
           ?.session_id,
       ).toBe(source.sessionId);
-      expectPrivateEqual(await snapshot(), before);
+      const after = await snapshot();
+      expectPrivateEqual(after.receipt, before.receipt);
+      expectPrivateEqual(after.facts, before.facts);
+      expectPrivateEqual(after.versions, before.versions);
+      expectPrivateEqual(after, before);
       expect(await prisma.performedSet.count({ where: { plannedSetId: factId } })).toBe(1);
       expectPrivateEqual(child, sent);
     });

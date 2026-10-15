@@ -28,6 +28,7 @@ import {
 import { resolvePositionAlias } from "./session-position";
 import { requestForegroundSync } from "./sync-coordinator";
 import { hydrateRecordedSets } from "./record-hydration";
+import { isNewerDraft } from "./draft-order";
 
 /** openapi PerformedSet 과 같은 모양(= /sync payload). */
 export type SetDraft = {
@@ -185,14 +186,18 @@ export const useSessionLog = create<SessionLogState>((set, get) => {
       const byCorrelation = new Map(
         mappings.map((mapping) => [mapping.correlation_id, mapping.planned_set_id]),
       );
-      set((current) => ({
-        drafts: Object.fromEntries(
-          Object.entries(current.drafts).map(([key, draft]) => {
-            const plannedSetId = byCorrelation.get(key) ?? key;
-            return [plannedSetId, { ...draft, planned_set_id: plannedSetId }];
-          }),
-        ),
-      }));
+      set((current) => {
+        const drafts = { ...current.drafts };
+        for (const [key, draft] of Object.entries(current.drafts)) {
+          const plannedSetId = byCorrelation.get(key);
+          if (!plannedSetId || plannedSetId === key) continue;
+          const canonical = drafts[plannedSetId];
+          delete drafts[key];
+          if (isNewerDraft(draft, canonical))
+            drafts[plannedSetId] = { ...draft, planned_set_id: plannedSetId };
+        }
+        return { drafts };
+      });
     },
 
     refreshFromMirror: async (sessionId) => {
@@ -210,6 +215,7 @@ export const useSessionLog = create<SessionLogState>((set, get) => {
     },
 
     publishSessionRead: async (sessionId, session) => {
+      if (session.id !== sessionId) throw new Error("Session read identity mismatch");
       const [stored, pending] = await Promise.all([
         loadDrafts(DEV_USER_SCOPE, sessionId).catch(() => null),
         pendingPerformedIds(DEV_USER_SCOPE).catch(() => null),
