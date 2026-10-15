@@ -25,6 +25,7 @@ import { captureAppendSource } from "../components/session/session-set-append";
 import { saveRestTimer, loadRestTimer } from "../components/session/rest-timer-store";
 import { useSessionLog } from "../components/session/session-store";
 import { expectPrivateEqual } from "./support/private-record-assertions";
+import { isNewerDraft } from "../components/session/draft-order";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const scope = { user_id: "append-owner", session_id: id(1) };
@@ -387,16 +388,20 @@ it("rolls ACK remap back with the original pending bytes when the existing mappi
   expect(await sessionDb.drafts.get([scope.user_id, scope.session_id, id(500)])).toBeUndefined();
 });
 
-it.each([
+const remapOrderCases = [
   ["canonical first, later timestamp", false, "2026-08-14T10:01:00.000Z", 301, "canonical"],
   ["provisional first, later timestamp", true, "2026-08-14T10:01:00.000Z", 301, "canonical"],
   ["canonical UUID wins timestamp tie", false, t0, 301, "canonical"],
   ["provisional UUID wins timestamp tie", true, t0, 299, "provisional"],
   ["provisional later timestamp", false, "2026-08-14T09:59:00.000Z", 301, "provisional"],
-] as const)(
-  "append ACK retains LWW winner: %s",
-  async (_name, provisionalFirst, canonicalTime, canonicalClient, winner) => {
-    await append();
+] as const;
+it.each(
+  [true, false].flatMap((isAppend) => remapOrderCases.map((row) => [isAppend, ...row] as const)),
+)(
+  "mapping ACK append=%s retains LWW winner: %s",
+  async (isAppend, _name, provisionalFirst, canonicalTime, canonicalClient, winner) => {
+    if (isAppend) await append();
+    expect((await readAppendState(scope)).entries).toHaveLength(isAppend ? 1 : 0);
     await commitDraft(scope.user_id, scope.session_id, draft(), "upsert");
     const transport = transportOf((await sessionDb.outbox.get(id(300)))!);
     const old = { ...draft(), ...scope };
@@ -435,9 +440,16 @@ it.each([
     } = (await sessionDb.drafts.get([scope.user_id, scope.session_id, id(500)]))!;
     expectPrivateEqual(useSessionLog.getState().drafts[id(500)], durable);
     expect(useSessionLog.getState().drafts[id(101)]).toBeUndefined();
-    expect(transportOf((await sessionDb.outbox.get(id(300)))!)).toEqual(transport);
+    expect(transportOf((await sessionDb.outbox.get(id(300)))!)).toEqual(
+      isAppend ? transport : { ...transport, entity_id: id(500) },
+    );
   },
 );
+
+it("the shared LWW order keeps the existing canonical on an equal timestamp and client", () => {
+  const current = { updated_at: t0, client_id: id(300) };
+  expect(isNewerDraft({ ...current }, current)).toBe(false);
+});
 
 it("keeps remediation completion drain pending for immutable provisional Y after C ACK until Y itself is ACKed", async () => {
   await append();
