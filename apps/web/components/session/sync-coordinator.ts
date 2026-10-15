@@ -475,17 +475,11 @@ export class SyncCoordinator {
         .toArray();
       for (const draft of drafts) {
         if (draft.user_id !== this.userId) continue;
-        const state = await readAppendState({ user_id: this.userId, session_id: draft.session_id });
-        const isAppend = state.entries.some(
-          (entry) =>
-            entry.provisional.id === mapping.correlation_id &&
-            entry.intent.transport.payload.exercise_id === mapping.planned_set.exercise_id &&
-            (entry.execution.canonical_id === null ||
-              entry.execution.canonical_id === mapping.planned_set_id),
-        );
-        const canonical = isAppend
-          ? await sessionDb.drafts.get([draft.user_id, draft.session_id, mapping.planned_set_id])
-          : undefined;
+        const canonical = await sessionDb.drafts.get([
+          draft.user_id,
+          draft.session_id,
+          mapping.planned_set_id,
+        ]);
         await sessionDb.drafts.delete([draft.user_id, draft.session_id, draft.planned_set_id]);
         if (isNewerDraft(draft, canonical))
           await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
