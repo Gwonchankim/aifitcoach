@@ -221,6 +221,7 @@ export async function refetchAuthoritativeSession(
     offlineFallback: false,
   }).catch(() => null);
   if (!fetched) return null;
+  await useSessionLog.getState().publishSessionRead(sessionId, fetched);
   queryClient.setQueryData<Session>(["session", sessionId], fetched);
   return fetched;
 }
@@ -398,8 +399,13 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
     queryKey: ["session", sessionId],
     // The query owns its durable fallback; an offline pause would prevent reading it.
     networkMode: "always",
-    queryFn: ({ signal }) =>
-      readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () => api.session(sessionId, signal)),
+    queryFn: async ({ signal }) => {
+      const read = await readThroughSession<Session>(DEV_USER_SCOPE, sessionId, () =>
+        api.session(sessionId, signal),
+      );
+      await useSessionLog.getState().publishSessionRead(sessionId, read);
+      return read;
+    },
   });
 
   const catalogQuery = useQuery({
@@ -842,7 +848,7 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
    * 세션 캐시만 갈아 끼우고 끝내면 대시보드가 옛 운동 수를 계속 보여준다.
    */
   const applySession = (updated: Session) => {
-    queryClient.setQueryData(["session", sessionId], updated);
+    queryClient.setQueryData(["session", updated.id], updated);
     void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     setEditError(null);
   };
@@ -908,7 +914,10 @@ export function SessionScreen({ sessionId }: { sessionId: string }) {
         () => api.session(sessionId),
         { offlineFallback: false },
       ).catch(() => null);
-      if (authoritative) return authoritative;
+      if (authoritative) {
+        await useSessionLog.getState().publishSessionRead(sessionId, authoritative);
+        return authoritative;
+      }
     }
     return committed ?? next;
   };

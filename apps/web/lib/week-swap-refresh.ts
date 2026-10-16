@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import { DEV_USER_SCOPE, readThroughSession } from "../components/session/session-db";
+import { useSessionLog } from "../components/session/session-store";
 import { dashboardReadModel, historySessionReadModel } from "./read-model-data";
 import { bumpWeekSwapEpoch } from "./week-swap-db";
 import { currentWeekReadModel } from "./week-swap-data";
@@ -45,6 +46,7 @@ export async function refreshAfterWeekSwap(
       const session = await readThroughSession(DEV_USER_SCOPE, id, () => api.session(id), {
         offlineFallback: false,
       });
+      await useSessionLog.getState().publishSessionRead(id, session);
       client.setQueryData(["session", id], session);
       const envelope = await historySessionReadModel(id);
       if (envelope.stale) throw new Error("latest session unavailable");

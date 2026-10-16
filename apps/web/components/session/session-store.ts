@@ -15,17 +15,20 @@
 
 import { create } from "zustand";
 import type { SetValues } from "./set-rules";
-import type { SyncResponse } from "../../lib/api";
+import type { Session, SyncResponse } from "../../lib/api";
 import {
   commitDraft,
   commitDraftBatch,
   DEV_USER_SCOPE,
   loadDrafts,
+  pendingPerformedIds,
   requestPersistentStorage,
   sessionDb,
 } from "./session-db";
 import { resolvePositionAlias } from "./session-position";
 import { requestForegroundSync } from "./sync-coordinator";
+import { hydrateRecordedSets } from "./record-hydration";
+import { isNewerDraft } from "./draft-order";
 
 /** openapi PerformedSet 과 같은 모양(= /sync payload). */
 export type SetDraft = {
@@ -56,6 +59,8 @@ type SessionLogState = {
   remapPlannedSets: (mappings: SyncResponse["planned_set_mappings"]) => void;
   /** Pull transaction이 반영한 현재 세션 draft를 메모리에 다시 싣는다. */
   refreshFromMirror: (sessionId: string) => Promise<void>;
+  /** Successful safe read publishes its projection even if the durable cache write failed. */
+  publishSessionRead: (sessionId: string, session: Session) => Promise<void>;
 };
 
 /**
@@ -181,19 +186,50 @@ export const useSessionLog = create<SessionLogState>((set, get) => {
       const byCorrelation = new Map(
         mappings.map((mapping) => [mapping.correlation_id, mapping.planned_set_id]),
       );
-      set((current) => ({
-        drafts: Object.fromEntries(
-          Object.entries(current.drafts).map(([key, draft]) => {
-            const plannedSetId = byCorrelation.get(key) ?? key;
-            return [plannedSetId, { ...draft, planned_set_id: plannedSetId }];
-          }),
-        ),
-      }));
+      set((current) => {
+        const drafts = { ...current.drafts };
+        for (const [key, draft] of Object.entries(current.drafts)) {
+          const plannedSetId = byCorrelation.get(key);
+          if (!plannedSetId || plannedSetId === key) continue;
+          const canonical = drafts[plannedSetId];
+          delete drafts[key];
+          if (isNewerDraft(draft, canonical))
+            drafts[plannedSetId] = { ...draft, planned_set_id: plannedSetId };
+        }
+        return { drafts };
+      });
     },
 
     refreshFromMirror: async (sessionId) => {
+      const before = get();
       const drafts = await loadDrafts(DEV_USER_SCOPE, sessionId);
-      if (get().sessionId === sessionId) set({ drafts });
+      if (get().sessionId !== sessionId || before.sessionId !== sessionId) return;
+      set((current) => {
+        for (const id of new Set([...Object.keys(before.drafts), ...Object.keys(current.drafts)])) {
+          if (current.drafts[id] === before.drafts[id]) continue;
+          if (current.drafts[id]) drafts[id] = current.drafts[id];
+          else delete drafts[id];
+        }
+        return { drafts };
+      });
+    },
+
+    publishSessionRead: async (sessionId, session) => {
+      if (session.id !== sessionId) throw new Error("Session read identity mismatch");
+      const [stored, pending] = await Promise.all([
+        loadDrafts(DEV_USER_SCOPE, sessionId).catch(() => null),
+        pendingPerformedIds(DEV_USER_SCOPE).catch(() => null),
+      ]);
+      if (get().sessionId !== sessionId) return;
+      if (stored === null || pending === null) {
+        // Unknown intent is not an empty outbox. Defer only this read and retry
+        // on the next successful read; never log identities or health values.
+        console.warn("Session record hydration deferred: local intent unavailable");
+        return;
+      }
+      set((current) => ({
+        drafts: hydrateRecordedSets(session, { ...stored, ...current.drafts }, pending),
+      }));
     },
   };
 });

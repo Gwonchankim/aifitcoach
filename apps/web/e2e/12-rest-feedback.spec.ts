@@ -17,7 +17,35 @@ import { expect, test } from "./fixtures";
 import { openSession, seedExternalLoadProgram, todaySession } from "./helpers";
 import { TEST_NOW } from "./test-today";
 
-type ProbeEvent = { seq: number; kind: string; store?: string; pattern?: number[] };
+type ProbeEvent = {
+  seq: number;
+  kind: string;
+  store?: string;
+  pattern?: number[];
+  entity_id?: string;
+  client_id?: string;
+  entity?: string;
+  op?: string;
+};
+function completionWrites(recorded: ProbeEvent[], clickedSet: string) {
+  const outbox = recorded.filter(
+    (event) =>
+      event.kind === "idb-put" &&
+      event.store === "outbox" &&
+      event.entity === "performed_set" &&
+      event.op === "upsert" &&
+      event.entity_id === clickedSet,
+  );
+  const clients = new Set(outbox.map((event) => event.client_id));
+  const drafts = recorded.filter(
+    (event) =>
+      event.kind === "idb-put" &&
+      event.store === "drafts" &&
+      event.entity_id === clickedSet &&
+      clients.has(event.client_id),
+  );
+  return { outbox, drafts };
+}
 
 declare global {
   interface Window {
@@ -47,6 +75,15 @@ async function installProbe(page: Page): Promise<void> {
       probe.events.push({ seq: (seq += 1), kind, ...detail } as ProbeEvent);
     };
     window.__afcProbe = probe;
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target =
+          event.target instanceof Element ? event.target.closest("[data-set-check]") : null;
+        if (target) record("set-click", { entity_id: target.getAttribute("data-set-check") });
+      },
+      true,
+    );
 
     class ProbeAudioContext {
       state = "running";
@@ -90,7 +127,20 @@ async function installProbe(page: Page): Promise<void> {
     // 세트 완료의 첫 비동기 저장은 Dexie(IndexedDB) 쓰기다. unlock 이 그보다 앞서야 한다.
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...args: unknown[]) {
-      record("idb-put", { store: this.name });
+      const value = args[0] as {
+        entity_id?: string;
+        planned_set_id?: string;
+        client_id?: string;
+        entity?: string;
+        op?: string;
+      };
+      record("idb-put", {
+        store: this.name,
+        entity_id: value.entity_id ?? value.planned_set_id,
+        client_id: value.client_id,
+        entity: value.entity,
+        op: value.op,
+      });
       return (put as (...a: unknown[]) => IDBRequest).apply(this, args);
     } as typeof put;
 
@@ -124,6 +174,13 @@ async function completeFirstSet(page: Page): Promise<string> {
   const name = ((await check.getAttribute("aria-label")) ?? "").replace(/ 1세트 완료 처리$/, "");
   await page.getByLabel(`${name} 1세트 무게, 킬로그램`).fill("40");
   await page.getByLabel(`${name} 1세트 횟수, 회`).fill("10");
+  expect(await countOf(page, "audiocontext")).toBe(0);
+  expect(
+    (await events(page)).filter(
+      (event) =>
+        event.kind === "idb-put" && event.store === "outbox" && event.entity === "performed_set",
+    ),
+  ).toHaveLength(0);
   await page.evaluate(() => {
     window.__afcProbe.events.length = 0;
   });
@@ -134,23 +191,45 @@ async function completeFirstSet(page: Page): Promise<string> {
   return name;
 }
 
-test("세트 완료 클릭에서 AudioContext unlock 이 첫 비동기 저장보다 먼저다", async ({ page }) => {
+test("세트 완료 클릭에서 AudioContext unlock 이 사용자 완료 저장보다 먼저다", async ({ page }) => {
   await installProbe(page);
   await completeFirstSet(page);
-
   const recorded = await events(page);
+  const click = recorded.find((event) => event.kind === "set-click");
+  const clickedSet = click?.entity_id;
+  expect(clickedSet).toBeTruthy();
   const unlockAt = recorded.find((event) => event.kind === "audiocontext")?.seq;
-  // 세트 완료의 저장은 초안과 아웃박스에 들어간다 — 그 두 스토어만 본다.
-  const firstWriteAt = recorded.find(
-    (event) => event.kind === "idb-put" && ["drafts", "outbox"].includes(event.store ?? ""),
-  )?.seq;
-
+  const writes = completionWrites(recorded, clickedSet!);
   expect(unlockAt, "완료 클릭이 AudioContext 를 열어야 한다").toBeDefined();
-  expect(firstWriteAt, "완료 클릭이 기록을 저장해야 한다").toBeDefined();
-  // await 뒤로 밀리면 이 순서가 뒤집힌다 — 사용자 제스처 밖이라 iOS 에서 무음이 된다.
-  expect(unlockAt!).toBeLessThan(firstWriteAt!);
-
-  // 아직 휴식이 끝나지 않았으므로 소리도 진동도 없다.
+  expect(click!.seq).toBeLessThan(unlockAt!);
+  // Pair the actual mutation's entity/client identity with its draft; read hydration has no such mutation.
+  expect(writes.outbox.length).toBeGreaterThan(0);
+  expect(writes.drafts.length).toBeGreaterThan(0);
+  for (const event of [...writes.drafts, ...writes.outbox])
+    expect(unlockAt!).toBeLessThan(event.seq);
+  // A read projection can arrive before or after audio and even concern this same planned set.
+  // It is never the draft paired with this completion mutation's client identity.
+  for (const seq of [unlockAt! - 1, unlockAt! + 1]) {
+    const background: ProbeEvent = {
+      seq,
+      kind: "idb-put",
+      store: "drafts",
+      entity_id: clickedSet!,
+      client_id: "unrelated-authority-client",
+    };
+    expect(completionWrites([background, ...recorded], clickedSet!)).toEqual(writes);
+  }
+  // An ordinary ACK echo can retain this same client identity and write the draft again.
+  // Cardinality is irrelevant: every paired write must follow the gesture's unlock.
+  const echo: ProbeEvent = {
+    ...writes.drafts[0],
+    seq: Math.max(...recorded.map((event) => event.seq)) + 1,
+  };
+  const echoedWrites = completionWrites([...recorded, echo], clickedSet!);
+  expect(echoedWrites.outbox).toEqual(writes.outbox);
+  expect(echoedWrites.drafts).toHaveLength(writes.drafts.length + 1);
+  for (const event of [...echoedWrites.drafts, ...echoedWrites.outbox])
+    expect(unlockAt!).toBeLessThan(event.seq);
   expect(await countOf(page, "beep-start")).toBe(0);
   expect(await countOf(page, "vibrate")).toBe(0);
 });

@@ -10,6 +10,28 @@ import {
 } from "../components/session/session-db";
 import { SyncCoordinator } from "../components/session/sync-coordinator";
 import type { PlannedSet, SyncRequest } from "../lib/api";
+import * as database from "../components/session/session-db";
+
+const performRecovery = database.processPerformedRecovery;
+async function settled(sync: SyncCoordinator) {
+  let recoveryFinishes = 0;
+  const observer = vi
+    .spyOn(database, "processPerformedRecovery")
+    .mockImplementation(async (...args) => {
+      try {
+        return await performRecovery(...args);
+      } finally {
+        recoveryFinishes += 1;
+      }
+    });
+  try {
+    await sync.request();
+    // Observe the real detached processor after remediation, rather than request's foreground return.
+    await vi.waitFor(() => expect(recoveryFinishes).toBeGreaterThan(0));
+  } finally {
+    observer.mockRestore();
+  }
+}
 
 const id = (last: string) => `00000000-0000-4000-8000-0000000000${last}`;
 const draft = (clientId = id("01")) => ({
@@ -842,19 +864,21 @@ describe("sync 가 실제로 marker processor 를 부른다", () => {
     });
     const fetched: string[] = [];
 
-    await new SyncCoordinator({
-      transport: async () => response() as never,
-      fetchSession: async (id) => {
-        fetched.push(id);
-        return {
-          id,
-          status: "scheduled",
-          planned_sets: [
-            { id: "ps-1", exercise_id: "e_bench_press", set_no: 1, load_kind: "external" },
-          ],
-        };
-      },
-    }).request();
+    await settled(
+      new SyncCoordinator({
+        transport: async () => response() as never,
+        fetchSession: async (id) => {
+          fetched.push(id);
+          return {
+            id,
+            status: "scheduled",
+            planned_sets: [
+              { id: "ps-1", exercise_id: "e_bench_press", set_no: 1, load_kind: "external" },
+            ],
+          };
+        },
+      }),
+    );
 
     expect(fetched).toEqual([sessionId]);
     expect(
@@ -936,21 +960,23 @@ describe("completion cleanup 의 durable 재시도", () => {
 
     // ── 첫 sync: completion 만 ack. transport 중에 실제 기록이 들어온다.
     let fetched = 0;
-    await new SyncCoordinator({
-      transport: async () => {
-        await commitDraft(
-          DEV_USER_SCOPE,
-          sessionId,
-          { ...draft(setClientId), planned_set_id: plannedSetId },
-          "upsert",
-        );
-        return response([completionClientId]) as never;
-      },
-      fetchSession: async () => {
-        fetched += 1;
-        return safeSession;
-      },
-    }).request();
+    await settled(
+      new SyncCoordinator({
+        transport: async () => {
+          await commitDraft(
+            DEV_USER_SCOPE,
+            sessionId,
+            { ...draft(setClientId), planned_set_id: plannedSetId },
+            "upsert",
+          );
+          return response([completionClientId]) as never;
+        },
+        fetchSession: async () => {
+          fetched += 1;
+          return safeSession;
+        },
+      }),
+    );
 
     // drain 이 안 끝났으니 아무것도 지우지 않는다.
     expect(await sessionDb.sessions.get([DEV_USER_SCOPE, sessionId])).toBeDefined();
@@ -1009,13 +1035,15 @@ describe("completion cleanup 의 durable 재시도", () => {
     });
 
     let fetched = 0;
-    await new SyncCoordinator({
-      transport: async () => response() as never,
-      fetchSession: async () => {
-        fetched += 1;
-        return safeSession;
-      },
-    }).request();
+    await settled(
+      new SyncCoordinator({
+        transport: async () => response() as never,
+        fetchSession: async () => {
+          fetched += 1;
+          return safeSession;
+        },
+      }),
+    );
 
     expect(fetched).toBe(0);
     expect(await sessionDb.syncMeta.get([DEV_USER_SCOPE, markerKey])).toBeDefined();

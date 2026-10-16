@@ -3105,6 +3105,14 @@ components:
                 format: uuid
                 description: performed_set은 planned_set_id, session/session_routine/session_set은 session ID다.
               op: { type: string, enum: [upsert, delete] }
+              session_id:
+                type: string
+                format: uuid
+                nullable: true
+                description: >
+                  performed_set 변경의 소유 세션 ID. 다른 엔티티에는 생략한다.
+                  과거 삭제된 planned set의 부모를 확인할 수 없으면 null이다.
+                  읽기 복구용 projection이며 mutation receipt·hash·멱등 identity에는 포함하지 않는다.
               data:
                 type: object
                 additionalProperties: true

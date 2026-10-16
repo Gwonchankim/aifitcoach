@@ -10,6 +10,8 @@ import {
   markRemediationPending,
   overtakeClaimsByAppliedFinishInTransaction,
   processRemediationMarkers,
+  deferPerformedChange,
+  processPerformedRecovery,
   refusedSessionOf,
   remediationStateOf,
   safeMappings,
@@ -20,6 +22,7 @@ import {
 } from "./session-db";
 import { remapRestTimersInTransaction } from "./rest-timer-store";
 import { normalizeSessionRecommendations } from "./recommendation-mirror";
+import { isNewerDraft } from "./draft-order";
 import { remapPositionsInTransaction } from "./session-position";
 import {
   acknowledgeAppendsInTransaction,
@@ -44,6 +47,9 @@ export type SyncResponseEventDetail = SyncResponse & {
 
 export type SyncClock = { now: () => number };
 export type SyncTransport = (body: SyncRequest) => Promise<SyncResponse>;
+type RecoveryRun = { requested: boolean; response: SyncResponse };
+/** Recovery is shared by the user scope in this document, independently of transport owners. */
+const recoveryRuns = new Map<string, RecoveryRun>();
 export type SyncCoordinatorOptions = {
   userId?: string;
   owner?: string;
@@ -171,6 +177,7 @@ export class SyncCoordinator {
   private async sync(): Promise<SyncResponse | null> {
     if (!(await this.acquireLease())) return null;
     const stopHeartbeat = this.startHeartbeat();
+    let response: SyncResponse;
     try {
       const [cursor, rows] = await Promise.all([
         sessionDb.syncMeta.get([this.userId, "cursor"]),
@@ -183,7 +190,7 @@ export class SyncCoordinator {
             a.updated_at.localeCompare(b.updated_at) || a.client_id.localeCompare(b.client_id),
         )
         .map(toWireMutation);
-      const response = await this.transport({
+      response = await this.transport({
         ...(cursor?.value ? { since: cursor.value } : {}),
         mutations,
       });
@@ -208,17 +215,41 @@ export class SyncCoordinator {
         window.dispatchEvent(
           new CustomEvent(SYNC_RESPONSE_EVENT, { detail: { ...response, ...committed } }),
         );
-      /**
-       * **"다음 sync 에서 authoritative refetch" 를 실제로 수행하는 곳이다.**
-       * 트랜잭션 밖에서 돈다 — 네트워크 왕복을 IDB 트랜잭션 안에 넣으면 트랜잭션이 죽는다.
-       * 실패해도 sync 자체를 실패시키지 않는다(marker 는 남아 다음 기회에 다시 시도한다).
-       */
-      await processRemediationMarkers(this.userId, this.fetchSession).catch(() => undefined);
-      return response;
     } finally {
       stopHeartbeat();
       await this.releaseLease().catch(() => undefined);
     }
+    // Unsent user intent takes priority. A recovery GET must hold neither this lease nor running.
+    this.scheduleRecovery(response);
+    return response;
+  }
+
+  private scheduleRecovery(response: SyncResponse): void {
+    const current = recoveryRuns.get(this.userId);
+    if (current) {
+      current.requested = true;
+      current.response = response;
+      return;
+    }
+    const run: RecoveryRun = { requested: false, response };
+    recoveryRuns.set(this.userId, run);
+    void (async () => {
+      do {
+        run.requested = false;
+        await processRemediationMarkers(this.userId, this.fetchSession).catch(() => undefined);
+        const recovered = await processPerformedRecovery(this.userId, this.fetchSession).catch(
+          () => [],
+        );
+        if (recovered.length && typeof window !== "undefined")
+          window.dispatchEvent(
+            new CustomEvent(SYNC_RESPONSE_EVENT, {
+              detail: { ...run.response, local_session_ids: recovered },
+            }),
+          );
+      } while (run.requested);
+    })().finally(() => {
+      if (recoveryRuns.get(this.userId) === run) recoveryRuns.delete(this.userId);
+    });
   }
 
   private async commitResponse(response: SyncResponse) {
@@ -444,23 +475,13 @@ export class SyncCoordinator {
         .toArray();
       for (const draft of drafts) {
         if (draft.user_id !== this.userId) continue;
-        const state = await readAppendState({ user_id: this.userId, session_id: draft.session_id });
-        const isAppend = state.entries.some(
-          (entry) =>
-            entry.provisional.id === mapping.correlation_id &&
-            entry.intent.transport.payload.exercise_id === mapping.planned_set.exercise_id &&
-            (entry.execution.canonical_id === null ||
-              entry.execution.canonical_id === mapping.planned_set_id),
-        );
-        const canonical = isAppend
-          ? await sessionDb.drafts.get([draft.user_id, draft.session_id, mapping.planned_set_id])
-          : undefined;
+        const canonical = await sessionDb.drafts.get([
+          draft.user_id,
+          draft.session_id,
+          mapping.planned_set_id,
+        ]);
         await sessionDb.drafts.delete([draft.user_id, draft.session_id, draft.planned_set_id]);
-        if (
-          !canonical ||
-          draft.updated_at > canonical.updated_at ||
-          (draft.updated_at === canonical.updated_at && draft.client_id > canonical.client_id)
-        )
+        if (isNewerDraft(draft, canonical))
           await sessionDb.drafts.put({ ...draft, planned_set_id: mapping.planned_set_id });
       }
     }
@@ -482,7 +503,7 @@ export class SyncCoordinator {
       const mapping = byCorrelation.get(row.entity_id);
       if (mapping)
         await sessionDb.outbox.put(
-          row.append_dependencies
+          row.append_dependencies || row.canonical_entity_id
             ? { ...row, canonical_entity_id: mapping.planned_set_id }
             : { ...row, entity_id: mapping.planned_set_id },
         );
@@ -557,6 +578,11 @@ export class SyncCoordinator {
   }
 
   private async applyChange(change: SyncResponse["changes"][number]): Promise<boolean> {
+    // Explicit null means the authoritative server has no owning planned set. Unlike
+    // old-server field absence, discard only the queue pointer; keep normal pull application.
+    if (change.entity === "performed_set" && change.session_id === null) {
+      await deferPerformedChange(this.userId, change.entity_id, null);
+    }
     // Exact deletion proof is not suppressed by an unacknowledged local routine/C intent.
     if (change.entity === "session_routine" && change.data && "tombstones" in change.data)
       await confirmAppendDeletionInTransaction(
@@ -586,6 +612,13 @@ export class SyncCoordinator {
             completed: false,
             updated_at: new Date(this.clock.now()).toISOString(),
           });
+        if (!draft)
+          await deferPerformedChange(
+            this.userId,
+            change.entity_id,
+            change.session_id,
+            change.server_seq,
+          );
         return draft != null;
       }
       if (!change.data) return false;
@@ -605,7 +638,15 @@ export class SyncCoordinator {
           Array.isArray(mirror.session.planned_sets) &&
           mirror.session.planned_sets.some((set) => isObject(set) && set.id === change.entity_id),
       );
-      if (!owning) return false;
+      if (!owning) {
+        await deferPerformedChange(
+          this.userId,
+          change.entity_id,
+          change.session_id,
+          change.server_seq,
+        );
+        return false;
+      }
       const data = change.data as Record<string, unknown>;
       await sessionDb.drafts.put({
         user_id: this.userId,
