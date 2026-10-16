@@ -1,12 +1,20 @@
 /** GitHub's disposable Linux runner only. Preserve the existing observer boundaries. */
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import console from "node:console";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import {
+  loadManifest,
+  parseStage,
+  preflight,
+  requiredCases,
+  validateAllocation,
+  validateExecution,
+} from "./ci-e2e.manifest.mjs";
 
 export const phases = [
   {
@@ -85,15 +93,107 @@ export function phaseArgs(phase) {
   return args;
 }
 
-function cleanContainer(id, container, run) {
-  const info = JSON.parse(docker("inspect", id))[0];
+export function cleanContainer(id, container, run, command = docker) {
+  const info = JSON.parse(command("inspect", id))[0];
   if (info.Id !== id || info.Name !== `/${container}` || info.Config.Labels["afc.run"] !== run)
     throw new Error("Refusing cleanup: container ownership mismatch");
-  docker("stop", id);
-  docker("rm", "-v", id);
+  command("stop", id);
+  command("rm", "-v", id);
 }
 
-async function runPhase(phase) {
+/** Keep the original failure even when owned-resource cleanup also fails. */
+export async function withCleanup(operation, cleanup) {
+  let error;
+  try {
+    await operation();
+  } catch (caught) {
+    error = caught;
+  }
+  try {
+    await cleanup();
+  } catch (caught) {
+    if (error) throw new AggregateError([error, caught], "Phase and owned cleanup failed");
+    throw caught;
+  }
+  if (error) throw error;
+}
+
+/** The same boundary is used by the real runner and fake launchers (no DB in unit tests). */
+export function executeOwnedPhase(
+  { phase, owner, env, inspect, previous, context, expected },
+  {
+    launch = spawnSync,
+    writeProvenance = (c) => json(path.join(owner.output, "execution-provenance.json"), c),
+    readEvidence = () => ({
+      provenance: JSON.parse(
+        readFileSync(path.join(owner.output, "execution-provenance.json"), "utf8"),
+      ),
+      report: JSON.parse(readFileSync(context.reportPath, "utf8")),
+    }),
+    reportExists = existsSync,
+  } = {},
+) {
+  validateAllocation(owner, env, inspect, previous);
+  if (
+    !expected.length ||
+    context.phase !== phase.name ||
+    context.run !== owner.run ||
+    env.PLAYWRIGHT_JSON_OUTPUT_NAME !== context.reportPath ||
+    env.PLAYWRIGHT_JSON_OUTPUT_FILE !== context.reportPath ||
+    path.dirname(context.reportPath) !== owner.output ||
+    reportExists(context.reportPath)
+  )
+    throw new Error("Refusing empty or reused phase evidence");
+  previous.push(owner);
+  writeProvenance(context);
+  const result = launch(
+    "pnpm",
+    [...phaseArgs(phase), "--reporter=list,html,json", "--forbid-only"],
+    {
+      cwd: path.join(context.root, "apps/web"),
+      stdio: "inherit",
+      shell: false,
+      env,
+    },
+  );
+  if (result.error || result.signal || result.status !== 0)
+    throw new Error(`CI E2E child failed: ${phase.name}`);
+  let evidence;
+  try {
+    evidence = readEvidence();
+  } catch {
+    throw new Error(`CI E2E report missing: ${phase.name}`);
+  }
+  validateExecution(evidence, context, expected);
+}
+
+export async function runPhaseSeries(selectedPhases, execute) {
+  if (!selectedPhases.length) throw new Error("Empty phase run");
+  const results = [];
+  for (const phase of selectedPhases) {
+    try {
+      await execute(phase);
+      results.push({ phase: phase.name, status: "passed" });
+    } catch (error) {
+      results.push({
+        phase: phase.name,
+        status: "failed",
+        error: error.code ?? "PHASE_FAILED",
+        // Docker execFile errors can contain credentials in argv; preserve boundaries, not raw text.
+        failures:
+          error instanceof AggregateError
+            ? error.errors.map((e, i) => ({
+                boundary: i === 0 ? "phase" : "cleanup",
+                code: e.code ?? "OPERATION_FAILED",
+              }))
+            : [{ boundary: "phase", code: error.code ?? "OPERATION_FAILED" }],
+      });
+    }
+  }
+  return { results, exitCode: results.some((r) => r.status !== "passed") ? 1 : 0 };
+}
+
+async function runPhase(phase, expected, selectionHash, previous) {
   const run = randomUUID();
   const token = randomBytes(4).toString("hex");
   const label = `gen_s03_ci_${token}`;
@@ -118,45 +218,66 @@ async function runPhase(phase) {
   json(path.join(profiles, "physical-root.json"), descriptor);
   json(path.join(physical, ".afc-position-root.json"), descriptor);
   let id;
-  try {
-    id = docker(
-      "run",
-      "-d",
-      "--name",
-      container,
-      "--label",
-      `afc.run=${run}`,
-      "-e",
-      `POSTGRES_PASSWORD=${password}`,
-      "-p",
-      "127.0.0.1::5432",
-      "postgres:16",
-    );
-    const info = JSON.parse(docker("inspect", id))[0];
-    const port = Number(info.NetworkSettings.Ports["5432/tcp"][0].HostPort);
-    const owner = { label, container, names, dbPort: port, run, e2eUser: user };
-    json(path.join(output, "ownership.json"), owner);
-    json(path.join(output, "container-ownership.json"), { container, names, run, containerId: id });
-    let ready = false;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      const result = spawnSync("docker", ["exec", id, "pg_isready", "-U", "postgres"], {
-        stdio: "ignore",
-        timeout: 5_000,
+  await withCleanup(
+    async () => {
+      id = docker(
+        "run",
+        "-d",
+        "--name",
+        container,
+        "--label",
+        `afc.run=${run}`,
+        "-e",
+        `POSTGRES_PASSWORD=${password}`,
+        "-p",
+        "127.0.0.1::5432",
+        "postgres:16",
+      );
+      const info = JSON.parse(docker("inspect", id))[0];
+      const port = Number(info.NetworkSettings.Ports["5432/tcp"][0].HostPort);
+      const owner = {
+        label,
+        container,
+        names,
+        dbPort: port,
+        run,
+        e2eUser: user,
+        containerId: id,
+        profiles,
+        output,
+      };
+      json(path.join(output, "ownership.json"), owner);
+      json(path.join(output, "container-ownership.json"), {
+        container,
+        names,
+        run,
+        containerId: id,
       });
-      if (result.status === 0) {
-        ready = true;
-        break;
+      let ready = false;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const result = spawnSync("docker", ["exec", id, "pg_isready", "-U", "postgres"], {
+          stdio: "ignore",
+          timeout: 5_000,
+        });
+        if (result.status === 0) {
+          ready = true;
+          break;
+        }
+        await delay(1_000);
       }
-      await delay(1_000);
-    }
-    if (!ready) throw new Error("Owned PostgreSQL did not become ready");
-    const url = `postgresql://postgres:${password}@127.0.0.1:${port}/${names[1]}`;
-    console.log(`CI E2E phase: ${phase.name}`);
-    const result = spawnSync("pnpm", phaseArgs(phase), {
-      cwd: web,
-      stdio: "inherit",
-      shell: false,
-      env: {
+      if (!ready) throw new Error("Owned PostgreSQL did not become ready");
+      const url = `postgresql://postgres:${password}@127.0.0.1:${port}/${names[1]}`;
+      console.log(`CI E2E phase: ${phase.name}`);
+      const context = {
+        sha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
+        run,
+        phase: phase.name,
+        selectionHash,
+        root,
+        reportPath: path.join(output, "playwright-results.json"),
+        startedAt: new Date().toISOString(),
+      };
+      const env = {
         ...process.env,
         DATABASE_URL: url,
         DIRECT_URL: url,
@@ -167,29 +288,36 @@ async function runPhase(phase) {
         AFC_POSITION_PROFILE_ALLOCATION: path.join(profiles, "physical-root.json"),
         FIELD_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
         PLAYWRIGHT_HTML_OUTPUT_DIR: path.join(outputBase, `${phase.name}-report`),
-      },
-    });
-    if (result.error || result.status !== 0) throw new Error(`CI E2E phase failed: ${phase.name}`);
-  } finally {
-    if (id) cleanContainer(id, container, run);
-  }
+        PLAYWRIGHT_JSON_OUTPUT_NAME: context.reportPath,
+        PLAYWRIGHT_JSON_OUTPUT_FILE: context.reportPath,
+      };
+      executeOwnedPhase({ phase, owner, env, inspect: info, previous, context, expected });
+    },
+    () => {
+      if (id) cleanContainer(id, container, run);
+    },
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.env.GITHUB_ACTIONS !== "true" || process.platform !== "linux")
     throw new Error("This harness requires a disposable GitHub Actions Linux runner");
+  const stage = parseStage(process.argv.slice(2));
+  const manifest = loadManifest(root);
+  const selection = preflight({ root, manifest, phases, phaseArgs, stage });
+  const expected = requiredCases(manifest, stage);
   mkdirSync(outputBase, { recursive: true });
-  const failures = [];
-  for (const phase of phases) {
-    try {
-      await runPhase(phase);
-    } catch (error) {
-      console.error(error.message);
-      failures.push(phase.name);
-    }
-  }
-  if (failures.length) {
-    console.error(`Failed phases: ${failures.join(", ")}`);
-    process.exitCode = 1;
-  }
+  const previous = [];
+  const selectedPhases = phases.filter((p) => expected.some((r) => r.phase === p.name));
+  const result = await runPhaseSeries(selectedPhases, (phase) =>
+    runPhase(
+      phase,
+      expected.filter((r) => r.phase === phase.name),
+      selection.selectionHash,
+      previous,
+    ),
+  );
+  json(path.join(outputBase, `execution-${randomUUID()}.json`), { selection, ...result });
+  console.log(JSON.stringify(result));
+  process.exitCode = result.exitCode;
 }

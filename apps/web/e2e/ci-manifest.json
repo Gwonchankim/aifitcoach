@@ -1,0 +1,3124 @@
+{
+  "schemaVersion": 1,
+  "baselineSha": "7825c93ac9b1cc3ae8ae494b07ad7e693f6352cd",
+  "note": "Pinned expected cases, manually assigned by the approved 16-phase table from saved real --list discovery. Changes require review; runtime never regenerates this file. Existing legacy cases remain preserved-unported in regression/ledger.json.",
+  "conditional": [
+    {
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": [
+        "F8-1 휴식일에도 운동하기",
+        "휴식일에서 부위를 골라 즉석 세션을 만들고 그 세션으로 들어간다(실서버)"
+      ],
+      "browser": "chromium-mobile",
+      "reason": "Rest-day skip must not fire with the default Friday 2026-08-14 fixture.",
+      "condition": "default-friday-fixture",
+      "requiredOutcome": "passed"
+    },
+    {
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "@chromium-only owned persistent process: real 40s hidden, durable timer/actual/position, empty context"
+      ],
+      "browser": "chromium-mobile",
+      "reason": "Browser conditional skip must not fire on Chromium.",
+      "condition": "chromium-project",
+      "requiredOutcome": "passed"
+    }
+  ],
+  "cases": [
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-00",
+      "file": "apps/web/e2e/00-api-cors.spec.ts",
+      "case": ["허용된 origin 에는 Access-Control-Allow-Origin 을 준다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-00",
+      "file": "apps/web/e2e/00-api-cors.spec.ts",
+      "case": ["변경 요청 프리플라이트(OPTIONS)가 204 로 통과한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-00",
+      "file": "apps/web/e2e/00-api-cors.spec.ts",
+      "case": ["허용목록 밖 origin 에는 Access-Control-Allow-Origin 을 주지 않는다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-00",
+      "file": "apps/web/e2e/00-api-cors.spec.ts",
+      "case": ["브라우저에서 실제로 교차 출처 요청이 통과한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-00",
+      "file": "apps/web/e2e/00-clock.spec.ts",
+      "case": ["서버의 오늘 = 브라우저의 오늘 = 고정 날짜"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-01",
+      "file": "apps/web/e2e/01-onboarding-program-dashboard.spec.ts",
+      "case": [
+        "S1 온보딩 → S2 프로그램 → S3 대시보드",
+        "칩 선택으로 7스텝을 통과해 계획을 만들고, 제외 사유까지 확인한다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-01",
+      "file": "apps/web/e2e/01-onboarding-program-dashboard.spec.ts",
+      "case": [
+        "S1 온보딩 → S2 프로그램 → S3 대시보드",
+        "계획이 없으면 빈 상태가 '아직 없음 + 언제 생기는지 + 지금 할 수 있는 것'을 말한다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-01",
+      "file": "apps/web/e2e/01-onboarding-program-dashboard.spec.ts",
+      "case": [
+        "S1 온보딩 → S2 프로그램 → S3 대시보드",
+        "오늘 수행 완료(done) 상태에서는 [운동 시작]이 없다(AC-S3-1)"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-02",
+      "file": "apps/web/e2e/02-daily-routine.spec.ts",
+      "case": ["루틴 편집(추가) → 3종 종목 렌더 → 교체 → 삭제 → 세트 완료 → 종료 → 요약"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-02",
+      "file": "apps/web/e2e/02-daily-routine.spec.ts",
+      "case": ["카탈로그 도착 전에는 임시 이름 대신 스켈레톤을 보여준다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-02",
+      "file": "apps/web/e2e/02-daily-routine.spec.ts",
+      "case": ["종료한 당일 세션은 요약에서 명시적으로 편집을 재개한다(F6-1)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["실제 시간이 지나면 카운트다운과 진행 바 폭이 함께 줄어든다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["+30초 3연타는 정확히 90초 누적된다(AC-T-3)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["남은 시간 10분 상한에서 +버튼이 비활성되고 안내가 뜬다(AC-T-4)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["[휴식 종료]는 확인 없이 한 번의 탭으로 즉시 닫힌다(AC-T-5)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["Esc 로도 즉시 닫힌다(§4.6)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-03",
+      "file": "apps/web/e2e/03-rest-timer.spec.ts",
+      "case": ["0초 도달 시 자동으로 닫지 않고 '휴식 완료' 상태가 된다(§4.7, 가상 시계)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["404", "없는 세션 id 로 진입하면 안내 + [다시 불러오기] 가 보인다(E-6)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["404", "계획이 없으면 /program 은 빈 상태로 안내한다(E-5)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["400", "EZ바만 골라 계획을 만들면 장비 단계에서만 수정 안내가 뜬다(E-3, 실제 클릭)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["400", "카탈로그 준비 실패는 마지막 단계에서 서버 문제로 안내하고 이동하면 지운다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["409", "이미 루틴에 있는 운동은 추가 팝업에서 선택 자체가 막힌다(§3.3 예방)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["409", "서버가 실제로 409 를 주면 팝업 안에 안내가 뜬다(중복 종목)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["409", "다른 곳에서 오늘 세션이 종료돼도 계속 편집할 수 있다(F6-1)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["409", "다른 날짜의 종료된 세션은 읽기 전용이다(F6-1)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": [
+        "500 / 오프라인",
+        "대시보드 500 은 카드 단위로 격리되고 [다시 시도] 가 보인다(AC-S3-2)"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["500 / 오프라인", "화면을 띄운 뒤 네트워크가 끊기면 오프라인 문구가 보인다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["500 / 오프라인", "방문한 Pretendard 슬라이스는 서비스워커에서 오프라인 로드된다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": ["500 / 오프라인", "오프라인에서 새로고침해도 앱 셸이 뜬다(PWA)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-04",
+      "file": "apps/web/e2e/04-errors.spec.ts",
+      "case": [
+        "500 / 오프라인",
+        "오프라인 새로고침은 마지막 서버 대시보드와 동기화 시각을 복원한다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S1 온보딩 각 스텝"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S2 프로그램 확인"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["M-4 기록"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["T-UI-3 내 정보"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S3 대시보드"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S3 대시보드 · 프로그램 없음(빈 상태)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S4 루틴 · 타이머 팝업 · 편집 팝업(열린 상태)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["S5 요약"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-05",
+      "file": "apps/web/e2e/05-a11y.spec.ts",
+      "case": ["키보드만으로 세트 완료 → 타이머 → 휴식 종료 루프를 완주한다(AC-A-1)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["루틴 화면: 탭 타깃 실측 + 가로 스크롤 없음"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["RIR: 셰브론을 탭해 시트에서 고른다(iOS 경로, AC-RIR-5)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["루틴 화면 세로 스크롤 총량(밀도 회귀 가드)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["타이머 시트: +시간 버튼·[휴식 종료] 크기와 위치"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["온보딩 스텝 버튼이 엄지 범위에 오고 가운데가 비지 않는다(F0-0)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["온보딩·대시보드·프로그램에 가로 스크롤이 없다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["Pretendard Variable이 400·500·600·700을 브라우저별로 렌더한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["루틴 화면: 탭 타깃 실측 + 가로 스크롤 없음"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["RIR: 셰브론을 탭해 시트에서 고른다(iOS 경로, AC-RIR-5)"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["루틴 화면 세로 스크롤 총량(밀도 회귀 가드)"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["타이머 시트: +시간 버튼·[휴식 종료] 크기와 위치"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["온보딩 스텝 버튼이 엄지 범위에 오고 가운데가 비지 않는다(F0-0)"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["온보딩·대시보드·프로그램에 가로 스크롤이 없다"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-06",
+      "file": "apps/web/e2e/06-mobile.spec.ts",
+      "case": ["Pretendard Variable이 400·500·600·700을 브라우저별로 렌더한다"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-07",
+      "file": "apps/web/e2e/07-set-complete-success.spec.ts",
+      "case": ["종목 3종 성공 경로: 입력 → 체크 → 타이머 → 카운터 → 종료 시트 → 요약"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-07",
+      "file": "apps/web/e2e/07-set-complete-success.spec.ts",
+      "case": ["비보안 출처(실기기 http 접속)에서도 완료 체크가 동작한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": ["완료 행을 펼쳐 값만 고치면 휴식 타이머가 열리지 않는다(AC-SET-6/7/8)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": ["F6-1 종료한 당일 세션을 다시 열어 세트를 더하고 고친다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": ["F1-1 RIR 입력", "미입력으로 완료하면 요청 어디에도 RIR 이 실리지 않는다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": [
+        "F1-1 RIR 입력",
+        "한 칸에서 직접 입력·목록 선택이 되고 0~6 밖 값은 만들어지지 않는다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": [
+        "F8-1 휴식일에도 운동하기",
+        "휴식일에서 부위를 골라 즉석 세션을 만들고 그 세션으로 들어간다(실서버)"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": [
+        "F8-1 휴식일에도 운동하기",
+        "오늘 세션이 이미 있으면(409) 에러 없이 그 세션으로 이동한다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-08",
+      "file": "apps/web/e2e/08-spec-changes.spec.ts",
+      "case": ["F8-1 휴식일에도 운동하기", "7일 연속 운동했으면 회복 안내가 보인다(막지는 않는다)"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "loss 0: offline add/swap/immediate logging survives reload and a closed tab, then syncs exactly"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only 휴식을 닫고 곧바로 새로고침해도 타이머가 되살아나지 않는다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only 완료 취소 뒤 새로고침해도 그 세트 타이머가 없다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only a stale reconnect read cannot overwrite an applied routine mapping"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only response loss retries one server-received mutation without a duplicate performed set"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only a re-offline transport interruption preserves the outbox until exact eventual application"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only pull creates a missing local draft and applies a later tombstone"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only two tabs resolve the same planned set by later real-clock write and count it once"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "loss 0: offline add/swap/immediate logging survives reload and a closed tab, then syncs exactly"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-10",
+      "file": "apps/web/e2e/10-bottom-navigation.spec.ts",
+      "case": ["4탭 하단 IA: 링크·active 상태·390px 폭 예산을 고정한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-10",
+      "file": "apps/web/e2e/10-bottom-navigation.spec.ts",
+      "case": ["각 탭은 자신의 경로에서 aria-current=page가 된다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-10",
+      "file": "apps/web/e2e/10-bottom-navigation.spec.ts",
+      "case": ["세션과 온보딩에는 공용 하단 내비게이션이 없다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-11",
+      "file": "apps/web/e2e/11-m4-screens.spec.ts",
+      "case": ["M-4 홈은 16px 프레임·7열/4px 리듬·34/1fr/54px 볼륨과 색 역할을 고정한다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-11",
+      "file": "apps/web/e2e/11-m4-screens.spec.ts",
+      "case": ["ADR-70 early는 다음 추천과 관측 점을 표시하고 e1RM 선·값을 숨긴다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-11",
+      "file": "apps/web/e2e/11-m4-screens.spec.ts",
+      "case": [
+        "주간 프로그램은 actual 현재주와 일정 CTA를 표시하고 결제·미래 mutation을 노출하지 않는다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-11",
+      "file": "apps/web/e2e/11-m4-screens.spec.ts",
+      "case": [
+        "주간 프로그램은 transport 실패 때만 마지막 Program+completion snapshot을 stale로 복원한다"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-12",
+      "file": "apps/web/e2e/12-rest-feedback.spec.ts",
+      "case": ["세트 완료 클릭에서 AudioContext unlock 이 사용자 완료 저장보다 먼저다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-12",
+      "file": "apps/web/e2e/12-rest-feedback.spec.ts",
+      "case": ["타이머가 0에 닿으면 비프·진동이 각각 정확히 한 번이다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-12",
+      "file": "apps/web/e2e/12-rest-feedback.spec.ts",
+      "case": ["휴식을 더하면 그 타이머가 끝날 때 다시 한 번 울린다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-12",
+      "file": "apps/web/e2e/12-rest-feedback.spec.ts",
+      "case": ["백그라운드에서 끝난 휴식은 복귀해도 울리지 않는다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-13",
+      "file": "apps/web/e2e/13-recommendation-evidence.spec.ts",
+      "case": ["@chromium-only 완료 이력이 다음 세션의 추천 값·근거로 화면까지 이어진다"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_low_row_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_high_row_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_incline_chest_press_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_assisted_dips through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_chest_press_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_machine_row through sync API and keeps its name after reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 360px"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 390px"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 430px"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "swap uses the same all-region canonical search and persists the selected replacement"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "old106 partial-page failure preserves cache; retry fills111 and warm offline search survives reload @chromium-only"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "cold catalog offline reload shows connection retry instead of empty search @chromium-only"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_low_row_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_high_row_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_incline_chest_press_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_assisted_dips through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_chest_press_machine through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "search selects canonical e_machine_row through sync API and keeps its name after reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 360px"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 390px"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": ["search keyboard, clear/reopen, no overflow and axe at 430px"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "swap uses the same all-region canonical search and persists the selected replacement"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "catalog partial-failure transport",
+        "catalog-read-helper-calibration accepts native authority rows with synthetic comparison baselines"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "catalog partial-failure transport",
+        "cold partial failure has no cache or false empty results; explicit retry preserves query and completes"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "catalog partial-failure transport",
+        "catalog-read-helper-calibration accepts native authority rows with synthetic comparison baselines"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "catalog partial-failure transport",
+        "cold partial failure has no cache or false empty results; explicit retry preserves query and completes"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-15",
+      "file": "apps/web/e2e/15-assistance-suggestion.spec.ts",
+      "case": [
+        "minimum pullup+dips suggestions survive GET, reload, offline/reload and reconnect without mutations @chromium-only"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-15",
+      "file": "apps/web/e2e/15-assistance-suggestion.spec.ts",
+      "case": [
+        "catalog pending/failure and defensive action variants never show a guessed target @chromium-only"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["360px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["390px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["430px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "completed expanded row restores offline without copying uncommitted text @chromium-only"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["API-blocked same-context new page restores committed timer position"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["API-blocked same-context new page restores committed expanded position"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["deleted active exercise uses current membership fallback, not old position"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "@chromium-only owned persistent process: real 40s hidden, durable timer/actual/position, empty context"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "persistent-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["360px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["390px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["430px: active row survives A→B→A/reload; keyboard, overflow and axe"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["API-blocked same-context new page restores committed timer position"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["API-blocked same-context new page restores committed expanded position"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": ["deleted active exercise uses current membership fallback, not old position"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "read observers see user upsert/delete and normal server actual changes"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "successful completion clears position; explicit same-day edit persists new expanded row"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "no saved target and all server sets completed falls back to summary"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "read observers see user upsert/delete and normal server actual changes"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "successful completion clears position; explicit same-day edit persists new expanded row"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "summary-only read projection (sync transport held; not an offline/SW claim)",
+        "no saved target and all server sets completed falls back to summary"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "routine ACK remaps committed position/actual/timer; newer input=false"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "routine ACK remaps committed position/actual/timer; newer input=true"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "late authoritative GET cannot reset a more recent explicit input/focus"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "routine ACK remaps committed position/actual/timer; newer input=false"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "routine ACK remaps committed position/actual/timer; newer input=true"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "narrow ACK/GET transport races (separate from actual SW offline cases)",
+        "late authoritative GET cannot reset a more recent explicit input/focus"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-01 real button, immutable source, exact public copy and canonical ACK position"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-02 offline A to B to actual X to fixed completion C, real held reconnect bytes"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-03 a new direct-remove event deletes exact remote rows and preserves unrelated appended actual"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-04 delayed old deletion preserves same-exercise re-add, new correlation, actual and position"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-05 direct swap removes exact old identity without attaching its offline actual to replacement"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-06 360px completed explicit edit appends with keyboard, Escape, axe and exact ACK position"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-07 430px completed explicit edit appends with keyboard, Escape, axe and exact ACK position"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-01 real button, immutable source, exact public copy and canonical ACK position"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-02 offline A to B to actual X to fixed completion C, real held reconnect bytes"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-03 a new direct-remove event deletes exact remote rows and preserves unrelated appended actual"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-04 delayed old deletion preserves same-exercise re-add, new correlation, actual and position"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-05 direct swap removes exact old identity without attaching its offline actual to replacement"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-06 360px completed explicit edit appends with keyboard, Escape, axe and exact ACK position"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 narrow actual transport at 390px (service workers blocked)",
+        "A17-07 430px completed explicit edit appends with keyboard, Escape, axe and exact ACK position"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 G4 SW-enabled append (no route interception)",
+        "A17-08 SW-enabled existing-document offline append chain and actual survive real reconnect ACK"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 G4 SW-enabled append (no route interception)",
+        "A17-09 @chromium-only SW-enabled native whole-offline reload restores append actual position and timer"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "core-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 G4 SW-enabled append (no route interception)",
+        "A17-08 SW-enabled existing-document offline append chain and actual survive real reconnect ACK"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-01 sample0 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "native-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-02 sample1 offline chain+actual/new-document parity; real response loss and one reconnect: ACK-before-staleGET settlement: canceled superseded GET, fresh authority committed"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "native-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-03 sample2 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "native-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-04 sample3 offline chain+actual/new-document parity; real response loss and one reconnect: ACK-before-staleGET settlement: canceled superseded GET, fresh authority committed"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "native-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-05 sample3 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "native-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-01 sample0 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "native-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-02 sample1 offline chain+actual/new-document parity; real response loss and one reconnect: ACK-before-staleGET settlement: canceled superseded GET, fresh authority committed"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "native-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-03 sample2 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "native-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-04 sample3 offline chain+actual/new-document parity; real response loss and one reconnect: ACK-before-staleGET settlement: canceled superseded GET, fresh authority committed"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "native-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-18",
+      "file": "apps/web/e2e/18-assistance-append.spec.ts",
+      "case": [
+        "M4 native pullup+dips: SW-blocked transport, same-context document-online/API-blocked restoration",
+        "M18-05 sample3 offline chain+actual/new-document parity; real response loss and one reconnect: current GET before retry ACK"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "native-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-01 sample0 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-02 sample0 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-03 sample2 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-04 sample2 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-05 sample3 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-06 sample3 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "historical-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-01 sample0 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-02 sample0 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-03 sample2 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-04 sample2 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-05 sample3 external: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-19",
+      "file": "apps/web/e2e/19-assistance-historical.spec.ts",
+      "case": [
+        "M4 historical INSERT fixture: display gate only, scheduled target GET/UI/append/reload",
+        "H19-06 sample3 remediated: exact fixture refusals, GET gate, UI append ACK and reload"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "historical-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-20",
+      "file": "apps/web/e2e/20-similar-init.spec.ts",
+      "case": ["참고값 → 실제 수행 → 다음 세션 실측 추천"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "similar-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["current week CTA swaps actual dates and converges session/dashboard after reload"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["closing preserves focus, mode resets, and offline never submits a swap"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["a saved local draft disables swap without deleting records or entering one-off"],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["current week CTA swaps actual dates and converges session/dashboard after reload"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["closing preserves focus, mode resets, and offline never submits a swap"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": ["a saved local draft disables swap without deleting records or entering one-off"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "lost successful POST survives reload and result check uses the exact client_id and body"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "unknown candidate reason fails closed without falling into one-off"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "a held pre-swap current-week GET cannot restore old dates in program DOM or durable mirror"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "lost successful POST survives reload and result check uses the exact client_id and body"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "unknown candidate reason fails closed without falling into one-off"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-21",
+      "file": "apps/web/e2e/21-weekly-focus-swap.spec.ts",
+      "case": [
+        "weekly swap narrow transport faults (service workers blocked)",
+        "a held pre-swap current-week GET cannot restore old dates in program DOM or durable mirror"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "weekly-focus-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["profile_clear_then_generate_uses_balanced"],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["five_day_lower_priority_persists_real_mixed_plan"],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["four_day_priority_rejects_without_write"],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["mixed_cardio_survives_lazy_reload_and_offline_read"],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["profile_clear_then_generate_uses_balanced"],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["five_day_lower_priority_persists_real_mixed_plan"],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["four_day_priority_rejects_without_write"],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-22",
+      "file": "apps/web/e2e/22-split-preference.spec.ts",
+      "case": ["mixed_cardio_survives_lazy_reload_and_offline_read"],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "split-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-23",
+      "file": "apps/web/e2e/23-cardio-prescription-read.spec.ts",
+      "case": ["real reserved POST preserves cardio through lazy GET, reload and offline reading"],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "cardio-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-23",
+      "file": "apps/web/e2e/23-cardio-prescription-read.spec.ts",
+      "case": [
+        "reserved generation rejects unknown pain and absent bike without replacing the current program"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "cardio-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-23",
+      "file": "apps/web/e2e/23-cardio-prescription-read.spec.ts",
+      "case": ["real reserved POST preserves cardio through lazy GET, reload and offline reading"],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "cardio-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-23",
+      "file": "apps/web/e2e/23-cardio-prescription-read.spec.ts",
+      "case": [
+        "reserved generation rejects unknown pain and absent bike without replacing the current program"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.v2-split.config.ts",
+      "phase": "cardio-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "D6·D8 online: KST 08:30→09:30 crosses UTC midnight; the previous day stays editable and keeps its date"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "D6 offline-first: every first write leaves the device only after UTC midnight and is accepted"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "P1: a set logged offline that reaches the server after the window closed is surfaced, not silently dropped"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "C4 on the real API: an offline set and finish refused two days later — the summary is withdrawn and both are named"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "P1: the browser's clock lags the server — what was not saved is said, without a date reason (evaluator 367b598c)"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only P1: session reads fail after the refusal — it is still said (evaluator 367b598c)"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only re-entry: refused while on the dashboard, said once when the session is opened"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only re-entry far down: the refusal is in view where the screen restores the position"
+      ],
+      "browser": "chromium-mobile",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-c",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "D6·D8 online: KST 08:30→09:30 crosses UTC midnight; the previous day stays editable and keeps its date"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "D6 offline-first: every first write leaves the device only after UTC midnight and is accepted"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "P1: a set logged offline that reaches the server after the window closed is surfaced, not silently dropped"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "C4 on the real API: an offline set and finish refused two days later — the summary is withdrawn and both are named"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "P1: the browser's clock lags the server — what was not saved is said, without a date reason (evaluator 367b598c)"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed"
+    }
+  ],
+  "exclusions": [
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only 휴식을 닫고 곧바로 새로고침해도 타이머가 되살아나지 않는다"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only 완료 취소 뒤 새로고침해도 그 세트 타이머가 없다"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only a stale reconnect read cannot overwrite an applied routine mapping"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only response loss retries one server-received mutation without a duplicate performed set"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only a re-offline transport interruption preserves the outbox until exact eventual application"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": ["@chromium-only pull creates a missing local draft and applies a later tombstone"],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-09",
+      "file": "apps/web/e2e/09-offline-sync.spec.ts",
+      "case": [
+        "@chromium-only two tabs resolve the same planned set by later real-clock write and count it once"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "old106 partial-page failure preserves cache; retry fills111 and warm offline search survives reload @chromium-only"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-14",
+      "file": "apps/web/e2e/14-catalog-search.spec.ts",
+      "case": [
+        "cold catalog offline reload shows connection retry instead of empty search @chromium-only"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "completed expanded row restores offline without copying uncommitted text @chromium-only"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-16",
+      "file": "apps/web/e2e/16-session-position.spec.ts",
+      "case": [
+        "@chromium-only owned persistent process: real 40s hidden, durable timer/actual/position, empty context"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-17",
+      "file": "apps/web/e2e/17-session-set-append.spec.ts",
+      "case": [
+        "ticket04 G4 SW-enabled append (no route interception)",
+        "A17-09 @chromium-only SW-enabled native whole-offline reload restores append actual position and timer"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.config.ts",
+      "phase": "core-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only P1: session reads fail after the refusal — it is still said (evaluator 367b598c)"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only re-entry: refused while on the dashboard, said once when the session is opened"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    },
+    {
+      "stage": "product",
+      "requirement": "LEGACY-E2E-24",
+      "file": "apps/web/e2e/24-fact-window.spec.ts",
+      "case": [
+        "@chromium-only re-entry far down: the refusal is in view where the screen restores the position"
+      ],
+      "browser": "webkit-ios",
+      "config": "playwright.fact-window.config.ts",
+      "phase": "fact-window-w",
+      "repeatEachIndex": 0,
+      "principalScope": "fresh-per-phase",
+      "requiredOutcome": "passed",
+      "condition": "webkit-chromium-only",
+      "reason": "TEST_SCOPE: Chromium owns the full SW/fault/persistent-process matrix; WebKit navigation/route emulation differs."
+    }
+  ]
+}

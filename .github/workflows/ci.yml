@@ -19,11 +19,17 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: "pnpm" }
       - run: pnpm install --frozen-lockfile
+      - run: pnpm ci:bootstrap
+      - run: node scripts/rebuild-fixtures.mjs
+      - run: pnpm exec tsc -p scripts/tsconfig.rebuild-api-types.json --noEmit
+      - run: node --test scripts/rebuild-bootstrap.test.mjs scripts/rebuild-fixtures.test.mjs
       # openapi.yaml만 바뀌고 생성물이 stale 해지는 것을 막는다(계약 드리프트 가드).
       - run: pnpm codegen
       - run: git diff --exit-code apps/web/lib/api-types.ts
       - run: pnpm typecheck
-      - run: node --test scripts/ci-e2e.test.mjs
+      - run: node --test scripts/ci-e2e.test.mjs scripts/ci-e2e.manifest.test.mjs
+      # Discovery only: no webServer/globalSetup/DB is started by --list.
+      - run: node scripts/ci-e2e.manifest.mjs --stage product
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build
@@ -48,6 +54,13 @@ jobs:
       # 각 phase가 새 loopback DB/container/principal과 검증 가능한 소유권 manifest를 만든다.
       # headed persistent Chromium도 생략하지 않고 Xvfb에서 실행한다.
       - run: xvfb-run --auto-servernum node scripts/ci-e2e.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-selection-summary
+          path: apps/web/e2e/.artifacts-ci/execution-*.json
+          include-hidden-files: true
+          retention-days: 7
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
