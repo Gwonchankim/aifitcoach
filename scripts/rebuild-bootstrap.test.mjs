@@ -30,6 +30,7 @@ import {
   BASELINE,
   LEDGER_PATH,
   formatReport,
+  STAGES,
   lockImporters,
   parseArgs,
   runChecks,
@@ -198,7 +199,9 @@ function makeRepo(t) {
   return repo;
 }
 
-const check = (repo, stage) => runChecks({ root: repo.root, expected: repo.expected, stage });
+// 기존 반례는 단계를 명시해 m0-01 당시 범위를 그대로 검증한다(CLI 기본 단계 상향에 묻어가지 않는다).
+const check = (repo, stage = "m0-01") =>
+  runChecks({ root: repo.root, expected: repo.expected, stage });
 const failedChecks = (result) => [...new Set(result.failures.map((f) => f.check))].sort();
 const messagesOf = (result, number) =>
   result.failures
@@ -427,7 +430,7 @@ test("기대 분류 digest(typeDigest)가 없으면 검사 1 RED(fail closed), �
   const repo = makeRepo(t);
   const expected = { ...repo.expected };
   delete expected.typeDigest;
-  const red = runChecks({ root: repo.root, expected });
+  const red = runChecks({ root: repo.root, expected, stage: "m0-01" });
   assert.equal(red.ok, false);
   assert.deepEqual(failedChecks(red), [1]);
   assert.match(messagesOf(red, 1), /기대 분류 digest\(typeDigest\)가 없다/);
@@ -549,6 +552,57 @@ test("알 수 없는 단계·인자는 실패하고, 실제 CLI 기준선 값은
       typeDigest: "098259acf3816cda51a43077a71eb3a759943399b21c9d71d2abe4a38fa3af61",
     },
   );
+});
+
+const M0_03_FILES = [
+  "scripts/rebuild-fixtures.mjs",
+  "scripts/rebuild-fixtures.test.mjs",
+  "scripts/rebuild-api-types.check.ts",
+  "scripts/tsconfig.rebuild-api-types.json",
+];
+
+test("m0-03 합성 후보는 명시 m0-03·기본 단계 GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of M0_03_FILES) write(repo, rel, "// m0-03 모의 파일\n");
+  const explicit = check(repo, "m0-03");
+  const byDefault = runChecks({ root: repo.root, expected: repo.expected });
+  for (const result of [explicit, byDefault]) {
+    assert.deepEqual(result.failures, []);
+    assert.equal(result.ok, true);
+    assert.equal(result.summary.stage, "m0-03");
+    assert.deepEqual(result.summary.newFiles, [LEDGER_PATH, ...M0_03_FILES].sort());
+    assert.deepEqual(result.summary.ran, [0, 1, 2, 3, 4, 5, 6]);
+  }
+  // m0-01 의 엄격 범위는 그대로다 — 같은 대상에서 M0-03 파일 4개가 allowlist 밖으로 잡힌다.
+  const strict = check(repo, "m0-01");
+  assert.equal(strict.ok, false);
+  assert.deepEqual(failedChecks(strict), [5]);
+  for (const rel of M0_03_FILES) {
+    assert.ok(messagesOf(strict, 5).includes(`${rel}: 기준선 밖 파일이 이 단계 allowlist 에 없다`));
+  }
+  for (const rel of M0_03_FILES) unlinkSync(fileOf(repo, rel));
+  assertGreen(repo);
+});
+
+test("기본 단계는 m0-03 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
+  assert.deepEqual(parseArgs([]), { stage: "m0-03" });
+  assert.deepEqual(parseArgs(["--stage=m0-03"]), { stage: "m0-03" });
+  assert.deepEqual(parseArgs(["--stage", "m0-01"]), { stage: "m0-01" });
+  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03"]);
+  // m0-03 은 신규 파일만 누적한다 — 그 밖 보호 규칙은 m0-01 과 같은 값이다.
+  const { newFiles: strictFiles, ...strictRules } = STAGES["m0-01"];
+  const { newFiles, ...rules } = STAGES["m0-03"];
+  assert.deepEqual(rules, strictRules);
+  assert.deepEqual(newFiles, [...strictFiles, ...M0_03_FILES]);
+  assert.ok(
+    Object.isFrozen(STAGES) && Object.isFrozen(STAGES["m0-03"]) && Object.isFrozen(newFiles),
+  );
+
+  // 인자 없는 CLI 도 m0-03 을 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
+  const repo = makeRepo(t);
+  const run = spawnSync(process.execPath, [CLI], { cwd: repo.root, encoding: "utf8" });
+  assert.equal(run.status, 1);
+  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-03 · /m);
 });
 
 test("lockImporters 는 v9 importers 의 specifier 만 읽고 다른 형식은 거부한다", () => {

@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-01)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-03)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -58,8 +58,9 @@ export const initialStatus = (type) =>
 /**
  * 단계별 규칙. 알 수 없는 단계는 실패한다 — 미래 단계를 성공 no-op 으로 두지 않는다.
  * m0-01: package.json 의 ci:bootstrap 추가와 아래 신규 3파일만 허용. 기준선 바이트·상태 전환 0.
+ * m0-03: 허용 신규 파일만 누적(m0-01 3 + 원천 fixture 검증 2 + 생성 타입 소비 검사 2). 그 밖 보호는 m0-01 그대로.
  */
-export const STAGES = Object.freeze({
+const stages = {
   "m0-01": Object.freeze({
     newFiles: Object.freeze([
       LEDGER_PATH,
@@ -83,7 +84,21 @@ export const STAGES = Object.freeze({
       "packages/shared": "packages/shared/package.json",
     }),
   }),
+};
+stages["m0-03"] = Object.freeze({
+  ...stages["m0-01"],
+  newFiles: Object.freeze([
+    ...stages["m0-01"].newFiles,
+    "scripts/rebuild-fixtures.mjs",
+    "scripts/rebuild-fixtures.test.mjs",
+    "scripts/rebuild-api-types.check.ts",
+    "scripts/tsconfig.rebuild-api-types.json",
+  ]),
 });
+export const STAGES = Object.freeze(stages);
+
+/** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
+const DEFAULT_STAGE = "m0-03";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));
@@ -492,7 +507,7 @@ function checkLifecycle(root, rows, working, rules, fail, summary) {
  * 전체 검사. expected 기본값은 고정 BASELINE 이다(합성 저장소 시험만 다른 값을 넣는다).
  * 반환: { ok, failures: [{ check, message }], summary }
  */
-export function runChecks({ root, expected = BASELINE, stage = "m0-01" }) {
+export function runChecks({ root, expected = BASELINE, stage = DEFAULT_STAGE }) {
   const failures = [];
   const fail = (check, message) => failures.push({ check, message });
   // ran: 실제로 실행한 검사 번호. 조기 반환하면 뒤 검사는 빠지고 formatReport 가 '미실행'으로 적는다.
@@ -536,7 +551,7 @@ export function runChecks({ root, expected = BASELINE, stage = "m0-01" }) {
 }
 
 export function parseArgs(argv) {
-  let stage = "m0-01";
+  let stage = DEFAULT_STAGE;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--stage" && index + 1 < argv.length) stage = argv[++index];
