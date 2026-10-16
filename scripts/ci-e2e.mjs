@@ -101,6 +101,9 @@ export function cleanContainer(id, container, run, command = docker) {
   command("rm", "-v", id);
 }
 
+// Private identity marker: preserve the original Error without trusting/mutating its fields.
+const cleanupFailures = new WeakSet();
+
 /** Keep the original failure even when owned-resource cleanup also fails. */
 export async function withCleanup(operation, cleanup) {
   let error;
@@ -113,6 +116,7 @@ export async function withCleanup(operation, cleanup) {
     await cleanup();
   } catch (caught) {
     if (error) throw new AggregateError([error, caught], "Phase and owned cleanup failed");
+    if (caught instanceof Error) cleanupFailures.add(caught);
     throw caught;
   }
   if (error) throw error;
@@ -175,13 +179,15 @@ export async function runPhaseSeries(selectedPhases, execute) {
       await execute(phase);
       results.push({ phase: phase.name, status: "passed" });
     } catch (error) {
+      const cleanupOnly = cleanupFailures.delete(error);
       results.push({
         phase: phase.name,
         status: "failed",
-        error: error.code ?? "PHASE_FAILED",
+        error: cleanupOnly ? "CLEANUP_FAILED" : (error.code ?? "PHASE_FAILED"),
         // Docker execFile errors can contain credentials in argv; preserve boundaries, not raw text.
-        failures:
-          error instanceof AggregateError
+        failures: cleanupOnly
+          ? [{ boundary: "cleanup", code: "CLEANUP_FAILED" }]
+          : error instanceof AggregateError
             ? error.errors.map((e, i) => ({
                 boundary: i === 0 ? "phase" : "cleanup",
                 code: e.code ?? "OPERATION_FAILED",

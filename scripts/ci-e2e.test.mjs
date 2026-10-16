@@ -14,6 +14,95 @@ import path from "node:path";
 import { URL, fileURLToPath } from "node:url";
 const { structuredClone } = globalThis;
 
+test("P3-01 QA reproduction classifies cleanup-only failure as cleanup", async () => {
+  const result = await runPhaseSeries([{ name: "cleanup-only" }], () =>
+    withCleanup(
+      () => {},
+      () => {
+        throw new Error("qa-cleanup-only");
+      },
+    ),
+  );
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(result.results[0], {
+    phase: "cleanup-only",
+    status: "failed",
+    error: "CLEANUP_FAILED",
+    failures: [{ boundary: "cleanup", code: "CLEANUP_FAILED" }],
+  });
+});
+
+test("P3-01 actual operation/cleanup combinations retain boundaries and subsequent success cannot clear failure", async () => {
+  for (const [operationFails, cleanupFails, boundaries] of [
+    [false, false, []],
+    [true, false, ["phase"]],
+    [false, true, ["cleanup"]],
+    [true, true, ["phase", "cleanup"]],
+  ]) {
+    const order = [];
+    const result = await runPhaseSeries([{ name: "first" }, { name: "later-success" }], (phase) => {
+      if (phase.name === "later-success") {
+        order.push("later");
+        return;
+      }
+      return withCleanup(
+        () => {
+          order.push("operation");
+          if (operationFails) throw new Error("operation failed");
+        },
+        () => {
+          order.push("cleanup");
+          if (cleanupFails) throw new Error("cleanup failed");
+        },
+      );
+    });
+    assert.deepEqual(order, ["operation", "cleanup", "later"]);
+    assert.deepEqual(result.results[0].failures?.map((f) => f.boundary) ?? [], boundaries);
+    assert.equal(result.results[0].status, boundaries.length ? "failed" : "passed");
+    assert.equal(result.results[1].status, "passed");
+    assert.equal(result.exitCode, boundaries.length ? 1 : 0);
+  }
+});
+
+test("P3-01 cleanup-only summary normalizes untrusted error fields and preserves the original error", async () => {
+  const secret = "synthetic-private-argv-and-password";
+  const failure = Object.freeze(
+    Object.assign(new Error(secret), { code: secret, boundary: secret, argv: [secret] }),
+  );
+  await assert.rejects(
+    withCleanup(
+      () => {},
+      () => {
+        throw failure;
+      },
+    ),
+    (error) => {
+      assert.equal(error, failure);
+      assert.equal(error.message, secret);
+      return true;
+    },
+  );
+  const result = await runPhaseSeries([{ name: "cleanup-only" }], () =>
+    withCleanup(
+      () => {},
+      () => {
+        throw failure;
+      },
+    ),
+  );
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.results[0].error, "CLEANUP_FAILED");
+  assert.deepEqual(result.results[0].failures, [{ boundary: "cleanup", code: "CLEANUP_FAILED" }]);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
+  const unmarked = Object.assign(new Error("ordinary operation failure"), { boundary: "cleanup" });
+  const operation = await runPhaseSeries([{ name: "operation-only" }], () => {
+    throw unmarked;
+  });
+  assert.deepEqual(operation.results[0].failures, [
+    { boundary: "phase", code: "OPERATION_FAILED" },
+  ]);
+});
+
 test("series summary retains phase and cleanup failures without raw credential-bearing errors", async () => {
   const combined = await runPhaseSeries([{ name: "both-fail" }], () => {
     throw new AggregateError([new Error("secret phase argv"), new Error("secret cleanup argv")]);
