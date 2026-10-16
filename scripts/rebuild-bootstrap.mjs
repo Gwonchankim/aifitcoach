@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-03)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-02a)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -59,6 +59,8 @@ export const initialStatus = (type) =>
  * 단계별 규칙. 알 수 없는 단계는 실패한다 — 미래 단계를 성공 no-op 으로 두지 않는다.
  * m0-01: package.json 의 ci:bootstrap 추가와 아래 신규 3파일만 허용. 기준선 바이트·상태 전환 0.
  * m0-03: 허용 신규 파일만 누적(m0-01 3 + 원천 fixture 검증 2 + 생성 타입 소비 검사 2). 그 밖 보호는 m0-01 그대로.
+ * m0-02a: 신규 파일을 더 누적(m0-03 7 + CI manifest 3)하고, approvedChanges 의 정확한 기존 3경로만
+ *   이 단계에서 바이트 변경을 허용한다(검사 3). 삭제·부재는 여전히 실패다. 그 밖 보호는 m0-01 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -95,10 +97,25 @@ stages["m0-03"] = Object.freeze({
     "scripts/tsconfig.rebuild-api-types.json",
   ]),
 });
+stages["m0-02a"] = Object.freeze({
+  ...stages["m0-03"],
+  newFiles: Object.freeze([
+    ...stages["m0-03"].newFiles,
+    "scripts/ci-e2e.manifest.mjs",
+    "scripts/ci-e2e.manifest.test.mjs",
+    "apps/web/e2e/ci-manifest.json",
+  ]),
+  // 정확한 경로 문자열만 — prefix·glob 이 아니다. 기준선 행의 path/blob/sha256·status 는 그대로 둔다.
+  approvedChanges: Object.freeze([
+    ".github/workflows/ci.yml",
+    "scripts/ci-e2e.mjs",
+    "scripts/ci-e2e.test.mjs",
+  ]),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-03";
+const DEFAULT_STAGE = "m0-02a";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));
@@ -322,9 +339,14 @@ function checkBaseline(root, rows, expected, fail) {
   return { tree, blobs };
 }
 
-/** 검사 3: 상태 × 존재. 부재는 상태가 설명해야 하고, 기준선 유지 상태는 바이트가 같아야 한다. */
-function checkWorkingTree(root, rows, rules, fail) {
+/**
+ * 검사 3: 상태 × 존재. 부재는 상태가 설명해야 하고, 기준선 유지 상태는 바이트가 같아야 한다.
+ * 단계가 승인한 정확한 경로(approvedChanges)만 바이트 대조에서 빼고, 실제로 달라졌으면 보고에 남긴다.
+ */
+function checkWorkingTree(root, rows, rules, fail, summary) {
   const working = new Map();
+  const approved = rules.approvedChanges ?? [];
+  summary.approvedChanged = [];
   for (const row of rows.values()) {
     const bytes = readWorking(root, row.path);
     working.set(row.path, bytes);
@@ -349,6 +371,10 @@ function checkWorkingTree(root, rows, rules, fail) {
     }
     // package.json 의 허용 변경(scripts 추가)은 검사 4 가 JSON 으로 판정한다.
     if (row.path === rules.manifestPath || !BASELINE_BYTES.includes(row.status)) continue;
+    if (approved.includes(row.path)) {
+      if (sha256(bytes) !== row.sha256) summary.approvedChanged.push(row.path);
+      continue;
+    }
     if (sha256(bytes) !== row.sha256) {
       fail(3, `${row.path}: 바이트가 기준선과 다르다(status ${row.status})`);
     }
@@ -527,7 +553,7 @@ export function runChecks({ root, expected = BASELINE, stage = DEFAULT_STAGE }) 
   }
   const rows = checkLedger(ledger, expected, fail);
   const baseline = checkBaseline(root, rows, expected, fail);
-  const working = checkWorkingTree(root, rows, rules, fail);
+  const working = checkWorkingTree(root, rows, rules, fail, summary);
   checkStage(rows, baseline, working, rules, fail, summary);
   checkNewFiles(
     root,
@@ -596,6 +622,10 @@ export function formatReport(result) {
     lines.push(`preserved-unported 담당·단계: ${unported || "없음"}`);
   }
   if (summary.newFiles) lines.push(`허용 신규 파일: ${summary.newFiles.join(", ") || "없음"}`);
+  // 승인된 단계 예외라도 실제로 바뀐 경로는 따로 적는다 — 기준선 바이트가 전부 같다고 읽히지 않게.
+  if (summary.approvedChanged) {
+    lines.push(`승인된 단계 예외(바이트 상이): ${summary.approvedChanged.join(", ") || "없음"}`);
+  }
   if (summary.frozenRows !== undefined)
     lines.push(`apps·packages·docs 기준선 경로: ${summary.frozenRows}`);
   if (summary.lockDeclarations !== undefined) {

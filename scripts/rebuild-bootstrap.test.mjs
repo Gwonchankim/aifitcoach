@@ -89,8 +89,15 @@ const ROOT_MANIFEST = {
   devDependencies: { prettier: "3.9.6" },
 };
 
-/** 합성 기준선: m0-01 규칙이 읽는 경로(manifest 4·lock·lifecycle 입력)와 유형별 대표 파일. */
+/**
+ * 합성 기준선: m0-01 규칙이 읽는 경로(manifest 4·lock·lifecycle 입력)와 유형별 대표 파일.
+ * m0-02a 가 바이트 변경을 승인하는 정확한 3경로와, 그 예외 밖에 있어야 할 같은 디렉터리의 형제 1개를 둔다.
+ */
 const BASELINE_FILES = {
+  ".github/workflows/ci.yml": ["R", "name: ci\non: [push]\n"],
+  ".github/workflows/nightly.yml": ["R", "name: nightly\non: [schedule]\n"],
+  "scripts/ci-e2e.mjs": ["R", "// e2e runner 원문\n"],
+  "scripts/ci-e2e.test.mjs": ["R", "// e2e runner 시험 원문\n"],
   ".gitignore": ["K", "node_modules/\n"],
   "package.json": ["R", json(ROOT_MANIFEST)],
   "pnpm-lock.yaml": ["R", LOCK],
@@ -209,8 +216,8 @@ const messagesOf = (result, number) =>
     .map((failure) => failure.message)
     .join("\n");
 
-function assertGreen(repo) {
-  const result = check(repo);
+function assertGreen(repo, stage = "m0-01") {
+  const result = check(repo, stage);
   assert.deepEqual(result.failures, []);
   assert.equal(result.ok, true);
   return result;
@@ -253,19 +260,20 @@ function reclassifyRedThenGreen(repo, changes) {
 }
 
 /** 파일 하나를 바꿔 RED 를 확인하고, 원래 바이트로 되돌려 GREEN 을 확인한다. */
-function redThenGreen(repo, rel, mutate, expectedChecks, pattern) {
+function redThenGreen(repo, rel, mutate, expectedChecks, pattern, stage = "m0-01") {
   const original = read(repo, rel);
   mutate();
-  const red = check(repo);
+  const red = check(repo, stage);
   assert.equal(red.ok, false);
   assert.deepEqual(failedChecks(red), expectedChecks);
   assert.match(red.failures.map((failure) => failure.message).join("\n"), pattern);
   write(repo, rel, original);
-  assertGreen(repo);
+  assertGreen(repo, stage);
 }
 
+/** 변조 전 BASELINE_FILES 정의에서 센 초기 상태별 수(R·K·F·D 15 active, N 2, T 1). */
 const GREEN_STATUS_COUNTS = {
-  active: 11,
+  active: 15,
   "pending-replacement": 2,
   "preserved-unported": 1,
   ported: 0,
@@ -561,15 +569,18 @@ const M0_03_FILES = [
   "scripts/tsconfig.rebuild-api-types.json",
 ];
 
-test("m0-03 합성 후보는 명시 m0-03·기본 단계 GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
+test("m0-03 합성 후보는 명시 m0-03·기본 단계(m0-02a) GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
   const repo = makeRepo(t);
   for (const rel of M0_03_FILES) write(repo, rel, "// m0-03 모의 파일\n");
   const explicit = check(repo, "m0-03");
   const byDefault = runChecks({ root: repo.root, expected: repo.expected });
-  for (const result of [explicit, byDefault]) {
+  for (const [result, stage] of [
+    [explicit, "m0-03"],
+    [byDefault, "m0-02a"],
+  ]) {
     assert.deepEqual(result.failures, []);
     assert.equal(result.ok, true);
-    assert.equal(result.summary.stage, "m0-03");
+    assert.equal(result.summary.stage, stage);
     assert.deepEqual(result.summary.newFiles, [LEDGER_PATH, ...M0_03_FILES].sort());
     assert.deepEqual(result.summary.ran, [0, 1, 2, 3, 4, 5, 6]);
   }
@@ -584,11 +595,12 @@ test("m0-03 합성 후보는 명시 m0-03·기본 단계 GREEN, 같은 대상의
   assertGreen(repo);
 });
 
-test("기본 단계는 m0-03 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
-  assert.deepEqual(parseArgs([]), { stage: "m0-03" });
+test("기본 단계는 m0-02a 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
+  assert.deepEqual(parseArgs([]), { stage: "m0-02a" });
+  assert.deepEqual(parseArgs(["--stage=m0-02a"]), { stage: "m0-02a" });
   assert.deepEqual(parseArgs(["--stage=m0-03"]), { stage: "m0-03" });
   assert.deepEqual(parseArgs(["--stage", "m0-01"]), { stage: "m0-01" });
-  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03"]);
+  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03", "m0-02a"]);
   // m0-03 은 신규 파일만 누적한다 — 그 밖 보호 규칙은 m0-01 과 같은 값이다.
   const { newFiles: strictFiles, ...strictRules } = STAGES["m0-01"];
   const { newFiles, ...rules } = STAGES["m0-03"];
@@ -598,11 +610,131 @@ test("기본 단계는 m0-03 이다 — parseArgs·runChecks·인자 없는 CLI 
     Object.isFrozen(STAGES) && Object.isFrozen(STAGES["m0-03"]) && Object.isFrozen(newFiles),
   );
 
-  // 인자 없는 CLI 도 m0-03 을 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
+  // 인자 없는 CLI 도 m0-02a 를 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
   const repo = makeRepo(t);
   const run = spawnSync(process.execPath, [CLI], { cwd: repo.root, encoding: "utf8" });
   assert.equal(run.status, 1);
-  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-03 · /m);
+  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-02a · /m);
+});
+
+const M0_02A_FILES = [
+  "scripts/ci-e2e.manifest.mjs",
+  "scripts/ci-e2e.manifest.test.mjs",
+  "apps/web/e2e/ci-manifest.json",
+];
+const APPROVED_CHANGES = [
+  ".github/workflows/ci.yml",
+  "scripts/ci-e2e.mjs",
+  "scripts/ci-e2e.test.mjs",
+];
+const linesOf = (text) => text.split("\n");
+
+test("m0-02a 는 m0-03 에 신규 3개를 누적(10)하고 정확한 3경로만 바이트 변경을 승인한다", () => {
+  const { newFiles: priorFiles, ...priorRules } = STAGES["m0-03"];
+  const { newFiles, approvedChanges, ...rules } = STAGES["m0-02a"];
+  assert.deepEqual(rules, priorRules);
+  assert.deepEqual(newFiles, [...priorFiles, ...M0_02A_FILES]);
+  assert.equal(newFiles.length, 10);
+  assert.deepEqual(approvedChanges, APPROVED_CHANGES);
+  assert.ok([STAGES["m0-02a"], newFiles, approvedChanges].every((value) => Object.isFrozen(value)));
+  // 과거 단계에는 바이트 변경 예외가 없다.
+  assert.equal(STAGES["m0-01"].approvedChanges, undefined);
+  assert.equal(STAGES["m0-03"].approvedChanges, undefined);
+});
+
+for (const rel of APPROVED_CHANGES) {
+  test(`승인 경로 ${rel} 변경은 m0-02a(명시·기본) GREEN·예외 보고, 명시 m0-03·m0-01 은 검사 3 RED, 원상은 GREEN`, (t) => {
+    const repo = makeRepo(t);
+    const original = read(repo, rel);
+    write(repo, rel, Buffer.concat([original, Buffer.from("# m0-02a 변경\n", "utf8")]));
+    const explicit = check(repo, "m0-02a");
+    const byDefault = runChecks({ root: repo.root, expected: repo.expected });
+    assert.deepEqual(byDefault, explicit);
+    assert.deepEqual(explicit.failures, []);
+    assert.equal(explicit.ok, true);
+    assert.deepEqual(explicit.summary.approvedChanged, [rel]);
+    assert.ok(linesOf(formatReport(explicit)).includes(`승인된 단계 예외(바이트 상이): ${rel}`));
+    for (const stage of ["m0-03", "m0-01"]) {
+      const red = check(repo, stage);
+      assert.equal(red.ok, false);
+      assert.deepEqual(failedChecks(red), [3]);
+      assert.deepEqual(linesOf(messagesOf(red, 3)), [
+        `${rel}: 바이트가 기준선과 다르다(status active)`,
+      ]);
+      assert.deepEqual(red.summary.approvedChanged, []);
+    }
+    write(repo, rel, original);
+    const green = assertGreen(repo, "m0-02a");
+    assert.deepEqual(green.summary.approvedChanged, []);
+    assert.ok(linesOf(formatReport(green)).includes("승인된 단계 예외(바이트 상이): 없음"));
+  });
+}
+
+test("승인 경로라도 삭제는 m0-02a(명시·기본)에서 검사 3 RED(부재 미설명), 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  const rel = "scripts/ci-e2e.mjs";
+  const original = read(repo, rel);
+  unlinkSync(fileOf(repo, rel));
+  for (const result of [
+    check(repo, "m0-02a"),
+    runChecks({ root: repo.root, expected: repo.expected }),
+  ]) {
+    assert.equal(result.ok, false);
+    assert.deepEqual(failedChecks(result), [3]);
+    assert.deepEqual(linesOf(messagesOf(result, 3)), [
+      `${rel}: 기준선 경로가 없다 — status 'active' 가 부재를 설명하지 못한다`,
+    ]);
+    assert.deepEqual(result.summary.approvedChanged, []);
+  }
+  write(repo, rel, original);
+  assertGreen(repo, "m0-02a");
+});
+
+test("비승인 기준선 경로 변경은 m0-02a 에서도 RED — 예외는 정확한 경로에만 적용된다, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  // 승인 경로와 같은 디렉터리의 형제: prefix·glob 처럼 번지지 않는다.
+  const sibling = ".github/workflows/nightly.yml";
+  redThenGreen(
+    repo,
+    sibling,
+    () => write(repo, sibling, "name: nightly\non: [push]\n"),
+    [3],
+    /^\.github\/workflows\/nightly\.yml: 바이트가 기준선과 다르다\(status active\)$/m,
+    "m0-02a",
+  );
+  // apps·packages·docs 아래 경로는 검사 4 의 동결도 그대로 걸린다.
+  redThenGreen(
+    repo,
+    "docs/specs/fixture.json",
+    () => write(repo, "docs/specs/fixture.json", json({ cases: [1, 2] })),
+    [3, 4],
+    /docs\/specs\/fixture\.json: 바이트가 기준선과 다르다/,
+    "m0-02a",
+  );
+});
+
+test("CI manifest 신규 3개는 m0-02a GREEN·명시 m0-03 검사 5 RED, 10개 밖 신규 파일은 m0-02a 검사 5 RED", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of M0_02A_FILES) write(repo, rel, "// m0-02a 모의 파일\n");
+  const green = assertGreen(repo, "m0-02a");
+  assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_02A_FILES].sort());
+  const strict = check(repo, "m0-03");
+  assert.deepEqual(failedChecks(strict), [5]);
+  assert.deepEqual(
+    linesOf(messagesOf(strict, 5)),
+    [...M0_02A_FILES].sort().map((rel) => `${rel}: 기준선 밖 파일이 이 단계 allowlist 에 없다`),
+  );
+  // 이름이 비슷해도 10개 allowlist 밖이면 m0-02a 에서도 거부한다.
+  const outside = "scripts/ci-e2e.manifest.extra.mjs";
+  write(repo, outside, "// 승인 밖\n");
+  const red = check(repo, "m0-02a");
+  assert.deepEqual(failedChecks(red), [5]);
+  assert.deepEqual(linesOf(messagesOf(red, 5)), [
+    `${outside}: 기준선 밖 파일이 이 단계 allowlist 에 없다`,
+  ]);
+  unlinkSync(fileOf(repo, outside));
+  for (const rel of M0_02A_FILES) unlinkSync(fileOf(repo, rel));
+  assertGreen(repo, "m0-02a");
 });
 
 test("lockImporters 는 v9 importers 의 specifier 만 읽고 다른 형식은 거부한다", () => {
