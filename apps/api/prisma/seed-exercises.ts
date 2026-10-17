@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { config as loadDotenv } from "dotenv";
 import { $Enums, Prisma, PrismaClient } from "@prisma/client";
-import { loadSemanticsFor } from "../src/programs/assistance-migration";
+import { loadSemanticsFor } from "./seed-load-semantics";
 import { RESISTANCE_EXERCISE_IDS } from "./resistance-exercise-ids";
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");

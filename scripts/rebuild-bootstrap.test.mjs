@@ -92,6 +92,8 @@ const ROOT_MANIFEST = {
 /**
  * 합성 기준선: m0-01 규칙이 읽는 경로(manifest 4·lock·lifecycle 입력)와 유형별 대표 파일.
  * m0-02a 가 바이트 변경을 승인하는 정확한 3경로와, 그 예외 밖에 있어야 할 같은 디렉터리의 형제 1개를 둔다.
+ * m0-04 의 같은 경로 교체 6경로·seed 1경로와, 그 예외 밖 형제(보안 이음새 app.setup·utc-day 옆
+ * request-today·seed 옆 resistance ids)를 둔다.
  */
 const BASELINE_FILES = {
   ".github/workflows/ci.yml": ["R", "name: ci\non: [push]\n"],
@@ -109,6 +111,21 @@ const BASELINE_FILES = {
   ],
   "apps/api/prisma/schema.prisma": ["R", 'datasource db {\n  provider = "postgresql"\n}\n'],
   "apps/api/src/main.ts": ["N", "export const port = 3001;\n"],
+  "apps/api/src/app.module.ts": ["N", "export class AppModule {}\n"],
+  "apps/api/src/app.setup.ts": ["N", 'export const API_PREFIX = "v1";\n'],
+  "apps/api/src/prisma/prisma.module.ts": ["N", "export class PrismaModule {}\n"],
+  "apps/api/src/prisma/prisma.service.ts": ["N", "export class PrismaService {}\n"],
+  "apps/api/src/common/date/utc-day.ts": ["N", 'export const TEST_TODAY_ENV = "AFC_TEST_TODAY";\n'],
+  "apps/api/src/common/date/request-today.ts": ["N", "export const captureRequestToday = 1;\n"],
+  "apps/api/src/common/http/error-envelope.filter.ts": [
+    "N",
+    "export class ErrorEnvelopeFilter {}\n",
+  ],
+  "apps/api/prisma/seed-exercises.ts": ["R", 'import { loadSemanticsFor } from "../src/x";\n'],
+  "apps/api/prisma/resistance-exercise-ids.ts": [
+    "R",
+    "export const RESISTANCE_EXERCISE_IDS = [];\n",
+  ],
   "apps/web/scripts/add-generated-banner.mjs": ["R", "// 생성물 배너 원문\n"],
   "apps/web/test/sample.test.ts": ["T", 'export const oracle = "baseline";\n'],
   "packages/shared/src/index.ts": ["N", "export const shared = true;\n"],
@@ -271,10 +288,10 @@ function redThenGreen(repo, rel, mutate, expectedChecks, pattern, stage = "m0-01
   assertGreen(repo, stage);
 }
 
-/** 변조 전 BASELINE_FILES 정의에서 센 초기 상태별 수(R·K·F·D 15 active, N 2, T 1). */
+/** 변조 전 BASELINE_FILES 정의에서 센 초기 상태별 수(R·K·F·D 17 active, N 9, T 1). */
 const GREEN_STATUS_COUNTS = {
-  active: 15,
-  "pending-replacement": 2,
+  active: 17,
+  "pending-replacement": 9,
   "preserved-unported": 1,
   ported: 0,
   "contract-replaced": 0,
@@ -569,14 +586,15 @@ const M0_03_FILES = [
   "scripts/tsconfig.rebuild-api-types.json",
 ];
 
-test("m0-03 합성 후보는 명시 m0-03·기본 단계(m0-02a) GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
+test("m0-03 합성 후보는 명시 m0-03·m0-02a·기본 단계(m0-04) GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
   const repo = makeRepo(t);
   for (const rel of M0_03_FILES) write(repo, rel, "// m0-03 모의 파일\n");
   const explicit = check(repo, "m0-03");
   const byDefault = runChecks({ root: repo.root, expected: repo.expected });
   for (const [result, stage] of [
     [explicit, "m0-03"],
-    [byDefault, "m0-02a"],
+    [check(repo, "m0-02a"), "m0-02a"],
+    [byDefault, "m0-04"],
   ]) {
     assert.deepEqual(result.failures, []);
     assert.equal(result.ok, true);
@@ -595,12 +613,13 @@ test("m0-03 합성 후보는 명시 m0-03·기본 단계(m0-02a) GREEN, 같은 �
   assertGreen(repo);
 });
 
-test("기본 단계는 m0-02a 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
-  assert.deepEqual(parseArgs([]), { stage: "m0-02a" });
+test("기본 단계는 m0-04 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
+  assert.deepEqual(parseArgs([]), { stage: "m0-04" });
+  assert.deepEqual(parseArgs(["--stage=m0-04"]), { stage: "m0-04" });
   assert.deepEqual(parseArgs(["--stage=m0-02a"]), { stage: "m0-02a" });
   assert.deepEqual(parseArgs(["--stage=m0-03"]), { stage: "m0-03" });
   assert.deepEqual(parseArgs(["--stage", "m0-01"]), { stage: "m0-01" });
-  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03", "m0-02a"]);
+  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03", "m0-02a", "m0-04"]);
   // m0-03 은 신규 파일만 누적한다 — 그 밖 보호 규칙은 m0-01 과 같은 값이다.
   const { newFiles: strictFiles, ...strictRules } = STAGES["m0-01"];
   const { newFiles, ...rules } = STAGES["m0-03"];
@@ -610,11 +629,12 @@ test("기본 단계는 m0-02a 이다 — parseArgs·runChecks·인자 없는 CLI
     Object.isFrozen(STAGES) && Object.isFrozen(STAGES["m0-03"]) && Object.isFrozen(newFiles),
   );
 
-  // 인자 없는 CLI 도 m0-02a 를 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
+  // 인자 없는 CLI 도 m0-04 를 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
   const repo = makeRepo(t);
+  assert.equal(runChecks({ root: repo.root, expected: repo.expected }).summary.stage, "m0-04");
   const run = spawnSync(process.execPath, [CLI], { cwd: repo.root, encoding: "utf8" });
   assert.equal(run.status, 1);
-  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-02a · /m);
+  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-04 · /m);
 });
 
 const M0_02A_FILES = [
@@ -643,17 +663,19 @@ test("m0-02a 는 m0-03 에 신규 3개를 누적(10)하고 정확한 3경로만 
 });
 
 for (const rel of APPROVED_CHANGES) {
-  test(`승인 경로 ${rel} 변경은 m0-02a(명시·기본) GREEN·예외 보고, 명시 m0-03·m0-01 은 검사 3 RED, 원상은 GREEN`, (t) => {
+  test(`승인 경로 ${rel} 변경은 m0-02a·m0-04(명시)·기본 GREEN·예외 보고, 명시 m0-03·m0-01 은 검사 3 RED, 원상은 GREEN`, (t) => {
     const repo = makeRepo(t);
     const original = read(repo, rel);
     write(repo, rel, Buffer.concat([original, Buffer.from("# m0-02a 변경\n", "utf8")]));
-    const explicit = check(repo, "m0-02a");
     const byDefault = runChecks({ root: repo.root, expected: repo.expected });
-    assert.deepEqual(byDefault, explicit);
-    assert.deepEqual(explicit.failures, []);
-    assert.equal(explicit.ok, true);
-    assert.deepEqual(explicit.summary.approvedChanged, [rel]);
-    assert.ok(linesOf(formatReport(explicit)).includes(`승인된 단계 예외(바이트 상이): ${rel}`));
+    assert.deepEqual(byDefault, check(repo, "m0-04"));
+    for (const stage of ["m0-02a", "m0-04"]) {
+      const explicit = check(repo, stage);
+      assert.deepEqual(explicit.failures, []);
+      assert.equal(explicit.ok, true);
+      assert.deepEqual(explicit.summary.approvedChanged, [rel]);
+      assert.ok(linesOf(formatReport(explicit)).includes(`승인된 단계 예외(바이트 상이): ${rel}`));
+    }
     for (const stage of ["m0-03", "m0-01"]) {
       const red = check(repo, stage);
       assert.equal(red.ok, false);
@@ -670,7 +692,7 @@ for (const rel of APPROVED_CHANGES) {
   });
 }
 
-test("승인 경로라도 삭제는 m0-02a(명시·기본)에서 검사 3 RED(부재 미설명), 원상은 GREEN", (t) => {
+test("승인 경로라도 삭제는 m0-02a(명시)·기본(m0-04)에서 검사 3 RED(부재 미설명), 원상은 GREEN", (t) => {
   const repo = makeRepo(t);
   const rel = "scripts/ci-e2e.mjs";
   const original = read(repo, rel);
@@ -735,6 +757,301 @@ test("CI manifest 신규 3개는 m0-02a GREEN·명시 m0-03 검사 5 RED, 10개 
   unlinkSync(fileOf(repo, outside));
   for (const rel of M0_02A_FILES) unlinkSync(fileOf(repo, rel));
   assertGreen(repo, "m0-02a");
+});
+
+const M0_04_FILES = [
+  "apps/api/prisma/seed-load-semantics.ts",
+  "apps/api/test/rebuild-foundation.spec.ts",
+];
+const SEED = "apps/api/prisma/seed-exercises.ts";
+const CONTRACT_REPLACED = [
+  "apps/api/src/main.ts",
+  "apps/api/src/app.module.ts",
+  "apps/api/src/prisma/prisma.module.ts",
+  "apps/api/src/prisma/prisma.service.ts",
+  "apps/api/src/common/date/utc-day.ts",
+  "apps/api/src/common/http/error-envelope.filter.ts",
+];
+const REFS = { candidate_ref: "합성 후보", evidence: "합성 증거" };
+const REPLACED = { status: "contract-replaced", ...REFS };
+const FROZEN_DIFF = (count) =>
+  `apps/·packages/·docs/ 아래 ${count}개 경로가 기준선과 다르다(검사 3 참조)`;
+
+/** ledger 의 지정 행 상태 필드만 바꾼 사본을 쓴다(path·blob·sha256·type 은 그대로 → 두 digest 불변). */
+function writeLedgerWith(repo, changes) {
+  const edited = structuredClone(repo.ledger);
+  for (const [rel, change] of Object.entries(changes)) {
+    Object.assign(
+      edited.rows.find((row) => row.path === rel),
+      change,
+    );
+  }
+  write(repo, LEDGER_PATH, json(edited));
+  return edited;
+}
+
+/** 같은 경로 재작성 모의: 원문 뒤에 한 줄을 붙여 바이트만 바꾼다. */
+const rewrite = (repo, rel) =>
+  write(repo, rel, Buffer.concat([read(repo, rel), Buffer.from("// m0-04 재작성\n", "utf8")]));
+
+function restore(repo, files) {
+  for (const [rel, bytes] of files) write(repo, rel, bytes);
+  write(repo, LEDGER_PATH, json(repo.ledger));
+  return assertGreen(repo, "m0-04");
+}
+
+test("m0-04 는 m0-02a 에 신규 2개(누적 12)·seed 1경로 예외·정확한 6경로 전환만 더한다", () => {
+  const { newFiles: priorFiles, approvedChanges: priorChanges, ...priorRules } = STAGES["m0-02a"];
+  const { newFiles, approvedChanges, contractReplaced, ...rules } = STAGES["m0-04"];
+  assert.deepEqual(rules, priorRules);
+  assert.deepEqual(newFiles, [...priorFiles, ...M0_04_FILES]);
+  assert.equal(newFiles.length, 12);
+  assert.deepEqual(approvedChanges, [...priorChanges, SEED]);
+  assert.deepEqual(contractReplaced, CONTRACT_REPLACED);
+  assert.ok(
+    [STAGES["m0-04"], newFiles, approvedChanges, contractReplaced].every((value) =>
+      Object.isFrozen(value),
+    ),
+  );
+  // 과거 단계에는 상태 전환 예외가 없다.
+  for (const stage of ["m0-01", "m0-03", "m0-02a"]) {
+    assert.equal(STAGES[stage].contractReplaced, undefined);
+  }
+});
+
+for (const rel of CONTRACT_REPLACED) {
+  test(`같은 경로 교체 ${rel}: 바이트 변경+contract-replaced+refs 는 m0-04(명시·기본) GREEN, 전환 없는 변경과 명시 과거 단계는 RED, 원상은 GREEN`, (t) => {
+    const repo = makeRepo(t);
+    const original = read(repo, rel);
+    rewrite(repo, rel);
+    // 상태를 바꾸지 않은 바이트 변경은 m0-04 에서도 RED — 바이트 차이는 전환된 행에만 허용한다.
+    const unrecorded = check(repo, "m0-04");
+    assert.deepEqual(failedChecks(unrecorded), [3, 4]);
+    assert.deepEqual(linesOf(messagesOf(unrecorded, 3)), [
+      `${rel}: 바이트가 기준선과 다르다(status pending-replacement)`,
+    ]);
+    assert.deepEqual(linesOf(messagesOf(unrecorded, 4)), [FROZEN_DIFF(1)]);
+
+    writeLedgerWith(repo, { [rel]: REPLACED });
+    const explicit = check(repo, "m0-04");
+    assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), explicit);
+    assert.deepEqual(explicit.failures, []);
+    assert.equal(explicit.ok, true);
+    assert.deepEqual(explicit.summary.contractReplaced, [rel]);
+    assert.deepEqual(explicit.summary.approvedChanged, []);
+    assert.equal(explicit.summary.statusCounts["contract-replaced"], 1);
+    assert.ok(linesOf(formatReport(explicit)).includes(`같은 경로 계약 교체 전환: ${rel}`));
+    for (const stage of ["m0-02a", "m0-03", "m0-01"]) {
+      const red = check(repo, stage);
+      assert.equal(red.ok, false);
+      assert.deepEqual(failedChecks(red), [4]);
+      assert.deepEqual(linesOf(messagesOf(red, 4)), [
+        `${rel}: 이 단계에서는 초기 상태 'pending-replacement' 만 허용한다('contract-replaced')`,
+        FROZEN_DIFF(1),
+      ]);
+      assert.deepEqual(red.summary.contractReplaced, []);
+    }
+    const green = restore(repo, [[rel, original]]);
+    assert.deepEqual(green.summary.contractReplaced, []);
+    assert.ok(linesOf(formatReport(green)).includes("같은 경로 계약 교체 전환: 없음"));
+  });
+}
+
+test("refs 가 있어도 같은 경로 교체 6경로의 삭제는 m0-04 검사 3·4 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of CONTRACT_REPLACED) {
+    const original = read(repo, rel);
+    unlinkSync(fileOf(repo, rel));
+    writeLedgerWith(repo, { [rel]: REPLACED });
+    for (const result of [
+      check(repo, "m0-04"),
+      runChecks({ root: repo.root, expected: repo.expected }),
+    ]) {
+      assert.equal(result.ok, false);
+      assert.deepEqual(failedChecks(result), [3, 4]);
+      assert.deepEqual(linesOf(messagesOf(result, 3)), [
+        `${rel}: 같은 경로 교체 대상인데 파일이 없다 — refs 가 있어도 부재를 허용하지 않는다`,
+      ]);
+      assert.deepEqual(linesOf(messagesOf(result, 4)), [FROZEN_DIFF(1)]);
+    }
+    restore(repo, [[rel, original]]);
+  }
+});
+
+test("refs 가 빠진 전환은 m0-04 검사 3 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  const rel = "apps/api/src/app.module.ts";
+  const original = read(repo, rel);
+  rewrite(repo, rel);
+  for (const missing of ["candidate_ref", "evidence"]) {
+    writeLedgerWith(repo, { [rel]: { ...REPLACED, [missing]: null } });
+    const red = check(repo, "m0-04");
+    assert.equal(red.ok, false, missing);
+    assert.deepEqual(failedChecks(red), [3], missing);
+    assert.deepEqual(linesOf(messagesOf(red, 3)), [
+      `${rel}: contract-replaced 에는 candidate_ref 와 evidence 가 필요하다`,
+    ]);
+  }
+  restore(repo, [[rel, original]]);
+});
+
+test("목록 밖 N행(보안 이음새·형제 경로) 전환과 목록 경로의 다른 상태는 m0-04 검사 4 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of ["apps/api/src/app.setup.ts", "apps/api/src/common/date/request-today.ts"]) {
+    const original = read(repo, rel);
+    rewrite(repo, rel);
+    writeLedgerWith(repo, { [rel]: REPLACED });
+    const red = check(repo, "m0-04");
+    assert.equal(red.ok, false, rel);
+    assert.deepEqual(failedChecks(red), [4], rel);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), [
+      `${rel}: 이 단계에서는 초기 상태 'pending-replacement' 만 허용한다('contract-replaced')`,
+      FROZEN_DIFF(1),
+    ]);
+    restore(repo, [[rel, original]]);
+  }
+  // 목록 경로라도 contract-replaced 밖 상태는 허용하지 않는다(바이트 예외도 생기지 않는다).
+  const rel = "apps/api/src/prisma/prisma.service.ts";
+  const original = read(repo, rel);
+  rewrite(repo, rel);
+  writeLedgerWith(repo, { [rel]: { status: "ported", ...REFS } });
+  const ported = check(repo, "m0-04");
+  assert.deepEqual(failedChecks(ported), [4]);
+  assert.deepEqual(linesOf(messagesOf(ported, 4)), [
+    `${rel}: 이 단계에서는 'pending-replacement' 또는 'contract-replaced' 만 허용한다('ported')`,
+    FROZEN_DIFF(1),
+  ]);
+  restore(repo, [[rel, original]]);
+});
+
+test("m0-04 에서도 비승인 기준선 바이트 변경은 RED — 보안 이음새·형제 경로·원천·스키마, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  for (const [rel, pattern] of [
+    ["apps/api/src/app.setup.ts", /^apps\/api\/src\/app\.setup\.ts: 바이트가 기준선과 다르다/m],
+    [
+      "apps/api/src/common/date/request-today.ts",
+      /^apps\/api\/src\/common\/date\/request-today\.ts: 바이트가 기준선과 다르다/m,
+    ],
+    [
+      "apps/api/prisma/resistance-exercise-ids.ts",
+      /^apps\/api\/prisma\/resistance-exercise-ids\.ts: 바이트가 기준선과 다르다/m,
+    ],
+    ["docs/specs/fixture.json", /^docs\/specs\/fixture\.json: 바이트가 기준선과 다르다/m],
+  ]) {
+    redThenGreen(repo, rel, () => rewrite(repo, rel), [3, 4], pattern, "m0-04");
+  }
+  redThenGreen(
+    repo,
+    "apps/api/prisma/schema.prisma",
+    () => rewrite(repo, "apps/api/prisma/schema.prisma"),
+    [3, 4, 6],
+    /schema\.prisma: lifecycle 입력이 기준선 원문과 다르다/,
+    "m0-04",
+  );
+});
+
+test("seed 1경로 변경은 m0-04(명시·기본) GREEN·예외 보고, 명시 과거 단계·삭제·상태 전환은 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  const original = read(repo, SEED);
+  write(repo, SEED, 'import { loadSemanticsFor } from "./seed-load-semantics";\n');
+  const explicit = check(repo, "m0-04");
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), explicit);
+  assert.deepEqual(explicit.failures, []);
+  assert.deepEqual(explicit.summary.approvedChanged, [SEED]);
+  // seed 는 상태를 바꾸지 않는다 — R·active·기준선 해시 그대로다.
+  assert.deepEqual(explicit.summary.contractReplaced, []);
+  assert.deepEqual(explicit.summary.statusCounts, GREEN_STATUS_COUNTS);
+  assert.ok(linesOf(formatReport(explicit)).includes(`승인된 단계 예외(바이트 상이): ${SEED}`));
+  for (const stage of ["m0-02a", "m0-03", "m0-01"]) {
+    const red = check(repo, stage);
+    assert.deepEqual(failedChecks(red), [3, 4], stage);
+    assert.deepEqual(linesOf(messagesOf(red, 3)), [
+      `${SEED}: 바이트가 기준선과 다르다(status active)`,
+    ]);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), [FROZEN_DIFF(1)]);
+  }
+  writeLedgerWith(repo, { [SEED]: REPLACED });
+  const transitioned = check(repo, "m0-04");
+  assert.deepEqual(failedChecks(transitioned), [4]);
+  assert.deepEqual(linesOf(messagesOf(transitioned, 4)), [
+    `${SEED}: 이 단계에서는 초기 상태 'active' 만 허용한다('contract-replaced')`,
+  ]);
+  write(repo, LEDGER_PATH, json(repo.ledger));
+  unlinkSync(fileOf(repo, SEED));
+  const deleted = check(repo, "m0-04");
+  assert.deepEqual(failedChecks(deleted), [3, 4]);
+  assert.deepEqual(linesOf(messagesOf(deleted, 3)), [
+    `${SEED}: 기준선 경로가 없다 — status 'active' 가 부재를 설명하지 못한다`,
+  ]);
+  assert.deepEqual(linesOf(messagesOf(deleted, 4)), [FROZEN_DIFF(1)]);
+  const green = restore(repo, [[SEED, original]]);
+  assert.deepEqual(green.summary.approvedChanged, []);
+});
+
+test("m0-04 신규 2개는 m0-04 GREEN·명시 m0-02a 검사 5 RED, 12개 밖 신규 파일은 m0-04 검사 5 RED", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of M0_04_FILES) write(repo, rel, "// m0-04 모의 파일\n");
+  const green = assertGreen(repo, "m0-04");
+  assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_04_FILES].sort());
+  const strict = check(repo, "m0-02a");
+  assert.deepEqual(failedChecks(strict), [5]);
+  assert.deepEqual(
+    linesOf(messagesOf(strict, 5)),
+    [...M0_04_FILES].sort().map((rel) => `${rel}: 기준선 밖 파일이 이 단계 allowlist 에 없다`),
+  );
+  const outside = "apps/api/prisma/seed-load-semantics.extra.ts";
+  write(repo, outside, "// 승인 밖\n");
+  const red = check(repo, "m0-04");
+  assert.deepEqual(failedChecks(red), [5]);
+  assert.deepEqual(linesOf(messagesOf(red, 5)), [
+    `${outside}: 기준선 밖 파일이 이 단계 allowlist 에 없다`,
+  ]);
+  unlinkSync(fileOf(repo, outside));
+  for (const rel of M0_04_FILES) unlinkSync(fileOf(repo, rel));
+  assertGreen(repo, "m0-04");
+});
+
+test("6경로 전환+seed+신규 2개 전체 후보는 m0-04 GREEN·행 수·두 digest 유지, 과거 단계와 해시 갱신은 RED", (t) => {
+  const repo = makeRepo(t);
+  const originals = [...CONTRACT_REPLACED, SEED].map((rel) => [rel, read(repo, rel)]);
+  for (const rel of CONTRACT_REPLACED) rewrite(repo, rel);
+  write(repo, SEED, 'import { loadSemanticsFor } from "./seed-load-semantics";\n');
+  for (const rel of M0_04_FILES) write(repo, rel, "// m0-04 모의 파일\n");
+  const edited = writeLedgerWith(
+    repo,
+    Object.fromEntries(CONTRACT_REPLACED.map((rel) => [rel, REPLACED])),
+  );
+  // 전환은 상태 필드만 바꾼다 — 행 수·내용 digest·분류 digest 는 기준선 그대로다.
+  assert.equal(edited.rows.length, repo.expected.rows);
+  assert.equal(digestOf(edited.rows), repo.expected.digest);
+  assert.equal(digestOf(edited.rows, TYPE_LINE), repo.expected.typeDigest);
+  const green = assertGreen(repo, "m0-04");
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), green);
+  assert.deepEqual([...green.summary.contractReplaced].sort(), [...CONTRACT_REPLACED].sort());
+  assert.deepEqual(green.summary.approvedChanged, [SEED]);
+  assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_04_FILES].sort());
+  assert.deepEqual(green.summary.statusCounts, {
+    ...GREEN_STATUS_COUNTS,
+    "pending-replacement": GREEN_STATUS_COUNTS["pending-replacement"] - 6,
+    "contract-replaced": 6,
+  });
+  // 과거 단계는 계속 엄격하다(이 후보에서 실패가 정상이다).
+  for (const stage of ["m0-02a", "m0-03", "m0-01"]) {
+    assert.deepEqual(failedChecks(check(repo, stage)), [3, 4, 5], stage);
+  }
+  // 전환 행의 sha256 을 후보 바이트로 '갱신'하면 기준선 digest·git object 대조가 깨진다.
+  const forged = structuredClone(edited);
+  const target = forged.rows.find((row) => row.path === "apps/api/src/main.ts");
+  target.sha256 = sha256(read(repo, target.path));
+  write(repo, LEDGER_PATH, json(forged));
+  const red = check(repo, "m0-04");
+  assert.deepEqual(failedChecks(red), [1, 2]);
+  assert.match(
+    messagesOf(red, 2),
+    /apps\/api\/src\/main\.ts: ledger sha256 이 git object 바이트와 다르다/,
+  );
+  for (const rel of M0_04_FILES) unlinkSync(fileOf(repo, rel));
+  restore(repo, originals);
 });
 
 test("lockImporters 는 v9 importers 의 specifier 만 읽고 다른 형식은 거부한다", () => {
