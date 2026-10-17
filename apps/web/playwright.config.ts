@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { defineConfig, devices } from "@playwright/test";
 import { e2eDatabaseEnv } from "./e2e/db-url";
 import { TEST_TODAY } from "./e2e/test-today";
+import { profileFromEnv } from "../../scripts/ci-e2e.manifest.mjs";
 
 /**
  * STEP 5 브라우저 검증용 Playwright 설정.
@@ -18,11 +19,11 @@ import { TEST_TODAY } from "./e2e/test-today";
  *   전용 phase를 생략한 통합 스위트만으로 전체 통과를 판정하지 않는다.
  *   ticket13·14: 공유 통합 FAIL과 fresh owned DB/principal의 WebKit 통합 1회를 별도 기록한다.
  */
-const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3000);
-const API_PORT = Number(process.env.E2E_API_PORT ?? 3101);
-const API_TARGET = process.env.E2E_API_TARGET ?? `http://localhost:${API_PORT}`;
-const API_BASE = process.env.E2E_API_BASE_URL ?? `${API_TARGET}/v1`;
-const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
+const PROFILE = profileFromEnv(process.env);
+const WEB_PORT = PROFILE.webPort;
+const API_PORT = PROFILE.apiPort;
+const API_BASE = PROFILE.apiBase;
+const WEB_ORIGIN = PROFILE.webOrigin;
 
 // 고정 "오늘"은 e2e/test-today.ts 한 곳에서만 정한다(API env 와 브라우저 시계가 같은 값을 봐야 한다).
 
@@ -68,7 +69,7 @@ export default defineConfig({
       // iOS(WebKit) 렌더·카탈로그 검색·핵심 오프라인 종료 복구. 전체 fault matrix는 Chromium이 소유한다.
       name: "webkit-ios",
       testMatch:
-        /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position|17-session-set-append|18-assistance-append|19-assistance-historical|21-weekly-focus-swap)\.spec\.ts/,
+        /(?:06-mobile|09-offline-sync|14-catalog-search|16-session-position|17-session-set-append|18-assistance-append|19-assistance-historical|21-weekly-focus-swap|m0-06-shell-api)\.spec\.ts/,
       grepInvert: /@chromium-only/,
       use: { ...devices["iPhone 14 Pro"] },
     },
@@ -83,9 +84,13 @@ export default defineConfig({
       command:
         "pnpm --filter api db:migrate && pnpm --filter api db:seed && pnpm --filter api start",
       port: API_PORT,
+      stdout: "pipe",
+      stderr: "pipe",
       reuseExistingServer: false,
       timeout: 180_000,
       env: {
+        NODE_ENV: "test",
+        AUTH_MODE: "dev-user",
         PORT: String(API_PORT),
         /**
          * 개발 DB 를 건드리지 않는다. **두 변수를 같은 값으로 함께 준다** —
@@ -113,10 +118,16 @@ export default defineConfig({
     {
       command: `pnpm build && pnpm start --port ${WEB_PORT}`,
       port: WEB_PORT,
+      stdout: "pipe",
+      stderr: "pipe",
       // 빌드 산출물과 실행 중인 서버가 어긋나면 정적 자원이 400 을 낸다 → 항상 새로 띄운다.
       reuseExistingServer: false,
       timeout: 300_000,
-      env: { NEXT_PUBLIC_API_BASE_URL: API_BASE },
+      env: {
+        NODE_ENV: "production",
+        NEXT_PUBLIC_API_BASE_URL: API_BASE,
+        API_PROXY_ORIGIN: PROFILE.proxyOrigin,
+      },
     },
   ],
 });

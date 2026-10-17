@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import console from "node:console";
-import { URL, fileURLToPath } from "node:url";
+import { URL } from "node:url";
 
 export const MANIFEST_PATH = "apps/web/e2e/ci-manifest.json";
 const CONFIGS = [
@@ -16,6 +16,45 @@ const CONFIGS = [
 ];
 const BROWSERS = ["chromium-mobile", "webkit-ios"];
 const slash = (value) => value.replaceAll("\\", "/");
+const PUBLIC_CODES = new Set([
+  "UNKNOWN_STAGE",
+  "EMPTY_STAGE",
+  "MANIFEST_SCHEMA",
+  "MISSING_FILE",
+  "DUPLICATE_CASE",
+  "EXCLUSION_POLICY",
+  "CONDITIONAL_POLICY",
+  "UNMAPPED_FILE",
+  "DUPLICATE_PHASE",
+  "PHASE_PROVENANCE",
+  "CONFIG_PROVENANCE",
+  "EMPTY_PHASE",
+  "DISCOVERY_MISMATCH",
+  "DUPLICATE_SELECTION",
+  "SELECTION_MISMATCH",
+  "REPORT_SCHEMA",
+  "DISCOVERY_CHILD",
+  "DISCOVERY_JSON",
+  "REPORT_MISSING",
+  "REPORT_PROVENANCE",
+  "STALE_REPORT",
+  "EXECUTION_MISMATCH",
+  "REQUIRED_OUTCOME",
+  "OWNERSHIP",
+  "ALLOCATION_REUSE",
+  "PROFILE_INVALID",
+  "PORT_OCCUPIED",
+  "CHILD_FAILED",
+  "PRIVATE_IO",
+  "OUTPUT_LIMIT",
+  "CLEANUP_FAILED",
+  "PHASE_FAILED",
+  "OPERATION_FAILED",
+  "MANIFEST_FAILED",
+  "UNSUPPORTED_RUNNER",
+]);
+export const safeCode = (error, fallback = "PHASE_FAILED") =>
+  PUBLIC_CODES.has(error?.code) ? error.code : fallback;
 export const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function fail(code, detail = "") {
   const error = new Error(`${code}${detail ? `: ${detail}` : ""}`);
@@ -24,6 +63,108 @@ function fail(code, detail = "") {
 }
 export const caseKey = (row) =>
   JSON.stringify([row.file, row.case, row.browser, row.repeatEachIndex]);
+
+export function makeProfile(mode, apiPort, webPort) {
+  const apiTarget = `http://localhost:${apiPort}`;
+  const profile = {
+    mode,
+    apiPort,
+    webPort,
+    apiTarget,
+    apiBase: mode === "proxy" ? "/api/v1" : `${apiTarget}/v1`,
+    webOrigin: `http://localhost:${webPort}`,
+    proxyOrigin: apiTarget,
+  };
+  validateProfile(profile);
+  return profile;
+}
+export function validateProfile(p, dbPort) {
+  if (
+    !p ||
+    !["direct", "proxy"].includes(p.mode) ||
+    ![p.apiPort, p.webPort].every((n) => Number.isInteger(n) && n > 0 && n < 65536) ||
+    new Set([p.apiPort, p.webPort, ...(dbPort === undefined ? [] : [dbPort])]).size !==
+      (dbPort === undefined ? 2 : 3) ||
+    p.apiTarget !== `http://localhost:${p.apiPort}` ||
+    p.proxyOrigin !== p.apiTarget ||
+    p.webOrigin !== `http://localhost:${p.webPort}` ||
+    p.apiBase !== (p.mode === "proxy" ? "/api/v1" : `${p.apiTarget}/v1`)
+  )
+    fail("PROFILE_INVALID");
+  return p;
+}
+export function profileEnv(p) {
+  validateProfile(p);
+  return {
+    AFC_E2E_MODE: p.mode,
+    E2E_API_PORT: String(p.apiPort),
+    E2E_WEB_PORT: String(p.webPort),
+    E2E_API_TARGET: p.apiTarget,
+    E2E_API_BASE_URL: p.apiBase,
+    API_PROXY_ORIGIN: p.proxyOrigin,
+  };
+}
+export function profileFromEnv(env) {
+  const p = makeProfile(
+    env.AFC_E2E_MODE ?? "direct",
+    Number(env.E2E_API_PORT ?? 3101),
+    Number(env.E2E_WEB_PORT ?? 3000),
+  );
+  return validateProfile({
+    ...p,
+    apiTarget: env.E2E_API_TARGET ?? p.apiTarget,
+    apiBase: env.E2E_API_BASE_URL ?? p.apiBase,
+    proxyOrigin: env.API_PROXY_ORIGIN ?? p.proxyOrigin,
+  });
+}
+
+/** No report/env/attachments/errors are copied. Only independently expected identities are public. */
+export function executionProjection(evidence, context, expected) {
+  validateExecution(evidence, context, expected);
+  return {
+    sha: context.sha,
+    run: context.run,
+    phase: context.phase,
+    selectionHash: context.selectionHash,
+    startedAt: context.startedAt,
+    rawReportHash: digest(evidence.report),
+    outcome: "passed",
+    cases: expected.map((r) => ({
+      file: r.file,
+      case: r.case,
+      browser: r.browser,
+      config: r.config,
+      repeatEachIndex: r.repeatEachIndex,
+      requirement: r.requirement,
+    })),
+  };
+}
+
+/** A network diagnostic is allowed only when its source matches an observed expected response. */
+export function classifyConsole(errors, responses, expectedUrls) {
+  const available = responses.filter(
+    (r) => expectedUrls.includes(r.url) && r.method === "GET" && r.status === 404,
+  );
+  const counts = new Map();
+  let unexpected = 0;
+  for (const error of errors) {
+    const match = available.find((r) => r.url === error.url);
+    const count = counts.get(error.url) ?? 0;
+    if (
+      match &&
+      error.text ===
+        "Failed to load resource: the server responded with a status of 404 (Not Found)" &&
+      count < available.filter((r) => r.url === error.url).length
+    )
+      counts.set(error.url, count + 1);
+    else unexpected++;
+  }
+  return {
+    unexpected,
+    expectedNetwork: [...counts].map(([url, count]) => ({ url, count })),
+    responses: available.map(({ url, method, status }) => ({ url, method, status })),
+  };
+}
 const discoveryKey = (row) => JSON.stringify([row.config, caseKey(row)]);
 export function requiredCases(manifest, stage) {
   if (!["product", "m0"].includes(stage)) fail("UNKNOWN_STAGE");
@@ -272,6 +413,7 @@ export function preflight({
   return {
     stage,
     files: files.length,
+    selectedFiles: new Set(required.map((r) => r.file)).size,
     cases: required.length,
     configs,
     phases: selectedPhases.map((p) => ({
@@ -319,6 +461,9 @@ export function validateExecution(evidence, context, expected) {
 
 /** Validate the exact env the launcher will inherit before migration/server spawn. */
 export function validateAllocation(owner, env, inspect, previous) {
+  validateProfile(owner.profile, owner.dbPort);
+  for (const [key, value] of Object.entries(profileEnv(owner.profile)))
+    if (env[key] !== value) fail("PROFILE_INVALID");
   let db;
   try {
     db = new URL(env.DATABASE_URL);
@@ -340,6 +485,12 @@ export function validateAllocation(owner, env, inspect, previous) {
     inspect.Id !== owner.containerId ||
     inspect.Name !== `/${owner.container}` ||
     inspect.Config?.Labels?.["afc.run"] !== owner.run ||
+    inspect.Config?.Labels?.["afc.owner"] !== "automation-m0-06" ||
+    inspect.Config?.Labels?.["afc.purpose"] !== "owned-e2e" ||
+    inspect.Config?.Image !== "postgres:16" ||
+    !Object.hasOwn(inspect.HostConfig?.Tmpfs ?? {}, "/var/lib/postgresql/data") ||
+    !Array.isArray(inspect.Mounts) ||
+    inspect.Mounts.some((m) => m.Type === "volume") ||
     binding?.length !== 1 ||
     binding[0].HostIp !== "127.0.0.1" ||
     Number(binding[0].HostPort) !== owner.dbPort
@@ -347,6 +498,13 @@ export function validateAllocation(owner, env, inspect, previous) {
     fail("OWNERSHIP");
   for (const key of ["run", "containerId", "container", "e2eUser", "profiles", "output"])
     if (!owner[key] || previous.some((p) => p[key] === owner[key])) fail("ALLOCATION_REUSE", key);
+  const ports = [owner.dbPort, owner.profile.apiPort, owner.profile.webPort];
+  if (
+    previous.some((p) =>
+      [p.dbPort, p.profile?.apiPort, p.profile?.webPort].some((n) => ports.includes(n)),
+    )
+  )
+    fail("ALLOCATION_REUSE");
 }
 
 export function parseStage(args) {
@@ -360,7 +518,7 @@ export function loadManifest(root) {
 }
 
 async function main() {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const root = path.resolve(path.dirname(process.argv[1]), "..");
   const { phases, phaseArgs } = await import("./ci-e2e.mjs");
   const summary = preflight({
     root,
@@ -383,11 +541,12 @@ async function main() {
   );
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// No import.meta: Playwright also loads these pure guards through its CJS config transform.
+if (process.argv[1] && path.basename(process.argv[1]) === "ci-e2e.manifest.mjs") {
   // Complete this module's evaluation before the runner imports it back.
   // Top-level await here would deadlock that cycle (Node exits 13).
   main().catch((error) => {
-    console.error(error.code ?? "MANIFEST_FAILED");
+    console.error(safeCode(error, "MANIFEST_FAILED"));
     process.exitCode = 1;
   });
 }

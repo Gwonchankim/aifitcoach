@@ -15,17 +15,21 @@ import {
   validateAllocation,
   discover,
   preflight,
+  makeProfile,
+  profileEnv,
+  profileFromEnv,
+  validateProfile,
 } from "./ci-e2e.manifest.mjs";
 const { structuredClone } = globalThis;
 
-test("actual CLI rejects empty m0 with exit one, without a top-level-await import deadlock", () => {
+test("actual CLI rejects an unknown stage without a top-level-await import deadlock", () => {
   const cli = fileURLToPath(new URL("./ci-e2e.manifest.mjs", import.meta.url));
-  const result = spawnSync(process.execPath, [cli, "--stage", "m0"], {
+  const result = spawnSync(process.execPath, [cli, "--stage", "future"], {
     encoding: "utf8",
     timeout: 10_000,
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /EMPTY_STAGE/);
+  assert.match(result.stderr, /UNKNOWN_STAGE/);
   assert.equal(result.signal, null);
 });
 
@@ -355,9 +359,11 @@ function allocation() {
     e2eUser: "user1",
     profiles: "/owned/profiles1",
     output: "/owned/output1",
+    profile: makeProfile("direct", 41201, 41202),
   };
   const url = "postgresql://postgres:secret@127.0.0.1:45678/afc_one_e2e";
   const env = {
+    ...profileEnv(owner.profile),
     DATABASE_URL: url,
     DIRECT_URL: url,
     E2E_DATABASE_URL: url,
@@ -368,7 +374,12 @@ function allocation() {
   const inspect = {
     Id: owner.containerId,
     Name: `/${owner.container}`,
-    Config: { Labels: { "afc.run": owner.run } },
+    Config: {
+      Image: "postgres:16",
+      Labels: { "afc.run": owner.run, "afc.owner": "automation-m0-06", "afc.purpose": "owned-e2e" },
+    },
+    HostConfig: { Tmpfs: { "/var/lib/postgresql/data": "" } },
+    Mounts: [],
     NetworkSettings: { Ports: { "5432/tcp": [{ HostIp: "127.0.0.1", HostPort: "45678" }] } },
   };
   return { owner, env, inspect };
@@ -388,6 +399,24 @@ test("nonowned host/container, DIRECT_URL mismatch fail before launch without le
     (a) => {
       a.inspect.Id = "foreign";
     },
+    (a) => {
+      a.inspect.Config.Labels["afc.owner"] = "foreign";
+    },
+    (a) => {
+      a.inspect.Config.Labels["afc.purpose"] = "foreign";
+    },
+    (a) => {
+      a.inspect.HostConfig.Tmpfs = {};
+    },
+    (a) => {
+      a.inspect.Mounts = [{ Type: "volume" }];
+    },
+    (a) => {
+      a.inspect.Config.Image = "postgres:15";
+    },
+    (a) => {
+      a.inspect.NetworkSettings.Ports["5432/tcp"][0].HostIp = "0.0.0.0";
+    },
   ]) {
     const a = allocation();
     change(a);
@@ -401,6 +430,58 @@ test("nonowned host/container, DIRECT_URL mismatch fail before launch without le
     const good = allocation();
     validateAllocation(good.owner, good.env, good.inspect, []);
   }
+});
+
+test("new direct/proxy duplicate title and missing browser cannot masquerade as a complete m0", () => {
+  const f = fixture();
+  f.manifest.cases = [
+    {
+      ...row(browsers[0]),
+      stage: "m0",
+      case: ["M0-06 direct", "shell consumes real API contract"],
+    },
+    {
+      ...row(browsers[1]),
+      stage: "m0",
+      case: ["M0-06 direct", "shell consumes real API contract"],
+    },
+  ];
+  validateManifest(f.manifest, [file], f.phases, "m0");
+  rejects("DISCOVERY_MISMATCH", () => validateDiscovery(f.manifest, [f.manifest.cases[0]], "m0"));
+  f.manifest.cases.push({ ...f.manifest.cases[0] });
+  rejects("DUPLICATE_CASE", () => validateManifest(f.manifest, [file], f.phases, "m0"));
+});
+
+test("N01 exact env/profile, port collision and unsafe origins fail before launch", () => {
+  for (const mode of ["direct", "proxy"]) {
+    const p = makeProfile(mode, 42001, 42002);
+    assert.deepEqual(profileFromEnv(profileEnv(p)), p);
+    for (const change of [
+      { apiPort: 0 },
+      { webPort: p.apiPort },
+      { apiTarget: "https://remote" },
+      { apiBase: "/wrong" },
+      { proxyOrigin: "http://localhost:3001" },
+      { mode: "future" },
+    ])
+      rejects("PROFILE_INVALID", () => validateProfile({ ...p, ...change }));
+    rejects("PROFILE_INVALID", () => validateProfile(p, p.apiPort));
+  }
+  for (const key of [
+    "E2E_API_PORT",
+    "E2E_WEB_PORT",
+    "E2E_API_TARGET",
+    "E2E_API_BASE_URL",
+    "API_PROXY_ORIGIN",
+  ]) {
+    const a = allocation();
+    a.env[key] = "sentinel-secret";
+    rejects("PROFILE_INVALID", () => validateAllocation(a.owner, a.env, a.inspect, []));
+  }
+  const a = allocation();
+  rejects("ALLOCATION_REUSE", () =>
+    validateAllocation(a.owner, a.env, a.inspect, [{ dbPort: a.owner.profile.apiPort }]),
+  );
 });
 
 test("principal, DB, profile, output and run reuse across phases is rejected", () => {

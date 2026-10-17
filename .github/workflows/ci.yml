@@ -30,6 +30,7 @@ jobs:
       - run: node --test scripts/ci-e2e.test.mjs scripts/ci-e2e.manifest.test.mjs
       # Discovery only: no webServer/globalSetup/DB is started by --list.
       - run: node scripts/ci-e2e.manifest.mjs --stage product
+      - run: node scripts/ci-e2e.manifest.mjs --stage m0
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build
@@ -53,30 +54,16 @@ jobs:
         working-directory: apps/web
       # 각 phase가 새 loopback DB/container/principal과 검증 가능한 소유권 manifest를 만든다.
       # headed persistent Chromium도 생략하지 않고 Xvfb에서 실행한다.
-      - run: xvfb-run --auto-servernum node scripts/ci-e2e.mjs
+      - run: xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage m0
+      - run: xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage product
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-selection-summary
-          path: apps/web/e2e/.artifacts-ci/execution-*.json
-          include-hidden-files: true
-          retention-days: 7
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-artifacts
+          name: e2e-safe-evidence
           path: |
-            apps/web/e2e/.artifacts
-            apps/web/e2e/.report
-            apps/web/e2e/.artifacts-ci
+            apps/web/e2e/.artifacts-ci/m0/*.json
+            apps/web/e2e/.artifacts-ci/product/*.json
           include-hidden-files: true
-          retention-days: 7
-      # A separate root prevents the Linux-only C: directory from entering archive paths.
-      - if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-owned-evidence
-          path: apps/web/C:/Users/amole/.traycer/evidence
-          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 7
     # NOTE: recommendation-engine golden tests MUST run here and block merge on failure.
