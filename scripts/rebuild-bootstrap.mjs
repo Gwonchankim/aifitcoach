@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-06)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-final-commands)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -73,6 +73,9 @@ export const initialStatus = (type) =>
  *   예외 밖이고, 승인 경로도 부재는 실패다. API 시험(cardio-program.spec)은 다음 suite 를 오염시키던 종료 정리
  *   누락만 고친 T행 하나의 격리 결함 예외다 — ledger 상태·T 집계는 그대로이고 이관·ported 로 세지 않는다.
  *   그 밖 보호는 m0-05 그대로.
+ * m0-final-commands: m0-06 에 root 명령 본체·자체 시험 2(신규 16)와 package script 2(ci:m0·ci:product —
+ *   scriptAdditions 3)만 더한다. 승인 8·전환 13 은 그대로고, script 는 정확한 이름·명령일 때만 허용하며 둘 다
+ *   있어야 한다. docs 경로 예외는 없다. 그 밖 보호는 m0-06 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -177,10 +180,23 @@ stages["m0-06"] = Object.freeze({
     "apps/api/test/cardio-program.spec.ts",
   ]),
 });
+stages["m0-final-commands"] = Object.freeze({
+  ...stages["m0-06"],
+  newFiles: Object.freeze([
+    ...stages["m0-06"].newFiles,
+    "scripts/ci-m0.mjs",
+    "scripts/ci-m0.test.mjs",
+  ]),
+  scriptAdditions: Object.freeze({
+    ...stages["m0-06"].scriptAdditions,
+    "ci:m0": "node scripts/ci-m0.mjs",
+    "ci:product": "node scripts/ci-m0.mjs --stage product",
+  }),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-06";
+const DEFAULT_STAGE = "m0-final-commands";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));

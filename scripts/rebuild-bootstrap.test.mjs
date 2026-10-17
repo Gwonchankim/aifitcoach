@@ -249,6 +249,46 @@ function makeRepo(t, extra = {}) {
 // 기존 반례는 단계를 명시해 m0-01 당시 범위를 그대로 검증한다(CLI 기본 단계 상향에 묻어가지 않는다).
 const check = (repo, stage = "m0-01") =>
   runChecks({ root: repo.root, expected: repo.expected, stage });
+
+/** 최신 단계(= CLI·runChecks 기본). m0-06 위에 root 명령 2 script 등록을 더 요구한다. */
+const FINAL = "m0-final-commands";
+const FINAL_SCRIPTS = {
+  "ci:m0": "node scripts/ci-m0.mjs",
+  "ci:product": "node scripts/ci-m0.mjs --stage product",
+};
+
+/**
+ * 같은 대상에 root 명령 2 script 만 더해 검사한 뒤 manifest 바이트를 원상으로 돌린다(stage 생략 = 기본 단계).
+ * 그 두 script 는 최신 단계가 요구하는 등록이다 — 명시 과거 단계는 원래 manifest 로 그대로 검사한다.
+ */
+function checkWithRootScripts(repo, stage) {
+  const original = read(repo, "package.json");
+  const manifest = JSON.parse(original.toString("utf8"));
+  Object.assign(manifest.scripts, FINAL_SCRIPTS);
+  write(repo, "package.json", json(manifest));
+  try {
+    return runChecks({ root: repo.root, expected: repo.expected, ...(stage ? { stage } : {}) });
+  } finally {
+    write(repo, "package.json", original);
+  }
+}
+const runDefault = (repo) => checkWithRootScripts(repo);
+
+/**
+ * 기본 결과는 명시 m0-final-commands 와 같고, 단계 이름 말고는 주어진 명시 m0-06 결과와 같다 —
+ * 새 단계는 root 명령 등록을 더 요구할 뿐 m0-06 의 허용·보호를 그대로 물려받는다.
+ */
+function assertDefaultLike(repo, latest) {
+  const byDefault = runDefault(repo);
+  assert.deepEqual(byDefault, checkWithRootScripts(repo, FINAL));
+  assert.equal(byDefault.summary.stage, FINAL);
+  assert.equal(latest.summary.stage, "m0-06");
+  assert.deepEqual(
+    { ...byDefault, summary: { ...byDefault.summary, stage: latest.summary.stage } },
+    latest,
+  );
+  return byDefault;
+}
 const failedChecks = (result) => [...new Set(result.failures.map((f) => f.check))].sort();
 const messagesOf = (result, number) =>
   result.failures
@@ -609,17 +649,18 @@ const M0_03_FILES = [
   "scripts/tsconfig.rebuild-api-types.json",
 ];
 
-test("m0-03 합성 후보는 명시 m0-03·m0-02a·m0-04·m0-05·기본 단계(m0-06) GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
+test("m0-03 합성 후보는 명시 m0-03·m0-02a·m0-04·m0-05·m0-06·기본 단계(m0-final-commands) GREEN, 같은 대상의 명시 m0-01 은 검사 5 RED", (t) => {
   const repo = makeRepo(t);
   for (const rel of M0_03_FILES) write(repo, rel, "// m0-03 모의 파일\n");
   const explicit = check(repo, "m0-03");
-  const byDefault = runChecks({ root: repo.root, expected: repo.expected });
+  const byDefault = runDefault(repo);
   for (const [result, stage] of [
     [explicit, "m0-03"],
     [check(repo, "m0-02a"), "m0-02a"],
     [check(repo, "m0-04"), "m0-04"],
     [check(repo, "m0-05"), "m0-05"],
-    [byDefault, "m0-06"],
+    [check(repo, "m0-06"), "m0-06"],
+    [byDefault, FINAL],
   ]) {
     assert.deepEqual(result.failures, []);
     assert.equal(result.ok, true);
@@ -638,8 +679,10 @@ test("m0-03 합성 후보는 명시 m0-03·m0-02a·m0-04·m0-05·기본 단계(m
   assertGreen(repo);
 });
 
-test("기본 단계는 m0-06 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
-  assert.deepEqual(parseArgs([]), { stage: "m0-06" });
+test("기본 단계는 m0-final-commands 이다 — parseArgs·runChecks·인자 없는 CLI 가 같은 단계를 쓴다", (t) => {
+  assert.deepEqual(parseArgs([]), { stage: FINAL });
+  assert.deepEqual(parseArgs([`--stage=${FINAL}`]), { stage: FINAL });
+  assert.deepEqual(parseArgs(["--stage", FINAL]), { stage: FINAL });
   assert.deepEqual(parseArgs(["--stage=m0-06"]), { stage: "m0-06" });
   assert.deepEqual(parseArgs(["--stage", "m0-06"]), { stage: "m0-06" });
   assert.deepEqual(parseArgs(["--stage=m0-05"]), { stage: "m0-05" });
@@ -648,7 +691,15 @@ test("기본 단계는 m0-06 이다 — parseArgs·runChecks·인자 없는 CLI 
   assert.deepEqual(parseArgs(["--stage=m0-02a"]), { stage: "m0-02a" });
   assert.deepEqual(parseArgs(["--stage=m0-03"]), { stage: "m0-03" });
   assert.deepEqual(parseArgs(["--stage", "m0-01"]), { stage: "m0-01" });
-  assert.deepEqual(Object.keys(STAGES), ["m0-01", "m0-03", "m0-02a", "m0-04", "m0-05", "m0-06"]);
+  assert.deepEqual(Object.keys(STAGES), [
+    "m0-01",
+    "m0-03",
+    "m0-02a",
+    "m0-04",
+    "m0-05",
+    "m0-06",
+    FINAL,
+  ]);
   // m0-03 은 신규 파일만 누적한다 — 그 밖 보호 규칙은 m0-01 과 같은 값이다.
   const { newFiles: strictFiles, ...strictRules } = STAGES["m0-01"];
   const { newFiles, ...rules } = STAGES["m0-03"];
@@ -658,13 +709,13 @@ test("기본 단계는 m0-06 이다 — parseArgs·runChecks·인자 없는 CLI 
     Object.isFrozen(STAGES) && Object.isFrozen(STAGES["m0-03"]) && Object.isFrozen(newFiles),
   );
 
-  // 인자 없는 CLI 도 m0-06 을 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
+  // 인자 없는 CLI 도 m0-final-commands 를 검사한다(합성 cwd 는 고정 기준선과 달라 실패하지만 단계 표기로 확인).
   const repo = makeRepo(t);
-  assert.equal(runChecks({ root: repo.root, expected: repo.expected }).summary.stage, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), check(repo, "m0-06"));
+  assert.equal(runChecks({ root: repo.root, expected: repo.expected }).summary.stage, FINAL);
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), check(repo, FINAL));
   const run = spawnSync(process.execPath, [CLI], { cwd: repo.root, encoding: "utf8" });
   assert.equal(run.status, 1);
-  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-06 · /m);
+  assert.match(run.stdout, /^rebuild-bootstrap · stage m0-final-commands · /m);
 });
 
 const M0_02A_FILES = [
@@ -697,8 +748,7 @@ for (const rel of APPROVED_CHANGES) {
     const repo = makeRepo(t);
     const original = read(repo, rel);
     write(repo, rel, Buffer.concat([original, Buffer.from("# m0-02a 변경\n", "utf8")]));
-    const byDefault = runChecks({ root: repo.root, expected: repo.expected });
-    assert.deepEqual(byDefault, check(repo, "m0-06"));
+    assertDefaultLike(repo, check(repo, "m0-06"));
     for (const stage of ["m0-02a", "m0-04", "m0-05", "m0-06"]) {
       const explicit = check(repo, stage);
       assert.deepEqual(explicit.failures, []);
@@ -722,16 +772,12 @@ for (const rel of APPROVED_CHANGES) {
   });
 }
 
-test("승인 경로라도 삭제는 m0-02a·m0-05(명시)·기본(m0-06)에서 검사 3 RED(부재 미설명), 원상은 GREEN", (t) => {
+test("승인 경로라도 삭제는 m0-02a·m0-05(명시)·기본(m0-final-commands)에서 검사 3 RED(부재 미설명), 원상은 GREEN", (t) => {
   const repo = makeRepo(t);
   const rel = "scripts/ci-e2e.mjs";
   const original = read(repo, rel);
   unlinkSync(fileOf(repo, rel));
-  for (const result of [
-    check(repo, "m0-02a"),
-    check(repo, "m0-05"),
-    runChecks({ root: repo.root, expected: repo.expected }),
-  ]) {
+  for (const result of [check(repo, "m0-02a"), check(repo, "m0-05"), runDefault(repo)]) {
     assert.equal(result.ok, false);
     assert.deepEqual(failedChecks(result), [3]);
     assert.deepEqual(linesOf(messagesOf(result, 3)), [
@@ -866,7 +912,7 @@ for (const rel of CONTRACT_REPLACED) {
     writeLedgerWith(repo, { [rel]: REPLACED });
     const explicit = check(repo, "m0-04");
     const latest = check(repo, "m0-06");
-    assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), latest);
+    assertDefaultLike(repo, latest);
     assert.deepEqual(latest.failures, []);
     assert.deepEqual(check(repo, "m0-05").failures, []);
     assert.deepEqual(explicit.failures, []);
@@ -897,11 +943,7 @@ test("refs 가 있어도 같은 경로 교체 6경로의 삭제는 m0-04 검사 
     const original = read(repo, rel);
     unlinkSync(fileOf(repo, rel));
     writeLedgerWith(repo, { [rel]: REPLACED });
-    for (const result of [
-      check(repo, "m0-04"),
-      check(repo, "m0-05"),
-      runChecks({ root: repo.root, expected: repo.expected }),
-    ]) {
+    for (const result of [check(repo, "m0-04"), check(repo, "m0-05"), runDefault(repo)]) {
       assert.equal(result.ok, false);
       assert.deepEqual(failedChecks(result), [3, 4]);
       assert.deepEqual(linesOf(messagesOf(result, 3)), [
@@ -992,7 +1034,7 @@ test("seed 1경로 변경은 m0-04·m0-05·m0-06(명시)·기본 GREEN·예외 �
   const explicit = check(repo, "m0-04");
   const prior = check(repo, "m0-05");
   const latest = check(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), latest);
+  assertDefaultLike(repo, latest);
   assert.deepEqual(latest.failures, []);
   assert.deepEqual(latest.summary.approvedChanged, [SEED]);
   assert.deepEqual(prior.failures, []);
@@ -1069,7 +1111,7 @@ test("6경로 전환+seed+신규 2개 전체 후보는 m0-04 GREEN·행 수·두
   const green = assertGreen(repo, "m0-04");
   assertGreen(repo, "m0-05");
   const latest = assertGreen(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), latest);
+  assertDefaultLike(repo, latest);
   assert.deepEqual([...green.summary.contractReplaced].sort(), [...CONTRACT_REPLACED].sort());
   assert.deepEqual(green.summary.approvedChanged, [SEED]);
   assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_04_FILES].sort());
@@ -1155,7 +1197,7 @@ for (const rel of VERIFY) {
     write(repo, rel, Buffer.concat([original, Buffer.from("// m0-05 변경\n", "utf8")]));
     const explicit = check(repo, "m0-05");
     const latest = check(repo, "m0-06");
-    assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), latest);
+    assertDefaultLike(repo, latest);
     assert.deepEqual(latest.failures, []);
     assert.deepEqual(latest.summary.approvedChanged, [rel]);
     assert.deepEqual(explicit.failures, []);
@@ -1172,10 +1214,7 @@ for (const rel of VERIFY) {
     assert.deepEqual(strict.summary.approvedChanged, []);
     // 승인 경로라도 부재는 허용하지 않는다.
     unlinkSync(fileOf(repo, rel));
-    for (const deleted of [
-      check(repo, "m0-05"),
-      runChecks({ root: repo.root, expected: repo.expected }),
-    ]) {
+    for (const deleted of [check(repo, "m0-05"), runDefault(repo)]) {
       assert.deepEqual(failedChecks(deleted), [3, 4]);
       assert.deepEqual(linesOf(messagesOf(deleted, 3)), [
         `${rel}: 기준선 경로가 없다 — status 'active' 가 부재를 설명하지 못한다`,
@@ -1203,7 +1242,7 @@ for (const rel of SHELL) {
     writeLedgerWith(repo, { [rel]: REPLACED });
     const explicit = check(repo, "m0-05");
     const latest = check(repo, "m0-06");
-    assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), latest);
+    assertDefaultLike(repo, latest);
     assert.deepEqual(latest.failures, []);
     assert.deepEqual(latest.summary.contractReplaced, [rel]);
     assert.deepEqual(explicit.failures, []);
@@ -1290,10 +1329,7 @@ test("FE 신규 spec 은 m0-05 GREEN·명시 m0-04 검사 5 RED, 13 밖 유사 �
   const repo = makeRepo(t);
   for (const rel of M0_05_FILES) write(repo, rel, "// m0-05 모의 spec\n");
   const green = assertGreen(repo, "m0-05");
-  assert.deepEqual(
-    runChecks({ root: repo.root, expected: repo.expected }),
-    assertGreen(repo, "m0-06"),
-  );
+  assertDefaultLike(repo, assertGreen(repo, "m0-06"));
   assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_05_FILES].sort());
   const strict = check(repo, "m0-04");
   assert.deepEqual(failedChecks(strict), [5]);
@@ -1362,10 +1398,7 @@ test("API 6 + 셸 7 전환·seed·verify 2 변경·신규 3 전체 후보는 m0-
   assert.equal(digestOf(edited.rows), repo.expected.digest);
   assert.equal(digestOf(edited.rows, TYPE_LINE), repo.expected.typeDigest);
   const green = assertGreen(repo, "m0-05");
-  assert.deepEqual(
-    runChecks({ root: repo.root, expected: repo.expected }),
-    assertGreen(repo, "m0-06"),
-  );
+  assertDefaultLike(repo, assertGreen(repo, "m0-06"));
   assert.deepEqual([...green.summary.contractReplaced].sort(), [...replaced].sort());
   assert.deepEqual([...green.summary.approvedChanged].sort(), [...changed].sort());
   assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...added].sort());
@@ -1426,7 +1459,8 @@ test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1·격리 수정
     [priorFiles.length, priorChanges.length, priorRules.contractReplaced.length],
     [13, 6, 13],
   );
-  // 새 경로·격리 시험은 과거 단계 어디에도 없고, derived config·형제 시험은 m0-06 에도 없다.
+  // 새 경로·격리 시험은 과거 단계 어디에도 없고(m0-final-commands 는 m0-06 을 그대로 잇는다),
+  // derived config·형제 시험은 m0-06 이후 단계에도 없다.
   for (const stage of Object.keys(STAGES)) {
     const {
       newFiles: files,
@@ -1437,21 +1471,21 @@ test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1·격리 수정
     for (const rel of [...DERIVED_CONFIGS, SIBLING_TEST]) {
       assert.ok(!listed.includes(rel), `${stage}: ${rel}`);
     }
-    if (stage === "m0-06") continue;
+    if (stage === "m0-06" || stage === FINAL) continue;
     for (const rel of [...M0_06_FILES, BASE_CONFIG, ISOLATED_TEST]) {
       assert.ok(!listed.includes(rel), `${stage}: ${rel}`);
     }
   }
 });
 
-test("base config 변경은 m0-06(명시·기본) GREEN·예외 보고, 명시 m0-05 는 검사 3·4 RED, 삭제는 m0-06(명시·기본)에서도 RED, 원상은 GREEN", (t) => {
+test("base config 변경은 m0-06(명시)·기본 GREEN·예외 보고, 명시 m0-05 는 검사 3·4 RED, 삭제는 m0-06(명시)·기본에서도 RED, 원상은 GREEN", (t) => {
   const repo = makeRepo(t, M0_06_BASELINE);
   // spec 이 아직 없어도 된다 — 허용 경로일 뿐 존재를 강제하지 않는다.
   assertGreen(repo, "m0-06");
   const original = read(repo, BASE_CONFIG);
   appendLine(repo, BASE_CONFIG, "// m0-06 변경\n");
   const explicit = check(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), explicit);
+  assertDefaultLike(repo, explicit);
   assert.deepEqual(explicit.failures, []);
   assert.deepEqual(explicit.summary.approvedChanged, [BASE_CONFIG]);
   assert.deepEqual(explicit.summary.statusCounts, M0_06_STATUS_COUNTS);
@@ -1468,10 +1502,7 @@ test("base config 변경은 m0-06(명시·기본) GREEN·예외 보고, 명시 m
   assert.deepEqual(strict.summary.approvedChanged, []);
   // 승인 config 라도 부재는 허용하지 않는다.
   unlinkSync(fileOf(repo, BASE_CONFIG));
-  for (const deleted of [
-    check(repo, "m0-06"),
-    runChecks({ root: repo.root, expected: repo.expected }),
-  ]) {
+  for (const deleted of [check(repo, "m0-06"), runDefault(repo)]) {
     assert.deepEqual(failedChecks(deleted), [3, 4]);
     assert.deepEqual(linesOf(messagesOf(deleted, 3)), [
       `${BASE_CONFIG}: 기준선 경로가 없다 — status 'active' 가 부재를 설명하지 못한다`,
@@ -1484,15 +1515,12 @@ test("base config 변경은 m0-06(명시·기본) GREEN·예외 보고, 명시 m
   assertGreen(repo, "m0-05");
 });
 
-test("base config 예외는 같은 디렉터리 derived config 로 번지지 않는다 — 변경은 m0-06(명시·기본)에서도 검사 3·4 RED, 원상은 GREEN", (t) => {
+test("base config 예외는 같은 디렉터리 derived config 로 번지지 않는다 — 변경은 m0-06(명시)·기본에서도 검사 3·4 RED, 원상은 GREEN", (t) => {
   const repo = makeRepo(t, M0_06_BASELINE);
   for (const rel of DERIVED_CONFIGS) {
     const original = read(repo, rel);
     appendLine(repo, rel, "// m0-06 변경\n");
-    for (const red of [
-      check(repo, "m0-06"),
-      runChecks({ root: repo.root, expected: repo.expected }),
-    ]) {
+    for (const red of [check(repo, "m0-06"), runDefault(repo)]) {
       assert.deepEqual(failedChecks(red), [3, 4], rel);
       assert.deepEqual(linesOf(messagesOf(red, 3)), [
         `${rel}: 바이트가 기준선과 다르다(status preserved-unported)`,
@@ -1505,11 +1533,11 @@ test("base config 예외는 같은 디렉터리 derived config 로 번지지 않
   }
 });
 
-test("E2E 신규 spec 은 m0-06(명시·기본) GREEN·명시 m0-05 검사 5 RED, 유사 이름·14 밖 신규 파일은 m0-06 검사 5 RED, 원상은 GREEN", (t) => {
+test("E2E 신규 spec 은 m0-06(명시)·기본 GREEN·명시 m0-05 검사 5 RED, 유사 이름·14 밖 신규 파일은 m0-06 검사 5 RED, 원상은 GREEN", (t) => {
   const repo = makeRepo(t, M0_06_BASELINE);
   for (const rel of M0_06_FILES) write(repo, rel, "// m0-06 모의 spec\n");
   const green = assertGreen(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), green);
+  assertDefaultLike(repo, green);
   assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...M0_06_FILES].sort());
   const strict = check(repo, "m0-05");
   assert.deepEqual(failedChecks(strict), [5]);
@@ -1536,22 +1564,24 @@ test("E2E 신규 spec 은 m0-06(명시·기본) GREEN·명시 m0-05 검사 5 RED
   assertGreen(repo, "m0-06");
 });
 
-test("인자 없는 CLI·--stage m0-06·--stage=m0-06 은 같은 단계·같은 출력이고, 명시 m0-05 는 그 단계로 표기된다", (t) => {
+test("인자 없는 CLI·--stage m0-final-commands·--stage=m0-final-commands 는 같은 단계·같은 출력이고, 명시 m0-06·m0-05 는 그 단계로 표기된다", (t) => {
   const repo = makeRepo(t, M0_06_BASELINE);
   const cli = (args) =>
     spawnSync(process.execPath, [CLI, ...args], { cwd: repo.root, encoding: "utf8" });
-  const [byDefault, ...explicit] = [[], ["--stage", "m0-06"], ["--stage=m0-06"]].map(cli);
+  const [byDefault, ...explicit] = [[], ["--stage", FINAL], [`--stage=${FINAL}`]].map(cli);
   // 합성 cwd 는 고정 기준선과 달라 실패하지만, 세 형태의 단계·출력·종료 코드는 같아야 한다.
   assert.equal(byDefault.status, 1);
-  assert.match(byDefault.stdout, /^rebuild-bootstrap · stage m0-06 · /m);
+  assert.match(byDefault.stdout, /^rebuild-bootstrap · stage m0-final-commands · /m);
   for (const run of explicit) {
     assert.equal(run.status, byDefault.status);
     assert.equal(run.stdout, byDefault.stdout);
     assert.equal(run.stderr, byDefault.stderr);
   }
-  const prior = cli(["--stage=m0-05"]);
-  assert.match(prior.stdout, /^rebuild-bootstrap · stage m0-05 · /m);
-  assert.doesNotMatch(prior.stdout, /stage m0-06/);
+  for (const stage of ["m0-06", "m0-05"]) {
+    const prior = cli([`--stage=${stage}`]);
+    assert.match(prior.stdout, new RegExp(`^rebuild-bootstrap · stage ${stage} · `, "m"));
+    assert.doesNotMatch(prior.stdout, /stage m0-final-commands/);
+  }
 });
 
 test("m0-06 전용 변경(base config 변경·신규 spec)은 명시 m0-05·m0-04·m0-02a·m0-03·m0-01 에서 해당 검사 RED", (t) => {
@@ -1576,7 +1606,7 @@ test("m0-06 전용 변경(base config 변경·신규 spec)은 명시 m0-05·m0-0
   restore(repo, [[BASE_CONFIG, original]], "m0-06");
 });
 
-test("API 6 + 셸 7 전환·seed·verify 2·base config 변경·신규 4 전체 후보는 m0-06(명시·기본) GREEN·행 수·두 digest 유지, 과거 단계는 RED", (t) => {
+test("API 6 + 셸 7 전환·seed·verify 2·base config 변경·신규 4 전체 후보는 m0-06(명시)·기본 GREEN·행 수·두 digest 유지, 과거 단계는 RED", (t) => {
   const repo = makeRepo(t, M0_06_BASELINE);
   const replaced = [...CONTRACT_REPLACED, ...SHELL];
   const changed = [SEED, ...VERIFY, BASE_CONFIG];
@@ -1591,7 +1621,7 @@ test("API 6 + 셸 7 전환·seed·verify 2·base config 변경·신규 4 전체 
   assert.equal(digestOf(edited.rows), repo.expected.digest);
   assert.equal(digestOf(edited.rows, TYPE_LINE), repo.expected.typeDigest);
   const green = assertGreen(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), green);
+  assertDefaultLike(repo, green);
   assert.deepEqual([...green.summary.contractReplaced].sort(), [...replaced].sort());
   assert.deepEqual([...green.summary.approvedChanged].sort(), [...changed].sort());
   assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...added].sort());
@@ -1617,13 +1647,13 @@ const ISOLATION_STATUS_COUNTS = {
   "preserved-unported": GREEN_STATUS_COUNTS["preserved-unported"] + 2,
 };
 
-test("격리 수정 시험(cardio-program.spec) 바이트 변경은 m0-06(명시·기본) GREEN·예외 보고, 과거 단계는 검사 3·4 RED, 삭제는 m0-06 에서도 RED, 원상은 GREEN", (t) => {
+test("격리 수정 시험(cardio-program.spec) 바이트 변경은 m0-06(명시)·기본 GREEN·예외 보고, 과거 단계는 검사 3·4 RED, 삭제는 m0-06 에서도 RED, 원상은 GREEN", (t) => {
   const repo = makeRepo(t, ISOLATION_BASELINE);
   assertGreen(repo, "m0-06");
   const original = read(repo, ISOLATED_TEST);
   appendLine(repo, ISOLATED_TEST, "// afterAll 종료 정리\n");
   const explicit = check(repo, "m0-06");
-  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), explicit);
+  assertDefaultLike(repo, explicit);
   assert.deepEqual(explicit.failures, []);
   assert.deepEqual(explicit.summary.approvedChanged, [ISOLATED_TEST]);
   // 상태는 그대로 preserved-unported 다 — 이관·ported 로 세지 않는다.
@@ -1642,10 +1672,7 @@ test("격리 수정 시험(cardio-program.spec) 바이트 변경은 m0-06(명시
   }
   // 승인 경로라도 부재는 허용하지 않는다.
   unlinkSync(fileOf(repo, ISOLATED_TEST));
-  for (const deleted of [
-    check(repo, "m0-06"),
-    runChecks({ root: repo.root, expected: repo.expected }),
-  ]) {
+  for (const deleted of [check(repo, "m0-06"), runDefault(repo)]) {
     assert.deepEqual(failedChecks(deleted), [3, 4]);
     assert.deepEqual(linesOf(messagesOf(deleted, 3)), [
       `${ISOLATED_TEST}: 기준선 경로가 없다 — status 'preserved-unported' 가 부재를 설명하지 못한다`,
@@ -1661,10 +1688,7 @@ test("격리 예외는 형제 T 시험(cors.spec)으로 번지지 않고, 그 �
   const repo = makeRepo(t, ISOLATION_BASELINE);
   const siblingOriginal = read(repo, SIBLING_TEST);
   appendLine(repo, SIBLING_TEST, "// 형제 변경\n");
-  for (const red of [
-    check(repo, "m0-06"),
-    runChecks({ root: repo.root, expected: repo.expected }),
-  ]) {
+  for (const red of [check(repo, "m0-06"), runDefault(repo)]) {
     assert.deepEqual(failedChecks(red), [3, 4]);
     assert.deepEqual(linesOf(messagesOf(red, 3)), [
       `${SIBLING_TEST}: 바이트가 기준선과 다르다(status preserved-unported)`,
@@ -1686,6 +1710,204 @@ test("격리 예외는 형제 T 시험(cors.spec)으로 번지지 않고, 그 �
     ]);
   }
   restore(repo, [[ISOLATED_TEST, original]], "m0-06");
+});
+
+const FINAL_FILES = ["scripts/ci-m0.mjs", "scripts/ci-m0.test.mjs"];
+const NOT_ALLOWED_SCRIPT = (name) => `scripts.${name} 은 이 단계에서 허용한 추가가 아니다`;
+const MISSING_SCRIPT = (name) => `scripts.${name} = "${FINAL_SCRIPTS[name]}" 가 없다`;
+const OUTSIDE = (rel) => `${rel}: 기준선 밖 파일이 이 단계 allowlist 에 없다`;
+/** 합성 manifest 에 script 를 더한다(기존 키 유지). */
+function writeScripts(repo, base, scripts) {
+  const manifest = JSON.parse(base.toString("utf8"));
+  manifest.scripts = { ...manifest.scripts, ...scripts };
+  write(repo, "package.json", json(manifest));
+}
+
+test("m0-final-commands 는 m0-06 에 root 명령 2파일(누적 16)·script 2키(3)만 더하고 승인 8·전환 13·그 밖 규칙은 같으며 과거 단계로 새지 않는다", () => {
+  const { newFiles: priorFiles, scriptAdditions: priorScripts, ...priorRules } = STAGES["m0-06"];
+  const { newFiles, scriptAdditions, ...rules } = STAGES[FINAL];
+  // approvedChanges·contractReplaced·frozen·manifest·lock·lifecycle·importers 는 m0-06 과 같은 값이다.
+  assert.deepEqual(rules, priorRules);
+  assert.equal(new Set(rules.approvedChanges).size, 8);
+  assert.equal(rules.contractReplaced.length, 13);
+  assert.deepEqual(newFiles, [...priorFiles, ...FINAL_FILES]);
+  assert.equal(new Set(newFiles).size, 16);
+  assert.deepEqual(priorScripts, { "ci:bootstrap": "node scripts/rebuild-bootstrap.mjs" });
+  assert.deepEqual(scriptAdditions, { ...priorScripts, ...FINAL_SCRIPTS });
+  assert.deepEqual(Object.keys(scriptAdditions), ["ci:bootstrap", "ci:m0", "ci:product"]);
+  assert.ok([STAGES[FINAL], newFiles, scriptAdditions].every((value) => Object.isFrozen(value)));
+  // m0-06 의 목록은 그대로(14·8·13)이고, docs 경로 예외는 이 단계에도 없다.
+  assert.deepEqual(
+    [priorFiles.length, priorRules.approvedChanges.length, priorRules.contractReplaced.length],
+    [14, 8, 13],
+  );
+  assert.ok(
+    ![...newFiles, ...rules.approvedChanges, ...rules.contractReplaced].some((rel) =>
+      rel.startsWith("docs/"),
+    ),
+  );
+  // root 명령 파일·script 는 과거 단계 어디에도 없다.
+  for (const stage of Object.keys(STAGES)) {
+    if (stage === FINAL) continue;
+    const {
+      newFiles: files,
+      approvedChanges: changes = [],
+      contractReplaced: replaced = [],
+      scriptAdditions: scripts,
+    } = STAGES[stage];
+    for (const rel of FINAL_FILES) {
+      assert.ok(![...files, ...changes, ...replaced].includes(rel), `${stage}: ${rel}`);
+    }
+    assert.deepEqual(Object.keys(scripts), ["ci:bootstrap"], stage);
+  }
+});
+
+test("root 명령 script 2키는 m0-final-commands(명시·기본) GREEN 이고, 하나라도 없거나 다르거나 그 밖 script 를 더하면 검사 4 RED, 명시 m0-06 은 두 키를 거부한다", (t) => {
+  const repo = makeRepo(t);
+  const original = read(repo, "package.json");
+  // ci:bootstrap 만 있는 manifest: 새 단계(명시·기본)는 두 키가 없다고 검사 4 RED 다.
+  for (const red of [check(repo, FINAL), runChecks({ root: repo.root, expected: repo.expected })]) {
+    assert.deepEqual(failedChecks(red), [4]);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), [
+      MISSING_SCRIPT("ci:m0"),
+      MISSING_SCRIPT("ci:product"),
+    ]);
+  }
+  writeScripts(repo, original, FINAL_SCRIPTS);
+  const green = assertGreen(repo, FINAL);
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), green);
+  // 정확한 등록이라도 명시 m0-06 에서는 허용한 추가가 아니다.
+  const strict = check(repo, "m0-06");
+  assert.deepEqual(failedChecks(strict), [4]);
+  assert.deepEqual(linesOf(messagesOf(strict, 4)), [
+    NOT_ALLOWED_SCRIPT("ci:m0"),
+    NOT_ALLOWED_SCRIPT("ci:product"),
+  ]);
+  for (const [label, scripts, messages] of [
+    [
+      "ci:m0 명령 변경(skip 옵션)",
+      { ...FINAL_SCRIPTS, "ci:m0": "node scripts/ci-m0.mjs --skip-db" },
+      [NOT_ALLOWED_SCRIPT("ci:m0"), MISSING_SCRIPT("ci:m0")],
+    ],
+    [
+      "ci:product 를 ci:m0 와 같은 명령으로",
+      { ...FINAL_SCRIPTS, "ci:product": "node scripts/ci-m0.mjs" },
+      [NOT_ALLOWED_SCRIPT("ci:product"), MISSING_SCRIPT("ci:product")],
+    ],
+    ["ci:product 누락", { "ci:m0": FINAL_SCRIPTS["ci:m0"] }, [MISSING_SCRIPT("ci:product")]],
+    [
+      "미등록 script 추가(합성 manifest)",
+      { ...FINAL_SCRIPTS, "ci:m0:partial": "node scripts/ci-m0.mjs --partial" },
+      [NOT_ALLOWED_SCRIPT("ci:m0:partial")],
+    ],
+    [
+      "유사 이름 script",
+      { ...FINAL_SCRIPTS, "ci:m0-fast": "node scripts/ci-m0.mjs" },
+      [NOT_ALLOWED_SCRIPT("ci:m0-fast")],
+    ],
+  ]) {
+    writeScripts(repo, original, scripts);
+    const red = check(repo, FINAL);
+    assert.deepEqual(failedChecks(red), [4], label);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), messages, label);
+  }
+  write(repo, "package.json", original);
+  assertGreen(repo, "m0-06");
+});
+
+test("root 명령 2파일은 m0-final-commands(명시·기본) GREEN·명시 m0-06 검사 5 RED, 유사 이름·16 밖 신규 파일은 검사 5 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t);
+  for (const rel of FINAL_FILES) write(repo, rel, "// root 명령 모의 파일\n");
+  const green = checkWithRootScripts(repo, FINAL);
+  assert.deepEqual(green.failures, []);
+  assert.equal(green.ok, true);
+  assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...FINAL_FILES].sort());
+  assert.deepEqual(runDefault(repo), green);
+  const strict = check(repo, "m0-06");
+  assert.deepEqual(failedChecks(strict), [5]);
+  assert.deepEqual(linesOf(messagesOf(strict, 5)), [...FINAL_FILES].sort().map(OUTSIDE));
+  // 이름이 비슷하거나 위치·확장자만 다른 파일도 16개 allowlist 밖이면 새 단계에서 거부한다.
+  for (const outside of [
+    "scripts/ci-m0.extra.mjs",
+    "scripts/ci-m0.test.extra.mjs",
+    "scripts/ci-m0.mts",
+    "scripts/ci-m1.mjs",
+    "scripts/ci/ci-m0.mjs",
+    "scripts/ci-product.mjs",
+  ]) {
+    write(repo, outside, "// 승인 밖\n");
+    const red = checkWithRootScripts(repo, FINAL);
+    assert.deepEqual(failedChecks(red), [5], outside);
+    assert.deepEqual(linesOf(messagesOf(red, 5)), [OUTSIDE(outside)]);
+    unlinkSync(fileOf(repo, outside));
+  }
+  for (const rel of FINAL_FILES) unlinkSync(fileOf(repo, rel));
+  assert.deepEqual(checkWithRootScripts(repo, FINAL).failures, []);
+  assertGreen(repo, "m0-06");
+});
+
+test("m0-final-commands 전용 변경(root 명령 2파일·script 2키)은 명시 m0-06·m0-05·m0-04·m0-02a·m0-03·m0-01 에서 검사 4·5 RED", (t) => {
+  const repo = makeRepo(t);
+  const original = read(repo, "package.json");
+  writeScripts(repo, original, FINAL_SCRIPTS);
+  for (const rel of FINAL_FILES) write(repo, rel, "// root 명령 모의 파일\n");
+  assertGreen(repo, FINAL);
+  for (const stage of ["m0-06", "m0-05", "m0-04", "m0-02a", "m0-03", "m0-01"]) {
+    const red = check(repo, stage);
+    assert.equal(red.ok, false, stage);
+    assert.deepEqual(failedChecks(red), [4, 5], stage);
+    assert.deepEqual(
+      linesOf(messagesOf(red, 4)),
+      [NOT_ALLOWED_SCRIPT("ci:m0"), NOT_ALLOWED_SCRIPT("ci:product")],
+      stage,
+    );
+    assert.deepEqual(linesOf(messagesOf(red, 5)), [...FINAL_FILES].sort().map(OUTSIDE), stage);
+  }
+  for (const rel of FINAL_FILES) unlinkSync(fileOf(repo, rel));
+  write(repo, "package.json", original);
+  assertGreen(repo, "m0-06");
+});
+
+test("m0-06 전체 후보 + root 명령 2파일·script 2키는 m0-final-commands(명시·기본) GREEN·행 수·두 digest 유지, 과거 단계는 RED", (t) => {
+  const repo = makeRepo(t, { ...M0_06_BASELINE, ...ISOLATION_BASELINE });
+  const replaced = [...CONTRACT_REPLACED, ...SHELL];
+  const changed = [SEED, ...VERIFY, BASE_CONFIG, ISOLATED_TEST];
+  const added = [...M0_04_FILES, ...M0_05_FILES, ...M0_06_FILES, ...FINAL_FILES];
+  const originals = [...replaced, ...changed, "package.json"].map((rel) => [rel, read(repo, rel)]);
+  for (const rel of replaced) rewrite(repo, rel);
+  for (const rel of changed) appendLine(repo, rel, "// m0-final-commands 변경\n");
+  for (const rel of added) write(repo, rel, "// 모의 신규 파일\n");
+  writeScripts(repo, read(repo, "package.json"), FINAL_SCRIPTS);
+  const edited = writeLedgerWith(repo, Object.fromEntries(replaced.map((rel) => [rel, REPLACED])));
+  // 전환은 상태 필드만 바꾼다 — 행 수·내용 digest·분류 digest 는 기준선 그대로다.
+  assert.equal(edited.rows.length, repo.expected.rows);
+  assert.equal(digestOf(edited.rows), repo.expected.digest);
+  assert.equal(digestOf(edited.rows, TYPE_LINE), repo.expected.typeDigest);
+  const green = assertGreen(repo, FINAL);
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), green);
+  assert.deepEqual([...green.summary.contractReplaced].sort(), [...replaced].sort());
+  assert.deepEqual([...green.summary.approvedChanged].sort(), [...changed].sort());
+  assert.deepEqual(green.summary.newFiles, [LEDGER_PATH, ...added].sort());
+  assert.deepEqual(green.summary.statusCounts, {
+    ...GREEN_STATUS_COUNTS,
+    active: GREEN_STATUS_COUNTS.active + 1,
+    "preserved-unported": GREEN_STATUS_COUNTS["preserved-unported"] + 4,
+    "pending-replacement": GREEN_STATUS_COUNTS["pending-replacement"] - replaced.length,
+    "contract-replaced": replaced.length,
+  });
+  // 명시 m0-06 은 root 명령(script 2·파일 2)만 거부하고, 그 이전 단계는 m0-06 변경까지 함께 거부한다.
+  const strict = check(repo, "m0-06");
+  assert.deepEqual(failedChecks(strict), [4, 5]);
+  assert.deepEqual(linesOf(messagesOf(strict, 4)), [
+    NOT_ALLOWED_SCRIPT("ci:m0"),
+    NOT_ALLOWED_SCRIPT("ci:product"),
+  ]);
+  assert.deepEqual(linesOf(messagesOf(strict, 5)), [...FINAL_FILES].sort().map(OUTSIDE));
+  for (const stage of ["m0-05", "m0-04", "m0-02a", "m0-03", "m0-01"]) {
+    assert.deepEqual(failedChecks(check(repo, stage)), [3, 4, 5], stage);
+  }
+  for (const rel of added) unlinkSync(fileOf(repo, rel));
+  restore(repo, originals, "m0-06");
 });
 
 test("lockImporters 는 v9 importers 의 specifier 만 읽고 다른 형식은 거부한다", () => {
