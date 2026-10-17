@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-final-commands)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-dd1-docs)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -76,6 +76,10 @@ export const initialStatus = (type) =>
  * m0-final-commands: m0-06 에 root 명령 본체·자체 시험 2(신규 16)와 package script 2(ci:m0·ci:product —
  *   scriptAdditions 3)만 더한다. 승인 8·전환 13 은 그대로고, script 는 정확한 이름·명령일 때만 허용하며 둘 다
  *   있어야 한다. docs 경로 예외는 없다. 그 밖 보호는 m0-06 그대로.
+ * m0-dd1-docs: m0-final-commands 에 D-D1 docs 정확 2경로(DESIGN_TOKENS·ARCHITECTURE)의 바이트 예외(승인 10)만
+ *   더한다. 신규 16·전환 13·script 3 은 그대로다. 정확한 경로 문자열만 — docs prefix·형제 경로의 해제가 아니고
+ *   부재는 실패다. ledger 의 두 D행(원문 blob/sha256·active)은 그대로 두고, 바뀐 바이트는 승인 예외 보고 줄로만
+ *   드러낸다. 그 밖 보호는 m0-final-commands 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -193,10 +197,19 @@ stages["m0-final-commands"] = Object.freeze({
     "ci:product": "node scripts/ci-m0.mjs --stage product",
   }),
 });
+stages["m0-dd1-docs"] = Object.freeze({
+  ...stages["m0-final-commands"],
+  // 정확한 경로 문자열만 — docs prefix·형제 경로가 아니다. ledger 의 두 D행은 원문 그대로 둔다.
+  approvedChanges: Object.freeze([
+    ...stages["m0-final-commands"].approvedChanges,
+    "docs/DESIGN_TOKENS.md",
+    "docs/ARCHITECTURE.md",
+  ]),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-final-commands";
+const DEFAULT_STAGE = "m0-dd1-docs";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));

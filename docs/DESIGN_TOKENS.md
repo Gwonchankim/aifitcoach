@@ -106,7 +106,7 @@ D-1 승인 보정(`success #198146`, warn 텍스트는 `warn-ink #8A6100`)을 �
 > 처음에 이 문서와 ADR-51 은 "밝기를 올리면 깨진다"고 **반대로 적었다**. 톤을 "조금 깊게" 가는 흔한 선택이
 > 정확히 깨지는 쪽이라, 방향을 틀리게 적어 두면 사람이 사고 나는 길로 안내된다.
 
-### 3.2 비텍스트 3:1(WCAG 1.4.11) — 판단 필요
+### 3.2 비텍스트 3:1(WCAG 1.4.11) — 기존 분석과 D-D1 확정
 
 `border #C9D0DA` 는 흰 위 **1.55:1**. 장식 구분선은 면제지만, **입력칸 경계는 UI 컴포넌트**라 3:1 이 필요하다.
 세트 행의 대기(pre) 상태 입력칸은 배경도 `bg #F5F7FA`(흰 대비 1.06:1)라 **경계가 테두리에만 의존**한다.
@@ -114,7 +114,7 @@ D-1 승인 보정(`success #198146`, warn 텍스트는 `warn-ink #8A6100`)을 �
 - axe 기본 룰셋은 1.4.11 을 검사하지 않는다 → **게이트는 통과하지만 접근성 구멍은 남는다.**
 - 최소 보정은 `#8A8E95`(3.29:1)지만 얇은 실선의 인상이 바뀐다.
 - **팔레트 안에서 해결하는 안**: 구분선은 `border` 유지, **인터랙티브 컨트롤 경계에만 `muted #5D6875`(5.67:1)** 를 쓴다. 새 색이 없다.
-- → **D-7 로 올린다.**
+- → **D-7 해소(D-D1 확정, 2026-10-17)**: 인터랙티브 컨트롤 경계 토큰 `--afc-border-control`을 팔레트 내 `muted #5D6875`(흰 위 5.67:1)로 확정했다. 구분선은 `border` 유지. 현재 적용은 Input과 선택 컨트롤(`selection-state`를 쓰는 Chip/Tabs 포함)이며 `verify:contrast`의 비텍스트 3:1 gate가 집행한다. CompleteButton·Button(outline/secondary)과 M2 상태별 적용, D-D2·전체 AA·실기기 실측은 M2-06/M4-06 범위로 남는다.
 
 ---
 
@@ -215,7 +215,7 @@ D-1 승인 보정(`success #198146`, warn 텍스트는 `warn-ink #8A6100`)을 �
 --afc-warn-bg        #FCF6E7   --afc-warn-border     #EBD59A   --afc-warn-ink  #8A6100
 --afc-danger-bg      #FBF2F1   --afc-danger-border   #E7BDB8
 --afc-today-row      #F5F9FF   --afc-range-band      #DDE3EC
---afc-border-control (D-7 결과에 따라: #5D6875 또는 #C9D0DA 유지)
+--afc-border-control #5D6875   (D-7 해소 — 인터랙티브 컨트롤 경계 전용, 구분선은 border 유지)
 --font-mono          'JetBrains Mono', monospace
 ```
 
@@ -230,5 +230,5 @@ runtime cache로 오프라인 로딩한다(ADR-54). 앱 셸·API 캐시는 STEP 
 
 1. ~~**다크 모드**~~ — **해소**. 라이트 전용으로 확정했고 ADR-30은 폐기 상태를 유지한다.
 2. **휴식 타이머 카운트다운 크기** — 프로토타입 시트에 대응 값이 없다(현재 60px). M-UI 에서 실측 재산출.
-3. **`border` 3:1 문제** — §3.2, **D-7.**
+3. ~~**`border` 3:1 문제**~~ — **해소**. D-7→D-D1로 `#5d6875` 확정(§3.2). 남은 컨트롤·상태 적용 확대는 M2-06.
 4. 애니메이션 토큰 없음. `prefers-reduced-motion` 처리만 프로토타입에 있다(현재 구현과 동일).
