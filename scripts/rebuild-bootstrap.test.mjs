@@ -1387,6 +1387,9 @@ const DERIVED_CONFIGS = [
   "apps/web/playwright.v2-split.config.ts",
   "apps/web/playwright.fact-window.config.ts",
 ];
+/** 종료 정리 누락만 고친 격리 결함 예외 T 시험 1과, 예외 밖인 같은 디렉터리의 형제 T 시험. */
+const ISOLATED_TEST = "apps/api/test/cardio-program.spec.ts";
+const SIBLING_TEST = "apps/api/test/cors.spec.ts";
 /** m0-06 반례 전용 추가 기준선: 승인 base config(R)와 같은 디렉터리의 derived config 2(T). */
 const M0_06_BASELINE = {
   [BASE_CONFIG]: ["R", 'export default { testDir: "./e2e" };\n'],
@@ -1402,7 +1405,7 @@ const M0_06_STATUS_COUNTS = {
 const appendLine = (repo, rel, line) =>
   write(repo, rel, Buffer.concat([read(repo, rel), Buffer.from(line, "utf8")]));
 
-test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1(승인 7)만 더하고 전환 13·그 밖 규칙은 같으며 과거 단계로 새지 않는다", () => {
+test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1·격리 수정 시험 1(승인 8)만 더하고 전환 13·그 밖 규칙은 같으며 과거 단계로 새지 않는다", () => {
   const { newFiles: priorFiles, approvedChanges: priorChanges, ...priorRules } = STAGES["m0-05"];
   const { newFiles, approvedChanges, ...rules } = STAGES["m0-06"];
   // contractReplaced·frozen·manifest·lock·lifecycle·importers 는 m0-05 와 같은 값이다.
@@ -1411,8 +1414,8 @@ test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1(승인 7)만 �
   assert.equal(rules.contractReplaced.length, 13);
   assert.deepEqual(newFiles, [...priorFiles, ...M0_06_FILES]);
   assert.equal(new Set(newFiles).size, 14);
-  assert.deepEqual(approvedChanges, [...priorChanges, BASE_CONFIG]);
-  assert.equal(new Set(approvedChanges).size, 7);
+  assert.deepEqual(approvedChanges, [...priorChanges, BASE_CONFIG, ISOLATED_TEST]);
+  assert.equal(new Set(approvedChanges).size, 8);
   assert.ok(
     [STAGES["m0-06"], newFiles, approvedChanges, rules.contractReplaced].every((value) =>
       Object.isFrozen(value),
@@ -1423,7 +1426,7 @@ test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1(승인 7)만 �
     [priorFiles.length, priorChanges.length, priorRules.contractReplaced.length],
     [13, 6, 13],
   );
-  // 새 경로와 derived config 는 과거 단계 어디에도 없고, derived config 는 m0-06 에도 없다.
+  // 새 경로·격리 시험은 과거 단계 어디에도 없고, derived config·형제 시험은 m0-06 에도 없다.
   for (const stage of Object.keys(STAGES)) {
     const {
       newFiles: files,
@@ -1431,9 +1434,11 @@ test("m0-06 은 m0-05 에 신규 spec 1(누적 14)·base config 1(승인 7)만 �
       contractReplaced: replaced = [],
     } = STAGES[stage];
     const listed = [...files, ...changes, ...replaced];
-    for (const rel of DERIVED_CONFIGS) assert.ok(!listed.includes(rel), `${stage}: ${rel}`);
+    for (const rel of [...DERIVED_CONFIGS, SIBLING_TEST]) {
+      assert.ok(!listed.includes(rel), `${stage}: ${rel}`);
+    }
     if (stage === "m0-06") continue;
-    for (const rel of [...M0_06_FILES, BASE_CONFIG]) {
+    for (const rel of [...M0_06_FILES, BASE_CONFIG, ISOLATED_TEST]) {
       assert.ok(!listed.includes(rel), `${stage}: ${rel}`);
     }
   }
@@ -1600,6 +1605,87 @@ test("API 6 + 셸 7 전환·seed·verify 2·base config 변경·신규 4 전체 
   }
   for (const rel of added) unlinkSync(fileOf(repo, rel));
   restore(repo, originals, "m0-06");
+});
+
+/** 격리 예외 반례 전용 추가 기준선: 정확 예외 T 시험 1과 같은 디렉터리의 형제 T 시험 1. */
+const ISOLATION_BASELINE = {
+  [ISOLATED_TEST]: ["T", 'describe("S2 actual cardio program persistence", () => {});\n'],
+  [SIBLING_TEST]: ["T", 'describe("CORS", () => {});\n'],
+};
+const ISOLATION_STATUS_COUNTS = {
+  ...GREEN_STATUS_COUNTS,
+  "preserved-unported": GREEN_STATUS_COUNTS["preserved-unported"] + 2,
+};
+
+test("격리 수정 시험(cardio-program.spec) 바이트 변경은 m0-06(명시·기본) GREEN·예외 보고, 과거 단계는 검사 3·4 RED, 삭제는 m0-06 에서도 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t, ISOLATION_BASELINE);
+  assertGreen(repo, "m0-06");
+  const original = read(repo, ISOLATED_TEST);
+  appendLine(repo, ISOLATED_TEST, "// afterAll 종료 정리\n");
+  const explicit = check(repo, "m0-06");
+  assert.deepEqual(runChecks({ root: repo.root, expected: repo.expected }), explicit);
+  assert.deepEqual(explicit.failures, []);
+  assert.deepEqual(explicit.summary.approvedChanged, [ISOLATED_TEST]);
+  // 상태는 그대로 preserved-unported 다 — 이관·ported 로 세지 않는다.
+  assert.deepEqual(explicit.summary.statusCounts, ISOLATION_STATUS_COUNTS);
+  assert.ok(
+    linesOf(formatReport(explicit)).includes(`승인된 단계 예외(바이트 상이): ${ISOLATED_TEST}`),
+  );
+  // 정확 예외는 m0-06 에만 있다 — 과거 단계에서는 검사 3(바이트)·4(동결)가 함께 잡는다.
+  for (const stage of ["m0-05", "m0-04", "m0-02a", "m0-03", "m0-01"]) {
+    const strict = check(repo, stage);
+    assert.deepEqual(failedChecks(strict), [3, 4], stage);
+    assert.deepEqual(linesOf(messagesOf(strict, 3)), [
+      `${ISOLATED_TEST}: 바이트가 기준선과 다르다(status preserved-unported)`,
+    ]);
+    assert.deepEqual(linesOf(messagesOf(strict, 4)), [FROZEN_DIFF(1)]);
+  }
+  // 승인 경로라도 부재는 허용하지 않는다.
+  unlinkSync(fileOf(repo, ISOLATED_TEST));
+  for (const deleted of [
+    check(repo, "m0-06"),
+    runChecks({ root: repo.root, expected: repo.expected }),
+  ]) {
+    assert.deepEqual(failedChecks(deleted), [3, 4]);
+    assert.deepEqual(linesOf(messagesOf(deleted, 3)), [
+      `${ISOLATED_TEST}: 기준선 경로가 없다 — status 'preserved-unported' 가 부재를 설명하지 못한다`,
+    ]);
+    assert.deepEqual(linesOf(messagesOf(deleted, 4)), [FROZEN_DIFF(1)]);
+  }
+  const green = restore(repo, [[ISOLATED_TEST, original]], "m0-06");
+  assert.deepEqual(green.summary.approvedChanged, []);
+  assertGreen(repo, "m0-05");
+});
+
+test("격리 예외는 형제 T 시험(cors.spec)으로 번지지 않고, 그 행을 ported·contract-replaced 로 바꾸면 m0-06 에서도 검사 4 RED, 원상은 GREEN", (t) => {
+  const repo = makeRepo(t, ISOLATION_BASELINE);
+  const siblingOriginal = read(repo, SIBLING_TEST);
+  appendLine(repo, SIBLING_TEST, "// 형제 변경\n");
+  for (const red of [
+    check(repo, "m0-06"),
+    runChecks({ root: repo.root, expected: repo.expected }),
+  ]) {
+    assert.deepEqual(failedChecks(red), [3, 4]);
+    assert.deepEqual(linesOf(messagesOf(red, 3)), [
+      `${SIBLING_TEST}: 바이트가 기준선과 다르다(status preserved-unported)`,
+    ]);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), [FROZEN_DIFF(1)]);
+    assert.deepEqual(red.summary.approvedChanged, []);
+  }
+  write(repo, SIBLING_TEST, siblingOriginal);
+  assertGreen(repo, "m0-06");
+  // 정확 예외는 바이트 예외일 뿐이다 — 그 행의 상태 전환은 전환 목록 밖이라 허용하지 않는다.
+  const original = read(repo, ISOLATED_TEST);
+  appendLine(repo, ISOLATED_TEST, "// afterAll 종료 정리\n");
+  for (const status of ["ported", "contract-replaced"]) {
+    writeLedgerWith(repo, { [ISOLATED_TEST]: { status, ...REFS } });
+    const red = check(repo, "m0-06");
+    assert.deepEqual(failedChecks(red), [4], status);
+    assert.deepEqual(linesOf(messagesOf(red, 4)), [
+      `${ISOLATED_TEST}: 이 단계에서는 초기 상태 'preserved-unported' 만 허용한다('${status}')`,
+    ]);
+  }
+  restore(repo, [[ISOLATED_TEST, original]], "m0-06");
 });
 
 test("lockImporters 는 v9 importers 의 specifier 만 읽고 다른 형식은 거부한다", () => {
