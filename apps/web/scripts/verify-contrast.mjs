@@ -9,7 +9,10 @@
  * 값은 **`app/globals.css` 에서 파싱**한다. 여기에 hex 를 복사해 두면 토큰이 바뀌어도 검사는 옛 값을
  * 계속 통과시킨다 — 그게 이 스크립트가 막으려는 실패 그 자체다.
  *
- * 실행: `pnpm --filter web verify:contrast` (빌드 불필요)
+ * 인터랙티브 컨트롤 경계(`border-control`)는 비텍스트 기준(3:1, WCAG 1.4.11)으로 따로 판정하고(6절),
+ * 그 토큰과 적용 규칙이 배포 CSS 에 실제로 들어갔는지도 본다(7절, D-D1).
+ *
+ * 실행: `pnpm --filter web verify:contrast` (반드시 `next build` 뒤에 — 7절이 빌드 CSS 를 읽는다)
  */
 /* global process, console */
 import fs from "node:fs";
@@ -115,7 +118,7 @@ function resolve(name, depth = 0) {
    그래서 각 행에 **근거**(문서 절 또는 컴포넌트 파일)를 붙여 다시 세웠다 — 아래가 그 표다.
    판정하지 않는 것:
      - 안 쓰는 조합(예: 흰 글자 on `bg`) — 미달이어도 문제가 아니다.
-     - 비텍스트 3:1(WCAG 1.4.11) — `border-control` 이 D-7 미결이다(§3.2).
+     - 비텍스트 3:1(WCAG 1.4.11) — 이 표는 글자만 본다. 컨트롤 경계는 6절이 따로 판정한다.
      - `today-row` / `range-band` — `@theme` 이 참조하지만 `:root` 에 **값이 없다**(별도 보고).
    ========================================================================== */
 
@@ -255,6 +258,144 @@ if (failures.length) {
   process.exit(1);
 }
 
+/* ==========================================================================
+   6. 비텍스트 3:1 (WCAG 1.4.11) — 인터랙티브 컨트롤 경계 (D-D1)
+
+   `border-control` 은 입력칸·미선택 칩/탭의 경계다. 대기 세트 행의 입력칸은 배경도 `bg` 라 칸의 경계가
+   테두리에만 의존한다(DESIGN_TOKENS §3.2). 그래서 컨트롤이 실제로 놓이는 두 배경 위에서 잰다.
+   장식 경계(`border`·`border-weak`)는 1.4.11 대상이 아니다. 판정은 위와 같이 원값으로 한다.
+   ========================================================================== */
+
+const NON_TEXT_AA = 3;
+
+const NON_TEXT_COMBOS = [
+  {
+    fg: "border-control",
+    bg: "surface",
+    use: "입력칸·미선택 칩/탭 경계(카드·시트 위)",
+    src: "components/ui/Input.tsx · selection-state.ts",
+  },
+  {
+    fg: "border-control",
+    bg: "bg",
+    use: "입력칸·미선택 칩/탭 경계(화면 배경·대기 세트 행 위)",
+    src: "components/ui/Input.tsx · selection-state.ts",
+  },
+];
+
+const nonText = [];
+for (const combo of NON_TEXT_COMBOS) {
+  const fg = resolve(`--afc-${combo.fg}`);
+  const bg = resolve(`--afc-${combo.bg}`);
+  if (!fg || !bg) {
+    console.error(
+      `비텍스트 조합이 참조하는 토큰을 찾지 못했다: --afc-${!fg ? combo.fg : combo.bg} — 정의가 없거나 hex 가 아니다`,
+    );
+    process.exit(1);
+  }
+  nonText.push({ combo, ratio: contrast(fg, bg) });
+}
+
+const nonTextFailures = nonText.filter(({ ratio }) => ratio < NON_TEXT_AA);
+if (nonTextFailures.length) {
+  console.error(
+    `비텍스트 대비 미달 ${nonTextFailures.length}건 (UI 경계 기준 ${NON_TEXT_AA.toFixed(1)}:1) — app/globals.css\n`,
+  );
+  for (const { combo, ratio } of nonTextFailures) {
+    const gap = NON_TEXT_AA - ratio;
+    const digits = gap < 0.01 ? 4 : 2;
+    const fgHex = rawTokens.get(`--afc-${combo.fg}`);
+    const bgHex = rawTokens.get(`--afc-${combo.bg}`);
+    console.error(`  border-${combo.fg} (${fgHex})  on  bg-${combo.bg} (${bgHex})`);
+    console.error(
+      `      ${ratio.toFixed(digits)}:1 — ${gap.toFixed(digits)} 모자란다 (필요: ${NON_TEXT_AA.toFixed(2)}:1 이상)`,
+    );
+    console.error(`      용례: ${combo.use}   근거: ${combo.src}`);
+  }
+  console.error(
+    "\n경계 토큰을 고쳐라. 장식 경계 값(`border`)으로 되돌리면 입력칸이 배경과 구분되지 않는다(DESIGN_TOKENS §3.2).",
+  );
+  process.exit(1);
+}
+
+/* ==========================================================================
+   7. 적용 확인 — 배포 CSS 에 토큰 값과 적용 규칙이 실제로 있는가 (D-D1)
+
+   산술 통과는 "토큰 값이 기준을 넘는다"까지다. 경계가 실제로 칠해지려면 ① 컨트롤이 그 클래스를 쓰고
+   ② 배포 CSS 에 그 클래스 규칙과 토큰 정의가 있어야 한다. ①은 test/rebuild-foundation.test.tsx 가 실제
+   Input·Chip·Tab 렌더로 확인한다. 여기서는 ②를 `next build` 산출물에서 본다 — `@theme` 의
+   `--color-border-control` 매핑이 빠지면 Tailwind 는 `border-border-control` 규칙을 만들지 않는데,
+   그래도 위 산술은 통과한다. 산출물이 없으면 건너뛰지 않고 실패한다.
+   ========================================================================== */
+
+const staticDir = path.resolve(import.meta.dirname, "..", ".next", "static");
+
+/** 경로가 없을 때만 빈 목록이다. 읽기·순회 오류는 그대로 던져 실패시킨다. */
+function cssFilesIn(dir) {
+  if (fs.statSync(dir, { throwIfNoEntry: false }) === undefined) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return cssFilesIn(full);
+    return entry.name.endsWith(".css") ? [full] : [];
+  });
+}
+
+const cssFiles = cssFilesIn(staticDir);
+if (cssFiles.length === 0) {
+  console.error(
+    `빌드 CSS 가 없다: ${staticDir}\n먼저 \`pnpm --filter web build\` 를 실행해라 — 산출물 없이 적용 여부를 통과로 치지 않는다.`,
+  );
+  process.exit(1);
+}
+
+/** 가장 안쪽 규칙(`@layer`·`@media` 안쪽 포함)을 선택자 목록과 선언으로 나눈다. */
+const builtRules = cssFiles.flatMap((file) =>
+  [
+    ...fs
+      .readFileSync(file, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]+)\{([^{}]*)\}/g),
+  ].map(([, selector, body]) => ({
+    selectors: selector.split(",").map((part) => part.trim()),
+    body,
+  })),
+);
+const controlSource = rawTokens.get("--afc-border-control") ?? "";
+const controlBuilt = builtRules
+  .filter(({ selectors }) => selectors.includes(":root"))
+  .flatMap(({ body }) =>
+    [...body.matchAll(/--afc-border-control\s*:\s*([^;]+)/g)].map(([, value]) => value.trim()),
+  );
+const controlRules = builtRules.filter(
+  ({ selectors, body }) =>
+    selectors.includes(".border-border-control") &&
+    /(?:^|;)\s*border-color\s*:\s*var\(\s*--afc-border-control\s*\)\s*(?:;|$)/.test(body),
+);
+
+const applyProblems = [];
+if (controlBuilt.length === 0) {
+  applyProblems.push(":root 에 --afc-border-control 정의가 없다");
+} else if (controlBuilt.some((value) => value.toLowerCase() !== controlSource.toLowerCase())) {
+  applyProblems.push(
+    `--afc-border-control 값이 소스(${controlSource})와 다르다: ${[...new Set(controlBuilt)].join(", ")} — 빌드가 낡았거나 값이 바뀌었다`,
+  );
+}
+if (controlRules.length === 0) {
+  applyProblems.push(
+    ".border-border-control { border-color: var(--afc-border-control) } 규칙이 없다 — @theme 매핑이나 컨트롤의 클래스가 빠졌다",
+  );
+}
+if (applyProblems.length) {
+  console.error(
+    `D-D1 적용 확인 실패 ${applyProblems.length}건 — 빌드 CSS ${cssFiles.length}개 파일\n`,
+  );
+  for (const line of applyProblems) console.error(`  ${line}`);
+  console.error(
+    "\n산술 통과만으로 경계가 화면에 칠해졌다고 하지 않는다. 소스를 고치고 다시 빌드해라.",
+  );
+  process.exit(1);
+}
+
 const tightest = COMBOS.map((combo) => ({
   combo,
   ratio: contrast(resolve(`--afc-${combo.fg}`), resolve(`--afc-${combo.bg}`)),
@@ -266,4 +407,13 @@ console.log(
 );
 console.log(
   `여유가 가장 적은 조합: text-${tightest.combo.fg} on bg-${tightest.combo.bg} = ${tightest.ratio.toFixed(2)}:1`,
+);
+console.log(
+  `비텍스트 통과 — ${nonText
+    .map(({ combo, ratio }) => `border-${combo.fg} on bg-${combo.bg} = ${ratio.toFixed(2)}:1`)
+    .join(" · ")} (UI 경계 ${NON_TEXT_AA.toFixed(1)}:1 이상)`,
+);
+console.log(
+  `적용 확인 — 빌드 CSS ${cssFiles.length}개 파일: :root --afc-border-control ${controlSource} ` +
+    `${controlBuilt.length}곳 · .border-border-control → var(--afc-border-control) ${controlRules.length}곳`,
 );

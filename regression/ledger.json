@@ -4654,10 +4654,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/app/globals.css sha256:07ef930ae2b799be266a185d1252608cb8869e437cb26e22e69ba6c0de26e0f4",
+      "evidence": "execution/m0-05/result ①②④⑤ · qa-m0-05 AC1–5 Accept: 구분 실행부 변경 1 — --afc-border-control #c9d0da→#5d6875(D-D1 확정) 값 1개와 직접 주석 2곳(+4 −3), 토큰 이름·@theme 매핑 보존 · rebuild-foundation.test.tsx D-D1 소비 3이 Input·Chip·Tab 실제 렌더의 border-border-control 관측 · verify:contrast 비텍스트 surface 5.67·bg 5.28 ≥3, 빌드 CSS(dddb4646) 토큰 정의·적용 규칙 각 1 · 반례 C2·F1·F2(shell 93c9229a)·F3(shell 9b62b899) RED→복원 GREEN, 소비 유실 B1·B2 RED · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/app/history/page.tsx",
@@ -4678,10 +4678,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/app/layout.tsx sha256:758b3d1c5174b4da3febe153362f777c3250f32132b3c6adfc17636bd1894da9",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx RootLayout 2: html lang=ko·폰트 변수 클래스, body = 스킵 링크 → Providers(AppShell(children)), 스킵 링크 #main = AppShell main · 반례 L1(Providers·AppShell 순서 뒤집기)·L2(#main→#content) 각 spec 2 RED→복원 GREEN(shell 93c9229a) · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/app/onboarding/page.tsx",
@@ -4702,10 +4702,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/app/page.tsx sha256:3cbf9041c7aab160d2682d85ab7581da7a3b5908e41393239461595cd1306cf3",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx Home 2: Home()이 props 없는 DashboardScreen을 반환하고 렌더 시 대시보드 h1·program·dashboard 조회 시작 · 반례 A2(placeholder 교체) spec 2 RED→복원 GREEN(shell 93c9229a) · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/app/profile/ProfileScreen.tsx",
@@ -4798,10 +4798,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/app/providers.tsx sha256:2e517f62ff0f84560b67635548c93f905980a2a590c4542232dab87d78686b9a",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx Providers 2: 보호 경로 /me 대기·401(→/auth)이면 children·foreground sync 0, 통과 뒤 같은 QueryClient(retry 1, 재렌더에도 1개)와 AuthGate가 채운 auth·me 캐시를 children이 관측 · 반례 A1(AuthGate wrapper 제거) spec 2 RED→복원 GREEN(shell 93c9229a) · 하위 AuthGate·sync·저장 정책의 재승인 아님 · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/app/session/[sessionId]/page.tsx",
@@ -4822,10 +4822,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/app/sw.ts sha256:68a885008335e1d1f1c0c93b8619faca852f3e7172cb5950fdc106adb2135bd5",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx sw.ts 7: 실제 모듈이 serwist에 넘긴 precache·skipWaiting·clientsClaim, NetworkFirst afc-pages-v1·CacheFirst afc-fonts-v1(ignoreSearch·128개·1년), matcher 양성(같은 출처 GET 문서·woff2)·음성(/v1/·/api/v1/·다른 출처·POST·비문서), activate 때 / 하나만 warm · 반례 A4(!isApiRequest 제거) spec 1 RED→복원 GREEN(shell 93c9229a), 같은 변조에서 기존 pwa-shell.test GREEN · 실 SW 등록·오프라인 합격 아님(M3) · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/components/analytics/AnalyticsCards.tsx",
@@ -4942,10 +4942,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/components/navigation/app-shell.tsx sha256:1896a918c9d52e8c63b9f0fe95d3d91669c1319d8c2f1304f3c897da70456ea2",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx AppShell 9: 공개 export 3, 4탭 href·현재 탭만 aria-current=page, 숨김 4경로(/onboarding·/session/*·/auth·/auth/bootstrap), main#main·safe-area 하단 여백 · 반례 A3(숨김 경로 무시) spec 4 RED→복원 GREEN(shell 93c9229a), 같은 변조에서 기존 app-shell.test 2/2 GREEN · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/components/onboarding/OfflinePreferenceStatus.tsx",
@@ -5602,10 +5602,10 @@
       "type": "N",
       "owner": "FE",
       "stage": "M0-05",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-05-web-20261017 apps/web/components/ui/cn.ts sha256:bc20a09eb9358c74c19d86bfd737fe7db00f3d865b093872d2e05ec407405af8",
+      "evidence": "execution/m0-05/result ②④ · qa-m0-05 AC1–5 Accept: 구분 계약 검증 후 의도적 재사용 — 후보 바이트 = 기준선 원문(sha256 동일, QA가 HEAD·7825c93 blob과 Buffer 대조) · rebuild-foundation.test.tsx cn 6: 거짓 값 허용 시그니처, ADR-53 4그룹(모서리·그림자·간격·글자 크기, 글자색과 분리) · 반례 K1–K4 각 RED→복원 GREEN(shell 93c9229a), K2–K4는 기존 cn.test로는 GREEN이던 차이 · 동일 바이트 전체 pnpm test exit 0(web 76/1403, shell d0ad4f1c)",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-05/handoff-decision/index.md"
     },
     {
       "path": "apps/web/components/ui/icons.tsx",
