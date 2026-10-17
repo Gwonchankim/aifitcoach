@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-02a)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-04)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -61,6 +61,10 @@ export const initialStatus = (type) =>
  * m0-03: 허용 신규 파일만 누적(m0-01 3 + 원천 fixture 검증 2 + 생성 타입 소비 검사 2). 그 밖 보호는 m0-01 그대로.
  * m0-02a: 신규 파일을 더 누적(m0-03 7 + CI manifest 3)하고, approvedChanges 의 정확한 기존 3경로만
  *   이 단계에서 바이트 변경을 허용한다(검사 3). 삭제·부재는 여전히 실패다. 그 밖 보호는 m0-01 그대로.
+ * m0-04: 신규 파일을 더 누적(m0-02a 10 + seed helper·기반 spec 2)하고 approvedChanges 에 seed 1경로를 더한다
+ *   (검사 3·4 의 바이트 대조에서만 뺀다). contractReplaced 의 정확한 6경로만 ledger 상태를 contract-replaced 로
+ *   바꿀 수 있고, 바꾼 행만 바이트 차이를 허용한다(검사 3·4). 이 6경로는 refs 가 있어도 같은 경로에 파일이
+ *   있어야 한다. 그 밖 보호는 m0-02a 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -112,10 +116,32 @@ stages["m0-02a"] = Object.freeze({
     "scripts/ci-e2e.test.mjs",
   ]),
 });
+stages["m0-04"] = Object.freeze({
+  ...stages["m0-02a"],
+  newFiles: Object.freeze([
+    ...stages["m0-02a"].newFiles,
+    "apps/api/prisma/seed-load-semantics.ts",
+    "apps/api/test/rebuild-foundation.spec.ts",
+  ]),
+  // seed 는 R·active·기준선 해시를 그대로 둔다. 실제 diff 가 import 한 줄뿐인지는 이 예외가 보증하지 않는다.
+  approvedChanges: Object.freeze([
+    ...stages["m0-02a"].approvedChanges,
+    "apps/api/prisma/seed-exercises.ts",
+  ]),
+  // 같은 경로 교체(in-place)만 — 이동·삭제·형제 경로·prefix 가 아니다.
+  contractReplaced: Object.freeze([
+    "apps/api/src/main.ts",
+    "apps/api/src/app.module.ts",
+    "apps/api/src/prisma/prisma.module.ts",
+    "apps/api/src/prisma/prisma.service.ts",
+    "apps/api/src/common/date/utc-day.ts",
+    "apps/api/src/common/http/error-envelope.filter.ts",
+  ]),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-02a";
+const DEFAULT_STAGE = "m0-04";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));
@@ -342,10 +368,12 @@ function checkBaseline(root, rows, expected, fail) {
 /**
  * 검사 3: 상태 × 존재. 부재는 상태가 설명해야 하고, 기준선 유지 상태는 바이트가 같아야 한다.
  * 단계가 승인한 정확한 경로(approvedChanges)만 바이트 대조에서 빼고, 실제로 달라졌으면 보고에 남긴다.
+ * 같은 경로 교체(contractReplaced) 경로는 refs 가 있어도 부재를 설명하지 못한다.
  */
 function checkWorkingTree(root, rows, rules, fail, summary) {
   const working = new Map();
   const approved = rules.approvedChanges ?? [];
+  const inPlace = rules.contractReplaced ?? [];
   summary.approvedChanged = [];
   for (const row of rows.values()) {
     const bytes = readWorking(root, row.path);
@@ -356,6 +384,13 @@ function checkWorkingTree(root, rows, rules, fail, summary) {
     }
     if (row.status === "retired" && !row.decision_ref) {
       fail(3, `${row.path}: retired 에는 승인 decision_ref 가 필요하다`);
+    }
+    if (bytes === null && inPlace.includes(row.path)) {
+      fail(
+        3,
+        `${row.path}: 같은 경로 교체 대상인데 파일이 없다 — refs 가 있어도 부재를 허용하지 않는다`,
+      );
+      continue;
     }
     if (bytes === null) {
       const explained =
@@ -415,16 +450,24 @@ function checkManifest(baseBytes, currentBytes, rules, fail) {
   }
 }
 
-/** 검사 4: 단계 보존 규칙 — 상태 전환 0, manifest 는 scripts 추가만, lock·apps/packages/docs 바이트 고정. */
+/**
+ * 검사 4: 단계 보존 규칙 — 상태 전환은 contractReplaced 의 정확한 경로가 contract-replaced 가 되는 것만,
+ * manifest 는 scripts 추가만, lock·apps/packages/docs 는 바이트 고정이다. apps/packages/docs 아래에서
+ * 바이트 차이를 허용하는 것은 approvedChanges 의 정확한 경로와 전환된 contractReplaced 행뿐이고, 부재는
+ * 어느 쪽에도 허용하지 않는다(검사 3 과 독립으로 집행한다).
+ */
 function checkStage(rows, baseline, working, rules, fail, summary) {
+  const inPlace = rules.contractReplaced ?? [];
+  const approved = rules.approvedChanges ?? [];
+  const transitioned = (row) => inPlace.includes(row.path) && row.status === "contract-replaced";
   for (const row of rows.values()) {
-    if (row.status !== initialStatus(row.type)) {
-      fail(
-        4,
-        `${row.path}: 이 단계에서는 초기 상태 '${initialStatus(row.type)}' 만 허용한다('${row.status}')`,
-      );
-    }
+    if (row.status === initialStatus(row.type) || transitioned(row)) continue;
+    const allowed = inPlace.includes(row.path)
+      ? `'${initialStatus(row.type)}' 또는 'contract-replaced'`
+      : `초기 상태 '${initialStatus(row.type)}'`;
+    fail(4, `${row.path}: 이 단계에서는 ${allowed} 만 허용한다('${row.status}')`);
   }
+  summary.contractReplaced = [...rows.values()].filter(transitioned).map((row) => row.path);
   const manifestRow = rows.get(rules.manifestPath);
   const baseManifest =
     manifestRow && baseline?.blobs.get(baseline.tree.get(rules.manifestPath)?.oid);
@@ -445,7 +488,8 @@ function checkStage(rows, baseline, working, rules, fail, summary) {
     if (!rules.frozenPrefixes.some((prefix) => row.path.startsWith(prefix))) continue;
     frozen += 1;
     const bytes = working.get(row.path);
-    if (!bytes || sha256(bytes) !== row.sha256) changed.push(row.path);
+    const exempt = approved.includes(row.path) || transitioned(row);
+    if (!bytes || (!exempt && sha256(bytes) !== row.sha256)) changed.push(row.path);
   }
   if (changed.length > 0) {
     fail(
@@ -625,6 +669,10 @@ export function formatReport(result) {
   // 승인된 단계 예외라도 실제로 바뀐 경로는 따로 적는다 — 기준선 바이트가 전부 같다고 읽히지 않게.
   if (summary.approvedChanged) {
     lines.push(`승인된 단계 예외(바이트 상이): ${summary.approvedChanged.join(", ") || "없음"}`);
+  }
+  // 상태 전환은 검사 형식만 본다 — 이 줄이 전환 증거의 진실성을 뜻하지 않는다.
+  if (summary.contractReplaced) {
+    lines.push(`같은 경로 계약 교체 전환: ${summary.contractReplaced.join(", ") || "없음"}`);
   }
   if (summary.frozenRows !== undefined)
     lines.push(`apps·packages·docs 기준선 경로: ${summary.frozenRows}`);

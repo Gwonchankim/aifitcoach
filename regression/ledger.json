@@ -826,10 +826,10 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/app.module.ts sha256:f50fed0082f51c8b2efa4763f7bfb8a62b1453cee9d9167ca42669ba2fa156ee",
+      "evidence": "execution/m0-04/result ②: rebuild-foundation.spec 가 실제 APP_PIPE·APP_FILTER 로 strip·transform·400·500·409 관측 21/21, whitelist·transform·APP_PIPE 제거·forbid 전환 각 RED→복원 GREEN(shell ca4a7dfe) · api jest 전체(shell cf4bb560) · 구분(reconciliation B안): 실행 구현은 출발 HEAD 80f8526 과 동일(주석만 변경, 주석 제거 emit 동일) — 새 저작이 아니라 위 증거로 계약을 검증한 뒤 의도적으로 재사용",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-04/reconciliation/index.md"
     },
     {
       "path": "apps/api/src/app.setup.ts",
@@ -1006,9 +1006,9 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/common/date/utc-day.ts sha256:725c1cd2a08a4444ebbe9068ee467de3dd0220794aa06971a109f5c5f1257b79",
+      "evidence": "execution/m0-04/result ②④: 달력 대조 신규 단언 GREEN·대조 제거 RED→복원(shell ca4a7dfe) · test-overrides·request-today-before-auth 포함 api jest 전체(shell cf4bb560)",
       "decision_ref": null
     },
     {
@@ -1030,9 +1030,9 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/common/http/error-envelope.filter.ts sha256:4bdb2048c6d509382691ab07359c8875275895db06ab0ca1e22efb1b58b2cb7f",
+      "evidence": "execution/m0-04/result ②③④: HTTP 400·500·409 관측, 409 reason 누락·내부 메시지 노출 RED→복원(shell ca4a7dfe) · 부팅 404 envelope(shell 97e3d6b4) · error-envelope.spec(openapi 대조) 포함 api jest 전체(shell cf4bb560)",
       "decision_ref": null
     },
     {
@@ -1150,9 +1150,9 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/main.ts sha256:3f0ff74d5400c29d930122fde6f9d68d65a2760031bfd689c4683ba19521170e",
+      "evidence": "execution/m0-04/result ③: dist/main.js(8f0ee5f9) 소유 DB test 프로필 부팅·/v1/exercises 111·404 envelope 관측 후 종료, 같은 빌드·env 에서 NODE_ENV 만 production → dev-user 정확 거부 exit 1·미청취(shell 97e3d6b4) · api jest 전체(shell cf4bb560)",
       "decision_ref": null
     },
     {
@@ -1162,10 +1162,10 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/prisma/prisma.module.ts sha256:7d3b3cd718c2f565ce973f802c08f2046271b22bb5ae872d04408d39d0f6ca62",
+      "evidence": "execution/m0-04/result ③④: 소유 DB 부팅에서 전역 PrismaService 주입으로 /v1/exercises 111 응답(shell 97e3d6b4) · DB 사용 api jest 전체(shell cf4bb560) · 구분(reconciliation B안): 실행 구현은 출발 HEAD 80f8526 과 동일(주석만 변경, 주석 제거 emit 동일) — 새 저작이 아니라 위 증거로 계약을 검증한 뒤 의도적으로 재사용",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-04/reconciliation/index.md"
     },
     {
       "path": "apps/api/src/prisma/prisma.service.ts",
@@ -1174,10 +1174,10 @@
       "type": "N",
       "owner": "BE",
       "stage": "M0-04",
-      "status": "pending-replacement",
-      "candidate_ref": null,
-      "evidence": null,
-      "decision_ref": null
+      "status": "contract-replaced",
+      "candidate_ref": "rebuild/m0-04-api-20261017 apps/api/src/prisma/prisma.service.ts sha256:d5c06242c3ba5af0e58132b9bb88b1266bf7d3ab2c7e0b756a72c3a67606f418",
+      "evidence": "execution/m0-04/result ③④: 소유 DB 연결·조회(부팅 /v1/exercises 111, shell 97e3d6b4) · app.close 를 거치는 DB 사용 api jest 전체(shell cf4bb560) · 구분(reconciliation B안): 실행 구현은 출발 HEAD 80f8526 과 동일(주석만 변경, 주석 제거 emit 동일) — 새 저작이 아니라 위 증거로 계약을 검증한 뒤 의도적으로 재사용",
+      "decision_ref": "epics/94e4d6c6-1729-4f1a-8e1b-7baa84b487da/artifacts/rebuild/execution/m0-04/reconciliation/index.md"
     },
     {
       "path": "apps/api/src/programs/assistance-migration.ts",
