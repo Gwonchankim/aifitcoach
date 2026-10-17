@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-05)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-06)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -68,6 +68,9 @@ export const initialStatus = (type) =>
  * m0-05: m0-04 에 FE 기반 spec 1(신규 13), verify 스크립트 2(바이트 예외 6), 셸 7(전환 대상 13)만 더한다.
  *   목록에 넣는 것은 기술적 허용일 뿐 개별 재사용·완료 승인이 아니다 — 전환 전 셸 행은 pending 이고 바이트가
  *   바뀌면 실패한다. 일부만 전환하고 나머지를 원문·pending 으로 두는 것도 통과한다. 그 밖 보호는 m0-04 그대로.
+ * m0-06: m0-05 에 E2E shell·API spec 1(신규 14)과 base Playwright config 1(바이트 예외 7)만 더한다. 전환 13 은
+ *   그대로다. 경로 허용일 뿐 spec·config 의 실제 구현·승계가 아니다 — 같은 디렉터리의 derived config 는 예외
+ *   밖이고, 승인 config 도 부재는 실패다. 그 밖 보호는 m0-05 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -163,10 +166,18 @@ stages["m0-05"] = Object.freeze({
     "apps/web/components/ui/cn.ts",
   ]),
 });
+stages["m0-06"] = Object.freeze({
+  ...stages["m0-05"],
+  newFiles: Object.freeze([...stages["m0-05"].newFiles, "apps/web/e2e/m0-06-shell-api.spec.ts"]),
+  approvedChanges: Object.freeze([
+    ...stages["m0-05"].approvedChanges,
+    "apps/web/playwright.config.ts",
+  ]),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-05";
+const DEFAULT_STAGE = "m0-06";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));
