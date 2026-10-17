@@ -1011,50 +1011,170 @@ test("workflow build-test checkout fetches pinned history and rejects misplaced 
   assert.throws(() => check(duplicate));
 });
 
-test("workflow executes new tests/real checks once while preserving legacy gate order", () => {
+test("workflow calls the accepted M0 root once before product and preserves blocking safe evidence", async () => {
+  const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
   const yaml = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const legacy = [
-    "pnpm install --frozen-lockfile",
-    "pnpm codegen",
-    "git diff --exit-code apps/web/lib/api-types.ts",
-    "pnpm typecheck",
-    "node --test scripts/ci-e2e.test.mjs",
-    "pnpm lint",
-    "pnpm format:check",
-    "pnpm build",
-    "pnpm --filter web verify:no-test-seed",
-    "pnpm --filter web verify:contrast",
-    "pnpm --filter web verify:font-payload",
-    "pnpm test",
-    "npx playwright install --with-deps chromium webkit",
-    "xvfb-run --auto-servernum node scripts/ci-e2e.mjs",
+  const workflow = parse(yaml);
+  const { COMMON_GATES, NODE_TESTS, gatesFor } = await import("./ci-m0.mjs");
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.scripts["ci:m0"], "node scripts/ci-m0.mjs");
+  assert.equal(manifest.scripts["ci:product"], "node scripts/ci-m0.mjs --stage product");
+  assert.deepEqual(NODE_TESTS, [
+    "scripts/rebuild-bootstrap.test.mjs",
+    "scripts/rebuild-fixtures.test.mjs",
+    "scripts/ci-e2e.test.mjs",
+    "scripts/ci-e2e.manifest.test.mjs",
+    "scripts/ci-m0.test.mjs",
+  ]);
+  // Independent old-step -> accepted root gate oracle; do not derive expected commands from GATES.
+  assert.deepEqual(
+    COMMON_GATES.map((g) => [
+      g.id,
+      g.codegen
+        ? "git diff --exit-code " + g.codegen
+        : [g.command === process.execPath ? "node" : g.command, ...g.args].join(" "),
+    ]),
+    [
+      ["bootstrap", "node scripts/rebuild-bootstrap.mjs"],
+      ["fixtures", "node scripts/rebuild-fixtures.mjs"],
+      ["api-types", "pnpm exec tsc -p scripts/tsconfig.rebuild-api-types.json --noEmit"],
+      ["codegen", "pnpm codegen"],
+      ["codegen-drift", "git diff --exit-code apps/web/lib/api-types.ts"],
+      ["typecheck", "pnpm typecheck"],
+      [
+        "node-tests",
+        "node --test scripts/rebuild-bootstrap.test.mjs scripts/rebuild-fixtures.test.mjs scripts/ci-e2e.test.mjs scripts/ci-e2e.manifest.test.mjs scripts/ci-m0.test.mjs",
+      ],
+      ["discovery-product", "node scripts/ci-e2e.manifest.mjs --stage product"],
+      ["discovery-m0", "node scripts/ci-e2e.manifest.mjs --stage m0"],
+      ["lint", "pnpm lint"],
+      ["format", "pnpm format:check"],
+      ["build", "pnpm build"],
+      ["verify-no-test-seed", "pnpm --filter web verify:no-test-seed"],
+      ["verify-contrast", "pnpm --filter web verify:contrast"],
+      ["verify-font-payload", "pnpm --filter web verify:font-payload"],
+    ],
+  );
+  const gates = gatesFor("m0");
+  assert.equal(gates.length, 17);
+  assert.deepEqual(gates.slice(0, 15), COMMON_GATES);
+  assert.deepEqual(gates[15], { id: "owned-test", ownedTest: true });
+  assert.equal(gates[16].id, "owned-e2e");
+  assert.equal(gates[16].ownedE2E, true);
+  assert.equal(gates[16].command, "xvfb-run");
+  assert.deepEqual(gates[16].args, [
+    "--auto-servernum",
+    process.execPath,
+    "scripts/ci-e2e.mjs",
+    "--stage",
+    "m0",
+  ]);
+  const check = (value) => {
+    assert.deepEqual(Object.keys(value.jobs), ["build-test"]);
+    const job = value.jobs["build-test"];
+    for (const key of ["env", "defaults", "if", "continue-on-error", "services"])
+      assert.equal(job[key], undefined, key);
+    assert.equal(value.env, undefined);
+    assert.equal(value.defaults, undefined);
+    const steps = job.steps;
+    assert.deepEqual(
+      steps.map((s) => s.uses ?? s.run),
+      [
+        "actions/checkout@v4",
+        "pnpm/action-setup@v4",
+        "actions/setup-node@v4",
+        "pnpm install --frozen-lockfile",
+        "npx playwright install --with-deps chromium webkit",
+        "pnpm ci:m0",
+        "xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage product",
+        "actions/upload-artifact@v4",
+      ],
+    );
+    assert.equal(job["runs-on"], "ubuntu-latest");
+    assert.equal(steps[0].with["fetch-depth"], 0);
+    assert.deepEqual(steps[2].with, { "node-version": 20, cache: "pnpm" });
+    assert.equal(steps[4]["working-directory"], "apps/web");
+    for (const [i, step] of steps.entries()) {
+      assert.ok(!(step.uses && step.run));
+      for (const key of ["continue-on-error", "env", "shell"])
+        assert.equal(step[key], undefined, key);
+      assert.equal(step.if, i === 7 ? "always()" : undefined);
+      assert.equal(step["working-directory"], i === 4 ? "apps/web" : undefined);
+    }
+    assert.deepEqual(steps[7].with, {
+      name: "e2e-safe-evidence",
+      path: "apps/web/e2e/.artifacts-ci/m0/*.json\napps/web/e2e/.artifacts-ci/product/*.json\n",
+      "include-hidden-files": true,
+      "if-no-files-found": "error",
+      "retention-days": 7,
+    });
+  };
+  check(workflow);
+  const changes = [
+    (w) => w.jobs["build-test"].steps.splice(5, 1),
+    (w) => {
+      w.jobs["build-test"].steps[5].run = "pnpm ci:product";
+    },
+    (w) => {
+      const s = w.jobs["build-test"].steps;
+      [s[4], s[5]] = [s[5], s[4]];
+    },
+    (w) => w.jobs["build-test"].steps.splice(5, 0, { run: "pnpm typecheck" }),
+    (w) => w.jobs["build-test"].steps.splice(4, 0, { run: "pnpm install --frozen-lockfile" }),
+    (w) => w.jobs["build-test"].steps.splice(5, 0, structuredClone(w.jobs["build-test"].steps[4])),
+    (w) => {
+      w.jobs["build-test"].services = { postgres: { image: "postgres:16" } };
+    },
+    (w) => {
+      w.jobs["build-test"].steps[5].env = { DATABASE_URL: "synthetic-old-service" };
+    },
+    (w) => {
+      w.jobs["build-test"].env = { DATABASE_URL: "synthetic-old-service" };
+    },
+    (w) => {
+      w.jobs["build-test"].steps[5]["continue-on-error"] = true;
+    },
+    (w) => {
+      w.jobs["build-test"].steps[5].if = "failure()";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[6].if = "always()";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[5].run += " || true";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[5].shell = "bash {0}; exit 0";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[7].if = "success()";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[7].with["include-hidden-files"] = false;
+    },
+    (w) => {
+      w.jobs["build-test"].steps[7].with["if-no-files-found"] = "warn";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[7].with["retention-days"] = 1;
+    },
+    (w) => {
+      w.jobs["build-test"].steps[7].with.path += "apps/web/e2e/.report/**";
+    },
+    (w) => {
+      w.jobs.other = { steps: [w.jobs["build-test"].steps.splice(5, 1)[0]] };
+    },
   ];
-  let cursor = -1;
-  for (const command of legacy) {
-    const i = yaml.indexOf(`- run: ${command}`, cursor + 1);
-    assert.ok(i > cursor, command);
-    cursor = i;
+  for (const change of changes) {
+    const changed = structuredClone(workflow);
+    change(changed);
+    assert.throws(() => check(changed));
   }
-  for (const command of [
-    "pnpm ci:bootstrap",
-    "node scripts/rebuild-fixtures.mjs",
-    "pnpm exec tsc -p scripts/tsconfig.rebuild-api-types.json --noEmit",
-    "node --test scripts/rebuild-bootstrap.test.mjs scripts/rebuild-fixtures.test.mjs",
-    "node scripts/ci-e2e.manifest.mjs --stage product",
-    "node --test scripts/ci-e2e.test.mjs scripts/ci-e2e.manifest.test.mjs",
-  ])
-    assert.ok(yaml.includes(`- run: ${command}`), command);
-  assert.equal((yaml.match(/- run: pnpm install/g) ?? []).length, 1);
-  assert.doesNotMatch(yaml, /continue-on-error|ci:m0|ci:product|ci-m0\.mjs|passWithNoTests/);
-  assert.equal((yaml.match(/- if: failure\(\)/g) ?? []).length, 0);
-  assert.ok(yaml.includes("- if: always()"));
-  assert.ok(yaml.includes("apps/web/e2e/.artifacts-ci/m0/*.json"));
-  assert.ok(yaml.includes("apps/web/e2e/.artifacts-ci/product/*.json"));
-  assert.doesNotMatch(yaml, /path: apps\/web\/C:|\.artifacts\s*$|\.report\s*$/m);
-  const m0 = yaml.indexOf("xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage m0");
-  assert.ok(
-    m0 > 0 &&
-      yaml.indexOf("xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage product") > m0,
+  // A comment or similar script name cannot stand in for the actual invocation.
+  assert.throws(() =>
+    check(
+      parse(yaml.replace("run: pnpm ci:m0", "run: pnpm ci:m0-other") + "\n# - run: pnpm ci:m0\n"),
+    ),
   );
 });
 
