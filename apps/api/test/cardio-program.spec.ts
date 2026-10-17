@@ -25,7 +25,23 @@ describe("S2 actual cardio program persistence", () => {
     prisma = app.get(PrismaService);
     programs = app.get(ProgramsService);
   }, 60_000);
-  afterAll(async () => app?.close());
+  afterAll(async () => {
+    // 마지막 사례가 남긴 프로그램(미지원 rulesVersion 포함)을 다음 suite 로 넘기지 않는다 — 다음 suite 의
+    // dashboard 가 그 프로그램을 펼치다 400 이 됐다(M0-06 회귀). beforeAll 이 끝나지 않았으면 미확보 자원은
+    // 건드리지 않고, 정리가 실패해도 앱은 닫되 정리 실패를 그대로 드러낸다.
+    let cleanupError: unknown;
+    try {
+      if (prisma) await resetUserData(prisma, devUserId());
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
+      await app?.close();
+    } catch (closeError) {
+      if (cleanupError === undefined) throw closeError;
+    }
+    if (cleanupError !== undefined) throw cleanupError;
+  });
   beforeEach(async () => resetUserData(prisma, devUserId()));
 
   it("persists an actual canonical block through immutable template and two lazy weeks", async () => {

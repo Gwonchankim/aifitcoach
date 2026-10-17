@@ -68,9 +68,11 @@ export const initialStatus = (type) =>
  * m0-05: m0-04 에 FE 기반 spec 1(신규 13), verify 스크립트 2(바이트 예외 6), 셸 7(전환 대상 13)만 더한다.
  *   목록에 넣는 것은 기술적 허용일 뿐 개별 재사용·완료 승인이 아니다 — 전환 전 셸 행은 pending 이고 바이트가
  *   바뀌면 실패한다. 일부만 전환하고 나머지를 원문·pending 으로 두는 것도 통과한다. 그 밖 보호는 m0-04 그대로.
- * m0-06: m0-05 에 E2E shell·API spec 1(신규 14)과 base Playwright config 1(바이트 예외 7)만 더한다. 전환 13 은
- *   그대로다. 경로 허용일 뿐 spec·config 의 실제 구현·승계가 아니다 — 같은 디렉터리의 derived config 는 예외
- *   밖이고, 승인 config 도 부재는 실패다. 그 밖 보호는 m0-05 그대로.
+ * m0-06: m0-05 에 E2E shell·API spec 1(신규 14)과 base Playwright config 1·API 시험 1(바이트 예외 8)만 더한다.
+ *   전환 13 은 그대로다. 경로 허용일 뿐 spec·config 의 실제 구현·승계가 아니다 — 같은 디렉터리의 derived config 는
+ *   예외 밖이고, 승인 경로도 부재는 실패다. API 시험(cardio-program.spec)은 다음 suite 를 오염시키던 종료 정리
+ *   누락만 고친 T행 하나의 격리 결함 예외다 — ledger 상태·T 집계는 그대로이고 이관·ported 로 세지 않는다.
+ *   그 밖 보호는 m0-05 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -172,6 +174,7 @@ stages["m0-06"] = Object.freeze({
   approvedChanges: Object.freeze([
     ...stages["m0-05"].approvedChanges,
     "apps/web/playwright.config.ts",
+    "apps/api/test/cardio-program.spec.ts",
   ]),
 });
 export const STAGES = Object.freeze(stages);
