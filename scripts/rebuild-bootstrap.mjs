@@ -1,7 +1,7 @@
 /**
  * 재구축 bootstrap 검사 — 기준선 ledger·git object·후보 작업 트리를 **바이트**로 대조한다.
  *
- *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-04)
+ *   pnpm ci:bootstrap            (= node scripts/rebuild-bootstrap.mjs, 기본 --stage m0-05)
  *
  * 기준선 SHA·행 수·목록 digest·승인 분류 digest 는 BASELINE 상수로 고정한다. CLI 에는 이 값을 바꾸는 인자가 없다 —
  * 합성 저장소 시험만 runChecks() 에 expected 를 넣는다. ledger 에 적힌 해시를 스스로 믿지 않고
@@ -65,6 +65,9 @@ export const initialStatus = (type) =>
  *   (검사 3·4 의 바이트 대조에서만 뺀다). contractReplaced 의 정확한 6경로만 ledger 상태를 contract-replaced 로
  *   바꿀 수 있고, 바꾼 행만 바이트 차이를 허용한다(검사 3·4). 이 6경로는 refs 가 있어도 같은 경로에 파일이
  *   있어야 한다. 그 밖 보호는 m0-02a 그대로.
+ * m0-05: m0-04 에 FE 기반 spec 1(신규 13), verify 스크립트 2(바이트 예외 6), 셸 7(전환 대상 13)만 더한다.
+ *   목록에 넣는 것은 기술적 허용일 뿐 개별 재사용·완료 승인이 아니다 — 전환 전 셸 행은 pending 이고 바이트가
+ *   바뀌면 실패한다. 일부만 전환하고 나머지를 원문·pending 으로 두는 것도 통과한다. 그 밖 보호는 m0-04 그대로.
  */
 const stages = {
   "m0-01": Object.freeze({
@@ -138,10 +141,32 @@ stages["m0-04"] = Object.freeze({
     "apps/api/src/common/http/error-envelope.filter.ts",
   ]),
 });
+stages["m0-05"] = Object.freeze({
+  ...stages["m0-04"],
+  newFiles: Object.freeze([
+    ...stages["m0-04"].newFiles,
+    "apps/web/test/rebuild-foundation.test.tsx",
+  ]),
+  approvedChanges: Object.freeze([
+    ...stages["m0-04"].approvedChanges,
+    "apps/web/scripts/verify-no-test-seed.mjs",
+    "apps/web/scripts/verify-contrast.mjs",
+  ]),
+  contractReplaced: Object.freeze([
+    ...stages["m0-04"].contractReplaced,
+    "apps/web/app/layout.tsx",
+    "apps/web/app/page.tsx",
+    "apps/web/app/providers.tsx",
+    "apps/web/app/globals.css",
+    "apps/web/app/sw.ts",
+    "apps/web/components/navigation/app-shell.tsx",
+    "apps/web/components/ui/cn.ts",
+  ]),
+});
 export const STAGES = Object.freeze(stages);
 
 /** 인자 없는 CLI(pnpm ci:bootstrap)와 runChecks 가 같은 단계를 검사하도록 기본값을 한곳에서 정한다. */
-const DEFAULT_STAGE = "m0-04";
+const DEFAULT_STAGE = "m0-05";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const toAbs = (root, file) => path.join(root, ...file.split("/"));
