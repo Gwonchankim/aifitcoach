@@ -1085,8 +1085,10 @@ test("workflow calls the accepted M0 root once before product and preserves bloc
         "actions/setup-node@v4",
         "pnpm install --frozen-lockfile",
         "npx playwright install --with-deps chromium webkit",
+        "node --test scripts/ci-e2e.n01.test.mjs",
         "pnpm ci:m0",
         "xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage product",
+        "xvfb-run --auto-servernum node scripts/ci-e2e.n01.mjs",
         "actions/upload-artifact@v4",
       ],
     );
@@ -1098,12 +1100,12 @@ test("workflow calls the accepted M0 root once before product and preserves bloc
       assert.ok(!(step.uses && step.run));
       for (const key of ["continue-on-error", "env", "shell"])
         assert.equal(step[key], undefined, key);
-      assert.equal(step.if, i === 7 ? "always()" : undefined);
+      assert.equal(step.if, i === 9 ? "always()" : undefined);
       assert.equal(step["working-directory"], i === 4 ? "apps/web" : undefined);
     }
-    assert.deepEqual(steps[7].with, {
+    assert.deepEqual(steps[9].with, {
       name: "e2e-safe-evidence",
-      path: "apps/web/e2e/.artifacts-ci/m0/*.json\napps/web/e2e/.artifacts-ci/product/*.json\n",
+      path: "apps/web/e2e/.artifacts-ci/m0/*.json\napps/web/e2e/.artifacts-ci/product/*.json\napps/web/e2e/.artifacts-ci/n01/n01-summary-*.json\n",
       "include-hidden-files": true,
       "if-no-files-found": "error",
       "retention-days": 7,
@@ -1112,12 +1114,26 @@ test("workflow calls the accepted M0 root once before product and preserves bloc
   check(workflow);
   const changes = [
     (w) => w.jobs["build-test"].steps.splice(5, 1),
+    (w) => w.jobs["build-test"].steps.splice(8, 1),
     (w) => {
-      w.jobs["build-test"].steps[5].run = "pnpm ci:product";
+      w.jobs["build-test"].steps[5].run += " || true";
+    },
+    (w) => {
+      w.jobs["build-test"].steps[8]["continue-on-error"] = true;
+    },
+    (w) => {
+      w.jobs["build-test"].steps[9].with.path = w.jobs["build-test"].steps[9].with.path.replace(
+        "apps/web/e2e/.artifacts-ci/n01/n01-summary-*.json\n",
+        "",
+      );
+    },
+    (w) => w.jobs["build-test"].steps.splice(6, 1),
+    (w) => {
+      w.jobs["build-test"].steps[6].run = "pnpm ci:product";
     },
     (w) => {
       const s = w.jobs["build-test"].steps;
-      [s[4], s[5]] = [s[5], s[4]];
+      [s[5], s[6]] = [s[6], s[5]];
     },
     (w) => w.jobs["build-test"].steps.splice(5, 0, { run: "pnpm typecheck" }),
     (w) => w.jobs["build-test"].steps.splice(4, 0, { run: "pnpm install --frozen-lockfile" }),
@@ -1126,43 +1142,43 @@ test("workflow calls the accepted M0 root once before product and preserves bloc
       w.jobs["build-test"].services = { postgres: { image: "postgres:16" } };
     },
     (w) => {
-      w.jobs["build-test"].steps[5].env = { DATABASE_URL: "synthetic-old-service" };
+      w.jobs["build-test"].steps[6].env = { DATABASE_URL: "synthetic-old-service" };
     },
     (w) => {
       w.jobs["build-test"].env = { DATABASE_URL: "synthetic-old-service" };
     },
     (w) => {
-      w.jobs["build-test"].steps[5]["continue-on-error"] = true;
+      w.jobs["build-test"].steps[6]["continue-on-error"] = true;
     },
     (w) => {
-      w.jobs["build-test"].steps[5].if = "failure()";
+      w.jobs["build-test"].steps[6].if = "failure()";
     },
     (w) => {
-      w.jobs["build-test"].steps[6].if = "always()";
+      w.jobs["build-test"].steps[7].if = "always()";
     },
     (w) => {
-      w.jobs["build-test"].steps[5].run += " || true";
+      w.jobs["build-test"].steps[6].run += " || true";
     },
     (w) => {
-      w.jobs["build-test"].steps[5].shell = "bash {0}; exit 0";
+      w.jobs["build-test"].steps[6].shell = "bash {0}; exit 0";
     },
     (w) => {
-      w.jobs["build-test"].steps[7].if = "success()";
+      w.jobs["build-test"].steps[9].if = "success()";
     },
     (w) => {
-      w.jobs["build-test"].steps[7].with["include-hidden-files"] = false;
+      w.jobs["build-test"].steps[9].with["include-hidden-files"] = false;
     },
     (w) => {
-      w.jobs["build-test"].steps[7].with["if-no-files-found"] = "warn";
+      w.jobs["build-test"].steps[9].with["if-no-files-found"] = "warn";
     },
     (w) => {
-      w.jobs["build-test"].steps[7].with["retention-days"] = 1;
+      w.jobs["build-test"].steps[9].with["retention-days"] = 1;
     },
     (w) => {
-      w.jobs["build-test"].steps[7].with.path += "apps/web/e2e/.report/**";
+      w.jobs["build-test"].steps[9].with.path += "apps/web/e2e/.report/**";
     },
     (w) => {
-      w.jobs.other = { steps: [w.jobs["build-test"].steps.splice(5, 1)[0]] };
+      w.jobs.other = { steps: [w.jobs["build-test"].steps.splice(6, 1)[0]] };
     },
   ];
   for (const change of changes) {
@@ -1303,4 +1319,272 @@ test("404 console diagnostics require exact source, observed method/status and b
     ).unexpected,
     0,
   );
+});
+
+test("EE G3 raw and public network diagnostics enforce case lower bounds and exact keys", async () => {
+  const { networkProjection, validateNetworkProjection } = await import("./ci-e2e.mjs");
+  assert.equal(typeof networkProjection, "function");
+  const profile = makeProfile("direct", 4101, 4102);
+  const row = loadManifest(path.resolve(".")).cases.find((r) => r.phase === "m0-direct-c");
+  const url = profile.apiTarget + "/v1/programs/current";
+  const raw = {
+    unexpected: 0,
+    expectedNetwork: [],
+    responses: [{ url, method: "GET", status: 404 }],
+  };
+  const safe = networkProjection(raw, row, profile);
+  assert.equal(safe.observed404, 0);
+  assert.equal(safe.responses404, 1);
+  assert.ok(!JSON.stringify(safe).includes(url));
+  validateNetworkProjection([safe], [row]);
+  for (const changed of [
+    { ...raw, responses: [] },
+    { ...raw, extra: "secret" },
+    { ...raw, unexpected: 1 },
+    { ...raw, responses: [{ url: url + "/other", method: "GET", status: 404 }] },
+    { ...raw, expectedNetwork: [{ url, count: 2 }] },
+  ])
+    assert.throws(() => networkProjection(changed, row, profile));
+  const missing = {
+    ...row,
+    case: ["M0-06 direct", "real missing session renders recoverable error"],
+  };
+  const session = profile.apiTarget + "/v1/sessions/11111111-1111-4111-8111-111111111111";
+  const response = { url: session, method: "GET", status: 404 };
+  assert.throws(() => networkProjection({ ...raw, responses: [response] }, missing, profile));
+  const missingSafe = networkProjection(
+    { ...raw, responses: [response, response] },
+    missing,
+    profile,
+  );
+  assert.equal(missingSafe.responses404, 2);
+  for (const changed of [
+    { ...missingSafe, responses404: 1 },
+    { ...safe, url },
+    { ...safe, case: ["wrong"] },
+    { ...safe, attachmentDigest: "bad" },
+  ])
+    assert.throws(() => validateNetworkProjection([changed], [row]));
+});
+
+test("EE allocate owns partial rollback once and transfers successful release responsibility", async () => {
+  const { allocateOwnedPhase, releaseOwnedPhase, allocationFailure, validateOwnedPhaseAllocation } =
+    await import("./ci-e2e.mjs");
+  const { createServer } = await import("node:net");
+  const { existsSync } = await import("node:fs");
+  const base = mkdtempSync(path.join(tmpdir(), "afc-ee-allocation-"));
+  const states = [];
+  function model({ unready = false, missingId = false, failCleanup = false } = {}) {
+    const state = { created: false, rm: 0, groups: 0, run: null, name: null };
+    states.push(state);
+    const command = (cmd, ...args) => {
+      if (cmd === "run") {
+        state.created = true;
+        state.name = args[args.indexOf("--name") + 1];
+        state.run = args.find((a) => a.startsWith("afc.run=")).slice(8);
+        return missingId ? "" : "a".repeat(64);
+      }
+      if (cmd === "inspect")
+        return JSON.stringify([
+          {
+            Id: "a".repeat(64),
+            Name: "/" + state.name,
+            Config: {
+              Image: "postgres:16",
+              Labels: {
+                "afc.run": state.run,
+                "afc.owner": "automation-m0-06",
+                "afc.purpose": "owned-e2e",
+              },
+            },
+            HostConfig: { Tmpfs: { "/var/lib/postgresql/data": "" } },
+            Mounts: [],
+            NetworkSettings: {
+              Ports: { "5432/tcp": [{ HostIp: "127.0.0.1", HostPort: "45321" }] },
+            },
+          },
+        ]);
+      if (cmd === "ps") return state.created ? "a".repeat(64) : "";
+      if (cmd === "stop") {
+        if (failCleanup) throw new Error("synthetic cleanup");
+        return "";
+      }
+      if (cmd === "rm") {
+        state.rm++;
+        state.created = false;
+        return "";
+      }
+      throw new Error("unexpected fake command");
+    };
+    return {
+      state,
+      ops: {
+        base,
+        command,
+        ready: () => !unready,
+        wait: async () => {},
+        git: () => "b".repeat(40),
+        group: async () => {
+          state.groups++;
+          throw new Error("unowned group");
+        },
+        physicalCleanup: (file, d) => {
+          assert.ok(path.resolve(file).startsWith(path.resolve(base) + path.sep));
+          assert.equal(
+            JSON.parse(readFileSync(path.join(file, ".afc-position-root.json"), "utf8")).token,
+            d.token,
+          );
+          rmSync(file, { recursive: true });
+          return { physicalProfileAbsent: true };
+        },
+      },
+    };
+  }
+  const server = createServer();
+  await new Promise((resolve) => server.listen({ host: "::", port: 0 }, resolve));
+  const port = server.address().port;
+  try {
+    for (const mode of [
+      {},
+      { unready: true },
+      { missingId: true },
+      { unready: true, failCleanup: true },
+    ]) {
+      const m = model(mode);
+      let caught;
+      try {
+        await allocateOwnedPhase(
+          { phaseName: "n01-occupied-port", fixedPorts: { api: port } },
+          m.ops,
+        );
+      } catch (e) {
+        caught = e;
+      }
+      assert.ok(caught);
+      const failed = allocationFailure(caught);
+      assert.equal(failed.launchCount, 0);
+      assert.equal(m.state.groups, 0);
+      assert.equal(failed.cleanup.processGroupAbsent, "notAllocated");
+      assert.equal(failed.cleanup.portsAbsent, "notAllocated");
+      if (mode.failCleanup) {
+        assert.ok(caught instanceof AggregateError);
+        assert.equal(caught.errors.length, 2);
+        assert.equal(failed.cleanup.exactContainerAbsent, "unknown");
+      } else {
+        assert.equal(m.state.rm, 1);
+        assert.equal(failed.cleanup.exactContainerAbsent, true);
+      }
+      assert.equal(server.listening, true);
+      await assert.rejects(releaseOwnedPhase(failed.handle));
+    }
+    await new Promise((resolve) => server.close(resolve));
+    const m = model();
+    const handle = await allocateOwnedPhase(
+      { phaseName: "n01-occupied-port", fixedPorts: { api: port } },
+      m.ops,
+    );
+    assert.equal(m.state.rm, 0);
+    assert.equal(handle.context.launchCount, 0);
+    assert.equal(handle.owner.profile.apiPort, port);
+    validateOwnedPhaseAllocation(handle);
+    const cleanup = await releaseOwnedPhase(handle);
+    assert.equal(m.state.rm, 1);
+    assert.equal(cleanup.portsAbsent, true);
+    assert.equal(cleanup.physicalProfileAbsent, true);
+    assert.equal(cleanup.processGroupAbsent, "notAllocated");
+    assert.equal(existsSync(handle.physical), false);
+  } finally {
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+    assert.ok(base.startsWith(path.resolve(tmpdir()) + path.sep));
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("EE actual report collection validates attachment ownership, count, identity and nested schema", async () => {
+  const { collectNetworkDiagnostics } = await import("./ci-e2e.mjs");
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-g3-report-"));
+  try {
+    const f = ownedFixture(),
+      row = {
+        file: "apps/web/e2e/m0-06-shell-api.spec.ts",
+        case: ["M0-06 direct", "shell consumes real API contract"],
+        browser: "chromium-mobile",
+        config: "playwright.config.ts",
+        repeatEachIndex: 0,
+      };
+    const suite = f.report.suites[0],
+      spec = suite.specs[0],
+      result = spec.tests[0].results[0];
+    suite.title = "M0-06 direct";
+    f.report.suites = [{ title: "m0-06-shell-api.spec.ts", suites: [suite] }];
+    spec.title = row.case[1];
+    spec.file = "m0-06-shell-api.spec.ts";
+    const url = `${f.request.owner.profile.apiBase}/programs/current`,
+      raw = {
+        unexpected: 0,
+        expectedNetwork: [],
+        responses: [{ url, method: "GET", status: 404 }],
+      };
+    const attachment = {
+      name: "m0-network-diagnostics",
+      contentType: "application/json",
+      body: JSON.stringify(raw),
+    };
+    result.attachments = [attachment];
+    f.request.owner.output = dir;
+    const evidence = { provenance: structuredClone(f.request.context), report: f.report };
+    const consume = () =>
+      collectNetworkDiagnostics(evidence, f.request.owner, f.request.context, [row]);
+    assert.equal(consume()[0].observed404, 0);
+    assert.equal(consume()[0].responses404, 1);
+    attachment.body = Buffer.from(JSON.stringify(raw)).toString("base64");
+    assert.equal(consume().length, 1);
+    for (const mutate of [
+      () => {
+        result.attachments = [];
+      },
+      () => {
+        result.attachments = [attachment, attachment];
+      },
+      () => {
+        attachment.contentType = "text/plain";
+      },
+      () => {
+        attachment.body = JSON.stringify({ ...raw, env: "private" });
+      },
+      () => {
+        attachment.body = JSON.stringify({ ...raw, responses: [] });
+      },
+      () => {
+        attachment.body = JSON.stringify({
+          ...raw,
+          responses: [{ url: url + "/other", method: "GET", status: 404 }],
+        });
+      },
+      () => {
+        evidence.provenance.run = "foreign";
+      },
+    ]) {
+      const saved = structuredClone(attachment);
+      mutate();
+      assert.throws(consume);
+      Object.assign(attachment, saved);
+      result.attachments = [attachment];
+      evidence.provenance.run = f.request.context.run;
+    }
+    delete attachment.body;
+    attachment.path = path.join(dir, "attachment.json");
+    writeFileSync(attachment.path, JSON.stringify(raw));
+    assert.equal(consume().length, 1);
+    attachment.path = path.join(dir, "..", "foreign.json");
+    assert.throws(consume);
+    const fs = await import("node:fs");
+    const link = path.join(dir, "link");
+    fs.symlinkSync(dir, link, process.platform === "win32" ? "junction" : "dir");
+    attachment.path = path.join(link, "attachment.json");
+    assert.throws(consume);
+  } finally {
+    assert.ok(path.resolve(dir).startsWith(path.resolve(tmpdir()) + path.sep));
+    rmSync(dir, { recursive: true });
+  }
 });

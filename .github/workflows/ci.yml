@@ -13,11 +13,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npx playwright install --with-deps chromium webkit
         working-directory: apps/web
+      - run: node --test scripts/ci-e2e.n01.test.mjs
       # 공통15 gate·새 owned _test 전체 회귀·Xvfb owned m0를 본체에서 각1회 실행한다.
       # 첫 child부터 양 스트림 private이며 실패하면 뒤 product는 실행하지 않는다.
       - run: pnpm ci:m0
       # 공통 gate를 반복하지 않고 product phase만 새 소유 DB/container/principal로 직렬 실행한다.
       - run: xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage product
+      - run: xvfb-run --auto-servernum node scripts/ci-e2e.n01.mjs
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -25,6 +27,7 @@ jobs:
           path: |
             apps/web/e2e/.artifacts-ci/m0/*.json
             apps/web/e2e/.artifacts-ci/product/*.json
+            apps/web/e2e/.artifacts-ci/n01/n01-summary-*.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7

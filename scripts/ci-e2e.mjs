@@ -18,9 +18,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import console from "node:console";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { setTimeout, clearTimeout } from "node:timers";
+import { setTimeout, clearTimeout, setImmediate } from "node:timers";
 import {
   loadManifest,
   parseStage,
@@ -29,6 +29,8 @@ import {
   validateAllocation,
   validateExecution,
   executionProjection,
+  reportCases,
+  digest,
   safeCode,
   makeProfile,
   profileEnv,
@@ -319,17 +321,352 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
   });
 }
 
+/** Runner-local G3: only exact, independently expected identities and counts leave private evidence. */
+const M0_FILE = "apps/web/e2e/m0-06-shell-api.spec.ts";
+export function exactKeys(value, keys) {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())
+  )
+    throw coded("REPORT_SCHEMA");
+}
+const natural = (n) => Number.isInteger(n) && n >= 0;
+function networkKind(row) {
+  if (
+    row.file !== M0_FILE ||
+    row.case?.length !== 2 ||
+    !["M0-06 direct", "M0-06 proxy"].includes(row.case[0]) ||
+    !["chromium-mobile", "webkit-ios"].includes(row.browser) ||
+    !natural(row.repeatEachIndex)
+  )
+    throw coded("REPORT_SCHEMA");
+  if (
+    ["shell consumes real API contract", "fresh principal renders empty program"].includes(
+      row.case[1],
+    )
+  )
+    return { endpoint: "programs-current", minimum: 1 };
+  if (row.case[1] === "real missing session renders recoverable error")
+    return { endpoint: "session", minimum: 2 };
+  throw coded("REPORT_SCHEMA");
+}
+export function networkProjection(raw, row, profile) {
+  exactKeys(raw, ["unexpected", "expectedNetwork", "responses"]);
+  const kind = networkKind(row);
+  if (raw.unexpected !== 0 || !Array.isArray(raw.expectedNetwork) || !Array.isArray(raw.responses))
+    throw coded("REPORT_SCHEMA");
+  const base = new URL(profile.apiBase, profile.webOrigin).href;
+  const validUrl = (url) =>
+    typeof url === "string" &&
+    (kind.endpoint === "programs-current"
+      ? url === `${base}/programs/current`
+      : url.startsWith(`${base}/sessions/`) &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          url.slice(`${base}/sessions/`.length),
+        ));
+  if (row.case[0] !== `M0-06 ${profile.mode}`) throw coded("REPORT_PROVENANCE");
+  for (const response of raw.responses) {
+    exactKeys(response, ["url", "method", "status"]);
+    if (!validUrl(response.url) || response.method !== "GET" || response.status !== 404)
+      throw coded("REPORT_SCHEMA");
+  }
+  if (raw.responses.length < kind.minimum || new Set(raw.responses.map((r) => r.url)).size !== 1)
+    throw coded("REPORT_SCHEMA");
+  const seen = new Set();
+  for (const item of raw.expectedNetwork) {
+    exactKeys(item, ["url", "count"]);
+    if (
+      !validUrl(item.url) ||
+      seen.has(item.url) ||
+      !Number.isInteger(item.count) ||
+      item.count < 1 ||
+      item.count > raw.responses.filter((r) => r.url === item.url).length
+    )
+      throw coded("REPORT_SCHEMA");
+    seen.add(item.url);
+  }
+  return {
+    file: M0_FILE,
+    case: [...row.case],
+    browser: row.browser,
+    repeatEachIndex: row.repeatEachIndex,
+    endpoint: kind.endpoint,
+    observed404: raw.expectedNetwork.reduce((n, r) => n + r.count, 0),
+    responses404: raw.responses.length,
+    unexpected: 0,
+    attachmentDigest: digest(raw),
+  };
+}
+export function validateNetworkProjection(rows, expected) {
+  const required = expected.filter((r) => r.file === M0_FILE);
+  if (!Array.isArray(rows) || rows.length !== required.length) throw coded("REPORT_SCHEMA");
+  const key = (r) => JSON.stringify([r.file, r.case, r.browser, r.repeatEachIndex]);
+  const seen = new Set();
+  for (const row of rows) {
+    exactKeys(row, [
+      "file",
+      "case",
+      "browser",
+      "repeatEachIndex",
+      "endpoint",
+      "observed404",
+      "responses404",
+      "unexpected",
+      "attachmentDigest",
+    ]);
+    const identity = key(row),
+      kind = networkKind(row);
+    if (
+      !required.some((r) => key(r) === identity) ||
+      seen.has(identity) ||
+      row.endpoint !== kind.endpoint ||
+      !natural(row.observed404) ||
+      !natural(row.responses404) ||
+      row.responses404 < kind.minimum ||
+      row.responses404 < row.observed404 ||
+      row.unexpected !== 0 ||
+      typeof row.attachmentDigest !== "string" ||
+      !/^[a-f0-9]{64}$/.test(row.attachmentDigest)
+    )
+      throw coded("REPORT_SCHEMA");
+    seen.add(identity);
+  }
+  return rows;
+}
+function attachmentBytes(attachment, output) {
+  if (typeof attachment.body === "string") {
+    if (attachment.body.trimStart().startsWith("{")) return Buffer.from(attachment.body);
+    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(attachment.body))
+      throw coded("REPORT_SCHEMA");
+    return Buffer.from(attachment.body, "base64");
+  }
+  if (typeof attachment.path !== "string" || attachment.path.split(/[\\/]/).includes(".."))
+    throw coded("REPORT_SCHEMA");
+  const parent = path.resolve(output),
+    file = path.resolve(attachment.path);
+  if (!file.startsWith(parent + path.sep) || realpathSync(parent) !== parent)
+    throw coded("REPORT_PROVENANCE");
+  let current = parent;
+  for (const name of path.relative(parent, file).split(path.sep)) {
+    current = path.join(current, name);
+    if (lstatSync(current).isSymbolicLink() || realpathSync(current) !== current)
+      throw coded("REPORT_PROVENANCE");
+  }
+  return readFileSync(file);
+}
+export function collectNetworkDiagnostics(evidence, owner, context, expected) {
+  validateExecution(evidence, context, expected);
+  const actual = reportCases(evidence.report, context.root, expected[0]?.config);
+  const result = actual
+    .filter((r) => r.file === M0_FILE)
+    .map((row) => {
+      const attachments =
+        row.test.results[0].attachments?.filter((a) => a.name === "m0-network-diagnostics") ?? [];
+      if (attachments.length !== 1 || attachments[0].contentType !== "application/json")
+        throw coded("REPORT_SCHEMA");
+      let raw;
+      try {
+        raw = JSON.parse(attachmentBytes(attachments[0], owner.output).toString("utf8"));
+      } catch {
+        throw coded("REPORT_SCHEMA");
+      }
+      return networkProjection(raw, row, owner.profile);
+    });
+  return validateNetworkProjection(result, expected);
+}
+
+export const emptyInspection = (state = "notGenerated") => ({
+  state,
+  inputDigest: null,
+  inputBytes: null,
+  bytesInspected: null,
+  entryCount: null,
+});
+const secretPatterns = (secrets) =>
+  [
+    ...new Set(
+      secrets
+        .filter((s) => typeof s === "string" && s)
+        .flatMap((s) => [s, JSON.stringify(s).slice(1, -1)]),
+    ),
+  ].map((s) => Buffer.from(s));
+export function inspectBytes(value, secrets = []) {
+  try {
+    const input = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    return {
+      inspection: {
+        state: "inspected",
+        inputDigest: createHash("sha256").update(input).digest("hex"),
+        inputBytes: input.length,
+        bytesInspected: input.length,
+        entryCount: null,
+      },
+      detected: secretPatterns(secrets).some((pattern) => input.includes(pattern)),
+    };
+  } catch {
+    return { inspection: emptyInspection("error"), detected: false };
+  }
+}
+export function validateInspection(value, trace = false) {
+  exactKeys(value, ["state", "inputDigest", "inputBytes", "bytesInspected", "entryCount"]);
+  if (
+    !["inspected", "notGenerated", "notInspected", "error"].includes(value.state) ||
+    !(
+      value.inputDigest === null ||
+      (typeof value.inputDigest === "string" && /^[a-f0-9]{64}$/.test(value.inputDigest))
+    ) ||
+    ![value.inputBytes, value.bytesInspected].every((n) => n === null || natural(n)) ||
+    (trace ? !(value.entryCount === null || natural(value.entryCount)) : value.entryCount !== null)
+  )
+    throw coded("REPORT_SCHEMA");
+  if (
+    value.state === "inspected" &&
+    (value.inputDigest === null ||
+      value.inputBytes === null ||
+      value.bytesInspected === null ||
+      (trace ? value.entryCount === null : value.inputBytes !== value.bytesInspected))
+  )
+    throw coded("REPORT_SCHEMA");
+  if (
+    ["notGenerated", "notInspected"].includes(value.state) &&
+    [value.inputDigest, value.inputBytes, value.bytesInspected, value.entryCount].some(
+      (v) => v !== null,
+    )
+  )
+    throw coded("REPORT_SCHEMA");
+  return value;
+}
+/** Read every inflated entry; neither ZIP bytes nor a partial/failed close proves inspection. */
+export function playwrightUtils() {
+  const fromWeb = createRequire(path.join(web, "package.json"));
+  const fromTest = createRequire(fromWeb.resolve("@playwright/test/package.json"));
+  const fromPlaywright = createRequire(fromTest.resolve("playwright/package.json"));
+  return fromPlaywright("playwright-core/lib/utilsBundle");
+}
+export async function inspectTrace(file, secrets = [], adapters = {}) {
+  let input;
+  try {
+    input = Buffer.isBuffer(file) ? file : readFileSync(file);
+  } catch {
+    return { inspection: emptyInspection("error"), detected: false };
+  }
+  const inspection = {
+    state: "error",
+    inputDigest: createHash("sha256").update(input).digest("hex"),
+    inputBytes: input.length,
+    bytesInspected: 0,
+    entryCount: 0,
+  };
+  const patterns = secretPatterns(secrets);
+  const carrySize = Math.max(0, ...patterns.map((p) => p.length)) - 1;
+  let detected = false;
+  try {
+    const open =
+      adapters.open ??
+      ((buffer, callback) =>
+        playwrightUtils().yauzl.fromBuffer(
+          buffer,
+          { lazyEntries: true, autoClose: false, validateEntrySizes: true },
+          callback,
+        ));
+    await new Promise((resolve, reject) =>
+      open(input, (error, zip) => {
+        if (error || !zip) {
+          reject(error ?? coded("PRIVATE_IO"));
+          return;
+        }
+        let ended = false,
+          failed = false;
+        const fail = () => {
+          if (failed) return;
+          failed = true;
+          try {
+            zip.close();
+          } catch {
+            // The inspection remains error even when closing the invalid ZIP also fails.
+          }
+          reject(coded("PRIVATE_IO"));
+        };
+        zip.on("error", fail);
+        zip.on("close", () => {
+          if (!ended || failed) fail();
+          else resolve();
+        });
+        zip.on("end", () => {
+          ended = true;
+          try {
+            zip.close();
+            if (zip.isOpen !== false) {
+              fail();
+              return;
+            }
+            setImmediate(() => {
+              if (!failed) resolve();
+            });
+          } catch {
+            fail();
+          }
+        });
+        zip.on("entry", (entry) => {
+          inspection.entryCount++;
+          zip.openReadStream(entry, (err, stream) => {
+            if (err || !stream) {
+              fail();
+              return;
+            }
+            let carry = Buffer.alloc(0),
+              bytes = 0,
+              streamEnded = false;
+            stream.on("error", fail);
+            stream.on("close", () => {
+              if (!streamEnded) fail();
+            });
+            stream.on("data", (chunk) => {
+              const data = Buffer.from(chunk);
+              bytes += data.length;
+              inspection.bytesInspected += data.length;
+              const combined = Buffer.concat([carry, data]);
+              if (patterns.some((p) => combined.includes(p))) detected = true;
+              carry = carrySize > 0 ? combined.subarray(-carrySize) : Buffer.alloc(0);
+            });
+            stream.on("end", () => {
+              streamEnded = true;
+              if (failed) return;
+              if (bytes !== entry.uncompressedSize) {
+                fail();
+                return;
+              }
+              zip.readEntry();
+            });
+          });
+        });
+        zip.readEntry();
+      }),
+    );
+    inspection.state = "inspected";
+  } catch {
+    inspection.state = "error";
+  }
+  return { inspection, detected };
+}
+
 export async function executeOwnedPhase(
   { phase, owner, env, inspect, previous, context, expected },
   {
     launch = privateLaunch,
     writeProvenance = (c) => json(path.join(owner.output, "execution-provenance.json"), c),
-    readEvidence = () => ({
-      provenance: JSON.parse(
-        readFileSync(path.join(owner.output, "execution-provenance.json"), "utf8"),
-      ),
-      report: JSON.parse(readFileSync(context.reportPath, "utf8")),
-    }),
+    readEvidence = () => {
+      const rawReport = readFileSync(context.reportPath);
+      return {
+        provenance: JSON.parse(
+          readFileSync(path.join(owner.output, "execution-provenance.json"), "utf8"),
+        ),
+        report: JSON.parse(rawReport.toString("utf8")),
+        rawReport,
+      };
+    },
     reportExists = existsSync,
     writePrivate = (name, data) =>
       writeFileSync(path.join(owner.output, name), data, { flag: "wx", mode: 0o600 }),
@@ -349,6 +686,7 @@ export async function executeOwnedPhase(
   previous.push(owner);
   writeProvenance(context);
   let result;
+  context.launchCount = (context.launchCount ?? 0) + 1;
   try {
     result = await launch(
       "pnpm",
@@ -393,7 +731,31 @@ export async function executeOwnedPhase(
     throw new Error(`CI E2E report missing: ${phase.name}`);
   }
   validateExecution(evidence, context, expected);
-  return executionProjection(evidence, context, expected);
+  const proof = executionProjection(evidence, context, expected);
+  proof.networkDiagnostics = collectNetworkDiagnostics(evidence, owner, context, expected);
+  const secrets = [
+    new URL(env.DATABASE_URL).password,
+    env.FIELD_ENCRYPTION_KEY,
+    env.AFC_N01_SENTINEL,
+  ];
+  const materials = {
+    reporter: evidence.rawReport ?? JSON.stringify(evidence.report),
+    config: JSON.stringify(evidence.report.config),
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+  proof.inspection = {};
+  const matches = {};
+  for (const [name, data] of Object.entries(materials)) {
+    const checked = inspectBytes(data, secrets);
+    proof.inspection[name] = validateInspection(checked.inspection);
+    matches[name] = checked.detected;
+    if (checked.inspection.state !== "inspected") throw coded("PRIVATE_IO");
+  }
+  proof.inspection.trace = emptyInspection();
+  writePrivate("inspection-matches.json", JSON.stringify(matches));
+  validateNetworkProjection(proof.networkDiagnostics, expected);
+  return proof;
 }
 
 export async function runPhaseSeries(selectedPhases, execute) {
@@ -508,214 +870,356 @@ export function cleanPhysical(physical, descriptor) {
   return { physicalProfileAbsent: true };
 }
 
-async function runPhase(phase, expected, selectionHash, previous, stage, abortSignal) {
-  if (abortSignal.aborted) throw coded("CHILD_FAILED");
-  const run = randomUUID();
-  const token = randomBytes(4).toString("hex");
-  const label = `gen_s03_ci_${token}`;
-  const container = `afc_${label}`;
-  const names = [`afc_${label}_test`, `afc_${label}_e2e`];
-  const user = randomUUID();
-  const password = randomBytes(24).toString("hex");
-  const family = phase.project === "chromium-mobile" ? "chromium" : "webkit";
+const allocationOperations = new WeakMap();
+const releasedAllocations = new WeakSet();
+const failedAllocations = new WeakMap();
+export const allocationFailure = (error) => failedAllocations.get(error);
+
+/** Preparation owns rollback until it successfully transfers this handle to its caller. */
+export async function allocateOwnedPhase(
+  { phaseName, mode = "direct", usedPorts = [], fixedPorts, previous = [], abortSignal },
+  adapters = {},
+) {
+  if (
+    typeof phaseName !== "string" ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(phaseName) ||
+    !["direct", "proxy"].includes(mode)
+  )
+    throw coded("OWNERSHIP");
+  const ops = {
+    base: ownedBase,
+    command: docker,
+    port: freePort,
+    wait: delay,
+    group: closeOwnedGroup,
+    mkdir: mkdirSync,
+    writeJson: json,
+    physicalCleanup: cleanPhysical,
+    ready: (id) =>
+      spawnSync("docker", ["exec", id, "pg_isready", "-U", "postgres"], {
+        stdio: "ignore",
+        timeout: 5000,
+      }).status === 0,
+    git: () => {
+      const r = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: root,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      if (r.status !== 0 || !/^[a-f0-9]{40}\s*$/.test(r.stdout)) throw coded("OWNERSHIP");
+      return r.stdout.trim();
+    },
+    ...adapters,
+  };
+  const run = randomUUID(),
+    token = randomBytes(4).toString("hex"),
+    label = `gen_s03_ci_${token}`;
   const output = path.join(
-    ownedBase,
+    ops.base,
     "evidence",
     epic,
     "sprint-03-generator",
-    `${phase.name}-${token}`,
+    `${phaseName}-${token}`,
   );
-  const profiles = path.join(output, `${family}-owned-profiles`);
-  const physical = path.join(ownedBase, "p", token);
+  const profiles = path.join(
+    output,
+    `${phaseName.endsWith("-w") ? "webkit" : "chromium"}-owned-profiles`,
+  );
+  const physical = path.join(ops.base, "p", token);
   const descriptor = { v: 1, epic, manifestRoot: profiles, physicalRoot: physical, token: run };
-  let physicalCreated = false;
-  let id;
-  let context;
-  let owner;
-  let proof;
-  let failure;
-  const cleanup = {};
-  const usedPorts = previous.flatMap((p) => [p.dbPort, p.profile.apiPort, p.profile.webPort]);
+  const handle = {
+    run,
+    token,
+    label,
+    container: `afc_${label}`,
+    names: [`afc_${label}_test`, `afc_${label}_e2e`],
+    user: randomUUID(),
+    output,
+    profiles,
+    physical,
+    descriptor,
+    physicalCreated: false,
+    physicalMarked: false,
+    containerAttempted: false,
+    id: undefined,
+    ports: [],
+    owner: undefined,
+    env: undefined,
+    context: {
+      run,
+      phase: phaseName,
+      root,
+      reportPath: path.join(output, "playwright-results.json"),
+      startedAt: new Date().toISOString(),
+      abortSignal,
+      launchCount: 0,
+    },
+  };
+  allocationOperations.set(handle, ops);
+  let cleanup;
   try {
+    if (abortSignal?.aborted) throw coded("CHILD_FAILED");
+    ops.mkdir(profiles, { recursive: true, mode: 0o700 });
+    ops.mkdir(path.dirname(physical), { recursive: true });
+    ops.mkdir(physical, { mode: 0o700 });
+    handle.physicalCreated = true;
+    ops.writeJson(path.join(profiles, "physical-root.json"), descriptor);
+    ops.writeJson(path.join(physical, ".afc-position-root.json"), descriptor);
+    handle.physicalMarked = true;
+    const password = randomBytes(24).toString("hex");
+    handle.containerAttempted = true;
+    handle.id = ops.command(
+      "run",
+      "-d",
+      "--name",
+      handle.container,
+      "--label",
+      `afc.run=${run}`,
+      "--label",
+      "afc.owner=automation-m0-06",
+      "--label",
+      "afc.purpose=owned-e2e",
+      "--tmpfs",
+      "/var/lib/postgresql/data",
+      "-e",
+      `POSTGRES_PASSWORD=${password}`,
+      "-p",
+      "127.0.0.1::5432",
+      "postgres:16",
+    );
+    if (!/^[a-f0-9]{64}$/.test(handle.id ?? "")) throw coded("OWNERSHIP");
+    const info = JSON.parse(ops.command("inspect", handle.id))[0];
+    const port = Number(info.NetworkSettings.Ports["5432/tcp"][0].HostPort);
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      if (ops.ready(handle.id)) {
+        ready = true;
+        break;
+      }
+      await ops.wait(1000);
+    }
+    if (!ready) throw coded("OPERATION_FAILED");
+    const apiPort = await ops.port(fixedPorts?.api ?? 0, [...usedPorts, port]);
+    handle.ports.push(apiPort);
+    const webPort = await ops.port(0, [...usedPorts, port, apiPort]);
+    handle.ports.push(webPort);
+    const profile = makeProfile(mode, apiPort, webPort);
+    handle.owner = {
+      label,
+      container: handle.container,
+      names: handle.names,
+      dbPort: port,
+      run,
+      e2eUser: handle.user,
+      containerId: handle.id,
+      profiles,
+      output,
+      profile,
+    };
+    ops.writeJson(path.join(output, "ownership.json"), handle.owner);
+    ops.writeJson(path.join(output, "container-ownership.json"), {
+      container: handle.container,
+      names: handle.names,
+      run,
+      containerId: handle.id,
+    });
+    handle.context.sha = ops.git();
+    const url = `postgresql://postgres:${password}@127.0.0.1:${port}/${handle.names[1]}`;
+    handle.env = {
+      ...process.env,
+      ...profileEnv(profile),
+      NODE_ENV: "test",
+      AUTH_MODE: "dev-user",
+      DATABASE_URL: url,
+      DIRECT_URL: url,
+      E2E_DATABASE_URL: url,
+      E2E_DEV_USER_ID: handle.user,
+      AFC_TEST_RUN_ID: run,
+      AFC_POSITION_PROFILE_ROOT: profiles,
+      AFC_POSITION_PROFILE_ALLOCATION: path.join(profiles, "physical-root.json"),
+      FIELD_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      PLAYWRIGHT_HTML_OUTPUT_DIR: path.join(output, "html-private"),
+      PLAYWRIGHT_JSON_OUTPUT_NAME: handle.context.reportPath,
+      PLAYWRIGHT_JSON_OUTPUT_FILE: handle.context.reportPath,
+    };
+    await ops.port(apiPort);
+    await ops.port(webPort);
+    // Normal executeOwnedPhase performs validation; named diagnostics validate immediately after allocation.
+    handle.previous = previous;
+    return handle;
+  } catch (error) {
+    let failure = error;
+    try {
+      cleanup = await releaseOwnedPhase(handle);
+    } catch (cleanupError) {
+      cleanup = handle.cleanup;
+      failure = new AggregateError([error, cleanupError], "Allocation and owned cleanup failed");
+    }
+    failedAllocations.set(failure, { handle, cleanup, launchCount: handle.context.launchCount });
+    throw failure;
+  }
+}
+export function validateOwnedPhaseAllocation(handle) {
+  const ops = allocationOperations.get(handle);
+  if (!ops || releasedAllocations.has(handle)) throw coded("OWNERSHIP");
+  validateAllocation(
+    handle.owner,
+    handle.env,
+    JSON.parse(ops.command("inspect", handle.id))[0],
+    handle.previous,
+  );
+}
+
+/** Partial handles distinguish never allocated resources from verified absence. No caller retries rollback. */
+export async function releaseOwnedPhase(handle) {
+  const ops = allocationOperations.get(handle);
+  if (!ops || releasedAllocations.has(handle)) throw coded("CLEANUP_FAILED");
+  releasedAllocations.add(handle);
+  const cleanup = {
+    processGroupAbsent: "notAllocated",
+    exactContainerAbsent: "notAllocated",
+    physicalProfileAbsent: "notAllocated",
+    portsAbsent: "notAllocated",
+  };
+  handle.cleanup = cleanup;
+  const issues = [];
+  if (handle.context.childPid) {
+    try {
+      Object.assign(cleanup, await ops.group(handle.context.childPid));
+    } catch {
+      cleanup.processGroupAbsent = "unknown";
+      issues.push("process");
+    }
+  } else if (handle.context.launchCount > 0) {
+    cleanup.processGroupAbsent = "unknown";
+    issues.push("process");
+  }
+  if (handle.containerAttempted) {
+    if (!handle.id || !/^[a-f0-9]{64}$/.test(handle.id))
+      try {
+        const found = ops.command(
+          "ps",
+          "-a",
+          "--no-trunc",
+          "--filter",
+          `name=^/${handle.container}$`,
+          "--filter",
+          `label=afc.run=${handle.run}`,
+          "--filter",
+          "label=afc.owner=automation-m0-06",
+          "--filter",
+          "label=afc.purpose=owned-e2e",
+          "--format",
+          "{{.ID}}",
+        );
+        if (/^[a-f0-9]{64}$/.test(found)) handle.id = found;
+        else throw coded("CLEANUP_FAILED");
+      } catch {
+        cleanup.exactContainerAbsent = "unknown";
+        issues.push("lookup");
+      }
+    if (/^[a-f0-9]{64}$/.test(handle.id ?? ""))
+      try {
+        Object.assign(
+          cleanup,
+          cleanContainer(handle.id, handle.container, handle.run, ops.command),
+        );
+      } catch {
+        cleanup.exactContainerAbsent = "unknown";
+        issues.push("container");
+      }
+  }
+  if (handle.physicalCreated && cleanup.processGroupAbsent === "unknown")
+    cleanup.physicalProfileAbsent = "unknown";
+  if (handle.physicalCreated && cleanup.processGroupAbsent !== "unknown")
+    try {
+      if (handle.physicalMarked)
+        Object.assign(cleanup, ops.physicalCleanup(handle.physical, handle.descriptor));
+      else {
+        if (
+          path.dirname(handle.physical) !== path.join(ops.base, "p") ||
+          path.basename(handle.physical) !== handle.token ||
+          lstatSync(handle.physical).isSymbolicLink() ||
+          realpathSync(handle.physical) !== handle.physical ||
+          readdirSync(handle.physical).some((n) => n !== ".afc-position-root.json")
+        )
+          throw coded("CLEANUP_FAILED");
+        const marker = path.join(handle.physical, ".afc-position-root.json");
+        if (existsSync(marker) && lstatSync(marker).isSymbolicLink()) throw coded("CLEANUP_FAILED");
+        rmSync(handle.physical, { recursive: true });
+        cleanup.physicalProfileAbsent = !existsSync(handle.physical);
+      }
+    } catch {
+      cleanup.physicalProfileAbsent = "unknown";
+      issues.push("profile");
+    }
+  if (handle.ports.length) {
+    cleanup.portsAbsent = true;
+    for (const port of handle.ports)
+      try {
+        await ops.port(port);
+      } catch {
+        cleanup.portsAbsent = false;
+        issues.push("port");
+      }
+  }
+  if (issues.length) throw coded("CLEANUP_FAILED");
+  return cleanup;
+}
+
+async function runPhase(phase, expected, selectionHash, previous, stage, abortSignal) {
+  let allocation, proof, failure;
+  let cleanup = {};
+  try {
+    allocation = await allocateOwnedPhase({
+      phaseName: phase.name,
+      mode: phase.mode ?? "direct",
+      usedPorts: previous.flatMap((p) => [p.dbPort, p.profile.apiPort, p.profile.webPort]),
+      previous,
+      abortSignal,
+    });
+    Object.assign(allocation.context, { stage, selectionHash });
     await withCleanup(
       async () => {
-        mkdirSync(profiles, { recursive: true, mode: 0o700 });
-        mkdirSync(path.dirname(physical), { recursive: true });
-        mkdirSync(physical, { mode: 0o700 });
-        physicalCreated = true;
-        json(path.join(profiles, "physical-root.json"), descriptor);
-        json(path.join(physical, ".afc-position-root.json"), descriptor);
-        id = docker(
-          "run",
-          "-d",
-          "--name",
-          container,
-          "--label",
-          `afc.run=${run}`,
-          "--label",
-          "afc.owner=automation-m0-06",
-          "--label",
-          "afc.purpose=owned-e2e",
-          "--tmpfs",
-          "/var/lib/postgresql/data",
-          "-e",
-          `POSTGRES_PASSWORD=${password}`,
-          "-p",
-          "127.0.0.1::5432",
-          "postgres:16",
-        );
-        const info = JSON.parse(docker("inspect", id))[0];
-        const port = Number(info.NetworkSettings.Ports["5432/tcp"][0].HostPort);
-        const apiPort = await freePort(0, [...usedPorts, port]);
-        const webPort = await freePort(0, [...usedPorts, port, apiPort]);
-        const profile = makeProfile(phase.mode ?? "direct", apiPort, webPort);
-        owner = {
-          label,
-          container,
-          names,
-          dbPort: port,
-          run,
-          e2eUser: user,
-          containerId: id,
-          profiles,
-          output,
-          profile,
-        };
-        json(path.join(output, "ownership.json"), owner);
-        json(path.join(output, "container-ownership.json"), {
-          container,
-          names,
-          run,
-          containerId: id,
-        });
-        let ready = false;
-        for (let attempt = 0; attempt < 30; attempt++) {
-          const result = spawnSync("docker", ["exec", id, "pg_isready", "-U", "postgres"], {
-            stdio: "ignore",
-            timeout: 5_000,
-          });
-          if (result.status === 0) {
-            ready = true;
-            break;
-          }
-          await delay(1_000);
-        }
-        if (!ready) throw new Error("Owned PostgreSQL did not become ready");
-        const url = `postgresql://postgres:${password}@127.0.0.1:${port}/${names[1]}`;
-        const git = spawnSync("git", ["rev-parse", "HEAD"], {
-          cwd: root,
-          encoding: "utf8",
-          stdio: "pipe",
-        });
-        if (git.status !== 0 || !/^[a-f0-9]{40}\s*$/.test(git.stdout)) throw coded("OWNERSHIP");
-        context = {
-          sha: git.stdout.trim(),
-          run,
-          phase: phase.name,
-          selectionHash,
-          root,
-          reportPath: path.join(output, "playwright-results.json"),
-          startedAt: new Date().toISOString(),
-          stage,
-          abortSignal,
-        };
-        const env = {
-          ...process.env,
-          ...profileEnv(profile),
-          NODE_ENV: "test",
-          AUTH_MODE: "dev-user",
-          DATABASE_URL: url,
-          DIRECT_URL: url,
-          E2E_DATABASE_URL: url,
-          E2E_DEV_USER_ID: user,
-          AFC_TEST_RUN_ID: run,
-          AFC_POSITION_PROFILE_ROOT: profiles,
-          AFC_POSITION_PROFILE_ALLOCATION: path.join(profiles, "physical-root.json"),
-          FIELD_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
-          PLAYWRIGHT_HTML_OUTPUT_DIR: path.join(output, "html-private"),
-          PLAYWRIGHT_JSON_OUTPUT_NAME: context.reportPath,
-          PLAYWRIGHT_JSON_OUTPUT_FILE: context.reportPath,
-        };
-        await freePort(apiPort);
-        await freePort(webPort);
         proof = await executeOwnedPhase({
           phase,
-          owner,
-          env,
-          inspect: JSON.parse(docker("inspect", id))[0],
+          owner: allocation.owner,
+          env: allocation.env,
+          inspect: JSON.parse(docker("inspect", allocation.id))[0],
           previous,
-          context,
+          context: allocation.context,
           expected,
         });
       },
       async () => {
-        const issues = [];
-        try {
-          Object.assign(cleanup, await closeOwnedGroup(context?.childPid));
-        } catch {
-          issues.push("process");
-        }
-        // Recover only the exact run/name/owner when a failed docker run did not return its ID.
-        if (!id) {
-          try {
-            const found = docker(
-              "ps",
-              "-a",
-              "--no-trunc",
-              "--filter",
-              `name=^/${container}$`,
-              "--filter",
-              `label=afc.run=${run}`,
-              "--filter",
-              "label=afc.owner=automation-m0-06",
-              "--format",
-              "{{.ID}}",
-            );
-            if (found && !found.includes("\n")) id = found;
-            else if (found) throw coded("CLEANUP_FAILED");
-            else cleanup.exactContainerAbsent = true;
-          } catch {
-            issues.push("lookup");
-          }
-        }
-        if (id)
-          try {
-            Object.assign(cleanup, cleanContainer(id, container, run));
-          } catch {
-            issues.push("container");
-          }
-        if (physicalCreated && cleanup.processGroupAbsent)
-          try {
-            Object.assign(cleanup, cleanPhysical(physical, descriptor));
-          } catch {
-            issues.push("profile");
-          }
-        if (owner)
-          for (const port of [owner.profile.apiPort, owner.profile.webPort]) {
-            try {
-              await freePort(port);
-            } catch {
-              issues.push("port");
-            }
-          }
-        cleanup.portsAbsent = issues.includes("port") ? false : true;
-        if (issues.length) throw coded("CLEANUP_FAILED");
+        cleanup = await releaseOwnedPhase(allocation);
       },
     );
   } catch (error) {
     failure = error;
+    const partial = allocationFailure(error);
+    if (partial) {
+      allocation = partial.handle;
+      cleanup = partial.cleanup;
+    } else if (allocation?.cleanup) cleanup = allocation.cleanup;
+  }
+  if (proof) {
+    validateNetworkProjection(proof.networkDiagnostics, expected);
+    exactKeys(proof.inspection, ["reporter", "config", "stdout", "stderr", "trace"]);
+    for (const [name, record] of Object.entries(proof.inspection))
+      validateInspection(record, name === "trace");
   }
   const safe = {
     phase: phase.name,
-    run,
+    run: allocation?.run,
     stage,
-    profile: owner?.profile,
-    containerId: /^[0-9a-f]{64}$/.test(id ?? "") ? id : null,
-    database: names[1],
-    principal: user,
+    profile: allocation?.owner?.profile,
+    containerId: /^[0-9a-f]{64}$/.test(allocation?.id ?? "") ? allocation.id : null,
+    database: allocation?.names[1],
+    principal: allocation?.user,
     owner: "automation-m0-06",
     purpose: "owned-e2e",
-    childPid: context?.childPid,
+    childPid: allocation?.context.childPid,
     status: failure ? "failed" : "passed",
     error: failure ? safeCode(failure) : undefined,
     execution: proof,
@@ -723,7 +1227,7 @@ async function runPhase(phase, expected, selectionHash, previous, stage, abortSi
     finishedAt: new Date().toISOString(),
   };
   mkdirSync(path.join(outputBase, stage), { recursive: true });
-  json(path.join(outputBase, stage, `${phase.name}-${run}.json`), safe);
+  json(path.join(outputBase, stage, `${phase.name}-${allocation?.run ?? randomUUID()}.json`), safe);
   if (failure) throw failure;
 }
 
