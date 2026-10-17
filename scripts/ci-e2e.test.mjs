@@ -974,6 +974,43 @@ test("failed phase followed by success still returns nonzero and runs serially",
   );
 });
 
+test("workflow build-test checkout fetches pinned history and rejects misplaced depth", () => {
+  const { parse } = createRequire(new URL("../apps/api/package.json", import.meta.url))("yaml");
+  const workflow = parse(
+    readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+  );
+  const check = (value) => {
+    const steps = value.jobs?.["build-test"]?.steps;
+    assert.ok(Array.isArray(steps));
+    assert.equal(steps[0]?.uses, "actions/checkout@v4");
+    assert.equal(steps.filter((s) => s.uses?.startsWith("actions/checkout@")).length, 1);
+    assert.equal(steps[0].with?.["fetch-depth"], 0);
+  };
+  check(workflow);
+  for (const depth of [undefined, 1, 50]) {
+    const changed = structuredClone(workflow);
+    changed.jobs["build-test"].steps[0].with = { "fetch-depth": depth };
+    assert.throws(() => check(changed));
+  }
+  const missingStep = structuredClone(workflow);
+  missingStep.jobs["build-test"].steps.shift();
+  assert.throws(() => check(missingStep));
+  const wrongStep = structuredClone(workflow);
+  delete wrongStep.jobs["build-test"].steps[0].with;
+  wrongStep.jobs["build-test"].steps[1].with = { "fetch-depth": 0 };
+  assert.throws(() => check(wrongStep));
+  const wrongJob = structuredClone(workflow);
+  delete wrongJob.jobs["build-test"].steps[0].with;
+  wrongJob.jobs.other = { steps: [{ uses: "actions/checkout@v4", with: { "fetch-depth": 0 } }] };
+  assert.throws(() => check(wrongJob));
+  const duplicate = structuredClone(workflow);
+  duplicate.jobs["build-test"].steps.push({
+    uses: "actions/checkout@v4",
+    with: { "fetch-depth": 0 },
+  });
+  assert.throws(() => check(duplicate));
+});
+
 test("workflow executes new tests/real checks once while preserving legacy gate order", () => {
   const yaml = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const legacy = [
