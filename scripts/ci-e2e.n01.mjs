@@ -375,7 +375,19 @@ export function greenObserved(observation, expected, user) {
   );
 }
 
-function diagnosticIO(handle, directory, signal, sentinel) {
+export function diagnosticIO(
+  handle,
+  directory,
+  signal,
+  sentinel,
+  deps = { launch: privateLaunch, closeGroup: closeOwnedGroup },
+) {
+  if (
+    typeof handle?.run !== "string" ||
+    handle.run.length !== 36 ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(handle.run)
+  )
+    throw failure("OWNERSHIP");
   const active = new Set(),
     results = [];
   let sequence = 0;
@@ -391,31 +403,40 @@ function diagnosticIO(handle, directory, signal, sentinel) {
     const item = { pid: undefined, controller, result: undefined, sequence: sequence++ };
     active.add(item);
     if (execution) handle.context.launchCount++;
-    item.task = privateLaunch(
-      command,
-      args,
-      {
-        cwd,
-        env: { ...env, AFC_N01_SENTINEL: sentinel },
-        timeout,
-        signal: controller.signal,
-        detached: true,
-        stdio: "pipe",
-        shell: false,
-      },
-      (pid) => {
-        item.pid = pid;
-        if (execution) handle.context.childPid = pid;
-      },
-    )
+    item.task = deps
+      .launch(
+        command,
+        args,
+        {
+          cwd,
+          env: { ...env, AFC_N01_SENTINEL: sentinel },
+          timeout,
+          signal: controller.signal,
+          detached: true,
+          stdio: "pipe",
+          shell: false,
+        },
+        (pid) => {
+          item.pid = pid;
+          if (execution) handle.context.childPid = pid;
+        },
+      )
       .then((result) => {
         item.result = result;
         results.push(result);
-        privateWrite(directory, `child-${item.sequence}-stdout.txt`, result.stdout ?? "");
-        privateWrite(directory, `child-${item.sequence}-stderr.txt`, result.stderr ?? "");
         privateWrite(
           directory,
-          `child-${item.sequence}-state.json`,
+          `child-${handle.run}-${item.sequence}-stdout.txt`,
+          result.stdout ?? "",
+        );
+        privateWrite(
+          directory,
+          `child-${handle.run}-${item.sequence}-stderr.txt`,
+          result.stderr ?? "",
+        );
+        privateWrite(
+          directory,
+          `child-${handle.run}-${item.sequence}-state.json`,
           JSON.stringify({
             pid: result.pid,
             status: result.status,
@@ -433,7 +454,7 @@ function diagnosticIO(handle, directory, signal, sentinel) {
     await withCleanup(
       async () => {
         if (!item.pid) throw failure("CLEANUP_FAILED");
-        await closeOwnedGroup(item.pid);
+        await deps.closeGroup(item.pid);
       },
       async () => {
         item.controller.abort(failure("CHILD_FAILED"));

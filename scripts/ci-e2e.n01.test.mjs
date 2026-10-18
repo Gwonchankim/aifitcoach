@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import {
@@ -8,6 +9,7 @@ import {
   rmSync,
   readdirSync,
   realpathSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,10 +31,243 @@ import {
   BROWSER_SOURCE,
   runWrongBuild,
   runProbe,
+  diagnosticIO,
 } from "./ci-e2e.n01.mjs";
 import { inspectBytes, inspectTrace, playwrightUtils, privateLaunch } from "./ci-e2e.mjs";
 import { makeProfile } from "./ci-e2e.manifest.mjs";
 const { structuredClone, queueMicrotask } = globalThis;
+
+// Only native launch/group effects are fake; diagnosticIO and its wx writer are real.
+function diagnosticFixture(run, payload, options = {}) {
+  const handle = { run, context: { launchCount: 0, phase: "n01-wrong-base" }, env: {} };
+  const groups = [];
+  const deps = {
+    launch(_command, _args, settings, onSpawn) {
+      assert.equal(settings.stdio, "pipe");
+      assert.equal(settings.shell, false);
+      assert.equal(settings.detached, true);
+      onSpawn(43101);
+      return Promise.resolve({
+        pid: 43101,
+        status: options.error ? 1 : 0,
+        signal: null,
+        closed: true,
+        stdout: Buffer.from(payload),
+        stderr: Buffer.from(`${payload}-stderr`),
+        error: options.error,
+      });
+    },
+    async closeGroup(pid) {
+      groups.push(pid);
+      if (options.cleanupError) throw options.cleanupError;
+      return { processGroupAbsent: true };
+    },
+  };
+  return { handle, groups, deps };
+}
+
+test("N01 actual diagnostic IO isolates two allocations in one private parent", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-n01-two-allocations-"));
+  const first = diagnosticFixture("11111111-1111-4111-8111-111111111111", "first-private");
+  const second = diagnosticFixture("22222222-2222-4222-8222-222222222222", "second-private");
+  first.handle.context.phase = "n01-wrong-rewrite";
+  const a = diagnosticIO(first.handle, dir, undefined, "sentinel", first.deps);
+  const b = diagnosticIO(second.handle, dir, undefined, "sentinel", second.deps);
+  const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  try {
+    await a.run("fake", []);
+    const originals = readdirSync(dir).map((file) => ({
+      file,
+      bytes: readFileSync(path.join(dir, file)),
+      hash: sha(readFileSync(path.join(dir, file))),
+    }));
+    assert.equal(originals.length, 3);
+    // Before the namespace fix this exact second real writer throws EEXIST.
+    await b.run("fake", []);
+    assert.equal(readdirSync(dir).length, 6);
+    for (const old of originals) {
+      assert.deepEqual(readFileSync(path.join(dir, old.file)), old.bytes);
+      assert.equal(sha(readFileSync(path.join(dir, old.file))), old.hash);
+    }
+    for (const [fixture, io, payload] of [
+      [first, a, "first-private"],
+      [second, b, "second-private"],
+    ]) {
+      const prefix = `child-${fixture.handle.run}-0`;
+      assert.equal(readFileSync(path.join(dir, `${prefix}-stdout.txt`), "utf8"), payload);
+      assert.equal(
+        readFileSync(path.join(dir, `${prefix}-stderr.txt`), "utf8"),
+        `${payload}-stderr`,
+      );
+      assert.deepEqual(JSON.parse(readFileSync(path.join(dir, `${prefix}-state.json`))), {
+        pid: 43101,
+        status: 0,
+        signal: null,
+        closed: true,
+        error: null,
+      });
+      assert.equal(
+        inspectBytes(io.results[0].stdout).inspection.inputDigest,
+        sha(Buffer.from(payload)),
+      );
+      assert.deepEqual(fixture.groups, [43101]);
+      if (process.platform !== "win32")
+        for (const suffix of ["stdout.txt", "stderr.txt", "state.json"])
+          assert.equal(statSync(path.join(dir, `${prefix}-${suffix}`)).mode & 0o777, 0o600);
+    }
+  } finally {
+    await Promise.allSettled([a.cleanup(), b.cleanup()]);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("N01 actual diagnostic IO keeps local sequences and same-case new allocations distinct", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-n01-sequences-"));
+  const first = diagnosticFixture("33333333-3333-4333-8333-333333333333", "sequence-private");
+  const next = diagnosticFixture("44444444-4444-4444-8444-444444444444", "next-private");
+  assert.equal(first.handle.context.phase, next.handle.context.phase);
+  const a = diagnosticIO(first.handle, dir, undefined, "sentinel", first.deps);
+  const b = diagnosticIO(next.handle, dir, undefined, "sentinel", next.deps);
+  try {
+    for (let index = 0; index < 3; index++) await a.run("fake", [], { execution: false });
+    await b.run("fake", []);
+    assert.deepEqual(
+      readdirSync(dir).sort(),
+      [
+        ...[0, 1, 2].flatMap((index) =>
+          ["stdout.txt", "stderr.txt", "state.json"].map(
+            (material) => `child-${first.handle.run}-${index}-${material}`,
+          ),
+        ),
+        ...["stdout.txt", "stderr.txt", "state.json"].map(
+          (material) => `child-${next.handle.run}-0-${material}`,
+        ),
+      ].sort(),
+    );
+    assert.equal(first.handle.context.launchCount, 0);
+    assert.equal(next.handle.context.launchCount, 1);
+    assert.equal(a.results.length, 3);
+    assert.equal(b.results.length, 1);
+    for (let index = 0; index < 3; index++) {
+      assert.equal(
+        readFileSync(path.join(dir, `child-${first.handle.run}-${index}-stdout.txt`), "utf8"),
+        "sequence-private",
+      );
+      assert.equal(
+        JSON.parse(readFileSync(path.join(dir, `child-${first.handle.run}-${index}-state.json`)))
+          .status,
+        0,
+      );
+    }
+  } finally {
+    await Promise.allSettled([a.cleanup(), b.cleanup()]);
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("N01 actual diagnostic IO rejects noncanonical filename UUIDs before launch or writes", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-n01-run-guard-"));
+  try {
+    for (const run of [
+      undefined,
+      null,
+      1,
+      "",
+      "../escape",
+      "a".repeat(36),
+      "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+      "11111111-1111-4111-8111-111111111111\n",
+    ]) {
+      const f = diagnosticFixture(run, "never-written");
+      f.deps.launch = () => assert.fail("invalid run must not launch");
+      assert.throws(() => diagnosticIO(f.handle, dir, undefined, "sentinel", f.deps), {
+        code: "OWNERSHIP",
+      });
+      assert.deepEqual(f.groups, []);
+      assert.deepEqual(readdirSync(dir), []);
+    }
+    // This guard checks the agreed hex shape, not a new UUID version/ownership policy.
+    const f = diagnosticFixture("00000000-0000-0000-0000-000000000000", "shape-only");
+    assert.ok(diagnosticIO(f.handle, dir, undefined, "sentinel", f.deps));
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test("N01 actual diagnostic IO preserves wx refusal and original error through cleanup", async () => {
+  for (const preseed of [true, false]) {
+    const dir = mkdtempSync(path.join(tmpdir(), "afc-n01-wx-refusal-"));
+    const f = diagnosticFixture("55555555-5555-4555-8555-555555555555", "new-private");
+    const file = path.join(dir, `child-${f.handle.run}-0-stdout.txt`);
+    const first = diagnosticIO(f.handle, dir, undefined, "sentinel", f.deps);
+    let io;
+    try {
+      if (preseed) writeFileSync(file, "owned-first", { flag: "wx", mode: 0o600 });
+      else await first.run("fake", []);
+      const original = readFileSync(file);
+      io = diagnosticIO(f.handle, dir, undefined, "sentinel", f.deps);
+      let writeError;
+      await assert.rejects(io.run("fake", []), (error) => {
+        writeError = error;
+        assert.equal(error.code, "EEXIST");
+        return true;
+      });
+      assert.deepEqual(readFileSync(file), original);
+      assert.equal(
+        io.results[0].status,
+        0,
+        "private write failure is separate from successful child",
+      );
+      const beforeCleanup = f.groups.length;
+      await assert.rejects(io.cleanup(), (error) => {
+        assert.ok(error instanceof AggregateError);
+        assert.equal(error.errors[0], writeError, "reawait preserves the initiating I/O error");
+        return true;
+      });
+      assert.equal(f.groups.length, beforeCleanup + 1, "cleanup still attempted group close");
+      assert.deepEqual(readFileSync(file), original);
+    } finally {
+      await Promise.allSettled([first.cleanup(), io?.cleanup()]);
+      rmSync(dir, { recursive: true });
+    }
+  }
+});
+
+test("N01 actual diagnostic IO retains child failure and group cleanup failure together", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-n01-combined-failure-"));
+  const childError = Object.assign(new Error("synthetic child failure"), { code: "CHILD_FAILED" });
+  const cleanupError = new Error("synthetic unverified group");
+  const f = diagnosticFixture("66666666-6666-4666-8666-666666666666", "failed-private", {
+    error: childError,
+    cleanupError,
+  });
+  const io = diagnosticIO(f.handle, dir, undefined, "sentinel", f.deps);
+  try {
+    await assert.rejects(io.run("fake", []), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors[0], childError);
+      assert.equal(error.errors[1], cleanupError);
+      return true;
+    });
+    assert.deepEqual(f.groups, [43101]);
+    const state = JSON.parse(readFileSync(path.join(dir, `child-${f.handle.run}-0-state.json`)));
+    assert.deepEqual(state, {
+      pid: 43101,
+      status: 1,
+      signal: null,
+      closed: true,
+      error: "CHILD_FAILED",
+    });
+    await assert.rejects(io.cleanup(), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.errors[0], cleanupError);
+      return true;
+    });
+    assert.equal(f.groups.length, 2);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
 
 const expected = ["wrong-rewrite", "wrong-base", "occupied-port", "abort", "timeout"];
 function validSummary() {
