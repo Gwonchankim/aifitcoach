@@ -17,6 +17,14 @@ import {
   closeOwnedGroup,
   privateLaunch,
   publishSummary,
+  rememberAbortedLaunch,
+  launcherSnapshot,
+  failureContext,
+  canonicalFailure,
+  decodeFailureReport,
+  readFailureReport,
+  validateFailureEvidence,
+  writeStageExecution,
 } from "./ci-e2e.mjs";
 import {
   loadManifest,
@@ -63,7 +71,8 @@ function launchModel({
     process: { platform: "linux", kill: signal },
     spawn: () => {
       spawns++;
-      if (spawnFailure) throw new Error("synthetic spawn failure");
+      if (spawnFailure)
+        throw spawnFailure instanceof Error ? spawnFailure : new Error("synthetic spawn failure");
       return child;
     },
     setTimeout: (fn, ms) => {
@@ -74,7 +83,8 @@ function launchModel({
     clearTimeout: (id) => timers.delete(id),
   });
   return {
-    launch: (options, onSpawn) => launch("synthetic", [], { detached, ...options }, onSpawn),
+    launch: (options, onSpawn) =>
+      launch("synthetic", [], { detached, ...options }, onSpawn, rememberAbortedLaunch),
     child,
     signals,
     signal,
@@ -1586,5 +1596,780 @@ test("EE actual report collection validates attachment ownership, count, identit
   } finally {
     assert.ok(path.resolve(dir).startsWith(path.resolve(tmpdir()) + path.sep));
     rmSync(dir, { recursive: true });
+  }
+});
+
+// FEP: real producer/first writer regressions. These are local data/launcher models, not Linux E2E.
+function failureFixture() {
+  const f = ownedFixture();
+  const dir = mkdtempSync(path.join(tmpdir(), "afc-fep-"));
+  f.request.owner.output = dir;
+  f.request.owner.run = "11111111-1111-4111-8111-111111111111";
+  f.request.context.run = f.request.owner.run;
+  f.request.context.stage = "product";
+  f.request.context.selectionHash = "b".repeat(64);
+  f.request.context.reportPath = path.join(dir, "results.json");
+  f.request.env.AFC_TEST_RUN_ID = f.request.owner.run;
+  f.request.env.PLAYWRIGHT_JSON_OUTPUT_NAME = f.request.context.reportPath;
+  f.request.env.PLAYWRIGHT_JSON_OUTPUT_FILE = f.request.context.reportPath;
+  f.request.inspect.Config.Labels["afc.run"] = f.request.owner.run;
+  f.adapters.writeProvenance = (c) =>
+    writeFileSync(path.join(dir, "execution-provenance.json"), JSON.stringify(c));
+  f.adapters.readEvidence = () => ({
+    provenance: JSON.parse(readFileSync(path.join(dir, "execution-provenance.json"))),
+    report: JSON.parse(readFileSync(f.request.context.reportPath)),
+  });
+  f.adapters.writePrivate = (name, data) => writeFileSync(path.join(dir, name), data);
+  f.options = { stage: "product", selectionHash: "b".repeat(64) };
+  f.dispose = () => {
+    assert.ok(path.resolve(dir).startsWith(path.resolve(tmpdir()) + path.sep));
+    rmSync(dir, { recursive: true, force: true });
+  };
+  return f;
+}
+
+test("FEP RED/GREEN nonzero child preserves full trusted report diagnostics and failure", async () => {
+  const f = failureFixture();
+  try {
+    f.report.suites[0].specs[0].tests[0].results[0].status = "failed";
+    f.adapters.launch = (_command, _args, _options, _onSpawn, markAbort) => {
+      assert.equal(markAbort, rememberAbortedLaunch);
+      writeFileSync(f.request.context.reportPath, JSON.stringify(f.report));
+      return { status: 7, signal: null, closed: true, error: undefined };
+    };
+    const value = await runPhaseSeries(
+      [f.request.phase, phases[2]],
+      (phase) => phase === f.request.phase && executeOwnedPhase(f.request, f.adapters),
+      f.options,
+    );
+    assert.equal(value.exitCode, 1);
+    assert.equal(value.results[1].status, "passed");
+    const d = value.results[0].failureEvidence;
+    assert.ok(d, "failureEvidence must be produced, not just a generic operation code");
+    assert.equal(d.failureAt, "launcher");
+    assert.deepEqual(d.launcher, { status: 7, signal: "none", closed: true, errorKind: "none" });
+    assert.equal(d.context.sha, f.request.context.sha);
+    assert.equal(d.context.phaseRun, f.request.owner.run);
+    assert.equal(d.report.state, "parsed");
+    assert.equal(d.cases.length, 1);
+    assert.equal(d.cases[0].observed, "failed");
+    assert.equal(d.diagnosisComplete, true);
+  } finally {
+    f.dispose();
+  }
+});
+
+async function failedProduction(f, launch, change = {}) {
+  f.adapters.launch = launch;
+  Object.assign(f.adapters, change);
+  return runPhaseSeries(
+    [f.request.phase, phases[2]],
+    (p) => p === f.request.phase && executeOwnedPhase(f.request, f.adapters),
+    f.options,
+  );
+}
+function decodeFixture(
+  f,
+  report = f.report,
+  expected = f.request.expected,
+  provenance = f.request.context,
+) {
+  return decodeFailureReport(
+    report,
+    expected,
+    f.request.context,
+    provenance,
+    Buffer.from(JSON.stringify(report)),
+  );
+}
+function reportRows(f, count) {
+  const original = f.report.suites[0].specs[0];
+  f.report.suites[0].specs = Array.from({ length: count }, (_, i) => ({
+    ...structuredClone(original),
+    title: `case ${i}`,
+  }));
+  f.request.expected = f.report.suites[0].specs.map((s) => ({
+    ...f.request.expected[0],
+    case: [s.title],
+  }));
+}
+
+test("FEP actual launcher first-error marker, partial returns, closed state and signal allowlist", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("private reason"));
+  const pre = await privateLaunch(
+    "never",
+    [],
+    { signal: controller.signal },
+    undefined,
+    rememberAbortedLaunch,
+  );
+  assert.deepEqual(launcherSnapshot(pre).launcher, {
+    status: null,
+    signal: null,
+    closed: null,
+    errorKind: "abort",
+  });
+  const syncModel = launchModel({
+    spawnFailure: Object.assign(new Error("private"), { syscall: "spawn secret" }),
+  });
+  assert.deepEqual(launcherSnapshot(await syncModel.launch({})).launcher, {
+    status: null,
+    signal: null,
+    closed: null,
+    errorKind: "spawn",
+  });
+  const missing = await privateLaunch(path.join(tmpdir(), "afc-does-not-exist-528cf49b"), [], {
+    stdio: "pipe",
+    detached: true,
+  });
+  assert.equal(launcherSnapshot(missing).launcher.errorKind, "spawn");
+  for (const mode of ["timeout", "output-limit", "private-io", "other", "abort"]) {
+    const m = launchModel(),
+      c = new AbortController(),
+      promise = m.launch({ signal: c.signal, timeout: 5 });
+    if (mode === "timeout") m.tick(5);
+    if (mode === "output-limit") m.child.stdout.emit("data", Buffer.alloc(32 * 1024 * 1024 + 1));
+    if (mode === "private-io") m.child.stderr.emit("error", new Error("private"));
+    if (mode === "other") m.child.emit("error", new Error("first private"));
+    c.abort(new Error("late private"));
+    m.tick(4000);
+    const value = await promise;
+    assert.equal(launcherSnapshot(value).launcher.errorKind, mode);
+    assert.equal(launcherSnapshot(value).launcher.closed, false);
+  }
+  assert.equal(
+    launcherSnapshot({ status: 1, signal: "SIGPRIVATE", closed: true }).launcher.signal,
+    "unknown",
+  );
+  assert.equal(
+    launcherSnapshot({ status: 1, signal: "SIGXFSZ", closed: true }).launcher.signal,
+    "SIGXFSZ",
+  );
+  assert.equal(
+    launcherSnapshot({ status: 1, error: new Error("unknown") }).launcher.errorKind,
+    "other",
+  );
+});
+
+test("FEP snapshot uses own data descriptors without invoking nullable or error getters", () => {
+  let calls = 0;
+  const value = { status: 2, signal: null, closed: true };
+  Object.defineProperty(value, "status", {
+    get() {
+      calls++;
+      throw Error("secret");
+    },
+  });
+  const observed = launcherSnapshot(value);
+  assert.equal(observed.launcher.status, null);
+  assert.equal(observed.complete, false);
+  assert.equal(calls, 0);
+  Object.defineProperty(value, "error", {
+    get() {
+      calls++;
+      throw Error("secret");
+    },
+  });
+  assert.throws(() => launcherSnapshot(value));
+  assert.equal(calls, 0);
+  const error = new Error("private");
+  Object.defineProperty(error, "code", {
+    get() {
+      calls++;
+      return "ETIMEDOUT";
+    },
+  });
+  assert.throws(() => launcherSnapshot({ error }));
+  assert.equal(calls, 0);
+  assert.throws(() =>
+    launcherSnapshot(
+      new Proxy(
+        {},
+        {
+          getOwnPropertyDescriptor() {
+            throw Error("private");
+          },
+        },
+      ),
+    ),
+  );
+});
+
+test("FEP real producer distinguishes injected throw, native partial spawn, pre-abort and private write failure", async () => {
+  for (const mode of [
+    "throw",
+    "partial-spawn",
+    "pre-abort",
+    "private-write",
+    "bad-error-descriptor",
+  ]) {
+    const f = failureFixture();
+    try {
+      const error = Object.assign(new Error("private sentinel"), {
+        syscall: "spawn private-command",
+      });
+      const launcher =
+        mode === "partial-spawn"
+          ? { status: null, error }
+          : mode === "pre-abort"
+            ? rememberAbortedLaunch({ status: null, error: new Error("reason") })
+            : { status: 9, signal: null, closed: true };
+      if (mode === "bad-error-descriptor")
+        Object.defineProperty(launcher, "error", {
+          get() {
+            throw Error("private getter");
+          },
+        });
+      const result = await failedProduction(
+        f,
+        () => {
+          if (mode === "throw") throw error;
+          return launcher;
+        },
+        mode === "private-write"
+          ? {
+              writePrivate() {
+                throw Object.assign(new Error("private write"), { code: "PRIVATE_IO" });
+              },
+            }
+          : {},
+      );
+      const row = result.results[0],
+        d = row.failureEvidence;
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.results[1].status, "passed");
+      if (mode === "throw") {
+        assert.equal(d.failureAt, "spawn");
+        assert.equal(d.launcher, null);
+      }
+      if (mode === "partial-spawn") {
+        assert.equal(d.failureAt, "spawn");
+        assert.deepEqual(d.launcher, {
+          status: null,
+          signal: null,
+          closed: null,
+          errorKind: "spawn",
+        });
+      }
+      if (mode === "pre-abort") {
+        assert.equal(d.failureAt, "launcher");
+        assert.equal(d.launcher.errorKind, "abort");
+        assert.equal(d.launcher.closed, null);
+      }
+      if (mode === "private-write") {
+        assert.equal(d.failureAt, "private-io");
+        assert.equal(d.launcher.status, 9);
+        assert.equal(row.error, "PRIVATE_IO");
+      }
+      if (mode === "bad-error-descriptor") {
+        assert.equal(d.failureAt, "diagnosis");
+        assert.equal(d.launcher, null);
+      }
+    } finally {
+      f.dispose();
+    }
+  }
+});
+
+test("FEP actual producer child0 missing/parse/shape/provenance/stale failures retain launcher0", async () => {
+  for (const [mode, at, state] of [
+    ["missing", "report-missing", "missing"],
+    ["invalid", "report-parse", "invalid-json"],
+    ["shape", "report-parse", "invalid-shape"],
+    ["provenance", "report-validate", "wrong-provenance"],
+    ["stale", "report-validate", "stale"],
+  ]) {
+    const f = failureFixture();
+    try {
+      if (mode === "shape") delete f.report.suites;
+      if (mode === "provenance") f.report.config.configFile = path.join(tmpdir(), "wrong.ts");
+      if (mode === "stale") f.report.stats.startTime = "2020-01-01T00:00:00Z";
+      const result = await failedProduction(f, () => {
+        if (mode !== "missing")
+          writeFileSync(
+            f.request.context.reportPath,
+            mode === "invalid" ? "{" : JSON.stringify(f.report),
+          );
+        return { status: 0, signal: null, closed: true };
+      });
+      const d = result.results[0].failureEvidence;
+      assert.equal(d.failureAt, at);
+      assert.equal(d.report.state, state);
+      assert.equal(d.launcher.status, 0);
+      assert.equal(d.cases, null);
+      assert.equal(result.exitCode, 1);
+    } finally {
+      f.dispose();
+    }
+  }
+});
+
+test("FEP core113/128 entire expected identities, partial missing, overflow and six-passed nonzero stay failures", async () => {
+  const f = failureFixture();
+  try {
+    for (const count of [113, 128]) {
+      reportRows(f, count);
+      let d = decodeFixture(f);
+      assert.equal(d.cases.length, count);
+      assert.equal(d.diagnosisComplete, true);
+      f.report.suites[0].specs.pop();
+      d = decodeFixture(f);
+      assert.equal(d.cases.length, count);
+      assert.equal(d.cases.at(-1).observed, "missing");
+      assert.equal(d.diagnosisComplete, true);
+    }
+    reportRows(f, 129);
+    let d = decodeFixture(f);
+    assert.equal(d.report.state, "limit-exceeded");
+    assert.equal(d.cases, null);
+    reportRows(f, 6);
+    const result = await failedProduction(f, () => {
+      writeFileSync(f.request.context.reportPath, JSON.stringify(f.report));
+      return { status: 1, signal: null, closed: true };
+    });
+    d = result.results[0].failureEvidence;
+    assert.equal(result.exitCode, 1);
+    assert.equal(d.cases.length, 6);
+    assert.ok(d.cases.every((r) => r.observed === "passed"));
+    assert.equal(d.diagnosisComplete, true);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP decoder leaf optional key only; mandatory arrays, nested titles and occurrence match success rules", () => {
+  const f = failureFixture();
+  try {
+    assert.equal(decodeFixture(f).report.state, "parsed");
+    for (const value of [undefined, null, {}, "private"]) {
+      const report = structuredClone(f.report);
+      report.suites[0].suites = value;
+      assert.equal(decodeFixture(f, report).report.state, "invalid-shape");
+    }
+    const valid = structuredClone(f.report);
+    valid.suites[0].suites = [];
+    assert.equal(decodeFixture(f, valid).report.state, "parsed");
+    for (const mutate of [
+      (r) => delete r.suites,
+      (r) => delete r.suites[0].specs,
+      (r) => delete r.suites[0].specs[0].tests,
+      (r) => delete r.suites[0].specs[0].tests[0].results,
+    ]) {
+      const r = structuredClone(f.report);
+      mutate(r);
+      assert.equal(decodeFixture(f, r).report.state, "invalid-shape");
+    }
+    const nested = structuredClone(f.report);
+    nested.suites[0] = { specs: [], suites: [{ title: "group", specs: nested.suites[0].specs }] };
+    assert.deepEqual(
+      decodeFixture(f, nested, [{ ...f.request.expected[0], case: ["group", "owned roundtrip"] }])
+        .cases[0].case,
+      ["group", "owned roundtrip"],
+    );
+    const repeated = structuredClone(f.report);
+    repeated.suites[0].specs.push(structuredClone(repeated.suites[0].specs[0]));
+    const extra = decodeFixture(f, repeated);
+    assert.equal(extra.unknownCases, 1);
+    assert.equal(extra.duplicateCases, 0);
+    assert.equal(extra.diagnosisComplete, false);
+    const expected = [f.request.expected[0], { ...f.request.expected[0], repeatEachIndex: 1 }];
+    assert.deepEqual(
+      decodeFixture(f, repeated, expected).cases.map((r) => r.repeatEachIndex),
+      [0, 1],
+    );
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP decoder last result status only, attempts bounds, unknown status and global errors count", () => {
+  const f = failureFixture();
+  try {
+    for (const [results, observed, attempts, complete] of [
+      [[], "missing", 0, true],
+      [[{ status: "failed" }, { status: "passed" }], "passed", 2, true],
+      [[{ status: "timedOut" }], "timedOut", 1, true],
+      [[{ status: "interrupted" }], "interrupted", 1, true],
+      [[{ status: "skipped" }], "skipped", 1, true],
+      [[{ status: "expected" }], "missing", 1, false],
+      [Array.from({ length: 11 }, () => ({ status: "passed" })), "passed", null, false],
+    ]) {
+      const r = structuredClone(f.report);
+      r.suites[0].specs[0].tests[0].results = results;
+      r.suites[0].specs[0].tests[0].status = "unexpected";
+      const d = decodeFixture(f, r);
+      assert.equal(d.cases[0].observed, observed);
+      assert.equal(d.cases[0].attempts, attempts);
+      assert.equal(d.diagnosisComplete, complete);
+    }
+    f.report.errors = Array(1001).fill({ message: "private" });
+    const d = decodeFixture(f);
+    assert.equal(d.globalErrors, null);
+    assert.equal(d.diagnosisComplete, false);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP bounded decoder depth/node/row/expected limits do not truncate or accept malformed/getter arrays", () => {
+  const f = failureFixture();
+  try {
+    const depth = structuredClone(f.report);
+    let leaf = depth.suites[0];
+    for (let i = 1; i < 17; i++) {
+      leaf.suites = [{ title: "nested", specs: [] }];
+      leaf = leaf.suites[0];
+    }
+    assert.equal(decodeFixture(f, depth).report.state, "limit-exceeded");
+    const rows = structuredClone(f.report);
+    rows.suites[0].specs[0].tests = Array.from({ length: 4097 }, () =>
+      structuredClone(rows.suites[0].specs[0].tests[0]),
+    );
+    assert.equal(decodeFixture(f, rows).report.state, "limit-exceeded");
+    const nodes = structuredClone(f.report);
+    nodes.suites[0].specs[0].tests[0].results = Array.from({ length: 20000 }, () => ({
+      status: "passed",
+    }));
+    assert.equal(decodeFixture(f, nodes).report.state, "limit-exceeded");
+    const huge = structuredClone(f.report);
+    huge.suites.length = 20001;
+    assert.equal(decodeFixture(f, huge).report.state, "limit-exceeded");
+    const raw = Buffer.from(JSON.stringify(f.report));
+    let calls = 0;
+    Object.defineProperty(f.report, "suites", {
+      get() {
+        calls++;
+        return [];
+      },
+    });
+    const d = decodeFailureReport(
+      f.report,
+      f.request.expected,
+      f.request.context,
+      f.request.context,
+      raw,
+    );
+    assert.equal(d.report.state, "invalid-shape");
+    assert.equal(calls, 0);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP bounded regular report read distinguishes missing/unreadable/oversize/full digest and provenance", async () => {
+  const fs = await import("node:fs"),
+    crypto = await import("node:crypto");
+  const f = failureFixture();
+  try {
+    const read = () => readFailureReport(f.request.owner, f.request.context, f.request.expected);
+    assert.equal(read().report.state, "missing");
+    fs.mkdirSync(f.request.context.reportPath);
+    assert.equal(read().report.state, "unreadable");
+    fs.rmSync(f.request.context.reportPath, { recursive: true });
+    const fd = fs.openSync(f.request.context.reportPath, "wx");
+    fs.ftruncateSync(fd, 33554433);
+    fs.closeSync(fd);
+    assert.deepEqual(read().report, { state: "oversize", bytes: 33554433, digest: null });
+    fs.rmSync(f.request.context.reportPath);
+    writeFileSync(f.request.context.reportPath, "{");
+    assert.deepEqual(read().report, {
+      state: "invalid-json",
+      bytes: 1,
+      digest: crypto.createHash("sha256").update("{").digest("hex"),
+    });
+    writeFileSync(f.request.context.reportPath, JSON.stringify(f.report));
+    assert.equal(read().report.state, "wrong-provenance");
+    f.adapters.writeProvenance(f.request.context);
+    assert.equal(read().report.state, "parsed");
+    const link = path.join(f.request.owner.output, "link");
+    fs.symlinkSync(f.request.owner.output, link, process.platform === "win32" ? "junction" : "dir");
+    assert.equal(
+      readFailureReport(
+        { ...f.request.owner, output: link },
+        { ...f.request.context, reportPath: path.join(link, "results.json") },
+        f.request.expected,
+      ).report.state,
+      "unreadable",
+    );
+    if (process.platform !== "win32") {
+      const other = path.join(f.request.owner.output, "target");
+      writeFileSync(other, "{}");
+      fs.rmSync(f.request.context.reportPath);
+      fs.symlinkSync(other, f.request.context.reportPath, "file");
+      assert.equal(read().report.state, "unreadable");
+    }
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP own cleanup/rollback wrappers preserve diagnostics; foreign wrappers and map misses use canonical", async () => {
+  const { allocateOwnedPhase } = await import("./ci-e2e.mjs");
+  const f = failureFixture();
+  try {
+    f.adapters.launch = () => ({ status: 1, signal: null, closed: true });
+    let result = await runPhaseSeries(
+      [f.request.phase, phases[2]],
+      (p) =>
+        p === f.request.phase &&
+        withCleanup(
+          () => executeOwnedPhase(f.request, f.adapters),
+          () => {
+            throw Error("cleanup private");
+          },
+        ),
+      f.options,
+    );
+    assert.equal(result.results[0].failureEvidence.failureAt, "launcher");
+    assert.equal(result.results[0].failures.length, 2);
+    assert.equal(result.results[1].status, "passed");
+    result = await runPhaseSeries(
+      [f.request.phase],
+      () =>
+        withCleanup(
+          () => {},
+          () => {
+            throw Error("cleanup private");
+          },
+        ),
+      f.options,
+    );
+    assert.equal(result.results[0].failureEvidence.failureAt, "cleanup");
+    assert.equal(result.results[0].error, "CLEANUP_FAILED");
+    result = await runPhaseSeries(
+      [f.request.phase],
+      () => {
+        throw new AggregateError([Error("foreign private")], "private");
+      },
+      f.options,
+    );
+    assert.deepEqual(
+      result.results[0].failureEvidence,
+      canonicalFailure(failureContext("product", f.request.phase.name, f.options.selectionHash)),
+    );
+    result = await runPhaseSeries(
+      [f.request.phase],
+      () =>
+        allocateOwnedPhase(
+          {
+            phaseName: f.request.phase.name,
+            diagnosticContext: failureContext(
+              "product",
+              f.request.phase.name,
+              f.options.selectionHash,
+            ),
+          },
+          {
+            base: f.request.owner.output,
+            mkdir() {},
+            writeJson() {},
+            command() {
+              throw Error("allocation private");
+            },
+            physicalCleanup() {
+              throw Error("cleanup private");
+            },
+          },
+        ),
+      f.options,
+    );
+    assert.equal(result.results[0].failureEvidence.failureAt, "allocation");
+    assert.equal(result.results[0].failureEvidence.context.sha, null);
+    assert.match(result.results[0].failureEvidence.context.phaseRun, /^[a-f0-9-]{36}$/);
+    assert.equal(result.results[0].failures.length, 2);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP strict validator rejects extras/identity duplication/context spoof/getters without raw serialization", () => {
+  const f = failureFixture();
+  try {
+    const context = {
+      ...failureContext("product", f.request.phase.name, f.options.selectionHash),
+      sha: f.request.context.sha,
+      phaseRun: f.request.owner.run,
+    };
+    const valid = {
+      context,
+      failureAt: "launcher",
+      launcher: { status: 1, signal: "none", closed: true, errorKind: "none" },
+      ...decodeFixture(f),
+    };
+    let calls = 0;
+    Object.setPrototypeOf(valid, {
+      toJSON() {
+        calls++;
+        throw Error("private");
+      },
+    });
+    assert.equal(validateFailureEvidence(valid, context, f.request.expected).launcher.status, 1);
+    assert.equal(calls, 0);
+    for (const mutate of [
+      (d) => (d.extra = "private"),
+      (d) => (d.context.sha = "c".repeat(40)),
+      (d) => (d.context.phaseRun = "22222222-2222-4222-8222-222222222222"),
+      (d) => (d.context.stage = "m0"),
+      (d) => (d.context.selectionHash = "c".repeat(64)),
+      (d) => (d.context.config = "playwright.fact-window.config.ts"),
+      (d) => d.cases.push(d.cases[0]),
+      (d) => (d.launcher.signal = "SIGPRIVATE"),
+      (d) => (d.report.bytes = -1),
+      (d) =>
+        Object.defineProperty(d, "report", {
+          get() {
+            calls++;
+            throw Error("private");
+          },
+        }),
+    ]) {
+      const d = structuredClone(valid);
+      mutate(d);
+      assert.throws(() => validateFailureEvidence(d, context, f.request.expected));
+    }
+    assert.equal(calls, 0);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP actual first stage writer and stdout share closed projection; sentinel private positive/public negative", async () => {
+  const f = failureFixture();
+  try {
+    const sentinel = "PRIVATE_FEP_SENTINEL_0394e1";
+    f.report.config.private = sentinel;
+    f.report.errors = [{ message: sentinel }];
+    f.report.suites[0].specs[0].tests[0].results[0].error = { message: sentinel };
+    const result = await failedProduction(f, () => {
+      writeFileSync(f.request.context.reportPath, JSON.stringify(f.report));
+      return {
+        status: 1,
+        signal: null,
+        closed: true,
+        error: new Error(sentinel),
+        stdout: sentinel,
+        stderr: sentinel,
+      };
+    });
+    assert.ok(
+      readFileSync(path.join(f.request.owner.output, "stdout.txt"), "utf8").includes(sentinel),
+    );
+    assert.ok(readFileSync(f.request.context.reportPath, "utf8").includes(sentinel));
+    const metadata = {
+      selection: {
+        stage: "product",
+        selectionHash: f.options.selectionHash,
+        phases: [f.request.phase, phases[2]],
+      },
+      manifestHash: "c".repeat(64),
+      lockHash: "d".repeat(64),
+      invocation: "fixed",
+      environment: { platform: "fixture" },
+    };
+    const target = path.join(f.request.owner.output, "execution.json"),
+      lines = [];
+    assert.equal(
+      writeStageExecution(target, metadata, result, { output: (l) => lines.push(l) }),
+      1,
+    );
+    const written = JSON.parse(readFileSync(target)),
+      summary = JSON.parse(lines[0]);
+    assert.deepEqual(written.results, summary.results);
+    assert.equal(written.exitCode, 1);
+    assert.ok(!JSON.stringify(written).includes(sentinel));
+    assert.ok(!lines[0].includes(sentinel));
+    const source = readFileSync(new URL("./ci-e2e.mjs", import.meta.url), "utf8");
+    assert.match(
+      source,
+      /process\.exitCode = writeStageExecution\(\s*path\.join\(outputBase, stage, `execution-/,
+    );
+    assert.doesNotMatch(source, /json\(\s*path\.join\(outputBase, stage, `execution-/);
+    for (const mutate of [
+      (row) => (row.failureEvidence.report.extra = sentinel),
+      (row) =>
+        Object.defineProperty(row, "failureEvidence", {
+          get() {
+            throw Error(sentinel);
+          },
+        }),
+      (row) => (row.failureEvidence.context.stage = "m0"),
+    ]) {
+      const f2 = await runPhaseSeries(
+        [f.request.phase],
+        () => {
+          throw Error(sentinel);
+        },
+        f.options,
+      );
+      mutate(f2.results[0]);
+      let payload, line;
+      writeStageExecution(target, metadata, f2, {
+        write: (_p, v) => (payload = v),
+        output: (v) => (line = v),
+      });
+      assert.deepEqual(payload.results, JSON.parse(line).results);
+      assert.equal(payload.results[0].failureEvidence.failureAt, "diagnosis");
+      assert.ok(!JSON.stringify(payload).includes(sentinel));
+    }
+    const success = {
+      results: [
+        {
+          phase: f.request.phase.name,
+          status: "passed",
+          failureEvidence: canonicalFailure(
+            failureContext("product", f.request.phase.name, f.options.selectionHash),
+          ),
+        },
+      ],
+      exitCode: 0,
+    };
+    let payload;
+    assert.equal(
+      writeStageExecution(target, metadata, success, {
+        write: (_p, v) => (payload = v),
+        output() {},
+      }),
+      1,
+    );
+    assert.equal(payload.results[0].error, "OPERATION_FAILED");
+    assert.equal(payload.results[0].status, "failed");
+  } finally {
+    f.dispose();
+  }
+});
+
+test("FEP descriptor values are consumed once: proxy get hooks cannot run after validation", () => {
+  const f = failureFixture();
+  try {
+    const context = {
+      ...failureContext("product", f.request.phase.name, f.options.selectionHash),
+      sha: f.request.context.sha,
+      phaseRun: f.request.owner.run,
+    };
+    const valid = {
+      context,
+      failureAt: "launcher",
+      launcher: { status: 1, signal: "none", closed: true, errorKind: "none" },
+      ...decodeFixture(f),
+    };
+    let calls = 0;
+    const proxy = (value) =>
+      new Proxy(value, {
+        get() {
+          calls++;
+          throw Error("private getter trap");
+        },
+      });
+    valid.context = proxy(valid.context);
+    valid.launcher = proxy(valid.launcher);
+    valid.report = proxy(valid.report);
+    valid.cases[0] = proxy(valid.cases[0]);
+    const projected = validateFailureEvidence(proxy(valid), context, f.request.expected);
+    assert.equal(projected.context.sha, context.sha);
+    assert.equal(projected.cases[0].observed, "passed");
+    assert.equal(calls, 0);
+  } finally {
+    f.dispose();
   }
 });

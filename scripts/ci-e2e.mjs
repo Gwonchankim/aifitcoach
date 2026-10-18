@@ -4,6 +4,11 @@ import { Buffer } from "node:buffer";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import {
+  constants,
+  openSync,
+  closeSync,
+  fstatSync,
+  readSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -34,6 +39,7 @@ import {
   safeCode,
   makeProfile,
   profileEnv,
+  phaseConfig,
 } from "./ci-e2e.manifest.mjs";
 const { AbortController } = globalThis;
 
@@ -207,7 +213,7 @@ export async function withCleanup(operation, cleanup) {
   try {
     await cleanup();
   } catch (caught) {
-    if (error) throw new AggregateError([error, caught], "Phase and owned cleanup failed");
+    if (error) throw ownedAggregate(error, caught, "Phase and owned cleanup failed");
     if (caught instanceof Error) cleanupFailures.add(caught);
     throw caught;
   }
@@ -215,11 +221,17 @@ export async function withCleanup(operation, cleanup) {
 }
 
 /** The same boundary is used by the real runner and fake launchers (no DB in unit tests). */
-export function privateLaunch(command, args, options, onSpawn = () => {}) {
+export function privateLaunch(
+  command,
+  args,
+  options,
+  onSpawn = () => {},
+  markAbort = (result) => result,
+) {
   return new Promise((resolve) => {
     const { signal: abortSignal, timeout, ...spawnOptions } = options;
     if (abortSignal?.aborted) {
-      resolve({ status: null, error: abortSignal.reason ?? coded("CHILD_FAILED") });
+      resolve(markAbort({ status: null, error: abortSignal.reason ?? coded("CHILD_FAILED") }));
       return;
     }
     let child;
@@ -230,6 +242,7 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
     let signal = null;
     let settled = false;
     let stopping = false;
+    let abortAdopted = false;
     let deadline;
     let killTimer;
     let drainTimer;
@@ -255,7 +268,7 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
         child.stdout.destroy();
         child.stderr.destroy();
       }
-      resolve({
+      const result = {
         status,
         signal,
         error,
@@ -263,7 +276,8 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
         closed,
         stdout: Buffer.concat(chunks.stdout),
         stderr: Buffer.concat(chunks.stderr),
-      });
+      };
+      resolve(abortAdopted ? markAbort(result) : result);
     };
     const send = (kind) => {
       if (!ownedPid) return;
@@ -285,7 +299,10 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
       // Even an ignored TERM or an open descendant pipe cannot prevent cleanup entry.
       deadline = setTimeout(() => finish(false), 4000);
     };
-    const abort = () => stop(abortSignal.reason ?? coded("CHILD_FAILED"));
+    const abort = () => {
+      if (!settled && !error) abortAdopted = true;
+      stop(abortSignal.reason ?? coded("CHILD_FAILED"));
+    };
     for (const channel of ["stdout", "stderr"]) {
       child[channel].on("data", (data) => {
         if (settled) return;
@@ -319,6 +336,602 @@ export function privateLaunch(command, args, options, onSpawn = () => {}) {
     }
     if (abortSignal?.aborted) abort();
   });
+}
+
+// Failure-only diagnostics. Every public string is an enum or an independently expected identity.
+const failureRecords = new WeakMap();
+const resultTrust = new WeakMap();
+const ownedAbortResults = new WeakSet();
+const SIGNALS = [
+  "SIGTERM",
+  "SIGKILL",
+  "SIGINT",
+  "SIGHUP",
+  "SIGQUIT",
+  "SIGABRT",
+  "SIGSEGV",
+  "SIGBUS",
+  "SIGILL",
+  "SIGFPE",
+  "SIGPIPE",
+  "SIGXCPU",
+  "SIGXFSZ",
+];
+const FAILURE_AT = [
+  "allocation",
+  "spawn",
+  "launcher",
+  "private-io",
+  "report-missing",
+  "report-parse",
+  "report-validate",
+  "diagnosis",
+  "cleanup",
+];
+const REPORT_STATES = [
+  "unread",
+  "missing",
+  "unreadable",
+  "oversize",
+  "invalid-json",
+  "invalid-shape",
+  "wrong-provenance",
+  "stale",
+  "limit-exceeded",
+  "parsed",
+];
+const OBSERVED = ["passed", "failed", "timedOut", "interrupted", "skipped", "missing"];
+const CONFIGS = [
+  "playwright.config.ts",
+  "playwright.v2-split.config.ts",
+  "playwright.fact-window.config.ts",
+];
+const MAX_REPORT = 32 * 1024 * 1024;
+const hex64 = (v) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
+const uuid4 = (v) =>
+  typeof v === "string" &&
+  /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
+function data(value, key) {
+  if (value === null || !["object", "function"].includes(typeof value)) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor) return undefined;
+  if (!Object.hasOwn(descriptor, "value")) throw new Error("Diagnostic accessor");
+  return descriptor.value;
+}
+function check(condition) {
+  if (!condition) throw new Error("Invalid diagnostic");
+}
+function keys(value, expected) {
+  check(value !== null && typeof value === "object" && !Array.isArray(value));
+  const ownKeys = Reflect.ownKeys(value);
+  check(ownKeys.length === expected.length && ownKeys.every((key) => expected.includes(key)));
+  return Object.fromEntries(expected.map((key) => [key, data(value, key)]));
+}
+function array(value) {
+  check(Array.isArray(value));
+  const length = data(value, "length");
+  if (length > 20000) throw new RangeError("Diagnostic limit");
+  return Array.from({ length }, (_, i) => data(value, String(i)));
+}
+export function failureContext(stage, phase, selectionHash) {
+  const definition = phases.find((p) => p.name === phase);
+  check(["product", "m0"].includes(stage) && definition && hex64(selectionHash));
+  return Object.freeze({
+    sha: null,
+    phaseRun: null,
+    stage,
+    phase,
+    selectionHash,
+    config: phaseConfig(definition),
+  });
+}
+function captureContext(base, context, owner) {
+  const out = { ...base };
+  let complete = true;
+  for (const [name, object, key, valid] of [
+    ["sha", context, "sha", (v) => typeof v === "string" && /^[a-f0-9]{40}$/.test(v)],
+    ["phaseRun", owner, "run", uuid4],
+  ]) {
+    try {
+      const value = data(object, key);
+      out[name] = valid(value) ? value : null;
+      if (out[name] === null) complete = false;
+    } catch {
+      out[name] = null;
+      complete = false;
+    }
+  }
+  return { context: Object.freeze(out), complete };
+}
+export function canonicalFailure(context, failureAt = "diagnosis") {
+  return {
+    context: { ...context },
+    failureAt,
+    launcher: null,
+    report: { state: "unread", bytes: null, digest: null },
+    globalErrors: null,
+    cases: null,
+    unknownCases: 0,
+    duplicateCases: 0,
+    diagnosisComplete: false,
+  };
+}
+// A result marker, not an Error property or a late AbortSignal flag. Identity/return shape stay intact.
+export function rememberAbortedLaunch(result) {
+  ownedAbortResults.add(result);
+  return result;
+}
+export function launcherSnapshot(result) {
+  check(result !== null && typeof result === "object");
+  let complete = true;
+  const nullable = (key, valid, project = (v) => v) => {
+    try {
+      const v = data(result, key);
+      if (v === undefined) return null;
+      if (!valid(v)) {
+        complete = false;
+        return null;
+      }
+      return project(v);
+    } catch {
+      complete = false;
+      return null;
+    }
+  };
+  const status = nullable("status", (v) => v === null || Number.isSafeInteger(v));
+  const signal = nullable(
+    "signal",
+    (v) => v === null || typeof v === "string",
+    (v) => (v === null ? "none" : SIGNALS.includes(v) ? v : "unknown"),
+  );
+  const closed = nullable("closed", (v) => v === null || typeof v === "boolean");
+  const error = data(result, "error");
+  const code = data(error, "code"),
+    syscall = data(error, "syscall");
+  const errorKind = !error
+    ? "none"
+    : code === "ETIMEDOUT"
+      ? "timeout"
+      : code === "OUTPUT_LIMIT"
+        ? "output-limit"
+        : code === "PRIVATE_IO"
+          ? "private-io"
+          : typeof syscall === "string" && syscall.startsWith("spawn")
+            ? "spawn"
+            : ownedAbortResults.has(result)
+              ? "abort"
+              : "other";
+  return { launcher: { status, signal, closed, errorKind }, complete };
+}
+function identity(row) {
+  return {
+    file: data(row, "file"),
+    case: array(data(row, "case")),
+    browser: data(row, "browser"),
+    repeatEachIndex: data(row, "repeatEachIndex"),
+  };
+}
+const identityKey = (r) => JSON.stringify([r.file, r.case, r.browser, r.repeatEachIndex]);
+function expectedIdentities(expected) {
+  return array(expected).map((row) => {
+    const r = identity(row);
+    check(
+      typeof r.file === "string" && /^apps\/web\/e2e\/(?!.*(?:\.\.|\\)).+\.spec\.ts$/.test(r.file),
+    );
+    check(r.case.length > 0 && r.case.every((t) => typeof t === "string" && t.length > 0));
+    check(["chromium-mobile", "webkit-ios"].includes(r.browser) && natural(r.repeatEachIndex));
+    return r;
+  });
+}
+function boundedFile(file, directory) {
+  const base = path.resolve(directory),
+    target = path.resolve(file);
+  check(
+    path.dirname(target) === base &&
+      realpathSync(base) === base &&
+      !lstatSync(base).isSymbolicLink(),
+  );
+  const before = lstatSync(target);
+  check(before.isFile() && !before.isSymbolicLink() && realpathSync(target) === target);
+  check(Number.isSafeInteger(before.size) && before.size >= 0);
+  if (before.size > MAX_REPORT) return { oversized: before.size };
+  const fd = openSync(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const current = fstatSync(fd);
+    check(
+      current.isFile() &&
+        current.size === before.size &&
+        current.ino === before.ino &&
+        current.dev === before.dev,
+    );
+    const bytes = Buffer.alloc(current.size);
+    let total = 0;
+    while (total < bytes.length) {
+      const count = readSync(fd, bytes, total, bytes.length - total, null);
+      check(count > 0);
+      total += count;
+    }
+    check(readSync(fd, Buffer.alloc(1), 0, 1, null) === 0 && fstatSync(fd).size === current.size);
+    return { bytes };
+  } finally {
+    closeSync(fd);
+  }
+}
+function emptyReport(state = "unread", bytes = null, reportDigest = null) {
+  return {
+    report: { state, bytes, digest: reportDigest },
+    globalErrors: null,
+    cases: null,
+    unknownCases: 0,
+    duplicateCases: 0,
+    diagnosisComplete: false,
+  };
+}
+export function decodeFailureReport(report, expected, context, provenance, raw) {
+  const result = emptyReport(
+    "invalid-shape",
+    raw.length,
+    createHash("sha256").update(raw).digest("hex"),
+  );
+  const state = (value) => ({
+    ...result,
+    report: { ...result.report, state: value },
+    cases: null,
+    diagnosisComplete: false,
+  });
+  try {
+    const expectedRows = expectedIdentities(expected);
+    if (expectedRows.length > 128) return state("limit-exceeded");
+    for (const key of ["sha", "run", "phase", "selectionHash", "root", "reportPath", "startedAt"])
+      if (data(provenance, key) !== data(context, key)) return state("wrong-provenance");
+    const config = data(report, "config");
+    const configFile = data(config, "configFile"),
+      rootDir = data(config, "rootDir");
+    const expectedConfig = data(data(expected, "0"), "config");
+    if (
+      typeof configFile !== "string" ||
+      !CONFIGS.includes(expectedConfig) ||
+      path.resolve(configFile) !== path.resolve(data(context, "root"), "apps/web", expectedConfig)
+    )
+      return state("wrong-provenance");
+    if (typeof rootDir !== "string") return state("invalid-shape");
+    const start = Date.parse(data(data(report, "stats"), "startTime"));
+    if (!Number.isFinite(start) || start < Date.parse(data(context, "startedAt")))
+      return state("stale");
+    let complete = true,
+      nodes = 0,
+      rows = 0;
+    const errors = data(report, "errors");
+    if (errors === undefined) complete = false;
+    else {
+      check(Array.isArray(errors));
+      const count = data(errors, "length");
+      result.globalErrors = count <= 1000 ? count : null;
+      if (count > 1000) complete = false;
+    }
+    const visitNode = () => {
+      if (++nodes > 20000) throw new RangeError("Diagnostic limit");
+    };
+    const expectedMap = new Map(expectedRows.map((r) => [identityKey(r), r]));
+    check(expectedMap.size === expectedRows.length);
+    const seen = new Map(),
+      repeats = new Map(),
+      duplicates = new Set();
+    function visit(suite, titles, depth) {
+      if (depth > 16) throw new RangeError("Diagnostic limit");
+      visitNode();
+      for (const spec of array(data(suite, "specs"))) {
+        visitNode();
+        const title = data(spec, "title"),
+          sourceFile = data(spec, "file");
+        check(typeof title === "string" && typeof sourceFile === "string");
+        for (const test of array(data(spec, "tests"))) {
+          visitNode();
+          if (++rows > 4096) throw new RangeError("Diagnostic limit");
+          const browser = data(test, "projectName");
+          check(typeof browser === "string");
+          const file = path
+            .relative(data(context, "root"), path.resolve(rootDir, sourceFile))
+            .replaceAll("\\", "/");
+          const parts = [...titles, title],
+            repeatKey = JSON.stringify([file, parts, browser]),
+            index = repeats.get(repeatKey) ?? 0;
+          repeats.set(repeatKey, index + 1);
+          const key = identityKey({ file, case: parts, browser, repeatEachIndex: index });
+          const results = array(data(test, "results"));
+          // Count every result node, even for unknown cases and attempts beyond the display bound.
+          for (const entry of results) {
+            visitNode();
+            check(entry !== null && typeof entry === "object");
+          }
+          if (!expectedMap.has(key)) {
+            result.unknownCases++;
+            complete = false;
+            continue;
+          }
+          if (seen.has(key)) {
+            result.duplicateCases++;
+            duplicates.add(key);
+            seen.delete(key);
+            complete = false;
+            continue;
+          }
+          let observed = "missing";
+          const attempts = results.length > 10 ? null : results.length;
+          if (attempts === null) complete = false;
+          if (results.length) {
+            const last = data(results.at(-1), "status");
+            if (OBSERVED.includes(last) && last !== "missing") observed = last;
+            else complete = false;
+          }
+          seen.set(key, { observed, attempts });
+        }
+      }
+      const children = data(suite, "suites");
+      for (const child of Object.hasOwn(suite, "suites") ? array(children) : []) {
+        const title = data(child, "title");
+        check(typeof title === "string");
+        visit(child, [...titles, title], depth + 1);
+      }
+    }
+    for (const suite of array(data(report, "suites"))) visit(suite, [], 1);
+    result.cases = expectedRows.map((r) => ({
+      file: r.file,
+      case: [...r.case],
+      browser: r.browser,
+      repeatEachIndex: r.repeatEachIndex,
+      ...(duplicates.has(identityKey(r))
+        ? { observed: "missing", attempts: null }
+        : (seen.get(identityKey(r)) ?? { observed: "missing", attempts: 0 })),
+    }));
+    result.report.state = "parsed";
+    result.diagnosisComplete = complete;
+    return result;
+  } catch (error) {
+    return state(error instanceof RangeError ? "limit-exceeded" : "invalid-shape");
+  }
+}
+export function readFailureReport(owner, context, expected) {
+  let input;
+  try {
+    input = boundedFile(data(context, "reportPath"), data(owner, "output"));
+  } catch (error) {
+    return emptyReport(data(error, "code") === "ENOENT" ? "missing" : "unreadable");
+  }
+  if (input.oversized !== undefined) return emptyReport("oversize", input.oversized);
+  const raw = input.bytes,
+    reportDigest = createHash("sha256").update(raw).digest("hex");
+  let report;
+  try {
+    report = JSON.parse(raw.toString("utf8"));
+  } catch {
+    return emptyReport("invalid-json", raw.length, reportDigest);
+  }
+  let provenance;
+  try {
+    const p = boundedFile(
+      path.join(data(owner, "output"), "execution-provenance.json"),
+      data(owner, "output"),
+    );
+    check(p.bytes);
+    provenance = JSON.parse(p.bytes.toString("utf8"));
+  } catch {
+    return emptyReport("wrong-provenance", raw.length, reportDigest);
+  }
+  return decodeFailureReport(report, expected, context, provenance, raw);
+}
+export function validateFailureEvidence(value, trustedContext, expected) {
+  value = keys(value, [
+    "context",
+    "failureAt",
+    "launcher",
+    "report",
+    "globalErrors",
+    "cases",
+    "unknownCases",
+    "duplicateCases",
+    "diagnosisComplete",
+  ]);
+  const c = keys(data(value, "context"), [
+    "sha",
+    "phaseRun",
+    "stage",
+    "phase",
+    "selectionHash",
+    "config",
+  ]);
+  check(c.sha === null || (typeof c.sha === "string" && /^[a-f0-9]{40}$/.test(c.sha)));
+  check(c.phaseRun === null || uuid4(c.phaseRun));
+  check(
+    ["m0", "product"].includes(c.stage) &&
+      phases.some((p) => p.name === c.phase) &&
+      hex64(c.selectionHash) &&
+      CONFIGS.includes(c.config),
+  );
+  for (const key of Object.keys(c)) check(c[key] === data(trustedContext, key));
+  const at = data(value, "failureAt"),
+    l =
+      data(value, "launcher") === null
+        ? null
+        : keys(data(value, "launcher"), ["status", "signal", "closed", "errorKind"]),
+    r = keys(data(value, "report"), ["state", "bytes", "digest"]);
+  check(FAILURE_AT.includes(at));
+  if (l !== null) {
+    check(l.status === null || Number.isSafeInteger(l.status));
+    check(l.signal === null || ["none", "unknown", ...SIGNALS].includes(l.signal));
+    check(l.closed === null || typeof l.closed === "boolean");
+    check(
+      ["timeout", "abort", "spawn", "output-limit", "private-io", "other", "none"].includes(
+        l.errorKind,
+      ),
+    );
+  }
+  check(REPORT_STATES.includes(r.state));
+  check(r.bytes === null || (Number.isSafeInteger(r.bytes) && r.bytes >= 0));
+  check(r.digest === null || hex64(r.digest));
+  if (["unread", "missing", "unreadable"].includes(r.state))
+    check(r.bytes === null && r.digest === null);
+  else if (r.state === "oversize") check(r.bytes > MAX_REPORT && r.digest === null);
+  else check(r.bytes !== null && r.bytes <= MAX_REPORT && r.digest !== null);
+  check(value.globalErrors === null || (natural(value.globalErrors) && value.globalErrors <= 1000));
+  for (const key of ["unknownCases", "duplicateCases"])
+    check(natural(value[key]) && value[key] <= 4096);
+  check(typeof value.diagnosisComplete === "boolean");
+  let publicCases = null;
+  if (value.cases !== null) {
+    const rows = array(value.cases),
+      wanted = expectedIdentities(expected);
+    check(rows.length <= 128 && rows.length === wanted.length && r.state === "parsed");
+    const seen = new Set();
+    publicCases = rows.map((row, i) => {
+      row = keys(row, ["file", "case", "browser", "repeatEachIndex", "observed", "attempts"]);
+      const id = identity(row),
+        key = identityKey(id);
+      check(key === identityKey(wanted[i]) && !seen.has(key));
+      seen.add(key);
+      check(OBSERVED.includes(row.observed));
+      check(row.attempts === null || (natural(row.attempts) && row.attempts <= 10));
+      if (value.diagnosisComplete)
+        check(row.attempts !== null && (row.observed !== "missing" || row.attempts === 0));
+      return {
+        file: id.file,
+        case: id.case,
+        browser: id.browser,
+        repeatEachIndex: id.repeatEachIndex,
+        observed: row.observed,
+        attempts: row.attempts,
+      };
+    });
+  } else check(r.state !== "parsed");
+  if (value.diagnosisComplete)
+    check(
+      r.state === "parsed" &&
+        value.cases !== null &&
+        value.globalErrors !== null &&
+        value.unknownCases === 0 &&
+        value.duplicateCases === 0,
+    );
+  // Construct literals: even an inherited toJSON hook must never reach either public sink.
+  return {
+    context: {
+      sha: c.sha,
+      phaseRun: c.phaseRun,
+      stage: c.stage,
+      phase: c.phase,
+      selectionHash: c.selectionHash,
+      config: c.config,
+    },
+    failureAt: at,
+    launcher:
+      l === null
+        ? null
+        : { status: l.status, signal: l.signal, closed: l.closed, errorKind: l.errorKind },
+    report: { state: r.state, bytes: r.bytes, digest: r.digest },
+    globalErrors: value.globalErrors,
+    cases: publicCases,
+    unknownCases: value.unknownCases,
+    duplicateCases: value.duplicateCases,
+    diagnosisComplete: value.diagnosisComplete,
+  };
+}
+function rememberFailure(error, evidence, context, expected) {
+  if (error !== null && ["object", "function"].includes(typeof error))
+    failureRecords.set(error, { evidence, context, expected });
+}
+function ownedAggregate(error, cleanup, message) {
+  const wrapper = new AggregateError([error, cleanup], message),
+    record = failureRecords.get(error);
+  if (record) failureRecords.set(wrapper, record);
+  return wrapper;
+}
+function evidenceFor(error, base, cleanupOnly = false) {
+  const record = failureRecords.get(error);
+  try {
+    check(record);
+    for (const key of ["stage", "phase", "selectionHash", "config"])
+      check(record.context[key] === base[key]);
+    return {
+      ...record,
+      evidence: validateFailureEvidence(record.evidence, record.context, record.expected),
+    };
+  } catch {
+    return {
+      evidence: canonicalFailure(base, cleanupOnly ? "cleanup" : "diagnosis"),
+      context: base,
+      expected: [],
+    };
+  }
+}
+function publicResult(result, trust = resultTrust.get(result)) {
+  const rows = result.results.map((row) => {
+    const phase = phases.some((p) => p.name === row.phase) ? row.phase : "unknown";
+    const base = trust?.get(phase);
+    if (row.status === "passed" && !Object.hasOwn(row, "failureEvidence"))
+      return { phase, status: "passed" };
+    const invalidSuccess = row.status === "passed";
+    const out = {
+      phase,
+      status: "failed",
+      error: invalidSuccess ? "OPERATION_FAILED" : safeCode({ code: row.error }),
+      failures: invalidSuccess
+        ? [{ boundary: "phase", code: "OPERATION_FAILED" }]
+        : (row.failures ?? []).map((f) => ({
+            boundary: f.boundary === "cleanup" ? "cleanup" : "phase",
+            code: safeCode(f, "OPERATION_FAILED"),
+          })),
+    };
+    if (base) {
+      let record = rowTrust.get(row);
+      try {
+        check(!invalidSuccess && record);
+        out.failureEvidence = validateFailureEvidence(
+          data(row, "failureEvidence"),
+          record.context,
+          record.expected,
+        );
+        for (const key of ["stage", "phase", "selectionHash", "config"])
+          check(out.failureEvidence.context[key] === base[key]);
+      } catch {
+        out.failureEvidence = canonicalFailure(base);
+        record = { context: base, expected: [] };
+      }
+      rowTrust.set(out, record);
+    }
+    return out;
+  });
+  const projected = {
+    results: rows,
+    exitCode: rows.some((r) => r.status !== "passed") || result.exitCode !== 0 ? 1 : 0,
+  };
+  if (trust) resultTrust.set(projected, trust);
+  return projected;
+}
+const rowTrust = new WeakMap();
+export function writeStageExecution(
+  file,
+  metadata,
+  result,
+  { write = json, output = (line) => console.log(line) } = {},
+) {
+  const trust = new Map(
+    metadata.selection.phases.map((p) => [
+      p.name,
+      failureContext(metadata.selection.stage, p.name, metadata.selection.selectionHash),
+    ]),
+  );
+  // A registered result retains its independently captured context; missing records fall back, never infer from Error fields.
+  resultTrust.set(result, trust);
+  const projected = publicResult(result, trust);
+  write(file, {
+    selection: metadata.selection,
+    ...projected,
+    manifestHash: metadata.manifestHash,
+    lockHash: metadata.lockHash,
+    invocation: metadata.invocation,
+    environment: metadata.environment,
+  });
+  publishSummary(projected, output);
+  return projected.exitCode;
 }
 
 /** Runner-local G3: only exact, independently expected identities and counts leave private evidence. */
@@ -672,95 +1285,154 @@ export async function executeOwnedPhase(
       writeFileSync(path.join(owner.output, name), data, { flag: "wx", mode: 0o600 }),
   } = {},
 ) {
-  validateAllocation(owner, env, inspect, previous);
-  if (
-    !expected.length ||
-    context.phase !== phase.name ||
-    context.run !== owner.run ||
-    env.PLAYWRIGHT_JSON_OUTPUT_NAME !== context.reportPath ||
-    env.PLAYWRIGHT_JSON_OUTPUT_FILE !== context.reportPath ||
-    path.dirname(context.reportPath) !== owner.output ||
-    reportExists(context.reportPath)
-  )
-    throw new Error("Refusing empty or reused phase evidence");
-  previous.push(owner);
-  writeProvenance(context);
-  let result;
-  context.launchCount = (context.launchCount ?? 0) + 1;
+  let base;
   try {
-    result = await launch(
-      "pnpm",
-      [...phaseArgs(phase), "--reporter=json", "--forbid-only"],
-      {
-        cwd: path.join(context.root, "apps/web"),
-        stdio: "pipe",
-        encoding: "utf8",
-        maxBuffer: 32 * 1024 * 1024,
-        timeout: 3_600_000,
-        detached: true,
-        signal: context.abortSignal,
-        shell: false,
-        env,
-      },
-      (pid) => {
-        context.childPid = pid;
-      },
-    );
-  } catch (error) {
-    writePrivate("spawn-error.txt", String(error?.stack ?? error));
-    throw coded("CHILD_FAILED");
-  }
-  writePrivate("stdout.txt", result.stdout ?? "");
-  writePrivate("stderr.txt", result.stderr ?? "");
-  writePrivate(
-    "launcher-state.json",
-    JSON.stringify({
-      pid: result.pid,
-      status: result.status,
-      signal: result.signal,
-      closed: result.closed,
-    }),
-  );
-  if (result.error) writePrivate("spawn-error.txt", String(result.error.stack ?? result.error));
-  if (result.error || result.signal || result.status !== 0)
-    throw new Error(`CI E2E child failed: ${phase.name}`);
-  let evidence;
-  try {
-    evidence = readEvidence();
+    base = failureContext(data(context, "stage"), phase.name, data(context, "selectionHash"));
   } catch {
-    throw new Error(`CI E2E report missing: ${phase.name}`);
+    // Legacy data-only adapters lack a trusted stage/selection; the series boundary supplies fallback.
   }
-  validateExecution(evidence, context, expected);
-  const proof = executionProjection(evidence, context, expected);
-  proof.networkDiagnostics = collectNetworkDiagnostics(evidence, owner, context, expected);
-  const secrets = [
-    new URL(env.DATABASE_URL).password,
-    env.FIELD_ENCRYPTION_KEY,
-    env.AFC_N01_SENTINEL,
-  ];
-  const materials = {
-    reporter: evidence.rawReport ?? JSON.stringify(evidence.report),
-    config: JSON.stringify(evidence.report.config),
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
-  };
-  proof.inspection = {};
-  const matches = {};
-  for (const [name, data] of Object.entries(materials)) {
-    const checked = inspectBytes(data, secrets);
-    proof.inspection[name] = validateInspection(checked.inspection);
-    matches[name] = checked.detected;
-    if (checked.inspection.state !== "inspected") throw coded("PRIVATE_IO");
+  let failureAt = "allocation",
+    snapshot,
+    snapshotInvalid = false;
+  try {
+    validateAllocation(owner, env, inspect, previous);
+    if (
+      !expected.length ||
+      context.phase !== phase.name ||
+      context.run !== owner.run ||
+      env.PLAYWRIGHT_JSON_OUTPUT_NAME !== context.reportPath ||
+      env.PLAYWRIGHT_JSON_OUTPUT_FILE !== context.reportPath ||
+      path.dirname(context.reportPath) !== owner.output ||
+      reportExists(context.reportPath)
+    )
+      throw new Error("Refusing empty or reused phase evidence");
+    previous.push(owner);
+    failureAt = "private-io";
+    writeProvenance(context);
+    let result;
+    context.launchCount = (context.launchCount ?? 0) + 1;
+    failureAt = "spawn";
+    try {
+      result = await launch(
+        "pnpm",
+        [...phaseArgs(phase), "--reporter=json", "--forbid-only"],
+        {
+          cwd: path.join(context.root, "apps/web"),
+          stdio: "pipe",
+          encoding: "utf8",
+          maxBuffer: 32 * 1024 * 1024,
+          timeout: 3_600_000,
+          detached: true,
+          signal: context.abortSignal,
+          shell: false,
+          env,
+        },
+        (pid) => {
+          context.childPid = pid;
+        },
+        rememberAbortedLaunch,
+      );
+    } catch (error) {
+      writePrivate("spawn-error.txt", String(error?.stack ?? error));
+      throw coded("CHILD_FAILED");
+    }
+    // Capture before the first post-launch private write, including partial native returns.
+    try {
+      snapshot = launcherSnapshot(result);
+    } catch {
+      snapshotInvalid = true;
+    }
+    failureAt = "private-io";
+    writePrivate("stdout.txt", result.stdout ?? "");
+    writePrivate("stderr.txt", result.stderr ?? "");
+    writePrivate(
+      "launcher-state.json",
+      JSON.stringify({
+        pid: result.pid,
+        status: result.status,
+        signal: result.signal,
+        closed: result.closed,
+      }),
+    );
+    if (result.error) writePrivate("spawn-error.txt", String(result.error.stack ?? result.error));
+    failureAt = snapshot?.launcher.errorKind === "spawn" ? "spawn" : "launcher";
+    if (result.error || result.signal || result.status !== 0)
+      throw new Error(`CI E2E child failed: ${phase.name}`);
+    let evidence;
+    failureAt = "report-missing";
+    try {
+      evidence = readEvidence();
+    } catch {
+      throw new Error(`CI E2E report missing: ${phase.name}`);
+    }
+    failureAt = "report-validate";
+    validateExecution(evidence, context, expected);
+    const proof = executionProjection(evidence, context, expected);
+    proof.networkDiagnostics = collectNetworkDiagnostics(evidence, owner, context, expected);
+    const secrets = [
+      new URL(env.DATABASE_URL).password,
+      env.FIELD_ENCRYPTION_KEY,
+      env.AFC_N01_SENTINEL,
+    ];
+    const materials = {
+      reporter: evidence.rawReport ?? JSON.stringify(evidence.report),
+      config: JSON.stringify(evidence.report.config),
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
+    failureAt = "private-io";
+    proof.inspection = {};
+    const matches = {};
+    for (const [name, data] of Object.entries(materials)) {
+      const checked = inspectBytes(data, secrets);
+      proof.inspection[name] = validateInspection(checked.inspection);
+      matches[name] = checked.detected;
+      if (checked.inspection.state !== "inspected") throw coded("PRIVATE_IO");
+    }
+    proof.inspection.trace = emptyInspection();
+    writePrivate("inspection-matches.json", JSON.stringify(matches));
+    validateNetworkProjection(proof.networkDiagnostics, expected);
+    return proof;
+  } catch (error) {
+    if (base) {
+      const captured = captureContext(base, context, owner);
+      let evidence = canonicalFailure(captured.context);
+      try {
+        check(!snapshotInvalid);
+        const report = readFailureReport(owner, context, expected);
+        if (
+          ["report-missing", "report-validate"].includes(failureAt) &&
+          ["invalid-json", "invalid-shape"].includes(report.report.state)
+        )
+          failureAt = "report-parse";
+        evidence = {
+          context: { ...captured.context },
+          failureAt,
+          launcher: snapshot?.launcher ?? null,
+          ...report,
+        };
+        evidence.diagnosisComplete &&= captured.complete && (snapshot?.complete ?? false);
+        evidence = validateFailureEvidence(evidence, captured.context, expected);
+      } catch {
+        evidence = canonicalFailure(captured.context);
+      }
+      rememberFailure(error, evidence, captured.context, expected);
+    }
+    throw error;
   }
-  proof.inspection.trace = emptyInspection();
-  writePrivate("inspection-matches.json", JSON.stringify(matches));
-  validateNetworkProjection(proof.networkDiagnostics, expected);
-  return proof;
 }
 
-export async function runPhaseSeries(selectedPhases, execute) {
+export async function runPhaseSeries(selectedPhases, execute, options) {
   if (!selectedPhases.length) throw new Error("Empty phase run");
   const results = [];
+  const trust =
+    options &&
+    new Map(
+      selectedPhases.map((p) => [
+        p.name,
+        failureContext(options.stage, p.name, options.selectionHash),
+      ]),
+    );
   for (const phase of selectedPhases) {
     try {
       await execute(phase);
@@ -770,7 +1442,7 @@ export async function runPhaseSeries(selectedPhases, execute) {
       });
     } catch (error) {
       const cleanupOnly = cleanupFailures.delete(error);
-      results.push({
+      const row = {
         phase: phases.some((p) => p.name === phase.name) ? phase.name : "unknown",
         status: "failed",
         error: cleanupOnly ? "CLEANUP_FAILED" : safeCode(error),
@@ -783,27 +1455,22 @@ export async function runPhaseSeries(selectedPhases, execute) {
                 code: safeCode(e, "OPERATION_FAILED"),
               }))
             : [{ boundary: "phase", code: safeCode(error, "OPERATION_FAILED") }],
-      });
+      };
+      if (trust) {
+        const record = evidenceFor(error, trust.get(phase.name), cleanupOnly);
+        row.failureEvidence = record.evidence;
+        rowTrust.set(row, record);
+      }
+      results.push(row);
     }
   }
-  return { results, exitCode: results.some((r) => r.status !== "passed") ? 1 : 0 };
+  const result = { results, exitCode: results.some((r) => r.status !== "passed") ? 1 : 0 };
+  if (trust) resultTrust.set(result, trust);
+  return result;
 }
 
 export function publishSummary(result, output = (value) => console.log(value)) {
-  const results = result.results.map((row) => ({
-    phase: phases.some((p) => p.name === row.phase) ? row.phase : "unknown",
-    status: row.status === "passed" ? "passed" : "failed",
-    ...(row.status === "passed"
-      ? {}
-      : {
-          error: safeCode({ code: row.error }),
-          failures: (row.failures ?? []).map((f) => ({
-            boundary: f.boundary === "cleanup" ? "cleanup" : "phase",
-            code: safeCode(f, "OPERATION_FAILED"),
-          })),
-        }),
-  }));
-  output(JSON.stringify({ results, exitCode: results.some((r) => r.status !== "passed") ? 1 : 0 }));
+  output(JSON.stringify(publicResult(result)));
 }
 
 export async function closeOwnedGroup(pid, signal = (p, s) => process.kill(p, s)) {
@@ -877,7 +1544,15 @@ export const allocationFailure = (error) => failedAllocations.get(error);
 
 /** Preparation owns rollback until it successfully transfers this handle to its caller. */
 export async function allocateOwnedPhase(
-  { phaseName, mode = "direct", usedPorts = [], fixedPorts, previous = [], abortSignal },
+  {
+    phaseName,
+    mode = "direct",
+    usedPorts = [],
+    fixedPorts,
+    previous = [],
+    abortSignal,
+    diagnosticContext,
+  },
   adapters = {},
 ) {
   if (
@@ -1048,12 +1723,21 @@ export async function allocateOwnedPhase(
     handle.previous = previous;
     return handle;
   } catch (error) {
+    if (diagnosticContext) {
+      const captured = captureContext(diagnosticContext, handle.context, handle);
+      rememberFailure(
+        error,
+        canonicalFailure(captured.context, "allocation"),
+        captured.context,
+        [],
+      );
+    }
     let failure = error;
     try {
       cleanup = await releaseOwnedPhase(handle);
     } catch (cleanupError) {
       cleanup = handle.cleanup;
-      failure = new AggregateError([error, cleanupError], "Allocation and owned cleanup failed");
+      failure = ownedAggregate(error, cleanupError, "Allocation and owned cleanup failed");
     }
     failedAllocations.set(failure, { handle, cleanup, launchCount: handle.context.launchCount });
     throw failure;
@@ -1168,6 +1852,7 @@ export async function releaseOwnedPhase(handle) {
 }
 
 async function runPhase(phase, expected, selectionHash, previous, stage, abortSignal) {
+  const diagnosticContext = failureContext(stage, phase.name, selectionHash);
   let allocation, proof, failure;
   let cleanup = {};
   try {
@@ -1177,6 +1862,7 @@ async function runPhase(phase, expected, selectionHash, previous, stage, abortSi
       usedPorts: previous.flatMap((p) => [p.dbPort, p.profile.apiPort, p.profile.webPort]),
       previous,
       abortSignal,
+      diagnosticContext,
     });
     Object.assign(allocation.context, { stage, selectionHash });
     await withCleanup(
@@ -1197,6 +1883,10 @@ async function runPhase(phase, expected, selectionHash, previous, stage, abortSi
     );
   } catch (error) {
     failure = error;
+    if (cleanupFailures.has(error) && allocation) {
+      const captured = captureContext(diagnosticContext, allocation.context, allocation);
+      rememberFailure(error, canonicalFailure(captured.context, "cleanup"), captured.context, []);
+    }
     const partial = allocationFailure(error);
     if (partial) {
       allocation = partial.handle;
@@ -1244,15 +1934,18 @@ async function main() {
   process.once("SIGTERM", () => controller.abort());
   process.once("SIGINT", () => controller.abort());
   const selectedPhases = phases.filter((p) => expected.some((r) => r.phase === p.name));
-  const result = await runPhaseSeries(selectedPhases, (phase) =>
-    runPhase(
-      phase,
-      expected.filter((r) => r.phase === phase.name),
-      selection.selectionHash,
-      previous,
-      stage,
-      controller.signal,
-    ),
+  const result = await runPhaseSeries(
+    selectedPhases,
+    (phase) =>
+      runPhase(
+        phase,
+        expected.filter((r) => r.phase === phase.name),
+        selection.selectionHash,
+        previous,
+        stage,
+        controller.signal,
+      ),
+    { stage, selectionHash: selection.selectionHash },
   );
   mkdirSync(path.join(outputBase, stage), { recursive: true });
   const requireWeb = createRequire(path.join(web, "package.json"));
@@ -1278,30 +1971,31 @@ async function main() {
   privateFile("pnpm-version-stderr", pnpmVersion.stderr ?? "");
   if (pnpmVersion.status !== 0 || !/^\d+\.\d+\.\d+\s*$/.test(pnpmVersion.stdout))
     throw coded("OPERATION_FAILED");
-  json(path.join(outputBase, stage, `execution-${randomUUID()}.json`), {
-    selection,
-    ...result,
-    manifestHash: hash("apps/web/e2e/ci-manifest.json"),
-    lockHash: hash("pnpm-lock.yaml"),
-    invocation: `xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage ${stage}`,
-    environment: {
-      platform: process.platform,
-      arch: process.arch,
-      node: process.version,
-      pnpmDeclared: JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"))
-        .packageManager,
-      pnpm: pnpmVersion.stdout.trim(),
-      playwright: JSON.parse(readFileSync(path.join(core, "package.json"), "utf8")).version,
-      browsers,
-      githubRunId,
-      runUrl:
-        githubRunId && process.env.GITHUB_REPOSITORY === "Gwonchankim/aifitcoach"
-          ? `https://github.com/Gwonchankim/aifitcoach/actions/runs/${githubRunId}`
-          : null,
+  process.exitCode = writeStageExecution(
+    path.join(outputBase, stage, `execution-${randomUUID()}.json`),
+    {
+      selection,
+      manifestHash: hash("apps/web/e2e/ci-manifest.json"),
+      lockHash: hash("pnpm-lock.yaml"),
+      invocation: `xvfb-run --auto-servernum node scripts/ci-e2e.mjs --stage ${stage}`,
+      environment: {
+        platform: process.platform,
+        arch: process.arch,
+        node: process.version,
+        pnpmDeclared: JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"))
+          .packageManager,
+        pnpm: pnpmVersion.stdout.trim(),
+        playwright: JSON.parse(readFileSync(path.join(core, "package.json"), "utf8")).version,
+        browsers,
+        githubRunId,
+        runUrl:
+          githubRunId && process.env.GITHUB_REPOSITORY === "Gwonchankim/aifitcoach"
+            ? `https://github.com/Gwonchankim/aifitcoach/actions/runs/${githubRunId}`
+            : null,
+      },
     },
-  });
-  publishSummary(result);
-  process.exitCode = result.exitCode;
+    result,
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
